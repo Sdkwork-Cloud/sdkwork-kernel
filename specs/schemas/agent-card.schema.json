@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdkwork.example.invalid/kernel/schemas/agent-card.schema.json",
+  "title": "SDKWork Agent Card",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_type",
+    "agent_id",
+    "card_id",
+    "display_name",
+    "description",
+    "version",
+    "capabilities",
+    "task_types",
+    "input_modes",
+    "output_modes",
+    "protocols",
+    "auth_requirements",
+    "status"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "#/$defs/semver" },
+    "manifest_type": { "const": "agent_card" },
+    "agent_id": { "type": "string", "pattern": "^agent\\.[a-z0-9.-]+\\.[a-z0-9.-]+$" },
+    "card_id": { "type": "string", "pattern": "^agent_card\\.[a-z0-9.-]+\\.[a-z0-9.-]+$" },
+    "display_name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "version": { "$ref": "#/$defs/semver" },
+    "capabilities": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9_.-]+$" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "task_types": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9_.-]+$" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "input_modes": {
+      "type": "array",
+      "items": { "enum": ["text", "json", "file", "image", "audio", "artifact"] },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "output_modes": {
+      "type": "array",
+      "items": { "enum": ["text", "json", "file", "image", "audio", "artifact"] },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "protocols": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/protocol" }
+    },
+    "auth_requirements": {
+      "type": "array",
+      "items": { "enum": ["none", "bearer_token", "access_token", "api_key", "mTLS", "host_authenticated"] },
+      "uniqueItems": true
+    },
+    "status": { "$ref": "#/$defs/status" },
+    "extensions": { "$ref": "#/$defs/extensions" }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "status": {
+      "enum": ["experimental", "candidate", "stable", "deprecated", "removed"]
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocol", "adapter_id", "version", "transport"],
+      "properties": {
+        "protocol": { "enum": ["mcp", "a2a", "http", "rpc", "ipc", "tauri", "websocket", "kernel-ui-client"] },
+        "adapter_id": { "type": "string", "pattern": "^adapter\\.[a-z0-9.-]+\\.[a-z0-9.-]+$" },
+        "version": { "$ref": "#/$defs/semver" },
+        "transport": { "type": "string", "minLength": 1 }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(sdkwork|[a-z0-9-]+\\.[a-z0-9.-]+)\\.[a-z0-9.-]+$"
+      },
+      "additionalProperties": true
+    }
+  }
+}

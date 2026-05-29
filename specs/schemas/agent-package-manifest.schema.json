@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdkwork.example.invalid/kernel/schemas/agent-package-manifest.schema.json",
+  "title": "SDKWork Agent Package Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_type",
+    "agent_id",
+    "version",
+    "source",
+    "lifecycle",
+    "provider_binding",
+    "kernel_compatibility",
+    "required_configuration_sections"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "#/$defs/semver" },
+    "manifest_type": { "const": "agent_package" },
+    "agent_id": { "type": "string", "pattern": "^agent\\.[a-z0-9.-]+\\.[a-z0-9.-]+$" },
+    "version": { "$ref": "#/$defs/semver" },
+    "source": {
+      "oneOf": [
+        { "$ref": "#/$defs/localPathSource" },
+        { "$ref": "#/$defs/registrySource" },
+        { "$ref": "#/$defs/remoteArchiveSource" }
+      ]
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["install", "uninstall", "upgrade"],
+      "properties": {
+        "install": { "const": true },
+        "uninstall": { "type": "boolean" },
+        "upgrade": { "type": "boolean" }
+      }
+    },
+    "provider_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["installer_provider_id", "configuration_provider_id"],
+      "properties": {
+        "installer_provider_id": {
+          "type": "string",
+          "pattern": "^provider\\.agent\\.installer\\.[a-z0-9.-]+$"
+        },
+        "configuration_provider_id": {
+          "type": "string",
+          "pattern": "^provider\\.agent\\.configuration\\.[a-z0-9.-]+$"
+        }
+      }
+    },
+    "kernel_compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent_kernel_min"],
+      "properties": {
+        "agent_kernel_min": { "$ref": "#/$defs/semver" },
+        "agent_kernel_max_exclusive": { "$ref": "#/$defs/semver" }
+      }
+    },
+    "required_configuration_sections": {
+      "type": "array",
+      "items": {
+        "enum": ["base", "login_auth", "llm_api_key", "runtime", "security"]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "default_profile_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "extensions": { "$ref": "#/$defs/extensions" }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "localPathSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "path"],
+      "properties": {
+        "type": { "const": "local_path" },
+        "path": { "type": "string", "minLength": 1 }
+      }
+    },
+    "registrySource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "registry_id", "package_id", "version"],
+      "properties": {
+        "type": { "const": "registry" },
+        "registry_id": { "type": "string", "minLength": 1 },
+        "package_id": { "type": "string", "minLength": 1 },
+        "version": { "$ref": "#/$defs/semver" }
+      }
+    },
+    "remoteArchiveSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "url", "checksum"],
+      "properties": {
+        "type": { "const": "remote_archive" },
+        "url": { "type": "string", "format": "uri" },
+        "checksum": { "type": "string", "minLength": 1 }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(sdkwork|[a-z0-9-]+\\.[a-z0-9.-]+)\\.[a-z0-9.-]+$"
+      },
+      "additionalProperties": true
+    }
+  }
+}

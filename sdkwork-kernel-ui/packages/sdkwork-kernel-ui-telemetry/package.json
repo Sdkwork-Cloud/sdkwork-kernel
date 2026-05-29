@@ -1,0 +1,21 @@
+{
+  "name": "@sdkwork/kernel-ui-telemetry",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@sdkwork/kernel-ui-commons": "workspace:*",
+    "@sdkwork/kernel-ui-types": "workspace:*",
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "typescript": "catalog:"
+  }
+}

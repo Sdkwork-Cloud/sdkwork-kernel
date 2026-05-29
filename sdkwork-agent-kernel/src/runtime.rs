@@ -1,0 +1,1812 @@
+use crate::{
+    AgentConfigSectionKind, AgentConfigurationProvider, AgentInstaller, AgentManifest,
+    AgentPackageManifest, AgentRuntimeConformanceProfile, AgentSkillProvider, Capability,
+    CapabilityManifest, CapabilityRequirement, ContextProvider, HostProvider,
+    KernelConformanceCase, KernelConformanceReport, KernelError, KernelEvent, KernelEventSeverity,
+    KernelResult, McpProvider, MemoryProvider, ModelProvider, PlanningProvider, PolicyCategory,
+    PolicyProvider, ProtocolAdapter, ProviderHealth, ProviderManifest, SideEffectLevel,
+    TelemetryProvider, ToolProvider, AGENT_KERNEL_SPEC_VERSION,
+};
+use std::sync::{Arc, Mutex};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeState {
+    Ready,
+    Degraded,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentRuntime {
+    state: RuntimeState,
+    capability_manifest: CapabilityManifest,
+    provider_registry: RuntimeProviderRegistry,
+}
+
+impl AgentRuntime {
+    pub fn from_capability_manifest(capability_manifest: CapabilityManifest) -> Self {
+        Self::from_capability_manifest_with_provider_registry(
+            capability_manifest,
+            RuntimeProviderRegistry::default(),
+        )
+    }
+
+    fn from_capability_manifest_with_provider_registry(
+        capability_manifest: CapabilityManifest,
+        provider_registry: RuntimeProviderRegistry,
+    ) -> Self {
+        let state = if !capability_manifest.missing_required_capabilities.is_empty() {
+            RuntimeState::Failed
+        } else if !capability_manifest.degraded_capabilities.is_empty() {
+            RuntimeState::Degraded
+        } else {
+            RuntimeState::Ready
+        };
+
+        Self {
+            state,
+            capability_manifest,
+            provider_registry,
+        }
+    }
+
+    pub fn state(&self) -> RuntimeState {
+        self.state
+    }
+
+    pub fn capability_manifest(&self) -> &CapabilityManifest {
+        &self.capability_manifest
+    }
+
+    pub fn diagnostics(&self) -> AgentRuntimeDiagnostics {
+        let provider_diagnostics: Vec<AgentProviderDiagnostic> = self
+            .capability_manifest
+            .providers
+            .iter()
+            .map(|provider| {
+                let typed_registered = self.provider_registry.has_typed_provider(provider);
+
+                AgentProviderDiagnostic {
+                    provider_id: provider.provider_id.clone(),
+                    provider_family: provider.provider_family.clone(),
+                    provider_version: provider.version.clone(),
+                    typed_registered,
+                    health: self.provider_registry.health_for_provider(provider),
+                    capabilities: provider.capabilities.clone(),
+                }
+            })
+            .collect();
+
+        let typed_provider_count = provider_diagnostics
+            .iter()
+            .filter(|provider| provider.typed_registered)
+            .count();
+
+        AgentRuntimeDiagnostics {
+            runtime_id: self.capability_manifest.runtime_id.clone(),
+            agent_id: self.capability_manifest.agent_id.clone(),
+            state: self.state.as_str().to_string(),
+            provider_count: self.capability_manifest.providers.len(),
+            capability_count: self.capability_manifest.capabilities.len(),
+            typed_provider_count,
+            manifest_only_provider_count: self
+                .capability_manifest
+                .providers
+                .len()
+                .saturating_sub(typed_provider_count),
+            missing_required_capabilities: self
+                .capability_manifest
+                .missing_required_capabilities
+                .clone(),
+            degraded_capabilities: self.capability_manifest.degraded_capabilities.clone(),
+            provider_diagnostics,
+        }
+    }
+
+    pub fn conformance_report(
+        &self,
+        profile: AgentRuntimeConformanceProfile,
+    ) -> KernelConformanceReport {
+        let diagnostics = self.diagnostics();
+        let mut report = KernelConformanceReport::new(
+            format!(
+                "report.{}.{}",
+                self.capability_manifest.runtime_id,
+                profile.as_str()
+            ),
+            profile.as_str(),
+            self.capability_manifest.runtime_id.clone(),
+            self.capability_manifest.kernel_version.clone(),
+        )
+        .with_spec_version(AGENT_KERNEL_SPEC_VERSION)
+        .with_test_suite_version("agent-runtime-conformance.0.1.0")
+        .with_security_profile(self.capability_manifest.security_profile.clone());
+
+        for capability_id in self.required_capability_ids() {
+            report = report.with_required_capability(capability_id);
+        }
+
+        report
+            .add_case(self.required_capabilities_case())
+            .add_case(self.optional_capabilities_case(profile))
+            .add_case(self.capability_namespace_case())
+            .add_case(self.provider_manifest_case())
+            .add_case(self.local_provider_typed_case(profile, &diagnostics))
+            .add_case(self.local_provider_health_case(profile, &diagnostics))
+    }
+
+    pub fn agent_installer(&self) -> KernelResult<&(dyn AgentInstaller + Send + Sync)> {
+        if let Some(installer) = self.provider_registry.agent_installer.as_deref() {
+            return Ok(installer);
+        }
+
+        match self.provider_id_for_capability("agent.install") {
+            Some(provider_id) => Err(KernelError::ProviderUnavailable {
+                provider_id: provider_id.to_string(),
+            }),
+            None => Err(KernelError::CapabilityMissing {
+                capability_id: "agent.install".to_string(),
+            }),
+        }
+    }
+
+    pub fn agent_configuration_provider(
+        &self,
+    ) -> KernelResult<&(dyn AgentConfigurationProvider + Send + Sync)> {
+        if let Some(provider) = self.provider_registry.agent_configuration.as_deref() {
+            return Ok(provider);
+        }
+
+        match self.provider_id_for_capability("agent.configure") {
+            Some(provider_id) => Err(KernelError::ProviderUnavailable {
+                provider_id: provider_id.to_string(),
+            }),
+            None => Err(KernelError::CapabilityMissing {
+                capability_id: "agent.configure".to_string(),
+            }),
+        }
+    }
+
+    pub fn model_provider(&self) -> KernelResult<&(dyn ModelProvider + Send + Sync)> {
+        self.provider_registry
+            .model_provider
+            .as_deref()
+            .ok_or_else(|| self.provider_error_for_family("model", "model.chat"))
+    }
+
+    pub fn model_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<&(dyn ModelProvider + Send + Sync)> {
+        self.provider_registry
+            .model_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "model.chat"))
+    }
+
+    pub fn model_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.model_provider_ids()
+    }
+
+    pub fn tool_provider(&self) -> KernelResult<&(dyn ToolProvider + Send + Sync)> {
+        self.provider_registry
+            .tool_provider
+            .as_deref()
+            .ok_or_else(|| self.provider_error_for_family("tool", "tool.invoke"))
+    }
+
+    pub fn policy_provider(&self) -> KernelResult<&(dyn PolicyProvider + Send + Sync)> {
+        self.provider_registry
+            .policy_provider
+            .as_deref()
+            .ok_or_else(|| self.provider_error_for_family("policy", "policy.evaluate"))
+    }
+
+    pub fn context_provider(&self) -> KernelResult<&(dyn ContextProvider + Send + Sync)> {
+        self.provider_registry
+            .context_provider
+            .as_deref()
+            .ok_or_else(|| self.provider_error_for_family("context", "context.collect"))
+    }
+
+    pub fn memory_provider(&self) -> KernelResult<Arc<Mutex<dyn MemoryProvider + Send>>> {
+        self.provider_registry
+            .memory_provider
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| self.provider_error_for_family("memory", "memory.query"))
+    }
+
+    pub fn planning_provider(&self) -> KernelResult<&(dyn PlanningProvider + Send + Sync)> {
+        self.provider_registry
+            .planning_provider
+            .as_deref()
+            .ok_or_else(|| self.provider_error_for_family("planning", "planning.create"))
+    }
+
+    pub fn host_provider(&self) -> KernelResult<&(dyn HostProvider + Send + Sync)> {
+        self.provider_registry
+            .host_provider
+            .as_deref()
+            .ok_or_else(|| self.provider_error_for_family("host", "host.filesystem"))
+    }
+
+    pub fn protocol_adapter(&self) -> KernelResult<&(dyn ProtocolAdapter + Send + Sync)> {
+        self.provider_registry
+            .protocol_adapter
+            .as_deref()
+            .ok_or_else(|| self.provider_error_for_family("protocol_adapter", "protocol.map"))
+    }
+
+    pub fn mcp_provider(&self) -> KernelResult<&(dyn McpProvider + Send + Sync)> {
+        self.provider_registry
+            .mcp_provider
+            .as_deref()
+            .ok_or_else(|| self.provider_error_for_family("mcp", "mcp.tools"))
+    }
+
+    pub fn agent_skill_provider(&self) -> KernelResult<&(dyn AgentSkillProvider + Send + Sync)> {
+        self.provider_registry
+            .agent_skill_provider
+            .as_deref()
+            .ok_or_else(|| self.provider_error_for_family("skill", "skill.invoke"))
+    }
+
+    pub fn telemetry_provider(&self) -> KernelResult<Arc<Mutex<dyn TelemetryProvider + Send>>> {
+        self.provider_registry
+            .telemetry_provider
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| self.provider_error_for_family("telemetry", "telemetry.record"))
+    }
+
+    fn provider_id_for_capability(&self, capability_id: &str) -> Option<&str> {
+        self.capability_manifest
+            .capabilities
+            .iter()
+            .find(|capability| capability.capability_id == capability_id)
+            .map(|capability| capability.provider_id.as_str())
+    }
+
+    fn provider_id_for_family(&self, provider_family: &str) -> Option<&str> {
+        self.capability_manifest
+            .providers
+            .iter()
+            .find(|provider| provider.provider_family == provider_family)
+            .map(|provider| provider.provider_id.as_str())
+    }
+
+    fn provider_error_for_family(&self, provider_family: &str, capability_id: &str) -> KernelError {
+        match self.provider_id_for_family(provider_family) {
+            Some(provider_id) => KernelError::ProviderUnavailable {
+                provider_id: provider_id.to_string(),
+            },
+            None => KernelError::CapabilityMissing {
+                capability_id: capability_id.to_string(),
+            },
+        }
+    }
+
+    fn provider_error_for_provider_id(
+        &self,
+        provider_id: &str,
+        capability_id: &str,
+    ) -> KernelError {
+        if self
+            .capability_manifest
+            .providers
+            .iter()
+            .any(|provider| provider.provider_id == provider_id)
+        {
+            KernelError::ProviderUnavailable {
+                provider_id: provider_id.to_string(),
+            }
+        } else {
+            KernelError::CapabilityMissing {
+                capability_id: capability_id.to_string(),
+            }
+        }
+    }
+
+    fn required_capability_ids(&self) -> Vec<String> {
+        let mut capability_ids: Vec<String> = self
+            .capability_manifest
+            .capabilities
+            .iter()
+            .filter(|capability| capability.required)
+            .map(|capability| capability.capability_id.clone())
+            .collect();
+
+        for capability_id in &self.capability_manifest.missing_required_capabilities {
+            if !capability_ids.contains(capability_id) {
+                capability_ids.push(capability_id.clone());
+            }
+        }
+
+        capability_ids
+    }
+
+    fn required_capabilities_case(&self) -> KernelConformanceCase {
+        if self
+            .capability_manifest
+            .missing_required_capabilities
+            .is_empty()
+        {
+            KernelConformanceCase::passed(
+                "agent.conformance.runtime.required_capabilities.available",
+                "required capabilities are available",
+            )
+            .required()
+        } else {
+            KernelConformanceCase::failed(
+                "agent.conformance.runtime.required_capabilities.available",
+                format!(
+                    "missing required capabilities: {}",
+                    self.capability_manifest
+                        .missing_required_capabilities
+                        .join(", ")
+                ),
+            )
+            .required()
+        }
+    }
+
+    fn optional_capabilities_case(
+        &self,
+        profile: AgentRuntimeConformanceProfile,
+    ) -> KernelConformanceCase {
+        if self.capability_manifest.degraded_capabilities.is_empty() {
+            return KernelConformanceCase::passed(
+                "agent.conformance.runtime.optional_capabilities.available",
+                "optional capabilities are available",
+            );
+        }
+
+        let message = format!(
+            "degraded capabilities: {}",
+            self.capability_manifest.degraded_capabilities.join(", ")
+        );
+
+        KernelConformanceCase::skipped(
+            "agent.conformance.runtime.optional_capabilities.available",
+            message,
+        )
+        .with_skip_reason(format!(
+            "{} profile allows optional capability degradation",
+            profile.as_str()
+        ))
+    }
+
+    fn capability_namespace_case(&self) -> KernelConformanceCase {
+        let invalid_capabilities: Vec<String> = self
+            .capability_manifest
+            .capabilities
+            .iter()
+            .map(|capability| capability.capability_id.as_str())
+            .chain(
+                self.capability_manifest
+                    .missing_required_capabilities
+                    .iter()
+                    .map(String::as_str),
+            )
+            .chain(
+                self.capability_manifest
+                    .degraded_capabilities
+                    .iter()
+                    .map(String::as_str),
+            )
+            .filter(|capability_id| !is_valid_capability_id(capability_id))
+            .map(std::string::ToString::to_string)
+            .collect();
+
+        if invalid_capabilities.is_empty() {
+            KernelConformanceCase::passed(
+                "agent.conformance.runtime.capabilities.namespaced",
+                "capability ids are namespaced",
+            )
+        } else {
+            KernelConformanceCase::failed(
+                "agent.conformance.runtime.capabilities.namespaced",
+                format!(
+                    "unnamespaced capabilities: {}",
+                    invalid_capabilities.join(", ")
+                ),
+            )
+        }
+    }
+
+    fn provider_manifest_case(&self) -> KernelConformanceCase {
+        if self.capability_manifest.providers.is_empty() {
+            KernelConformanceCase::failed(
+                "agent.conformance.runtime.providers.declared",
+                "no providers are declared",
+            )
+            .required()
+        } else {
+            KernelConformanceCase::passed(
+                "agent.conformance.runtime.providers.declared",
+                "providers are declared",
+            )
+            .required()
+        }
+    }
+
+    fn local_provider_typed_case(
+        &self,
+        profile: AgentRuntimeConformanceProfile,
+        diagnostics: &AgentRuntimeDiagnostics,
+    ) -> KernelConformanceCase {
+        if profile == AgentRuntimeConformanceProfile::Manifest {
+            return KernelConformanceCase::skipped(
+                "agent.conformance.runtime.local_providers.typed",
+                "local runtime profile not requested",
+            )
+            .with_skip_reason("manifest profile validates negotiation only");
+        }
+
+        let manifest_only_provider_ids = diagnostics.manifest_only_provider_ids();
+        if manifest_only_provider_ids.is_empty() {
+            KernelConformanceCase::passed(
+                "agent.conformance.runtime.local_providers.typed",
+                "all declared providers have typed local SPI instances",
+            )
+            .required()
+        } else {
+            KernelConformanceCase::failed(
+                "agent.conformance.runtime.local_providers.typed",
+                format!(
+                    "manifest-only providers: {}",
+                    manifest_only_provider_ids.join(", ")
+                ),
+            )
+            .required()
+        }
+    }
+
+    fn local_provider_health_case(
+        &self,
+        profile: AgentRuntimeConformanceProfile,
+        diagnostics: &AgentRuntimeDiagnostics,
+    ) -> KernelConformanceCase {
+        if profile == AgentRuntimeConformanceProfile::Manifest {
+            return KernelConformanceCase::skipped(
+                "agent.conformance.runtime.local_providers.health_available",
+                "local runtime profile not requested",
+            )
+            .with_skip_reason("manifest profile validates negotiation only");
+        }
+
+        let unhealthy_provider_ids: Vec<String> = diagnostics
+            .provider_diagnostics
+            .iter()
+            .filter(|provider| provider.health_is_degraded())
+            .map(|provider| provider.provider_id.clone())
+            .collect();
+
+        if unhealthy_provider_ids.is_empty() {
+            KernelConformanceCase::passed(
+                "agent.conformance.runtime.local_providers.health_available",
+                "typed provider health is available",
+            )
+            .required()
+        } else {
+            KernelConformanceCase::failed(
+                "agent.conformance.runtime.local_providers.health_available",
+                format!("unhealthy providers: {}", unhealthy_provider_ids.join(", ")),
+            )
+            .required()
+        }
+    }
+}
+
+impl RuntimeState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Degraded => "degraded",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentRuntimeDiagnostics {
+    pub runtime_id: String,
+    pub agent_id: String,
+    pub state: String,
+    pub provider_count: usize,
+    pub capability_count: usize,
+    pub typed_provider_count: usize,
+    pub manifest_only_provider_count: usize,
+    pub missing_required_capabilities: Vec<String>,
+    pub degraded_capabilities: Vec<String>,
+    pub provider_diagnostics: Vec<AgentProviderDiagnostic>,
+}
+
+impl AgentRuntimeDiagnostics {
+    pub fn provider(&self, provider_id: &str) -> Option<&AgentProviderDiagnostic> {
+        self.provider_diagnostics
+            .iter()
+            .find(|provider| provider.provider_id == provider_id)
+    }
+
+    pub fn manifest_only_provider_ids(&self) -> Vec<String> {
+        self.provider_diagnostics
+            .iter()
+            .filter(|provider| !provider.typed_registered)
+            .map(|provider| provider.provider_id.clone())
+            .collect()
+    }
+
+    pub fn missing_standard_provider_families(&self) -> Vec<String> {
+        standard_agent_provider_families()
+            .iter()
+            .filter(|provider_family| {
+                !self
+                    .provider_diagnostics
+                    .iter()
+                    .any(|provider| provider.provider_family == **provider_family)
+            })
+            .map(|provider_family| (*provider_family).to_string())
+            .collect()
+    }
+
+    pub fn is_degraded(&self) -> bool {
+        !self.missing_required_capabilities.is_empty()
+            || !self.degraded_capabilities.is_empty()
+            || self.manifest_only_provider_count > 0
+            || self
+                .provider_diagnostics
+                .iter()
+                .any(|provider| provider.health_is_degraded())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentProviderDiagnostic {
+    pub provider_id: String,
+    pub provider_family: String,
+    pub provider_version: String,
+    pub typed_registered: bool,
+    pub health: Option<ProviderHealth>,
+    pub capabilities: Vec<String>,
+}
+
+impl AgentProviderDiagnostic {
+    pub fn health_is_degraded(&self) -> bool {
+        self.health
+            .as_ref()
+            .is_some_and(|health| health.status != "available")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeBootstrapReport {
+    pub runtime: AgentRuntime,
+    pub events: Vec<KernelEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeBuilder {
+    runtime_id: String,
+    agent_manifest: AgentManifest,
+    agent_package_manifest: Option<AgentPackageManifest>,
+    providers: Vec<ProviderManifest>,
+    provider_registry: RuntimeProviderRegistry,
+    security_profile: String,
+    required_security_profile: Option<String>,
+    generated_at: String,
+}
+
+impl RuntimeBuilder {
+    pub fn new(runtime_id: impl Into<String>, agent_manifest: AgentManifest) -> Self {
+        Self {
+            runtime_id: runtime_id.into(),
+            agent_manifest,
+            agent_package_manifest: None,
+            providers: Vec::new(),
+            provider_registry: RuntimeProviderRegistry::default(),
+            security_profile: "fail_closed=true".to_string(),
+            required_security_profile: None,
+            generated_at: "1970-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    pub fn register_provider(mut self, provider: ProviderManifest) -> Self {
+        self.providers.push(provider);
+        self
+    }
+
+    pub fn register_model_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "model",
+            version,
+            vec!["model.chat"],
+        ))
+    }
+
+    pub fn register_model_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: ModelProvider + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        self.providers.push(core_provider_manifest(
+            provider_id.clone(),
+            "model",
+            version,
+            vec!["model.chat"],
+        ));
+        self.provider_registry
+            .add_model_provider(provider_id, Arc::new(provider));
+        self
+    }
+
+    pub fn register_tool_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "tool",
+            version,
+            vec!["tool.invoke"],
+        ))
+    }
+
+    pub fn register_tool_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: ToolProvider + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        self.providers.push(core_provider_manifest(
+            provider_id.clone(),
+            "tool",
+            version,
+            vec!["tool.invoke"],
+        ));
+        self.provider_registry.tool_provider_id = Some(provider_id);
+        self.provider_registry.tool_provider = Some(Arc::new(provider));
+        self
+    }
+
+    pub fn register_policy_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "policy",
+            version,
+            vec!["policy.evaluate"],
+        ))
+    }
+
+    pub fn register_policy_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: PolicyProvider + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        self.providers.push(core_provider_manifest(
+            provider_id.clone(),
+            "policy",
+            version,
+            vec!["policy.evaluate"],
+        ));
+        self.provider_registry.policy_provider_id = Some(provider_id);
+        self.provider_registry.policy_provider = Some(Arc::new(provider));
+        self
+    }
+
+    pub fn register_context_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "context",
+            version,
+            vec!["context.collect"],
+        ))
+    }
+
+    pub fn register_context_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: ContextProvider + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        self.providers.push(core_provider_manifest(
+            provider_id.clone(),
+            "context",
+            version,
+            vec!["context.collect"],
+        ));
+        self.provider_registry.context_provider_id = Some(provider_id);
+        self.provider_registry.context_provider = Some(Arc::new(provider));
+        self
+    }
+
+    pub fn register_memory_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "memory",
+            version,
+            vec!["memory.query"],
+        ))
+    }
+
+    pub fn register_memory_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: MemoryProvider + Send + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        self.providers.push(core_provider_manifest(
+            provider_id.clone(),
+            "memory",
+            version,
+            vec!["memory.query"],
+        ));
+        self.provider_registry.memory_provider_id = Some(provider_id);
+        self.provider_registry.memory_provider = Some(Arc::new(Mutex::new(provider)));
+        self
+    }
+
+    pub fn register_planning_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "planning",
+            version,
+            vec!["planning.create"],
+        ))
+    }
+
+    pub fn register_planning_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: PlanningProvider + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        self.providers.push(core_provider_manifest(
+            provider_id.clone(),
+            "planning",
+            version,
+            vec!["planning.create"],
+        ));
+        self.provider_registry.planning_provider_id = Some(provider_id);
+        self.provider_registry.planning_provider = Some(Arc::new(provider));
+        self
+    }
+
+    pub fn register_host_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "host",
+            version,
+            vec![
+                "host.filesystem",
+                "host.process",
+                "host.network",
+                "host.secrets",
+            ],
+        ))
+    }
+
+    pub fn register_host_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: HostProvider + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        self.providers.push(core_provider_manifest(
+            provider_id.clone(),
+            "host",
+            version,
+            vec![
+                "host.filesystem",
+                "host.process",
+                "host.network",
+                "host.secrets",
+            ],
+        ));
+        self.provider_registry.host_provider_id = Some(provider_id);
+        self.provider_registry.host_provider = Some(Arc::new(provider));
+        self
+    }
+
+    pub fn register_protocol_adapter_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "protocol_adapter",
+            version,
+            vec!["protocol.map"],
+        ))
+    }
+
+    pub fn register_protocol_adapter<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: ProtocolAdapter + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        self.providers.push(core_provider_manifest(
+            provider_id.clone(),
+            "protocol_adapter",
+            version,
+            vec!["protocol.map"],
+        ));
+        self.provider_registry.protocol_adapter_id = Some(provider_id);
+        self.provider_registry.protocol_adapter = Some(Arc::new(provider));
+        self
+    }
+
+    pub fn register_mcp_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "mcp",
+            version,
+            vec!["mcp.tools", "mcp.resources", "mcp.prompts"],
+        ))
+    }
+
+    pub fn register_mcp_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: McpProvider + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        self.providers.push(core_provider_manifest(
+            provider_id.clone(),
+            "mcp",
+            version,
+            vec!["mcp.tools", "mcp.resources", "mcp.prompts"],
+        ));
+        self.provider_registry.mcp_provider_id = Some(provider_id);
+        self.provider_registry.mcp_provider = Some(Arc::new(provider));
+        self
+    }
+
+    pub fn register_agent_skill_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "skill",
+            version,
+            vec!["skill.discover", "skill.invoke"],
+        ))
+    }
+
+    pub fn register_agent_skill_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: AgentSkillProvider + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        self.providers.push(core_provider_manifest(
+            provider_id.clone(),
+            "skill",
+            version,
+            vec!["skill.discover", "skill.invoke"],
+        ));
+        self.provider_registry.agent_skill_provider_id = Some(provider_id);
+        self.provider_registry.agent_skill_provider = Some(Arc::new(provider));
+        self
+    }
+
+    pub fn register_telemetry_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "telemetry",
+            version,
+            vec!["telemetry.record"],
+        ))
+    }
+
+    pub fn register_telemetry_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: TelemetryProvider + Send + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        self.providers.push(core_provider_manifest(
+            provider_id.clone(),
+            "telemetry",
+            version,
+            vec!["telemetry.record"],
+        ));
+        self.provider_registry.telemetry_provider_id = Some(provider_id);
+        self.provider_registry.telemetry_provider = Some(Arc::new(Mutex::new(provider)));
+        self
+    }
+
+    pub fn register_agent_installer_provider(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(agent_installer_provider(provider_id, version))
+    }
+
+    pub fn register_agent_installer<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: AgentInstaller + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        self.providers
+            .push(agent_installer_provider(provider_id.clone(), version));
+        self.provider_registry.agent_installer_provider_id = Some(provider_id);
+        self.provider_registry.agent_installer = Some(Arc::new(provider));
+        self
+    }
+
+    pub fn register_agent_configuration_provider(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(agent_configuration_provider(provider_id, version))
+    }
+
+    pub fn register_agent_configuration<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: AgentConfigurationProvider + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        self.providers
+            .push(agent_configuration_provider(provider_id.clone(), version));
+        self.provider_registry.agent_configuration_provider_id = Some(provider_id);
+        self.provider_registry.agent_configuration = Some(Arc::new(provider));
+        self
+    }
+
+    pub fn with_agent_package_manifest(mut self, package: AgentPackageManifest) -> Self {
+        let installer_provider_id = package.provider_binding.installer_provider_id.clone();
+        let configuration_provider_id = package.provider_binding.configuration_provider_id.clone();
+        let version = package.version.clone();
+
+        self.providers.push(agent_installer_provider(
+            installer_provider_id,
+            version.clone(),
+        ));
+        self.providers.push(agent_configuration_provider(
+            configuration_provider_id,
+            version,
+        ));
+        self.agent_package_manifest = Some(package);
+        self
+    }
+
+    pub fn with_security_profile(mut self, security_profile: impl Into<String>) -> Self {
+        self.security_profile = security_profile.into();
+        self
+    }
+
+    pub fn with_required_security_profile(
+        mut self,
+        required_security_profile: impl Into<String>,
+    ) -> Self {
+        self.required_security_profile = Some(required_security_profile.into());
+        self
+    }
+
+    pub fn with_generated_at(mut self, generated_at: impl Into<String>) -> Self {
+        self.generated_at = generated_at.into();
+        self
+    }
+
+    pub fn bootstrap(self) -> KernelResult<RuntimeBootstrapReport> {
+        if let Some(required_security_profile) = &self.required_security_profile {
+            if required_security_profile != &self.security_profile {
+                return Err(KernelError::validation(
+                    "runtime security profile does not match required security profile",
+                ));
+            }
+        }
+        self.validate_agent_package_manifest()?;
+        self.validate_agent_package_configuration_sections()?;
+
+        let mut events = vec![self.runtime_event("agent.runtime.bootstrap.started")];
+        if !self.providers.is_empty() {
+            events.push(self.runtime_event("agent.runtime.providers.registered"));
+        }
+        if self.provider_for_capability("agent.install").is_some() {
+            events.push(self.runtime_event("agent.install.provider.registered"));
+        }
+        if self.provider_for_capability("agent.configure").is_some() {
+            events.push(self.runtime_event("agent.configure.provider.registered"));
+        }
+
+        let capability_manifest = self.build_capability_manifest();
+        let runtime = AgentRuntime::from_capability_manifest_with_provider_registry(
+            capability_manifest,
+            self.provider_registry.clone(),
+        );
+        events.push(match runtime.state() {
+            RuntimeState::Ready => self.runtime_event("agent.runtime.ready"),
+            RuntimeState::Degraded => self.runtime_event("agent.runtime.degraded"),
+            RuntimeState::Failed => self.runtime_event("agent.runtime.failed"),
+        });
+
+        Ok(RuntimeBootstrapReport { runtime, events })
+    }
+
+    fn build_capability_manifest(&self) -> CapabilityManifest {
+        let mut capabilities = Vec::new();
+        let mut missing_required_capabilities = Vec::new();
+        let mut degraded_capabilities = Vec::new();
+
+        for requirement in &self.agent_manifest.required_capability_requirements {
+            match self.provider_for_requirement(requirement) {
+                Some(provider) => capabilities.push(capability_from_provider(
+                    &requirement.capability_id,
+                    provider,
+                    true,
+                )),
+                None => missing_required_capabilities.push(requirement.capability_id.clone()),
+            }
+        }
+
+        for requirement in &self.agent_manifest.optional_capability_requirements {
+            match self.provider_for_requirement(requirement) {
+                Some(provider) => capabilities.push(capability_from_provider(
+                    &requirement.capability_id,
+                    provider,
+                    false,
+                )),
+                None => degraded_capabilities.push(requirement.capability_id.clone()),
+            }
+        }
+
+        CapabilityManifest {
+            schema_version: self.agent_manifest.schema_version.clone(),
+            manifest_type: "capability".to_string(),
+            runtime_id: self.runtime_id.clone(),
+            agent_id: self.agent_manifest.agent_id.clone(),
+            kernel_version: AGENT_KERNEL_SPEC_VERSION.to_string(),
+            providers: self.providers.clone(),
+            capabilities,
+            missing_required_capabilities,
+            degraded_capabilities,
+            protocol_adapters: Vec::new(),
+            security_profile: self.security_profile.clone(),
+            generated_at: self.generated_at.clone(),
+        }
+    }
+
+    fn provider_for_capability(&self, capability_id: &str) -> Option<&ProviderManifest> {
+        self.providers.iter().find(|provider| {
+            provider
+                .capabilities
+                .iter()
+                .any(|capability| capability == capability_id)
+        })
+    }
+
+    fn provider_for_requirement(
+        &self,
+        requirement: &CapabilityRequirement,
+    ) -> Option<&ProviderManifest> {
+        self.providers
+            .iter()
+            .filter(|provider| {
+                provider
+                    .capabilities
+                    .iter()
+                    .any(|capability| capability == &requirement.capability_id)
+            })
+            .find(|provider| {
+                requirement
+                    .min_version
+                    .as_deref()
+                    .is_none_or(|min_version| {
+                        provider_version_satisfies(&provider.version, min_version)
+                    })
+            })
+    }
+
+    fn validate_agent_package_manifest(&self) -> KernelResult<()> {
+        let Some(package) = &self.agent_package_manifest else {
+            return Ok(());
+        };
+
+        package.lifecycle.validate()?;
+        package.provider_binding.validate()?;
+
+        if package.agent_id != self.agent_manifest.agent_id {
+            return Err(KernelError::validation(
+                "agent id mismatch between agent manifest and package manifest",
+            ));
+        }
+
+        if !package.is_compatible_with_agent_kernel(AGENT_KERNEL_SPEC_VERSION) {
+            return Err(KernelError::validation(
+                "agent package is incompatible with current kernel version",
+            ));
+        }
+
+        if package.required_configuration_sections.is_empty() {
+            return Err(KernelError::validation(
+                "at least one required configuration section must be declared",
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn validate_agent_package_configuration_sections(&self) -> KernelResult<()> {
+        let (Some(package), Some(provider)) = (
+            &self.agent_package_manifest,
+            self.provider_registry.agent_configuration.as_deref(),
+        ) else {
+            return Ok(());
+        };
+
+        let spec = provider.configuration_spec(&package.agent_id)?;
+        for required_section in &package.required_configuration_sections {
+            if !configuration_spec_has_section_kind(&spec.sections, required_section) {
+                return Err(KernelError::validation(format!(
+                    "required configuration section is missing: {required_section:?}"
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn runtime_event(&self, event_type: &str) -> KernelEvent {
+        KernelEvent::new(
+            format!("event.{}.{}", self.runtime_id, event_type),
+            event_type,
+            KernelEventSeverity::Info,
+            format!(
+                "runtime_id={};agent_id={}",
+                self.runtime_id, self.agent_manifest.agent_id
+            ),
+        )
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct RuntimeProviderRegistry {
+    agent_installer_provider_id: Option<String>,
+    agent_installer: Option<Arc<dyn AgentInstaller + Send + Sync>>,
+    agent_configuration_provider_id: Option<String>,
+    agent_configuration: Option<Arc<dyn AgentConfigurationProvider + Send + Sync>>,
+    model_provider_id: Option<String>,
+    model_provider: Option<Arc<dyn ModelProvider + Send + Sync>>,
+    model_providers: Vec<(String, Arc<dyn ModelProvider + Send + Sync>)>,
+    tool_provider_id: Option<String>,
+    tool_provider: Option<Arc<dyn ToolProvider + Send + Sync>>,
+    policy_provider_id: Option<String>,
+    policy_provider: Option<Arc<dyn PolicyProvider + Send + Sync>>,
+    context_provider_id: Option<String>,
+    context_provider: Option<Arc<dyn ContextProvider + Send + Sync>>,
+    memory_provider_id: Option<String>,
+    memory_provider: Option<Arc<Mutex<dyn MemoryProvider + Send>>>,
+    planning_provider_id: Option<String>,
+    planning_provider: Option<Arc<dyn PlanningProvider + Send + Sync>>,
+    host_provider_id: Option<String>,
+    host_provider: Option<Arc<dyn HostProvider + Send + Sync>>,
+    protocol_adapter_id: Option<String>,
+    protocol_adapter: Option<Arc<dyn ProtocolAdapter + Send + Sync>>,
+    mcp_provider_id: Option<String>,
+    mcp_provider: Option<Arc<dyn McpProvider + Send + Sync>>,
+    agent_skill_provider_id: Option<String>,
+    agent_skill_provider: Option<Arc<dyn AgentSkillProvider + Send + Sync>>,
+    telemetry_provider_id: Option<String>,
+    telemetry_provider: Option<Arc<Mutex<dyn TelemetryProvider + Send>>>,
+}
+
+impl RuntimeProviderRegistry {
+    fn add_model_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<dyn ModelProvider + Send + Sync>,
+    ) {
+        if self.model_provider.is_none() {
+            self.model_provider_id = Some(provider_id.clone());
+            self.model_provider = Some(provider.clone());
+        }
+        self.model_providers.push((provider_id, provider));
+    }
+
+    fn model_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<&(dyn ModelProvider + Send + Sync)> {
+        self.model_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.as_ref())
+    }
+
+    pub fn model_provider_ids(&self) -> Vec<String> {
+        self.model_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
+    pub fn has_agent_installer(&self) -> bool {
+        self.agent_installer.is_some()
+    }
+
+    pub fn has_agent_configuration_provider(&self) -> bool {
+        self.agent_configuration.is_some()
+    }
+
+    pub fn has_model_provider(&self) -> bool {
+        !self.model_providers.is_empty()
+    }
+
+    pub fn has_tool_provider(&self) -> bool {
+        self.tool_provider.is_some()
+    }
+
+    pub fn has_policy_provider(&self) -> bool {
+        self.policy_provider.is_some()
+    }
+
+    pub fn has_context_provider(&self) -> bool {
+        self.context_provider.is_some()
+    }
+
+    pub fn has_memory_provider(&self) -> bool {
+        self.memory_provider.is_some()
+    }
+
+    pub fn has_planning_provider(&self) -> bool {
+        self.planning_provider.is_some()
+    }
+
+    pub fn has_host_provider(&self) -> bool {
+        self.host_provider.is_some()
+    }
+
+    pub fn has_protocol_adapter(&self) -> bool {
+        self.protocol_adapter.is_some()
+    }
+
+    pub fn has_mcp_provider(&self) -> bool {
+        self.mcp_provider.is_some()
+    }
+
+    pub fn has_agent_skill_provider(&self) -> bool {
+        self.agent_skill_provider.is_some()
+    }
+
+    pub fn has_telemetry_provider(&self) -> bool {
+        self.telemetry_provider.is_some()
+    }
+
+    fn has_typed_provider(&self, provider: &ProviderManifest) -> bool {
+        match provider.provider_family.as_str() {
+            "agent_installer" => {
+                self.agent_installer_provider_id.as_deref() == Some(provider.provider_id.as_str())
+                    && self.has_agent_installer()
+            }
+            "agent_configuration" => {
+                self.agent_configuration_provider_id.as_deref()
+                    == Some(provider.provider_id.as_str())
+                    && self.has_agent_configuration_provider()
+            }
+            "model" => self
+                .model_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
+            "tool" => {
+                self.tool_provider_id.as_deref() == Some(provider.provider_id.as_str())
+                    && self.has_tool_provider()
+            }
+            "policy" => {
+                self.policy_provider_id.as_deref() == Some(provider.provider_id.as_str())
+                    && self.has_policy_provider()
+            }
+            "context" => {
+                self.context_provider_id.as_deref() == Some(provider.provider_id.as_str())
+                    && self.has_context_provider()
+            }
+            "memory" => {
+                self.memory_provider_id.as_deref() == Some(provider.provider_id.as_str())
+                    && self.has_memory_provider()
+            }
+            "planning" => {
+                self.planning_provider_id.as_deref() == Some(provider.provider_id.as_str())
+                    && self.has_planning_provider()
+            }
+            "host" => {
+                self.host_provider_id.as_deref() == Some(provider.provider_id.as_str())
+                    && self.has_host_provider()
+            }
+            "protocol_adapter" => {
+                self.protocol_adapter_id.as_deref() == Some(provider.provider_id.as_str())
+                    && self.has_protocol_adapter()
+            }
+            "mcp" => {
+                self.mcp_provider_id.as_deref() == Some(provider.provider_id.as_str())
+                    && self.has_mcp_provider()
+            }
+            "skill" => {
+                self.agent_skill_provider_id.as_deref() == Some(provider.provider_id.as_str())
+                    && self.has_agent_skill_provider()
+            }
+            "telemetry" => {
+                self.telemetry_provider_id.as_deref() == Some(provider.provider_id.as_str())
+                    && self.has_telemetry_provider()
+            }
+            _ => false,
+        }
+    }
+
+    fn health_for_provider(&self, provider: &ProviderManifest) -> Option<ProviderHealth> {
+        match provider.provider_family.as_str() {
+            "agent_installer"
+                if self.agent_installer_provider_id.as_deref()
+                    == Some(provider.provider_id.as_str()) =>
+            {
+                self.agent_installer
+                    .as_ref()
+                    .map(|provider| provider.health())
+            }
+            "agent_configuration"
+                if self.agent_configuration_provider_id.as_deref()
+                    == Some(provider.provider_id.as_str()) =>
+            {
+                self.agent_configuration
+                    .as_ref()
+                    .map(|provider| provider.health())
+            }
+            "model" => self
+                .model_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .map(|(_, provider)| provider.health()),
+            "tool" if self.tool_provider_id.as_deref() == Some(provider.provider_id.as_str()) => {
+                self.tool_provider
+                    .as_ref()
+                    .map(|provider| provider.health())
+            }
+            "policy"
+                if self.policy_provider_id.as_deref() == Some(provider.provider_id.as_str()) =>
+            {
+                self.policy_provider
+                    .as_ref()
+                    .map(|provider| provider.health())
+            }
+            "context"
+                if self.context_provider_id.as_deref() == Some(provider.provider_id.as_str()) =>
+            {
+                self.context_provider
+                    .as_ref()
+                    .map(|provider| provider.health())
+            }
+            "memory"
+                if self.memory_provider_id.as_deref() == Some(provider.provider_id.as_str()) =>
+            {
+                self.memory_provider
+                    .as_ref()
+                    .and_then(|provider| provider.lock().ok().map(|provider| provider.health()))
+            }
+            "planning"
+                if self.planning_provider_id.as_deref() == Some(provider.provider_id.as_str()) =>
+            {
+                self.planning_provider
+                    .as_ref()
+                    .map(|provider| provider.health())
+            }
+            "host" if self.host_provider_id.as_deref() == Some(provider.provider_id.as_str()) => {
+                self.host_provider
+                    .as_ref()
+                    .map(|provider| provider.health())
+            }
+            "protocol_adapter"
+                if self.protocol_adapter_id.as_deref() == Some(provider.provider_id.as_str()) =>
+            {
+                self.protocol_adapter
+                    .as_ref()
+                    .map(|provider| provider.health())
+            }
+            "mcp" if self.mcp_provider_id.as_deref() == Some(provider.provider_id.as_str()) => {
+                self.mcp_provider.as_ref().map(|provider| provider.health())
+            }
+            "skill"
+                if self.agent_skill_provider_id.as_deref()
+                    == Some(provider.provider_id.as_str()) =>
+            {
+                self.agent_skill_provider
+                    .as_ref()
+                    .map(|provider| provider.health())
+            }
+            "telemetry"
+                if self.telemetry_provider_id.as_deref() == Some(provider.provider_id.as_str()) =>
+            {
+                self.telemetry_provider
+                    .as_ref()
+                    .and_then(|provider| provider.lock().ok().map(|provider| provider.health()))
+            }
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Debug for RuntimeProviderRegistry {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RuntimeProviderRegistry")
+            .field(
+                "agent_installer_provider_id",
+                &self.agent_installer_provider_id,
+            )
+            .field("has_agent_installer", &self.has_agent_installer())
+            .field(
+                "agent_configuration_provider_id",
+                &self.agent_configuration_provider_id,
+            )
+            .field(
+                "has_agent_configuration_provider",
+                &self.has_agent_configuration_provider(),
+            )
+            .field("model_provider_id", &self.model_provider_id)
+            .field("model_provider_ids", &self.model_provider_ids())
+            .field("has_model_provider", &self.has_model_provider())
+            .field("tool_provider_id", &self.tool_provider_id)
+            .field("has_tool_provider", &self.has_tool_provider())
+            .field("policy_provider_id", &self.policy_provider_id)
+            .field("has_policy_provider", &self.has_policy_provider())
+            .field("context_provider_id", &self.context_provider_id)
+            .field("has_context_provider", &self.has_context_provider())
+            .field("memory_provider_id", &self.memory_provider_id)
+            .field("has_memory_provider", &self.has_memory_provider())
+            .field("planning_provider_id", &self.planning_provider_id)
+            .field("has_planning_provider", &self.has_planning_provider())
+            .field("host_provider_id", &self.host_provider_id)
+            .field("has_host_provider", &self.has_host_provider())
+            .field("protocol_adapter_id", &self.protocol_adapter_id)
+            .field("has_protocol_adapter", &self.has_protocol_adapter())
+            .field("mcp_provider_id", &self.mcp_provider_id)
+            .field("has_mcp_provider", &self.has_mcp_provider())
+            .field("agent_skill_provider_id", &self.agent_skill_provider_id)
+            .field("has_agent_skill_provider", &self.has_agent_skill_provider())
+            .field("telemetry_provider_id", &self.telemetry_provider_id)
+            .field("has_telemetry_provider", &self.has_telemetry_provider())
+            .finish()
+    }
+}
+
+impl PartialEq for RuntimeProviderRegistry {
+    fn eq(&self, other: &Self) -> bool {
+        self.agent_installer_provider_id == other.agent_installer_provider_id
+            && self.has_agent_installer() == other.has_agent_installer()
+            && self.agent_configuration_provider_id == other.agent_configuration_provider_id
+            && self.has_agent_configuration_provider() == other.has_agent_configuration_provider()
+            && self.model_provider_id == other.model_provider_id
+            && self.model_provider_ids() == other.model_provider_ids()
+            && self.has_model_provider() == other.has_model_provider()
+            && self.tool_provider_id == other.tool_provider_id
+            && self.has_tool_provider() == other.has_tool_provider()
+            && self.policy_provider_id == other.policy_provider_id
+            && self.has_policy_provider() == other.has_policy_provider()
+            && self.context_provider_id == other.context_provider_id
+            && self.has_context_provider() == other.has_context_provider()
+            && self.memory_provider_id == other.memory_provider_id
+            && self.has_memory_provider() == other.has_memory_provider()
+            && self.planning_provider_id == other.planning_provider_id
+            && self.has_planning_provider() == other.has_planning_provider()
+            && self.host_provider_id == other.host_provider_id
+            && self.has_host_provider() == other.has_host_provider()
+            && self.protocol_adapter_id == other.protocol_adapter_id
+            && self.has_protocol_adapter() == other.has_protocol_adapter()
+            && self.mcp_provider_id == other.mcp_provider_id
+            && self.has_mcp_provider() == other.has_mcp_provider()
+            && self.agent_skill_provider_id == other.agent_skill_provider_id
+            && self.has_agent_skill_provider() == other.has_agent_skill_provider()
+            && self.telemetry_provider_id == other.telemetry_provider_id
+            && self.has_telemetry_provider() == other.has_telemetry_provider()
+    }
+}
+
+impl Eq for RuntimeProviderRegistry {}
+
+fn capability_from_provider(
+    capability_id: &str,
+    provider: &ProviderManifest,
+    required: bool,
+) -> Capability {
+    let metadata = capability_metadata(capability_id);
+
+    Capability {
+        capability_id: capability_id.to_string(),
+        version: provider.version.clone(),
+        provider_id: provider.provider_id.clone(),
+        status: "available".to_string(),
+        required,
+        operations: metadata.operations,
+        side_effect_level: metadata.side_effect_level,
+        policy_categories: metadata.policy_categories,
+    }
+}
+
+fn configuration_spec_has_section_kind(
+    sections: &[crate::AgentConfigSection],
+    required_section: &AgentConfigSectionKind,
+) -> bool {
+    sections
+        .iter()
+        .any(|section| &section.kind == required_section)
+}
+
+fn provider_version_satisfies(provider_version: &str, min_version: &str) -> bool {
+    parse_semver_like(provider_version) >= parse_semver_like(min_version)
+}
+
+fn parse_semver_like(version: &str) -> (u64, u64, u64) {
+    let core = version
+        .split_once('-')
+        .map(|(core, _)| core)
+        .unwrap_or(version)
+        .split_once('+')
+        .map(|(core, _)| core)
+        .unwrap_or(version);
+    let mut parts = core.split('.').map(|part| part.parse::<u64>().unwrap_or(0));
+
+    (
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+    )
+}
+
+fn core_provider_manifest(
+    provider_id: impl Into<String>,
+    provider_family: impl Into<String>,
+    version: impl Into<String>,
+    capabilities: Vec<&str>,
+) -> ProviderManifest {
+    let provider_id = provider_id.into();
+    ProviderManifest::new(
+        provider_id.clone(),
+        provider_family,
+        provider_id,
+        version,
+        capabilities
+            .into_iter()
+            .map(std::string::ToString::to_string)
+            .collect(),
+    )
+}
+
+fn agent_installer_provider(
+    provider_id: impl Into<String>,
+    version: impl Into<String>,
+) -> ProviderManifest {
+    let provider_id = provider_id.into();
+    ProviderManifest::new(
+        provider_id.clone(),
+        "agent_installer",
+        provider_id,
+        version,
+        vec![
+            "agent.install".to_string(),
+            "agent.uninstall".to_string(),
+            "agent.upgrade".to_string(),
+        ],
+    )
+}
+
+fn agent_configuration_provider(
+    provider_id: impl Into<String>,
+    version: impl Into<String>,
+) -> ProviderManifest {
+    let provider_id = provider_id.into();
+    ProviderManifest::new(
+        provider_id.clone(),
+        "agent_configuration",
+        provider_id,
+        version,
+        vec!["agent.configure".to_string()],
+    )
+}
+
+struct CapabilityMetadata {
+    operations: Vec<String>,
+    side_effect_level: Option<String>,
+    policy_categories: Vec<String>,
+}
+
+fn capability_metadata(capability_id: &str) -> CapabilityMetadata {
+    match capability_id {
+        "agent.install" => lifecycle_capability_metadata(
+            vec!["configuration_spec", "plan_install", "install", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::AgentInstall,
+        ),
+        "agent.uninstall" => lifecycle_capability_metadata(
+            vec!["uninstall", "health"],
+            SideEffectLevel::Destructive,
+            PolicyCategory::AgentUninstall,
+        ),
+        "agent.upgrade" => lifecycle_capability_metadata(
+            vec!["plan_upgrade", "upgrade", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::AgentUpgrade,
+        ),
+        "agent.configure" => lifecycle_capability_metadata(
+            vec!["configuration_spec", "validate_configuration", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::AgentConfigure,
+        ),
+        "mcp.tools" => lifecycle_capability_metadata(
+            vec!["list_servers", "list_tools", "invoke_tool", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::ProductSpecific("mcp.tools".to_string()),
+        ),
+        "mcp.resources" => lifecycle_capability_metadata(
+            vec!["list_servers", "list_resources", "read_resource", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("mcp.resources".to_string()),
+        ),
+        "mcp.prompts" => lifecycle_capability_metadata(
+            vec!["list_servers", "list_prompts", "get_prompt", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("mcp.prompts".to_string()),
+        ),
+        "skill.discover" => lifecycle_capability_metadata(
+            vec!["list_skills", "describe_skill", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("skill.discover".to_string()),
+        ),
+        "skill.invoke" => lifecycle_capability_metadata(
+            vec!["describe_skill", "invoke_skill", "cancel_skill", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::ProductSpecific("skill.invoke".to_string()),
+        ),
+        _ => CapabilityMetadata {
+            operations: Vec::new(),
+            side_effect_level: None,
+            policy_categories: Vec::new(),
+        },
+    }
+}
+
+fn lifecycle_capability_metadata(
+    operations: Vec<&str>,
+    side_effect_level: SideEffectLevel,
+    policy_category: PolicyCategory,
+) -> CapabilityMetadata {
+    CapabilityMetadata {
+        operations: operations
+            .into_iter()
+            .map(std::string::ToString::to_string)
+            .collect(),
+        side_effect_level: Some(side_effect_level.as_str().to_string()),
+        policy_categories: vec![policy_category.as_str().to_string()],
+    }
+}
+
+fn standard_agent_provider_families() -> &'static [&'static str] {
+    &[
+        "model",
+        "tool",
+        "policy",
+        "context",
+        "memory",
+        "planning",
+        "host",
+        "protocol_adapter",
+        "mcp",
+        "skill",
+        "telemetry",
+        "agent_installer",
+        "agent_configuration",
+    ]
+}
+
+fn is_valid_capability_id(capability_id: &str) -> bool {
+    capability_id.contains('.')
+        && capability_id.chars().all(|ch| {
+            ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '.' | '_' | '-')
+        })
+}

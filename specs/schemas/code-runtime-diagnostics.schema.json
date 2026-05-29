@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdkwork.example.invalid/kernel/schemas/code-runtime-diagnostics.schema.json",
+  "title": "SDKWork Code Kernel Runtime Diagnostics",
+  "description": "Machine-readable diagnostics for SDKWork Code Kernel runtimes.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runtime_id",
+    "provider_count",
+    "capability_count",
+    "typed_provider_count",
+    "manifest_only_provider_count",
+    "provider_diagnostics"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "code_runtime_diagnostics.v1"
+    },
+    "runtime_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provider_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "capability_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "typed_provider_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "manifest_only_provider_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "provider_diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/providerDiagnostic"
+      }
+    }
+  },
+  "$defs": {
+    "providerDiagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_id",
+        "provider_family",
+        "provider_version",
+        "typed_registered",
+        "capabilities"
+      ],
+      "properties": {
+        "provider_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider_family": {
+          "type": "string",
+          "minLength": 1,
+          "examples": [
+            "code_workspace",
+            "code_vcs",
+            "code_patch",
+            "code_terminal",
+            "code_verification",
+            "code_language",
+            "code_review",
+            "code_artifact",
+            "code_knowledge",
+            "code_safety"
+          ]
+        },
+        "provider_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "typed_registered": {
+          "type": "boolean"
+        },
+        "health": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^code\\.[a-z0-9_.-]+$"
+          },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

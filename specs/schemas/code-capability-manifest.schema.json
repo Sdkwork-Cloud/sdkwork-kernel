@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdkwork.example.invalid/kernel/schemas/code-capability-manifest.schema.json",
+  "title": "SDKWork Code Kernel Capability Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_type",
+    "runtime_id",
+    "kernel_version",
+    "providers",
+    "capabilities"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "#/$defs/semver" },
+    "manifest_type": { "const": "capability" },
+    "runtime_id": { "type": "string", "minLength": 1 },
+    "kernel_version": { "$ref": "#/$defs/semver" },
+    "providers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/codeProviderRef" }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/codeCapability" }
+    }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "codeProviderRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_id",
+        "provider_family",
+        "name",
+        "version",
+        "capabilities"
+      ],
+      "properties": {
+        "provider_id": { "type": "string", "pattern": "^provider\\.[a-z0-9_.-]+\\.[a-z0-9.-]+$" },
+        "provider_family": { "$ref": "#/$defs/codeProviderFamily" },
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "$ref": "#/$defs/semver" },
+        "capabilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/codeCapabilityId" },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "codeProviderFamily": {
+      "enum": [
+        "code_workspace",
+        "code_vcs",
+        "code_patch",
+        "code_terminal",
+        "code_verification",
+        "code_language",
+        "code_review",
+        "code_artifact",
+        "code_knowledge",
+        "code_safety"
+      ]
+    },
+    "codeCapabilityId": {
+      "type": "string",
+      "pattern": "^code\\.[a-z0-9_.-]+$"
+    },
+    "codeCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capability_id",
+        "version",
+        "provider_id",
+        "status",
+        "required",
+        "operations"
+      ],
+      "properties": {
+        "capability_id": { "$ref": "#/$defs/codeCapabilityId" },
+        "version": { "$ref": "#/$defs/semver" },
+        "provider_id": { "type": "string", "pattern": "^provider\\.[a-z0-9_.-]+\\.[a-z0-9.-]+$" },
+        "status": { "enum": ["available", "degraded", "unavailable"] },
+        "required": { "type": "boolean" },
+        "operations": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "uniqueItems": true
+        },
+        "side_effect_level": {
+          "enum": ["read_only", "side_effectful", "destructive", "external_send", "privileged"]
+        },
+        "policy_categories": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/codeCapabilityId" },
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

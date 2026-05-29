@@ -1,0 +1,11 @@
+[package]
+name = "sdkwork-code-kernel"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "sdkwork_code_kernel"
+path = "src/lib.rs"
+
+[dependencies]
+sdkwork-agent-kernel = { path = "../sdkwork-agent-kernel" }

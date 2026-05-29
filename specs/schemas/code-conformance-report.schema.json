@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdkwork.example.invalid/kernel/schemas/code-conformance-report.schema.json",
+  "title": "SDKWork Code Kernel Conformance Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["runtime_id", "profile", "passed", "cases"],
+  "properties": {
+    "runtime_id": { "type": "string", "minLength": 1 },
+    "profile": { "enum": ["manifest", "local_runtime"] },
+    "passed": { "type": "boolean" },
+    "cases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/conformanceCase" },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "conformanceCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_id", "passed", "message"],
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "pattern": "^code\\.conformance\\.[a-z0-9_.-]+$",
+          "examples": [
+            "code.conformance.standard_provider_families.complete",
+            "code.conformance.standard_capabilities.complete",
+            "code.conformance.standard_capabilities.namespaced",
+            "code.conformance.local_providers.typed",
+            "code.conformance.local_providers.health_available"
+          ]
+        },
+        "passed": { "type": "boolean" },
+        "message": { "type": "string" }
+      }
+    }
+  }
+}

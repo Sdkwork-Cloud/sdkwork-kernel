@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdkwork.example.invalid/kernel/schemas/capability-manifest.schema.json",
+  "title": "SDKWork Capability Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_type",
+    "runtime_id",
+    "agent_id",
+    "kernel_version",
+    "providers",
+    "capabilities",
+    "missing_required_capabilities",
+    "degraded_capabilities",
+    "protocol_adapters",
+    "security_profile",
+    "generated_at"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "#/$defs/semver" },
+    "manifest_type": { "const": "capability" },
+    "runtime_id": { "type": "string", "minLength": 1 },
+    "agent_id": { "type": "string", "pattern": "^agent\\.[a-z0-9.-]+\\.[a-z0-9.-]+$" },
+    "kernel_version": { "$ref": "#/$defs/semver" },
+    "providers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/providerRef" }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/capability" }
+    },
+    "missing_required_capabilities": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9_.-]+$" },
+      "uniqueItems": true
+    },
+    "degraded_capabilities": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9_.-]+$" },
+      "uniqueItems": true
+    },
+    "protocol_adapters": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/adapterRef" }
+    },
+    "security_profile": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "extensions": { "$ref": "#/$defs/extensions" }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "providerRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider_id", "provider_family", "version", "status"],
+      "properties": {
+        "provider_id": { "type": "string", "pattern": "^provider\\.[a-z0-9_.-]+\\.[a-z0-9.-]+$" },
+        "provider_family": {
+          "enum": ["model", "tool", "context", "memory", "planning", "policy", "telemetry", "host", "protocol_adapter", "mcp", "skill", "agent_installer", "agent_configuration"]
+        },
+        "version": { "$ref": "#/$defs/semver" },
+        "status": { "enum": ["available", "degraded", "unavailable"] }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability_id", "version", "provider_id", "status", "required", "operations"],
+      "properties": {
+        "capability_id": { "type": "string", "pattern": "^[a-z0-9_.-]+$" },
+        "version": { "$ref": "#/$defs/semver" },
+        "provider_id": { "type": "string", "pattern": "^provider\\.[a-z0-9_.-]+\\.[a-z0-9.-]+$" },
+        "status": { "enum": ["available", "degraded", "unavailable"] },
+        "required": { "type": "boolean" },
+        "side_effect_level": {
+          "enum": ["read_only", "side_effectful", "destructive", "external_send", "privileged"]
+        },
+        "policy_categories": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
+          "uniqueItems": true
+        },
+        "operations": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "adapterRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter_id", "protocol", "status"],
+      "properties": {
+        "adapter_id": { "type": "string", "pattern": "^adapter\\.[a-z0-9.-]+\\.[a-z0-9.-]+$" },
+        "protocol": { "enum": ["mcp", "a2a", "http", "rpc", "ipc", "tauri", "websocket", "kernel-ui-client"] },
+        "status": { "enum": ["available", "degraded", "unavailable"] }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(sdkwork|[a-z0-9-]+\\.[a-z0-9.-]+)\\.[a-z0-9.-]+$"
+      },
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdkwork.example.invalid/kernel/schemas/provider-manifest.schema.json",
+  "title": "SDKWork Provider Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_type",
+    "provider_id",
+    "provider_family",
+    "name",
+    "display_name",
+    "version",
+    "kernel_compatibility",
+    "capabilities",
+    "operations",
+    "configuration_schema",
+    "security_requirements",
+    "health_model",
+    "owner",
+    "status"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "#/$defs/semver" },
+    "manifest_type": { "const": "provider" },
+    "provider_id": { "type": "string", "pattern": "^provider\\.[a-z0-9_.-]+\\.[a-z0-9.-]+$" },
+    "provider_family": { "$ref": "#/$defs/providerFamily" },
+    "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+    "display_name": { "type": "string", "minLength": 1 },
+    "version": { "$ref": "#/$defs/semver" },
+    "kernel_compatibility": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "required": ["agent_kernel"],
+      "properties": {
+        "agent_kernel": { "type": "string", "minLength": 1 }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9_.-]+$" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "operations": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "configuration_schema": {
+      "type": "object"
+    },
+    "security_requirements": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["fail_closed"],
+      "properties": {
+        "fail_closed": { "type": "boolean" },
+        "required_policy_categories": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9.-]+$" },
+          "uniqueItems": true
+        },
+        "secret_handling": { "type": "object" }
+      }
+    },
+    "health_model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["states"],
+      "properties": {
+        "states": {
+          "type": "array",
+          "items": { "enum": ["available", "degraded", "unavailable"] },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "owner": { "$ref": "#/$defs/owner" },
+    "status": { "$ref": "#/$defs/status" },
+    "deprecation": { "$ref": "#/$defs/deprecation" },
+    "extensions": { "$ref": "#/$defs/extensions" }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "providerFamily": {
+      "enum": ["model", "tool", "context", "memory", "planning", "policy", "telemetry", "host", "protocol_adapter", "mcp", "skill", "agent_installer", "agent_configuration"]
+    },
+    "status": {
+      "enum": ["experimental", "candidate", "stable", "deprecated", "removed"]
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "contact": { "type": "string" },
+        "url": { "type": "string" }
+      }
+    },
+    "deprecation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deprecated_since", "replacement", "removal_not_before", "migration_notes"],
+      "properties": {
+        "deprecated_since": { "$ref": "#/$defs/semver" },
+        "replacement": { "type": "string" },
+        "removal_not_before": { "$ref": "#/$defs/semver" },
+        "migration_notes": { "type": "string", "minLength": 1 }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(sdkwork|[a-z0-9-]+\\.[a-z0-9.-]+)\\.[a-z0-9.-]+$"
+      },
+      "additionalProperties": true
+    }
+  }
+}

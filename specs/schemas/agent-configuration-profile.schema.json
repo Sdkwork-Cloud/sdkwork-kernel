@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdkwork.example.invalid/kernel/schemas/agent-configuration-profile.schema.json",
+  "title": "SDKWork Agent Configuration Profile",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "manifest_type",
+    "profile_id",
+    "agent_id",
+    "configuration_version",
+    "status",
+    "configuration",
+    "secret_bindings"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "manifest_type": {
+      "const": "agent_configuration_profile"
+    },
+    "profile_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "configuration_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": ["draft", "active", "deprecated", "archived"]
+    },
+    "configuration": {
+      "type": "object",
+      "required": ["entries"],
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "value_kind", "value"],
+            "properties": {
+              "key": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value_kind": {
+                "enum": ["string", "boolean", "integer", "secret_ref", "string_list", "json"]
+              },
+              "value": true
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "secret_bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["field_key", "kind", "secret_ref"],
+        "properties": {
+          "field_key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "login_password",
+              "login_token",
+              "oauth_credential",
+              "llm_api_key",
+              "custom_secret"
+            ]
+          },
+          "secret_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "provider_hint": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

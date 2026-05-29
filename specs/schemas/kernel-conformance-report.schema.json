@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdkwork.example.invalid/kernel/schemas/kernel-conformance-report.schema.json",
+  "title": "SDKWork Kernel Conformance Report",
+  "description": "Machine-readable report for SDKWork Agent Kernel conformance profiles.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "report_id",
+    "profile_id",
+    "implementation_id",
+    "implementation_version",
+    "required_capabilities",
+    "cases"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "kernel_conformance_report.v1"
+    },
+    "report_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile_id": {
+      "type": "string",
+      "minLength": 1,
+      "examples": [
+        "runtime-core",
+        "agent-installation",
+        "provider-model",
+        "provider-tool",
+        "adapter-protocol",
+        "security-baseline"
+      ]
+    },
+    "implementation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "implementation_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "spec_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "test_suite_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "security_profile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "required_capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/conformanceCase"
+      },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "conformanceCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_id", "status", "message", "required"],
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_.-]*$",
+          "examples": [
+            "agent.conformance.manifest.valid",
+            "agent.conformance.runtime.bootstrap",
+            "agent.conformance.policy.fail_closed"
+          ]
+        },
+        "status": {
+          "enum": ["passed", "failed", "skipped"]
+        },
+        "message": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "capability_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "skip_reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

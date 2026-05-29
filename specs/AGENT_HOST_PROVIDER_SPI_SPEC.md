@@ -34,6 +34,12 @@ Rules:
 - Host operations with side effects or sensitive data `MUST` pass policy.
 - Kernel core `MUST NOT` perform direct host side effects outside host SPI.
 - Host providers `MUST` provide deterministic fake implementations for tests.
+- Runtime registries `MUST` support multiple typed host providers in one agent
+  runtime. The default provider is the deterministic first registered provider;
+  callers that require a specific local, remote, sandboxed, containerized, or
+  platform host implementation `MUST` select it by provider id.
+- Host provider diagnostics `MUST` report health per registered provider id
+  without collapsing multiple host implementations into one manifest entry.
 
 ## 2. Filesystem Provider
 

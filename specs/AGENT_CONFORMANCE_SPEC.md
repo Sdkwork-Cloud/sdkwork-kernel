@@ -74,11 +74,26 @@ Required cases:
 - Runtime registers `agent_installer` and `agent_configuration` providers when
   install/configuration capabilities are enabled.
 - Runtime can register multiple model providers and select them by provider id.
-- Runtime can register MCP providers for tools, resources, and prompts.
-- Runtime can register Agent Skill providers for skill discovery and
-  invocation.
-- Runtime host can load, query, unload, and aggregate diagnostics for multiple
-  runtime implementations.
+- Runtime can register multiple tool providers and select them by provider id.
+- Runtime can register multiple policy providers and select them by provider id.
+- Runtime can register multiple context providers and select them by provider
+  id.
+- Runtime can register multiple memory providers and select them by provider
+  id.
+- Runtime can register multiple planning providers and select them by provider
+  id.
+- Runtime can register multiple host providers and select them by provider id.
+- Runtime can register multiple protocol adapters and select them by provider id.
+- Runtime can register multiple MCP providers for tools, resources, and prompts,
+  then select them by provider id.
+- Runtime can register multiple Agent Skill providers for skill discovery and
+  invocation, then select them by provider id.
+- Runtime can register multiple telemetry providers and select them by provider
+  id.
+- Runtime host can load, start, stop, fail, query, unload, and aggregate
+  diagnostics for multiple runtime implementations.
+- Runtime host prevents running runtime slots from being unloaded until they are
+  stopped or failed.
 - Runtime enters `ready` when required capabilities exist.
 - Runtime enters `degraded` when optional capabilities are missing.
 - Runtime enters `failed` when required capabilities are missing.

@@ -16,6 +16,12 @@ Planning and execution make agent behavior inspectable, controllable, and
 recoverable. The kernel may use model-backed planning, rule-backed planning, or
 host-provided planning, but the plan contract remains stable.
 
+Runtime registries `MUST` support multiple typed planning providers in one
+agent runtime. The default provider is the deterministic first registered
+provider; callers that require a specific model-backed, rule-backed, or
+host-provided planner `MUST` select it by provider id. Diagnostics `MUST` report
+health per registered planning provider id.
+
 ## 1. Plan
 
 Required fields:

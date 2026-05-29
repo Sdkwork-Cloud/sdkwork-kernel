@@ -194,6 +194,19 @@ impl AgentRuntime {
             .ok_or_else(|| self.provider_error_for_family("tool", "tool.invoke"))
     }
 
+    pub fn tool_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<&(dyn ToolProvider + Send + Sync)> {
+        self.provider_registry
+            .tool_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "tool.invoke"))
+    }
+
+    pub fn tool_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.tool_provider_ids()
+    }
+
     pub fn policy_provider(&self) -> KernelResult<&(dyn PolicyProvider + Send + Sync)> {
         self.provider_registry
             .policy_provider
@@ -201,11 +214,37 @@ impl AgentRuntime {
             .ok_or_else(|| self.provider_error_for_family("policy", "policy.evaluate"))
     }
 
+    pub fn policy_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<&(dyn PolicyProvider + Send + Sync)> {
+        self.provider_registry
+            .policy_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "policy.evaluate"))
+    }
+
+    pub fn policy_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.policy_provider_ids()
+    }
+
     pub fn context_provider(&self) -> KernelResult<&(dyn ContextProvider + Send + Sync)> {
         self.provider_registry
             .context_provider
             .as_deref()
             .ok_or_else(|| self.provider_error_for_family("context", "context.collect"))
+    }
+
+    pub fn context_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<&(dyn ContextProvider + Send + Sync)> {
+        self.provider_registry
+            .context_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "context.collect"))
+    }
+
+    pub fn context_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.context_provider_ids()
     }
 
     pub fn memory_provider(&self) -> KernelResult<Arc<Mutex<dyn MemoryProvider + Send>>> {
@@ -216,11 +255,37 @@ impl AgentRuntime {
             .ok_or_else(|| self.provider_error_for_family("memory", "memory.query"))
     }
 
+    pub fn memory_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<Arc<Mutex<dyn MemoryProvider + Send>>> {
+        self.provider_registry
+            .memory_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "memory.query"))
+    }
+
+    pub fn memory_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.memory_provider_ids()
+    }
+
     pub fn planning_provider(&self) -> KernelResult<&(dyn PlanningProvider + Send + Sync)> {
         self.provider_registry
             .planning_provider
             .as_deref()
             .ok_or_else(|| self.provider_error_for_family("planning", "planning.create"))
+    }
+
+    pub fn planning_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<&(dyn PlanningProvider + Send + Sync)> {
+        self.provider_registry
+            .planning_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "planning.create"))
+    }
+
+    pub fn planning_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.planning_provider_ids()
     }
 
     pub fn host_provider(&self) -> KernelResult<&(dyn HostProvider + Send + Sync)> {
@@ -230,11 +295,37 @@ impl AgentRuntime {
             .ok_or_else(|| self.provider_error_for_family("host", "host.filesystem"))
     }
 
+    pub fn host_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<&(dyn HostProvider + Send + Sync)> {
+        self.provider_registry
+            .host_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "host.filesystem"))
+    }
+
+    pub fn host_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.host_provider_ids()
+    }
+
     pub fn protocol_adapter(&self) -> KernelResult<&(dyn ProtocolAdapter + Send + Sync)> {
         self.provider_registry
             .protocol_adapter
             .as_deref()
             .ok_or_else(|| self.provider_error_for_family("protocol_adapter", "protocol.map"))
+    }
+
+    pub fn protocol_adapter_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<&(dyn ProtocolAdapter + Send + Sync)> {
+        self.provider_registry
+            .protocol_adapter_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "protocol.map"))
+    }
+
+    pub fn protocol_adapter_ids(&self) -> Vec<String> {
+        self.provider_registry.protocol_adapter_ids()
     }
 
     pub fn mcp_provider(&self) -> KernelResult<&(dyn McpProvider + Send + Sync)> {
@@ -244,11 +335,37 @@ impl AgentRuntime {
             .ok_or_else(|| self.provider_error_for_family("mcp", "mcp.tools"))
     }
 
+    pub fn mcp_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<&(dyn McpProvider + Send + Sync)> {
+        self.provider_registry
+            .mcp_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "mcp.tools"))
+    }
+
+    pub fn mcp_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.mcp_provider_ids()
+    }
+
     pub fn agent_skill_provider(&self) -> KernelResult<&(dyn AgentSkillProvider + Send + Sync)> {
         self.provider_registry
             .agent_skill_provider
             .as_deref()
             .ok_or_else(|| self.provider_error_for_family("skill", "skill.invoke"))
+    }
+
+    pub fn agent_skill_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<&(dyn AgentSkillProvider + Send + Sync)> {
+        self.provider_registry
+            .agent_skill_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "skill.invoke"))
+    }
+
+    pub fn agent_skill_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.agent_skill_provider_ids()
     }
 
     pub fn telemetry_provider(&self) -> KernelResult<Arc<Mutex<dyn TelemetryProvider + Send>>> {
@@ -257,6 +374,19 @@ impl AgentRuntime {
             .as_ref()
             .cloned()
             .ok_or_else(|| self.provider_error_for_family("telemetry", "telemetry.record"))
+    }
+
+    pub fn telemetry_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<Arc<Mutex<dyn TelemetryProvider + Send>>> {
+        self.provider_registry
+            .telemetry_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "telemetry.record"))
+    }
+
+    pub fn telemetry_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.telemetry_provider_ids()
     }
 
     fn provider_id_for_capability(&self, capability_id: &str) -> Option<&str> {
@@ -681,8 +811,8 @@ impl RuntimeBuilder {
             version,
             vec!["tool.invoke"],
         ));
-        self.provider_registry.tool_provider_id = Some(provider_id);
-        self.provider_registry.tool_provider = Some(Arc::new(provider));
+        self.provider_registry
+            .add_tool_provider(provider_id, Arc::new(provider));
         self
     }
 
@@ -716,8 +846,8 @@ impl RuntimeBuilder {
             version,
             vec!["policy.evaluate"],
         ));
-        self.provider_registry.policy_provider_id = Some(provider_id);
-        self.provider_registry.policy_provider = Some(Arc::new(provider));
+        self.provider_registry
+            .add_policy_provider(provider_id, Arc::new(provider));
         self
     }
 
@@ -751,8 +881,8 @@ impl RuntimeBuilder {
             version,
             vec!["context.collect"],
         ));
-        self.provider_registry.context_provider_id = Some(provider_id);
-        self.provider_registry.context_provider = Some(Arc::new(provider));
+        self.provider_registry
+            .add_context_provider(provider_id, Arc::new(provider));
         self
     }
 
@@ -786,8 +916,8 @@ impl RuntimeBuilder {
             version,
             vec!["memory.query"],
         ));
-        self.provider_registry.memory_provider_id = Some(provider_id);
-        self.provider_registry.memory_provider = Some(Arc::new(Mutex::new(provider)));
+        self.provider_registry
+            .add_memory_provider(provider_id, Arc::new(Mutex::new(provider)));
         self
     }
 
@@ -821,8 +951,8 @@ impl RuntimeBuilder {
             version,
             vec!["planning.create"],
         ));
-        self.provider_registry.planning_provider_id = Some(provider_id);
-        self.provider_registry.planning_provider = Some(Arc::new(provider));
+        self.provider_registry
+            .add_planning_provider(provider_id, Arc::new(provider));
         self
     }
 
@@ -866,8 +996,8 @@ impl RuntimeBuilder {
                 "host.secrets",
             ],
         ));
-        self.provider_registry.host_provider_id = Some(provider_id);
-        self.provider_registry.host_provider = Some(Arc::new(provider));
+        self.provider_registry
+            .add_host_provider(provider_id, Arc::new(provider));
         self
     }
 
@@ -901,8 +1031,8 @@ impl RuntimeBuilder {
             version,
             vec!["protocol.map"],
         ));
-        self.provider_registry.protocol_adapter_id = Some(provider_id);
-        self.provider_registry.protocol_adapter = Some(Arc::new(provider));
+        self.provider_registry
+            .add_protocol_adapter(provider_id, Arc::new(provider));
         self
     }
 
@@ -936,8 +1066,8 @@ impl RuntimeBuilder {
             version,
             vec!["mcp.tools", "mcp.resources", "mcp.prompts"],
         ));
-        self.provider_registry.mcp_provider_id = Some(provider_id);
-        self.provider_registry.mcp_provider = Some(Arc::new(provider));
+        self.provider_registry
+            .add_mcp_provider(provider_id, Arc::new(provider));
         self
     }
 
@@ -971,8 +1101,8 @@ impl RuntimeBuilder {
             version,
             vec!["skill.discover", "skill.invoke"],
         ));
-        self.provider_registry.agent_skill_provider_id = Some(provider_id);
-        self.provider_registry.agent_skill_provider = Some(Arc::new(provider));
+        self.provider_registry
+            .add_agent_skill_provider(provider_id, Arc::new(provider));
         self
     }
 
@@ -1006,8 +1136,8 @@ impl RuntimeBuilder {
             version,
             vec!["telemetry.record"],
         ));
-        self.provider_registry.telemetry_provider_id = Some(provider_id);
-        self.provider_registry.telemetry_provider = Some(Arc::new(Mutex::new(provider)));
+        self.provider_registry
+            .add_telemetry_provider(provider_id, Arc::new(Mutex::new(provider)));
         self
     }
 
@@ -1281,24 +1411,34 @@ pub struct RuntimeProviderRegistry {
     model_providers: Vec<(String, Arc<dyn ModelProvider + Send + Sync>)>,
     tool_provider_id: Option<String>,
     tool_provider: Option<Arc<dyn ToolProvider + Send + Sync>>,
+    tool_providers: Vec<(String, Arc<dyn ToolProvider + Send + Sync>)>,
     policy_provider_id: Option<String>,
     policy_provider: Option<Arc<dyn PolicyProvider + Send + Sync>>,
+    policy_providers: Vec<(String, Arc<dyn PolicyProvider + Send + Sync>)>,
     context_provider_id: Option<String>,
     context_provider: Option<Arc<dyn ContextProvider + Send + Sync>>,
+    context_providers: Vec<(String, Arc<dyn ContextProvider + Send + Sync>)>,
     memory_provider_id: Option<String>,
     memory_provider: Option<Arc<Mutex<dyn MemoryProvider + Send>>>,
+    memory_providers: Vec<(String, Arc<Mutex<dyn MemoryProvider + Send>>)>,
     planning_provider_id: Option<String>,
     planning_provider: Option<Arc<dyn PlanningProvider + Send + Sync>>,
+    planning_providers: Vec<(String, Arc<dyn PlanningProvider + Send + Sync>)>,
     host_provider_id: Option<String>,
     host_provider: Option<Arc<dyn HostProvider + Send + Sync>>,
+    host_providers: Vec<(String, Arc<dyn HostProvider + Send + Sync>)>,
     protocol_adapter_id: Option<String>,
     protocol_adapter: Option<Arc<dyn ProtocolAdapter + Send + Sync>>,
+    protocol_adapters: Vec<(String, Arc<dyn ProtocolAdapter + Send + Sync>)>,
     mcp_provider_id: Option<String>,
     mcp_provider: Option<Arc<dyn McpProvider + Send + Sync>>,
+    mcp_providers: Vec<(String, Arc<dyn McpProvider + Send + Sync>)>,
     agent_skill_provider_id: Option<String>,
     agent_skill_provider: Option<Arc<dyn AgentSkillProvider + Send + Sync>>,
+    agent_skill_providers: Vec<(String, Arc<dyn AgentSkillProvider + Send + Sync>)>,
     telemetry_provider_id: Option<String>,
     telemetry_provider: Option<Arc<Mutex<dyn TelemetryProvider + Send>>>,
+    telemetry_providers: Vec<(String, Arc<Mutex<dyn TelemetryProvider + Send>>)>,
 }
 
 impl RuntimeProviderRegistry {
@@ -1331,6 +1471,229 @@ impl RuntimeProviderRegistry {
             .collect()
     }
 
+    fn add_tool_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<dyn ToolProvider + Send + Sync>,
+    ) {
+        if self.tool_provider.is_none() {
+            self.tool_provider_id = Some(provider_id.clone());
+            self.tool_provider = Some(provider.clone());
+        }
+        self.tool_providers.push((provider_id, provider));
+    }
+
+    fn tool_provider_by_id(&self, provider_id: &str) -> Option<&(dyn ToolProvider + Send + Sync)> {
+        self.tool_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.as_ref())
+    }
+
+    pub fn tool_provider_ids(&self) -> Vec<String> {
+        self.tool_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
+    fn add_policy_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<dyn PolicyProvider + Send + Sync>,
+    ) {
+        if self.policy_provider.is_none() {
+            self.policy_provider_id = Some(provider_id.clone());
+            self.policy_provider = Some(provider.clone());
+        }
+        self.policy_providers.push((provider_id, provider));
+    }
+
+    fn policy_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<&(dyn PolicyProvider + Send + Sync)> {
+        self.policy_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.as_ref())
+    }
+
+    pub fn policy_provider_ids(&self) -> Vec<String> {
+        self.policy_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
+    fn add_context_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<dyn ContextProvider + Send + Sync>,
+    ) {
+        if self.context_provider.is_none() {
+            self.context_provider_id = Some(provider_id.clone());
+            self.context_provider = Some(provider.clone());
+        }
+        self.context_providers.push((provider_id, provider));
+    }
+
+    fn context_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<&(dyn ContextProvider + Send + Sync)> {
+        self.context_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.as_ref())
+    }
+
+    pub fn context_provider_ids(&self) -> Vec<String> {
+        self.context_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
+    fn add_memory_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<Mutex<dyn MemoryProvider + Send>>,
+    ) {
+        if self.memory_provider.is_none() {
+            self.memory_provider_id = Some(provider_id.clone());
+            self.memory_provider = Some(provider.clone());
+        }
+        self.memory_providers.push((provider_id, provider));
+    }
+
+    fn memory_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<Arc<Mutex<dyn MemoryProvider + Send>>> {
+        self.memory_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.clone())
+    }
+
+    pub fn memory_provider_ids(&self) -> Vec<String> {
+        self.memory_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
+    fn add_planning_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<dyn PlanningProvider + Send + Sync>,
+    ) {
+        if self.planning_provider.is_none() {
+            self.planning_provider_id = Some(provider_id.clone());
+            self.planning_provider = Some(provider.clone());
+        }
+        self.planning_providers.push((provider_id, provider));
+    }
+
+    fn planning_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<&(dyn PlanningProvider + Send + Sync)> {
+        self.planning_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.as_ref())
+    }
+
+    pub fn planning_provider_ids(&self) -> Vec<String> {
+        self.planning_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
+    fn add_host_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<dyn HostProvider + Send + Sync>,
+    ) {
+        if self.host_provider.is_none() {
+            self.host_provider_id = Some(provider_id.clone());
+            self.host_provider = Some(provider.clone());
+        }
+        self.host_providers.push((provider_id, provider));
+    }
+
+    fn host_provider_by_id(&self, provider_id: &str) -> Option<&(dyn HostProvider + Send + Sync)> {
+        self.host_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.as_ref())
+    }
+
+    pub fn host_provider_ids(&self) -> Vec<String> {
+        self.host_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
+    fn add_mcp_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<dyn McpProvider + Send + Sync>,
+    ) {
+        if self.mcp_provider.is_none() {
+            self.mcp_provider_id = Some(provider_id.clone());
+            self.mcp_provider = Some(provider.clone());
+        }
+        self.mcp_providers.push((provider_id, provider));
+    }
+
+    fn mcp_provider_by_id(&self, provider_id: &str) -> Option<&(dyn McpProvider + Send + Sync)> {
+        self.mcp_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.as_ref())
+    }
+
+    pub fn mcp_provider_ids(&self) -> Vec<String> {
+        self.mcp_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
+    fn add_agent_skill_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<dyn AgentSkillProvider + Send + Sync>,
+    ) {
+        if self.agent_skill_provider.is_none() {
+            self.agent_skill_provider_id = Some(provider_id.clone());
+            self.agent_skill_provider = Some(provider.clone());
+        }
+        self.agent_skill_providers.push((provider_id, provider));
+    }
+
+    fn agent_skill_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<&(dyn AgentSkillProvider + Send + Sync)> {
+        self.agent_skill_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.as_ref())
+    }
+
+    pub fn agent_skill_provider_ids(&self) -> Vec<String> {
+        self.agent_skill_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
     pub fn has_agent_installer(&self) -> bool {
         self.agent_installer.is_some()
     }
@@ -1344,43 +1707,101 @@ impl RuntimeProviderRegistry {
     }
 
     pub fn has_tool_provider(&self) -> bool {
-        self.tool_provider.is_some()
+        !self.tool_providers.is_empty()
     }
 
     pub fn has_policy_provider(&self) -> bool {
-        self.policy_provider.is_some()
+        !self.policy_providers.is_empty()
     }
 
     pub fn has_context_provider(&self) -> bool {
-        self.context_provider.is_some()
+        !self.context_providers.is_empty()
     }
 
     pub fn has_memory_provider(&self) -> bool {
-        self.memory_provider.is_some()
+        !self.memory_providers.is_empty()
     }
 
     pub fn has_planning_provider(&self) -> bool {
-        self.planning_provider.is_some()
+        !self.planning_providers.is_empty()
     }
 
     pub fn has_host_provider(&self) -> bool {
-        self.host_provider.is_some()
+        !self.host_providers.is_empty()
     }
 
     pub fn has_protocol_adapter(&self) -> bool {
-        self.protocol_adapter.is_some()
+        !self.protocol_adapters.is_empty()
+    }
+
+    fn add_protocol_adapter(
+        &mut self,
+        provider_id: String,
+        provider: Arc<dyn ProtocolAdapter + Send + Sync>,
+    ) {
+        if self.protocol_adapter.is_none() {
+            self.protocol_adapter_id = Some(provider_id.clone());
+            self.protocol_adapter = Some(provider.clone());
+        }
+        self.protocol_adapters.push((provider_id, provider));
+    }
+
+    fn protocol_adapter_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<&(dyn ProtocolAdapter + Send + Sync)> {
+        self.protocol_adapters
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.as_ref())
+    }
+
+    pub fn protocol_adapter_ids(&self) -> Vec<String> {
+        self.protocol_adapters
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
     }
 
     pub fn has_mcp_provider(&self) -> bool {
-        self.mcp_provider.is_some()
+        !self.mcp_providers.is_empty()
     }
 
     pub fn has_agent_skill_provider(&self) -> bool {
-        self.agent_skill_provider.is_some()
+        !self.agent_skill_providers.is_empty()
     }
 
     pub fn has_telemetry_provider(&self) -> bool {
-        self.telemetry_provider.is_some()
+        !self.telemetry_providers.is_empty()
+    }
+
+    fn add_telemetry_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<Mutex<dyn TelemetryProvider + Send>>,
+    ) {
+        if self.telemetry_provider.is_none() {
+            self.telemetry_provider_id = Some(provider_id.clone());
+            self.telemetry_provider = Some(provider.clone());
+        }
+        self.telemetry_providers.push((provider_id, provider));
+    }
+
+    fn telemetry_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<Arc<Mutex<dyn TelemetryProvider + Send>>> {
+        self.telemetry_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.clone())
+    }
+
+    pub fn telemetry_provider_ids(&self) -> Vec<String> {
+        self.telemetry_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
     }
 
     fn has_typed_provider(&self, provider: &ProviderManifest) -> bool {
@@ -1397,46 +1818,36 @@ impl RuntimeProviderRegistry {
             "model" => self
                 .model_provider_by_id(provider.provider_id.as_str())
                 .is_some(),
-            "tool" => {
-                self.tool_provider_id.as_deref() == Some(provider.provider_id.as_str())
-                    && self.has_tool_provider()
-            }
-            "policy" => {
-                self.policy_provider_id.as_deref() == Some(provider.provider_id.as_str())
-                    && self.has_policy_provider()
-            }
-            "context" => {
-                self.context_provider_id.as_deref() == Some(provider.provider_id.as_str())
-                    && self.has_context_provider()
-            }
-            "memory" => {
-                self.memory_provider_id.as_deref() == Some(provider.provider_id.as_str())
-                    && self.has_memory_provider()
-            }
-            "planning" => {
-                self.planning_provider_id.as_deref() == Some(provider.provider_id.as_str())
-                    && self.has_planning_provider()
-            }
-            "host" => {
-                self.host_provider_id.as_deref() == Some(provider.provider_id.as_str())
-                    && self.has_host_provider()
-            }
-            "protocol_adapter" => {
-                self.protocol_adapter_id.as_deref() == Some(provider.provider_id.as_str())
-                    && self.has_protocol_adapter()
-            }
-            "mcp" => {
-                self.mcp_provider_id.as_deref() == Some(provider.provider_id.as_str())
-                    && self.has_mcp_provider()
-            }
-            "skill" => {
-                self.agent_skill_provider_id.as_deref() == Some(provider.provider_id.as_str())
-                    && self.has_agent_skill_provider()
-            }
-            "telemetry" => {
-                self.telemetry_provider_id.as_deref() == Some(provider.provider_id.as_str())
-                    && self.has_telemetry_provider()
-            }
+            "tool" => self
+                .tool_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
+            "policy" => self
+                .policy_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
+            "context" => self
+                .context_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
+            "memory" => self
+                .memory_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
+            "planning" => self
+                .planning_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
+            "host" => self
+                .host_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
+            "protocol_adapter" => self
+                .protocol_adapter_by_id(provider.provider_id.as_str())
+                .is_some(),
+            "mcp" => self
+                .mcp_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
+            "skill" => self
+                .agent_skill_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
+            "telemetry" => self
+                .telemetry_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
             _ => false,
         }
     }
@@ -1464,69 +1875,56 @@ impl RuntimeProviderRegistry {
                 .iter()
                 .find(|(provider_id, _)| provider_id == &provider.provider_id)
                 .map(|(_, provider)| provider.health()),
-            "tool" if self.tool_provider_id.as_deref() == Some(provider.provider_id.as_str()) => {
-                self.tool_provider
-                    .as_ref()
-                    .map(|provider| provider.health())
-            }
-            "policy"
-                if self.policy_provider_id.as_deref() == Some(provider.provider_id.as_str()) =>
-            {
-                self.policy_provider
-                    .as_ref()
-                    .map(|provider| provider.health())
-            }
-            "context"
-                if self.context_provider_id.as_deref() == Some(provider.provider_id.as_str()) =>
-            {
-                self.context_provider
-                    .as_ref()
-                    .map(|provider| provider.health())
-            }
-            "memory"
-                if self.memory_provider_id.as_deref() == Some(provider.provider_id.as_str()) =>
-            {
-                self.memory_provider
-                    .as_ref()
-                    .and_then(|provider| provider.lock().ok().map(|provider| provider.health()))
-            }
-            "planning"
-                if self.planning_provider_id.as_deref() == Some(provider.provider_id.as_str()) =>
-            {
-                self.planning_provider
-                    .as_ref()
-                    .map(|provider| provider.health())
-            }
-            "host" if self.host_provider_id.as_deref() == Some(provider.provider_id.as_str()) => {
-                self.host_provider
-                    .as_ref()
-                    .map(|provider| provider.health())
-            }
-            "protocol_adapter"
-                if self.protocol_adapter_id.as_deref() == Some(provider.provider_id.as_str()) =>
-            {
-                self.protocol_adapter
-                    .as_ref()
-                    .map(|provider| provider.health())
-            }
-            "mcp" if self.mcp_provider_id.as_deref() == Some(provider.provider_id.as_str()) => {
-                self.mcp_provider.as_ref().map(|provider| provider.health())
-            }
-            "skill"
-                if self.agent_skill_provider_id.as_deref()
-                    == Some(provider.provider_id.as_str()) =>
-            {
-                self.agent_skill_provider
-                    .as_ref()
-                    .map(|provider| provider.health())
-            }
-            "telemetry"
-                if self.telemetry_provider_id.as_deref() == Some(provider.provider_id.as_str()) =>
-            {
-                self.telemetry_provider
-                    .as_ref()
-                    .and_then(|provider| provider.lock().ok().map(|provider| provider.health()))
-            }
+            "tool" => self
+                .tool_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .map(|(_, provider)| provider.health()),
+            "policy" => self
+                .policy_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .map(|(_, provider)| provider.health()),
+            "context" => self
+                .context_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .map(|(_, provider)| provider.health()),
+            "memory" => self
+                .memory_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .and_then(|(_, provider)| provider.lock().ok().map(|provider| provider.health())),
+            "planning" => self
+                .planning_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .map(|(_, provider)| provider.health()),
+            "host" => self
+                .host_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .map(|(_, provider)| provider.health()),
+            "protocol_adapter" => self
+                .protocol_adapters
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .map(|(_, provider)| provider.health()),
+            "mcp" => self
+                .mcp_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .map(|(_, provider)| provider.health()),
+            "skill" => self
+                .agent_skill_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .map(|(_, provider)| provider.health()),
+            "telemetry" => self
+                .telemetry_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .and_then(|(_, provider)| provider.lock().ok().map(|provider| provider.health())),
             _ => None,
         }
     }
@@ -1553,24 +1951,32 @@ impl std::fmt::Debug for RuntimeProviderRegistry {
             .field("model_provider_ids", &self.model_provider_ids())
             .field("has_model_provider", &self.has_model_provider())
             .field("tool_provider_id", &self.tool_provider_id)
+            .field("tool_provider_ids", &self.tool_provider_ids())
             .field("has_tool_provider", &self.has_tool_provider())
             .field("policy_provider_id", &self.policy_provider_id)
+            .field("policy_provider_ids", &self.policy_provider_ids())
             .field("has_policy_provider", &self.has_policy_provider())
             .field("context_provider_id", &self.context_provider_id)
+            .field("context_provider_ids", &self.context_provider_ids())
             .field("has_context_provider", &self.has_context_provider())
             .field("memory_provider_id", &self.memory_provider_id)
+            .field("memory_provider_ids", &self.memory_provider_ids())
             .field("has_memory_provider", &self.has_memory_provider())
             .field("planning_provider_id", &self.planning_provider_id)
+            .field("planning_provider_ids", &self.planning_provider_ids())
             .field("has_planning_provider", &self.has_planning_provider())
             .field("host_provider_id", &self.host_provider_id)
+            .field("host_provider_ids", &self.host_provider_ids())
             .field("has_host_provider", &self.has_host_provider())
             .field("protocol_adapter_id", &self.protocol_adapter_id)
+            .field("protocol_adapter_ids", &self.protocol_adapter_ids())
             .field("has_protocol_adapter", &self.has_protocol_adapter())
             .field("mcp_provider_id", &self.mcp_provider_id)
             .field("has_mcp_provider", &self.has_mcp_provider())
             .field("agent_skill_provider_id", &self.agent_skill_provider_id)
             .field("has_agent_skill_provider", &self.has_agent_skill_provider())
             .field("telemetry_provider_id", &self.telemetry_provider_id)
+            .field("telemetry_provider_ids", &self.telemetry_provider_ids())
             .field("has_telemetry_provider", &self.has_telemetry_provider())
             .finish()
     }
@@ -1586,24 +1992,32 @@ impl PartialEq for RuntimeProviderRegistry {
             && self.model_provider_ids() == other.model_provider_ids()
             && self.has_model_provider() == other.has_model_provider()
             && self.tool_provider_id == other.tool_provider_id
+            && self.tool_provider_ids() == other.tool_provider_ids()
             && self.has_tool_provider() == other.has_tool_provider()
             && self.policy_provider_id == other.policy_provider_id
+            && self.policy_provider_ids() == other.policy_provider_ids()
             && self.has_policy_provider() == other.has_policy_provider()
             && self.context_provider_id == other.context_provider_id
+            && self.context_provider_ids() == other.context_provider_ids()
             && self.has_context_provider() == other.has_context_provider()
             && self.memory_provider_id == other.memory_provider_id
+            && self.memory_provider_ids() == other.memory_provider_ids()
             && self.has_memory_provider() == other.has_memory_provider()
             && self.planning_provider_id == other.planning_provider_id
+            && self.planning_provider_ids() == other.planning_provider_ids()
             && self.has_planning_provider() == other.has_planning_provider()
             && self.host_provider_id == other.host_provider_id
+            && self.host_provider_ids() == other.host_provider_ids()
             && self.has_host_provider() == other.has_host_provider()
             && self.protocol_adapter_id == other.protocol_adapter_id
+            && self.protocol_adapter_ids() == other.protocol_adapter_ids()
             && self.has_protocol_adapter() == other.has_protocol_adapter()
             && self.mcp_provider_id == other.mcp_provider_id
             && self.has_mcp_provider() == other.has_mcp_provider()
             && self.agent_skill_provider_id == other.agent_skill_provider_id
             && self.has_agent_skill_provider() == other.has_agent_skill_provider()
             && self.telemetry_provider_id == other.telemetry_provider_id
+            && self.telemetry_provider_ids() == other.telemetry_provider_ids()
             && self.has_telemetry_provider() == other.has_telemetry_provider()
     }
 }

@@ -64,8 +64,8 @@ The kernel standard must support these integration modes:
 | Kernel core | `sdkwork-agent-kernel` core runtime, lifecycle, capability registry, event bus, error model, and policy hooks |
 | Kernel subsystem | Agent, code, workspace, memory, tool, sandbox, model, execution, telemetry, and UI subsystems |
 | System call / stable ABI | Typed kernel client API exposed to hosts and UI through IPC, RPC, SDK ports, or adapters |
-| Driver model | Provider SPI for models, tools, storage, VCS, terminal, language intelligence, sandbox, and host capabilities |
-| Module loader / supervisor | `AgentKernelHost` loads multiple runtime implementations as independent runtime slots |
+| Driver model | Provider SPI for models, tools, policy, protocol adapters, storage, VCS, terminal, language intelligence, sandbox, and host capabilities |
+| Module loader / supervisor | `AgentKernelHost` loads, starts, stops, fails, and unloads multiple runtime implementations as independent runtime slots |
 | VFS | Workspace and file-system abstraction used by code agents instead of direct host file access |
 | LSM / security hooks | Capability policy, permission prompts, sandbox decisions, audit hooks, and tenant/user context checks |
 | Netlink / event channels | Kernel event stream for session state, tool calls, patches, terminal output, telemetry, and diagnostics |
@@ -103,6 +103,9 @@ This layer defines what every SDKWork-compatible agent runtime must expose:
 - Model provider SPI for chat, reasoning, embedding, tool-call, streaming, and
   multimodal-capable models when supported, including multiple LLM providers
   per runtime with provider-id selection.
+- Tool, policy, context, memory, planning, host, protocol adapter, MCP, Agent
+  Skill, and telemetry provider SPI families support multiple runtime
+  implementations with deterministic defaults and provider-id selection.
 - Tool provider SPI for typed tool registration, invocation, cancellation,
   output mapping, permission checks, and audit.
 - MCP provider SPI for MCP server descriptors, tools, resources, prompts,
@@ -385,17 +388,23 @@ required package configuration sections. Local runtime execution uses a typed
 provider registry so hosts can invoke concrete model, tool, policy, context,
 memory, planning, host, protocol adapter, MCP, Agent Skill, telemetry,
 installer, and configuration SPI instances without replacing the capability
-manifest as the source of truth. Multiple model providers may be registered in
-one runtime and selected by provider id, allowing each agent to support
-different LLM implementations. Capability negotiation now preserves
+manifest as the source of truth. Multiple model, tool, policy, context, memory,
+planning, host, protocol adapter, MCP, Agent Skill, and telemetry providers may
+be registered in one runtime and selected by provider id, allowing each agent to
+support different LLM implementations, tool implementations, policy engines,
+context assembly strategies, memory stores, planners, host capability bridges,
+protocol bridges, MCP integrations, skill packs, and observability sinks.
+Capability negotiation now preserves
 `min_version` from agent manifests and only binds providers whose version
 satisfies the requested capability requirement. Manifest-only providers remain valid for
 negotiation and introspection, but direct local SPI execution fails closed with
 `provider_unavailable` until the typed provider is registered. `AgentKernelHost`
 loads multiple bootstrapped runtime implementations as independent runtime
-slots, rejects duplicate runtime ids, unloads slots deterministically, and
-aggregates diagnostics and conformance reports so multiple different agents can
-run side by side under one host/supervisor boundary.
+slots, tracks `loaded`/`running`/`stopped`/`failed` lifecycle state, rejects
+duplicate runtime ids, protects running slots from unload, records isolated
+runtime failures, unloads inactive slots deterministically, and aggregates
+diagnostics and conformance reports so multiple different agents can run side by
+side under one host/supervisor boundary.
 The generic agent-kernel baseline now also defines
 `KernelConformanceReport`, `KernelConformanceCase`, and
 `KernelConformanceCaseStatus`, plus a machine-readable

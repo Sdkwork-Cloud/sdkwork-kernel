@@ -91,7 +91,10 @@ pub use runtime::{
     AgentProviderDiagnostic, AgentRuntime, AgentRuntimeDiagnostics, RuntimeBootstrapReport,
     RuntimeBuilder, RuntimeState,
 };
-pub use runtime_host::{AgentKernelHost, AgentRuntimeRegistration, AgentRuntimeSlot};
+pub use runtime_host::{
+    AgentKernelHost, AgentRuntimeExecutionHandle, AgentRuntimeRegistration, AgentRuntimeSlot,
+    AgentRuntimeSlotState,
+};
 pub use skill::{
     AgentSkillDescriptor, AgentSkillInvocationMode, AgentSkillProvider, AgentSkillRequest,
     AgentSkillResult, AgentSkillStatus,

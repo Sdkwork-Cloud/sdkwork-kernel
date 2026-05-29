@@ -101,6 +101,51 @@ Rules:
   runtime. The default model provider is the deterministic first registered
   typed model provider; callers that need a specific LLM implementation `MUST`
   select it by provider id.
+- Runtime builders `MUST` support multiple typed `tool` providers in one
+  runtime. The default tool provider is the deterministic first registered typed
+  tool provider; callers that need a specific tool implementation `MUST`
+  select it by provider id.
+- Runtime builders `MUST` support multiple typed `policy` providers in one
+  runtime. The default policy provider is the deterministic first registered
+  typed policy provider; callers that need a specific policy implementation
+  `MUST` select it by provider id.
+- Runtime builders `MUST` support multiple typed `context` providers in one
+  runtime. The default context provider is the deterministic first registered
+  typed context provider; callers that need a specific retrieval, workspace,
+  memory-backed, or host-provided context implementation `MUST` select it by
+  provider id.
+- Runtime builders `MUST` support multiple typed `memory` providers in one
+  runtime. The default memory provider is the deterministic first registered
+  typed memory provider; callers that need a specific durable, vector,
+  session-scoped, tenant-scoped, or external memory implementation `MUST` select
+  it by provider id. Stateful memory provider handles `SHOULD` remain
+  synchronized.
+- Runtime builders `MUST` support multiple typed `planning` providers in one
+  runtime. The default planning provider is the deterministic first registered
+  typed planning provider; callers that need a specific model-backed,
+  rule-backed, or host-provided planner `MUST` select it by provider id.
+- Runtime builders `MUST` support multiple typed `host` providers in one
+  runtime. The default host provider is the deterministic first registered typed
+  host provider; callers that need a specific filesystem, process, network,
+  secret, storage, or remote-host implementation `MUST` select it by provider
+  id.
+- Runtime builders `MUST` support multiple typed `protocol_adapter` providers in
+  one runtime. The default protocol adapter is the deterministic first
+  registered typed protocol adapter; callers that need a specific protocol
+  adapter implementation `MUST` select it by provider id.
+- Runtime builders `MUST` support multiple typed `mcp` providers in one runtime.
+  The default MCP provider is the deterministic first registered typed MCP
+  provider; callers that need a specific MCP server implementation `MUST` select
+  it by provider id.
+- Runtime builders `MUST` support multiple typed `skill` providers in one
+  runtime. The default Agent Skill provider is the deterministic first
+  registered typed skill provider; callers that need a specific skill pack
+  implementation `MUST` select it by provider id.
+- Runtime builders `MUST` support multiple typed `telemetry` providers in one
+  runtime. The default telemetry provider is the deterministic first registered
+  typed telemetry provider; callers that need a specific audit, event, metrics,
+  logs, traces, or external observability sink `MUST` select it by provider id.
+  Stateful telemetry provider handles `SHOULD` remain synchronized.
 - Registered installer providers `MUST` contribute `agent.install`,
   `agent.uninstall`, and `agent.upgrade` capabilities to the capability
   manifest.
@@ -167,15 +212,35 @@ Required runtime operations:
 - `list_model_provider_ids`
 - `get_model_provider_by_id`
 - `get_tool_provider`
+- `list_tool_provider_ids`
+- `get_tool_provider_by_id`
 - `get_policy_provider`
+- `list_policy_provider_ids`
+- `get_policy_provider_by_id`
 - `get_context_provider`
+- `list_context_provider_ids`
+- `get_context_provider_by_id`
 - `get_memory_provider`
+- `list_memory_provider_ids`
+- `get_memory_provider_by_id`
 - `get_planning_provider`
+- `list_planning_provider_ids`
+- `get_planning_provider_by_id`
 - `get_host_provider`
+- `list_host_provider_ids`
+- `get_host_provider_by_id`
 - `get_protocol_adapter`
+- `list_protocol_adapter_ids`
+- `get_protocol_adapter_by_id`
 - `get_mcp_provider`
+- `list_mcp_provider_ids`
+- `get_mcp_provider_by_id`
 - `get_agent_skill_provider`
+- `list_agent_skill_provider_ids`
+- `get_agent_skill_provider_by_id`
 - `get_telemetry_provider`
+- `list_telemetry_provider_ids`
+- `get_telemetry_provider_by_id`
 
 Rules:
 
@@ -233,16 +298,18 @@ Rules:
 - `AGENT_RUNTIME_DIAGNOSTICS_SCHEMA` exposes the diagnostic schema to Rust
   hosts, generated SDKs, CI gates, and registry validators.
 
-## 4.2 Runtime Host And Multi-Agent Loading
+## 4.2 Runtime Host Lifecycle And Multi-Agent Loading
 
 `AgentRuntime` represents one bootstrapped agent runtime. A kernel host or
-supervisor manages multiple runtime slots.
+supervisor manages multiple runtime slots and their standard lifecycle state.
 
 Required host objects:
 
 - `AgentKernelHost`
 - `AgentRuntimeRegistration`
 - `AgentRuntimeSlot`
+- `AgentRuntimeSlotState`
+- `AgentRuntimeExecutionHandle`
 
 Rules:
 
@@ -250,9 +317,25 @@ Rules:
   registration object.
 - Runtime slots `MUST` record runtime id, agent id, implementation id, and the
   runtime object.
+- Runtime slots `MUST` expose a lifecycle state. Standard states are `loaded`,
+  `running`, `stopped`, and `failed`.
+- A newly loaded runtime slot `MUST` start in `loaded` state.
 - Runtime ids `MUST` be unique inside a host.
-- Load, unload, runtime lookup, diagnostics aggregation, and conformance report
-  aggregation `MUST` be deterministic and preserve registration order.
+- Load, start, stop, fail, unload, runtime lookup, diagnostics aggregation, and
+  conformance report aggregation `MUST` be deterministic and preserve
+  registration order.
+- Starting a `loaded` or `stopped` slot `MUST` move that slot to `running`.
+- Starting an already `running` slot `MUST` be idempotent.
+- Starting a `failed` slot `MUST` fail closed with `conflict` until the runtime
+  is unloaded or replaced.
+- Stopping a `loaded`, `running`, or `stopped` slot `MUST` move that slot to
+  `stopped`.
+- Failing a slot `MUST` move only that slot to `failed` and preserve a safe
+  failure reason for diagnostics and host policy.
+- Unloading a `running` slot `MUST` fail closed with `conflict`; a host must stop
+  or fail the slot before unloading it.
+- Running-runtime queries `MUST` be deterministic and preserve registration
+  order.
 - A host `MUST` be implementation-neutral: it must not know concrete model
   vendors, MCP server transports, skill pack formats, UI frameworks, network
   protocols, or product workflows.
@@ -344,6 +427,16 @@ Required cases:
 - Core SPI providers can be registered as typed local providers and invoked
   through runtime accessors.
 - Multiple model providers can be registered and selected by provider id.
+- Multiple tool providers can be registered and selected by provider id.
+- Multiple policy providers can be registered and selected by provider id.
+- Multiple context providers can be registered and selected by provider id.
+- Multiple memory providers can be registered and selected by provider id.
+- Multiple planning providers can be registered and selected by provider id.
+- Multiple host providers can be registered and selected by provider id.
+- Multiple protocol adapters can be registered and selected by provider id.
+- Multiple MCP providers can be registered and selected by provider id.
+- Multiple Agent Skill providers can be registered and selected by provider id.
+- Multiple telemetry providers can be registered and selected by provider id.
 - MCP providers can expose tools, resources, and prompts through typed SPI.
 - Agent Skill providers can list, describe, and invoke skills through typed SPI.
 - Manifest-only core providers negotiate capabilities but return

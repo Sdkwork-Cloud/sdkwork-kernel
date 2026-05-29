@@ -1,6 +1,6 @@
 use sdkwork_agent_kernel::{
     AgentKernelHost, AgentManifest, AgentRuntimeConformanceProfile, AgentRuntimeRegistration,
-    KernelErrorKind, ProviderManifest, RuntimeBuilder,
+    AgentRuntimeSlotState, KernelErrorKind, ProviderManifest, RuntimeBuilder,
 };
 
 const CODE_AGENT_MANIFEST_JSON: &str = r#"
@@ -145,6 +145,139 @@ fn kernel_host_rejects_duplicate_runtime_ids_and_can_unload_runtime() {
     );
     assert_eq!(host.runtime_count(), 0);
     assert!(host.runtime("runtime.agent.duplicate").is_none());
+}
+
+#[test]
+fn kernel_host_tracks_runtime_lifecycle_and_protects_active_unload() {
+    let code_runtime = bootstrap_manifest_runtime(
+        "runtime.agent.code.lifecycle",
+        CODE_AGENT_MANIFEST_JSON,
+        "provider.model.code",
+    );
+    let research_runtime = bootstrap_manifest_runtime(
+        "runtime.agent.research.lifecycle",
+        RESEARCH_AGENT_MANIFEST_JSON,
+        "provider.model.research",
+    );
+
+    let mut host = AgentKernelHost::new("host.local");
+    host.load_runtime(AgentRuntimeRegistration::new(
+        "implementation.code.local",
+        code_runtime,
+    ))
+    .expect("code runtime loads");
+    host.load_runtime(AgentRuntimeRegistration::new(
+        "implementation.research.remote",
+        research_runtime,
+    ))
+    .expect("research runtime loads");
+
+    assert_eq!(
+        host.runtime_state("runtime.agent.code.lifecycle"),
+        Some(AgentRuntimeSlotState::Loaded)
+    );
+    assert_eq!(host.running_runtime_ids(), Vec::<String>::new());
+
+    let code_handle = host
+        .start_runtime("runtime.agent.code.lifecycle")
+        .expect("code runtime starts");
+    assert_eq!(code_handle.runtime_id, "runtime.agent.code.lifecycle");
+    assert_eq!(code_handle.state, AgentRuntimeSlotState::Running);
+    assert_eq!(
+        host.runtime_state("runtime.agent.code.lifecycle"),
+        Some(AgentRuntimeSlotState::Running)
+    );
+
+    let active_unload_error = host
+        .unload_runtime("runtime.agent.code.lifecycle")
+        .expect_err("running runtime cannot be unloaded");
+    assert_eq!(active_unload_error.kind(), KernelErrorKind::Conflict);
+
+    host.start_runtime("runtime.agent.research.lifecycle")
+        .expect("research runtime starts independently");
+    assert_eq!(
+        host.running_runtime_ids(),
+        [
+            "runtime.agent.code.lifecycle".to_string(),
+            "runtime.agent.research.lifecycle".to_string()
+        ]
+    );
+
+    let stopped = host
+        .stop_runtime("runtime.agent.code.lifecycle")
+        .expect("code runtime stops");
+    assert_eq!(stopped.state, AgentRuntimeSlotState::Stopped);
+    assert_eq!(
+        host.runtime_state("runtime.agent.research.lifecycle"),
+        Some(AgentRuntimeSlotState::Running)
+    );
+
+    let removed = host
+        .unload_runtime("runtime.agent.code.lifecycle")
+        .expect("stopped runtime can be unloaded");
+    assert_eq!(removed.state, AgentRuntimeSlotState::Stopped);
+    assert!(host.runtime("runtime.agent.code.lifecycle").is_none());
+    assert_eq!(
+        host.running_runtime_ids(),
+        ["runtime.agent.research.lifecycle".to_string()]
+    );
+}
+
+#[test]
+fn kernel_host_marks_runtime_failed_without_mutating_other_slots() {
+    let code_runtime = bootstrap_manifest_runtime(
+        "runtime.agent.code.failure",
+        CODE_AGENT_MANIFEST_JSON,
+        "provider.model.code",
+    );
+    let research_runtime = bootstrap_manifest_runtime(
+        "runtime.agent.research.failure",
+        RESEARCH_AGENT_MANIFEST_JSON,
+        "provider.model.research",
+    );
+
+    let mut host = AgentKernelHost::new("host.local");
+    host.load_runtime(AgentRuntimeRegistration::new(
+        "implementation.code.local",
+        code_runtime,
+    ))
+    .expect("code runtime loads");
+    host.load_runtime(AgentRuntimeRegistration::new(
+        "implementation.research.remote",
+        research_runtime,
+    ))
+    .expect("research runtime loads");
+    host.start_runtime("runtime.agent.code.failure")
+        .expect("code runtime starts");
+    host.start_runtime("runtime.agent.research.failure")
+        .expect("research runtime starts");
+
+    let failed = host
+        .fail_runtime("runtime.agent.code.failure", "provider crashed")
+        .expect("code runtime is marked failed");
+    assert_eq!(failed.state, AgentRuntimeSlotState::Failed);
+    assert_eq!(failed.failure_reason.as_deref(), Some("provider crashed"));
+
+    assert_eq!(
+        host.runtime_state("runtime.agent.code.failure"),
+        Some(AgentRuntimeSlotState::Failed)
+    );
+    assert_eq!(
+        host.runtime_slot("runtime.agent.code.failure")
+            .expect("failed slot exists")
+            .failure_reason
+            .as_deref(),
+        Some("provider crashed")
+    );
+    assert_eq!(
+        host.runtime_state("runtime.agent.research.failure"),
+        Some(AgentRuntimeSlotState::Running)
+    );
+
+    let restart_error = host
+        .start_runtime("runtime.agent.code.failure")
+        .expect_err("failed runtime requires reload before restart");
+    assert_eq!(restart_error.kind(), KernelErrorKind::Conflict);
 }
 
 fn bootstrap_manifest_runtime(

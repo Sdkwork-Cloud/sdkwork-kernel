@@ -13,6 +13,7 @@ use sdkwork_agent_kernel::{
     SecretRef, SecretValue, TelemetryProvider, ToolCall, ToolDescriptor, ToolProvider, ToolResult,
     TrustLevel,
 };
+use std::sync::{Arc, Mutex};
 
 const INSTALLABLE_AGENT_MANIFEST_JSON: &str = r#"
 {
@@ -219,13 +220,29 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
     let report = RuntimeBuilder::new("runtime.core", manifest)
         .with_generated_at("2026-05-29T00:00:00Z")
         .register_model_provider("provider.model.typed", "0.1.0", FakeModelProvider)
-        .register_tool_provider("provider.tool.typed", "0.1.0", FakeToolProvider)
-        .register_policy_provider("provider.policy.typed", "0.1.0", FakePolicyProvider)
+        .register_tool_provider(
+            "provider.tool.typed",
+            "0.1.0",
+            FakeToolProvider::new("provider.tool.typed", "tool.echo", "tool response"),
+        )
+        .register_policy_provider(
+            "provider.policy.typed",
+            "0.1.0",
+            FakePolicyProvider::new("provider.policy.typed"),
+        )
         .register_context_provider("provider.context.typed", "0.1.0", FakeContextProvider)
         .register_memory_provider("provider.memory.typed", "0.1.0", FakeMemoryProvider)
         .register_planning_provider("provider.planning.typed", "0.1.0", FakePlanningProvider)
         .register_host_provider("provider.host.typed", "0.1.0", FakeHostProvider)
-        .register_protocol_adapter("adapter.protocol.typed", "0.1.0", FakeProtocolAdapter)
+        .register_protocol_adapter(
+            "adapter.protocol.typed",
+            "0.1.0",
+            FakeProtocolAdapter::new(
+                "adapter.protocol.typed",
+                "task.protocol",
+                "response.protocol",
+            ),
+        )
         .register_telemetry_provider("provider.telemetry.typed", "0.1.0", FakeTelemetryProvider)
         .bootstrap()
         .expect("runtime bootstraps");
@@ -330,6 +347,481 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
 }
 
 #[test]
+fn runtime_registry_supports_multiple_tool_policy_and_protocol_adapter_providers() {
+    let manifest =
+        sdkwork_agent_kernel::AgentManifest::from_json(CORE_SPI_AGENT_MANIFEST_JSON).unwrap();
+    let report = RuntimeBuilder::new("runtime.core.multi-family", manifest)
+        .with_generated_at("2026-05-29T00:00:00Z")
+        .register_model_provider("provider.model.typed", "0.1.0", FakeModelProvider)
+        .register_tool_provider(
+            "provider.tool.alpha",
+            "0.1.0",
+            FakeToolProvider::new("provider.tool.alpha", "tool.alpha", "tool alpha response"),
+        )
+        .register_tool_provider(
+            "provider.tool.beta",
+            "0.1.0",
+            FakeToolProvider::new("provider.tool.beta", "tool.beta", "tool beta response"),
+        )
+        .register_policy_provider(
+            "provider.policy.alpha",
+            "0.1.0",
+            FakePolicyProvider::new("provider.policy.alpha"),
+        )
+        .register_policy_provider(
+            "provider.policy.beta",
+            "0.1.0",
+            FakePolicyProvider::new("provider.policy.beta"),
+        )
+        .register_context_provider("provider.context.typed", "0.1.0", FakeContextProvider)
+        .register_memory_provider("provider.memory.typed", "0.1.0", FakeMemoryProvider)
+        .register_planning_provider("provider.planning.typed", "0.1.0", FakePlanningProvider)
+        .register_host_provider("provider.host.typed", "0.1.0", FakeHostProvider)
+        .register_protocol_adapter(
+            "adapter.protocol.alpha",
+            "0.1.0",
+            FakeProtocolAdapter::new("adapter.protocol.alpha", "task.alpha", "response.alpha"),
+        )
+        .register_protocol_adapter(
+            "adapter.protocol.beta",
+            "0.1.0",
+            FakeProtocolAdapter::new("adapter.protocol.beta", "task.beta", "response.beta"),
+        )
+        .register_telemetry_provider("provider.telemetry.typed", "0.1.0", FakeTelemetryProvider)
+        .bootstrap()
+        .expect("runtime bootstraps");
+
+    assert_eq!(
+        report.runtime.tool_provider_ids(),
+        ["provider.tool.alpha", "provider.tool.beta"]
+    );
+    assert_eq!(
+        report
+            .runtime
+            .tool_provider()
+            .expect("default tool provider")
+            .list_tools()[0]
+            .tool_id,
+        "tool.alpha"
+    );
+    assert_eq!(
+        report
+            .runtime
+            .tool_provider_by_id("provider.tool.beta")
+            .expect("tool provider by id")
+            .list_tools()[0]
+            .tool_id,
+        "tool.beta"
+    );
+
+    assert_eq!(
+        report.runtime.policy_provider_ids(),
+        ["provider.policy.alpha", "provider.policy.beta"]
+    );
+    assert_eq!(
+        report
+            .runtime
+            .policy_provider()
+            .expect("default policy provider")
+            .evaluate(PolicyRequest::new(
+                "policy.multi.1",
+                "tool.invoke",
+                "tool.alpha"
+            ))
+            .expect("default policy decision")
+            .policy_provider_id,
+        "provider.policy.alpha"
+    );
+    assert_eq!(
+        report
+            .runtime
+            .policy_provider_by_id("provider.policy.beta")
+            .expect("policy provider by id")
+            .evaluate(PolicyRequest::new(
+                "policy.multi.2",
+                "tool.invoke",
+                "tool.beta"
+            ))
+            .expect("policy decision by id")
+            .policy_provider_id,
+        "provider.policy.beta"
+    );
+
+    assert_eq!(
+        report.runtime.protocol_adapter_ids(),
+        ["adapter.protocol.alpha", "adapter.protocol.beta"]
+    );
+    assert_eq!(
+        report
+            .runtime
+            .protocol_adapter()
+            .expect("default protocol adapter")
+            .manifest()
+            .adapter_id,
+        "adapter.protocol.alpha"
+    );
+    assert_eq!(
+        report
+            .runtime
+            .protocol_adapter_by_id("adapter.protocol.beta")
+            .expect("protocol adapter by id")
+            .manifest()
+            .adapter_id,
+        "adapter.protocol.beta"
+    );
+
+    let manifest = report.runtime.capability_manifest();
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "tool"
+            && provider.provider_id == "provider.tool.alpha"));
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "tool"
+            && provider.provider_id == "provider.tool.beta"));
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "policy"
+            && provider.provider_id == "provider.policy.alpha"));
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "policy"
+            && provider.provider_id == "provider.policy.beta"));
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "protocol_adapter"
+            && provider.provider_id == "adapter.protocol.alpha"));
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "protocol_adapter"
+            && provider.provider_id == "adapter.protocol.beta"));
+}
+
+#[test]
+fn runtime_registry_supports_multiple_context_and_planning_providers() {
+    let manifest =
+        sdkwork_agent_kernel::AgentManifest::from_json(CORE_SPI_AGENT_MANIFEST_JSON).unwrap();
+    let report = RuntimeBuilder::new("runtime.core.multi-context-planning", manifest)
+        .with_generated_at("2026-05-29T00:00:00Z")
+        .register_model_provider("provider.model.typed", "0.1.0", FakeModelProvider)
+        .register_tool_provider(
+            "provider.tool.typed",
+            "0.1.0",
+            FakeToolProvider::new("provider.tool.typed", "tool.echo", "tool response"),
+        )
+        .register_policy_provider(
+            "provider.policy.typed",
+            "0.1.0",
+            FakePolicyProvider::new("provider.policy.typed"),
+        )
+        .register_context_provider(
+            "provider.context.vector",
+            "0.1.0",
+            NamedContextProvider::new("context.vector"),
+        )
+        .register_context_provider(
+            "provider.context.workspace",
+            "0.1.0",
+            NamedContextProvider::new("context.workspace"),
+        )
+        .register_memory_provider("provider.memory.typed", "0.1.0", FakeMemoryProvider)
+        .register_planning_provider(
+            "provider.planning.model",
+            "0.1.0",
+            NamedPlanningProvider::new("plan.model"),
+        )
+        .register_planning_provider(
+            "provider.planning.rules",
+            "0.1.0",
+            NamedPlanningProvider::new("plan.rules"),
+        )
+        .register_host_provider("provider.host.typed", "0.1.0", FakeHostProvider)
+        .register_protocol_adapter(
+            "adapter.protocol.typed",
+            "0.1.0",
+            FakeProtocolAdapter::new(
+                "adapter.protocol.typed",
+                "task.protocol",
+                "response.protocol",
+            ),
+        )
+        .register_telemetry_provider("provider.telemetry.typed", "0.1.0", FakeTelemetryProvider)
+        .bootstrap()
+        .expect("runtime bootstraps");
+
+    assert_eq!(
+        report.runtime.context_provider_ids(),
+        ["provider.context.vector", "provider.context.workspace"]
+    );
+    assert_eq!(
+        report
+            .runtime
+            .context_provider()
+            .expect("default context provider")
+            .collect("session.1")
+            .expect("default context collects")[0]
+            .context_frame_id,
+        "context.vector"
+    );
+    assert_eq!(
+        report
+            .runtime
+            .context_provider_by_id("provider.context.workspace")
+            .expect("context provider by id")
+            .collect("session.1")
+            .expect("selected context collects")[0]
+            .context_frame_id,
+        "context.workspace"
+    );
+
+    assert_eq!(
+        report.runtime.planning_provider_ids(),
+        ["provider.planning.model", "provider.planning.rules"]
+    );
+    assert_eq!(
+        report
+            .runtime
+            .planning_provider()
+            .expect("default planning provider")
+            .create_plan("task.1", "run.1", "plan")
+            .plan_id,
+        "plan.model"
+    );
+    assert_eq!(
+        report
+            .runtime
+            .planning_provider_by_id("provider.planning.rules")
+            .expect("planning provider by id")
+            .create_plan("task.1", "run.1", "plan")
+            .plan_id,
+        "plan.rules"
+    );
+
+    let manifest = report.runtime.capability_manifest();
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "context"
+            && provider.provider_id == "provider.context.vector"));
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "context"
+            && provider.provider_id == "provider.context.workspace"));
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "planning"
+            && provider.provider_id == "provider.planning.model"));
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "planning"
+            && provider.provider_id == "provider.planning.rules"));
+}
+
+#[test]
+fn runtime_registry_supports_multiple_memory_host_and_telemetry_providers() {
+    let telemetry_events = Arc::new(Mutex::new(Vec::new()));
+    let manifest =
+        sdkwork_agent_kernel::AgentManifest::from_json(CORE_SPI_AGENT_MANIFEST_JSON).unwrap();
+    let report = RuntimeBuilder::new("runtime.core.multi-stateful", manifest)
+        .with_generated_at("2026-05-29T00:00:00Z")
+        .register_model_provider("provider.model.typed", "0.1.0", FakeModelProvider)
+        .register_tool_provider(
+            "provider.tool.typed",
+            "0.1.0",
+            FakeToolProvider::new("provider.tool.typed", "tool.echo", "tool response"),
+        )
+        .register_policy_provider(
+            "provider.policy.typed",
+            "0.1.0",
+            FakePolicyProvider::new("provider.policy.typed"),
+        )
+        .register_context_provider("provider.context.typed", "0.1.0", FakeContextProvider)
+        .register_memory_provider(
+            "provider.memory.session",
+            "0.1.0",
+            NamedMemoryProvider::new("memory.session"),
+        )
+        .register_memory_provider(
+            "provider.memory.vector",
+            "0.1.0",
+            NamedMemoryProvider::new("memory.vector"),
+        )
+        .register_planning_provider("provider.planning.typed", "0.1.0", FakePlanningProvider)
+        .register_host_provider(
+            "provider.host.local",
+            "0.1.0",
+            NamedHostProvider::new("provider.host.local", "local readme"),
+        )
+        .register_host_provider(
+            "provider.host.remote",
+            "0.1.0",
+            NamedHostProvider::new("provider.host.remote", "remote readme"),
+        )
+        .register_protocol_adapter(
+            "adapter.protocol.typed",
+            "0.1.0",
+            FakeProtocolAdapter::new(
+                "adapter.protocol.typed",
+                "task.protocol",
+                "response.protocol",
+            ),
+        )
+        .register_telemetry_provider(
+            "provider.telemetry.audit",
+            "0.1.0",
+            RecordingTelemetryProvider::new("provider.telemetry.audit", telemetry_events.clone()),
+        )
+        .register_telemetry_provider(
+            "provider.telemetry.otlp",
+            "0.1.0",
+            RecordingTelemetryProvider::new("provider.telemetry.otlp", telemetry_events.clone()),
+        )
+        .bootstrap()
+        .expect("runtime bootstraps");
+
+    assert_eq!(
+        report.runtime.memory_provider_ids(),
+        ["provider.memory.session", "provider.memory.vector"]
+    );
+    assert_eq!(
+        report
+            .runtime
+            .memory_provider()
+            .expect("default memory provider")
+            .lock()
+            .expect("default memory lock")
+            .query(MemoryScope::Session, "session.1")
+            .expect("default memory query")[0]
+            .memory_record_id,
+        "memory.session"
+    );
+    assert_eq!(
+        report
+            .runtime
+            .memory_provider_by_id("provider.memory.vector")
+            .expect("memory provider by id")
+            .lock()
+            .expect("selected memory lock")
+            .query(MemoryScope::Session, "session.1")
+            .expect("selected memory query")[0]
+            .memory_record_id,
+        "memory.vector"
+    );
+
+    assert_eq!(
+        report.runtime.host_provider_ids(),
+        ["provider.host.local", "provider.host.remote"]
+    );
+    assert_eq!(
+        report
+            .runtime
+            .host_provider()
+            .expect("default host provider")
+            .filesystem(FilesystemRequest::read("fs.default", "workspace/README.md"))
+            .expect("default host reads")
+            .content
+            .as_deref(),
+        Some("local readme")
+    );
+    assert_eq!(
+        report
+            .runtime
+            .host_provider_by_id("provider.host.remote")
+            .expect("host provider by id")
+            .filesystem(FilesystemRequest::read(
+                "fs.selected",
+                "workspace/README.md"
+            ))
+            .expect("selected host reads")
+            .content
+            .as_deref(),
+        Some("remote readme")
+    );
+
+    assert_eq!(
+        report.runtime.telemetry_provider_ids(),
+        ["provider.telemetry.audit", "provider.telemetry.otlp"]
+    );
+    report
+        .runtime
+        .telemetry_provider()
+        .expect("default telemetry provider")
+        .lock()
+        .expect("default telemetry lock")
+        .record_event(KernelEvent::new(
+            "event.default",
+            "agent.test.default",
+            sdkwork_agent_kernel::KernelEventSeverity::Info,
+            "default",
+        ))
+        .expect("default telemetry records");
+    report
+        .runtime
+        .telemetry_provider_by_id("provider.telemetry.otlp")
+        .expect("telemetry provider by id")
+        .lock()
+        .expect("selected telemetry lock")
+        .record_event(KernelEvent::new(
+            "event.selected",
+            "agent.test.selected",
+            sdkwork_agent_kernel::KernelEventSeverity::Info,
+            "selected",
+        ))
+        .expect("selected telemetry records");
+    assert_eq!(
+        telemetry_events
+            .lock()
+            .expect("telemetry event sink lock")
+            .as_slice(),
+        [
+            "provider.telemetry.audit:event.default",
+            "provider.telemetry.otlp:event.selected"
+        ]
+    );
+
+    let manifest = report.runtime.capability_manifest();
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "memory"
+            && provider.provider_id == "provider.memory.session"));
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "memory"
+            && provider.provider_id == "provider.memory.vector"));
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "host"
+            && provider.provider_id == "provider.host.local"));
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "host"
+            && provider.provider_id == "provider.host.remote"));
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "telemetry"
+            && provider.provider_id == "provider.telemetry.audit"));
+    assert!(manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "telemetry"
+            && provider.provider_id == "provider.telemetry.otlp"));
+}
+
+#[test]
 fn runtime_registry_reports_provider_unavailable_for_manifest_only_core_spi_provider() {
     let manifest =
         sdkwork_agent_kernel::AgentManifest::from_json(CORE_SPI_AGENT_MANIFEST_JSON).unwrap();
@@ -403,13 +895,27 @@ impl ModelProvider for FakeModelProvider {
     }
 }
 
-struct FakeToolProvider;
+struct FakeToolProvider {
+    provider_id: &'static str,
+    tool_id: &'static str,
+    response: &'static str,
+}
+
+impl FakeToolProvider {
+    fn new(provider_id: &'static str, tool_id: &'static str, response: &'static str) -> Self {
+        Self {
+            provider_id,
+            tool_id,
+            response,
+        }
+    }
+}
 
 impl ToolProvider for FakeToolProvider {
     fn list_tools(&self) -> Vec<ToolDescriptor> {
         vec![ToolDescriptor::new(
-            "tool.echo",
-            "provider.tool.typed",
+            self.tool_id,
+            self.provider_id,
             "Echo",
             sdkwork_agent_kernel::SideEffectLevel::ReadOnly,
         )]
@@ -420,18 +926,26 @@ impl ToolProvider for FakeToolProvider {
     }
 
     fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
-        Ok(ToolResult::succeeded(call.tool_call_id, "tool response"))
+        Ok(ToolResult::succeeded(call.tool_call_id, self.response))
     }
 }
 
-struct FakePolicyProvider;
+struct FakePolicyProvider {
+    provider_id: &'static str,
+}
+
+impl FakePolicyProvider {
+    fn new(provider_id: &'static str) -> Self {
+        Self { provider_id }
+    }
+}
 
 impl PolicyProvider for FakePolicyProvider {
     fn evaluate(&self, request: PolicyRequest) -> KernelResult<PolicyDecision> {
         Ok(PolicyDecision::allow(
             "decision.1",
             request.policy_request_id,
-            "provider.policy.typed",
+            self.provider_id,
         ))
     }
 }
@@ -442,6 +956,29 @@ impl ContextProvider for FakeContextProvider {
     fn collect(&self, session_id: &str) -> KernelResult<Vec<ContextFrame>> {
         Ok(vec![ContextFrame::new(
             "context.1",
+            session_id,
+            "fake",
+            "context",
+            TrustLevel::TrustedHost,
+            RedactionClassification::Public,
+        )])
+    }
+}
+
+struct NamedContextProvider {
+    context_frame_id: &'static str,
+}
+
+impl NamedContextProvider {
+    fn new(context_frame_id: &'static str) -> Self {
+        Self { context_frame_id }
+    }
+}
+
+impl ContextProvider for NamedContextProvider {
+    fn collect(&self, session_id: &str) -> KernelResult<Vec<ContextFrame>> {
+        Ok(vec![ContextFrame::new(
+            self.context_frame_id,
             session_id,
             "fake",
             "context",
@@ -478,11 +1015,62 @@ impl MemoryProvider for FakeMemoryProvider {
     }
 }
 
+struct NamedMemoryProvider {
+    memory_record_id: &'static str,
+}
+
+impl NamedMemoryProvider {
+    fn new(memory_record_id: &'static str) -> Self {
+        Self { memory_record_id }
+    }
+}
+
+impl MemoryProvider for NamedMemoryProvider {
+    fn query(&self, scope: MemoryScope, owner_context: &str) -> KernelResult<Vec<MemoryRecord>> {
+        Ok(vec![MemoryRecord::new(
+            self.memory_record_id,
+            scope,
+            owner_context,
+            "memory",
+            TrustLevel::TrustedHost,
+            RedactionClassification::Public,
+        )])
+    }
+
+    fn write(&mut self, _record: MemoryRecord) -> KernelResult<()> {
+        Ok(())
+    }
+
+    fn delete(&mut self, _memory_record_id: &str) -> KernelResult<()> {
+        Ok(())
+    }
+
+    fn export(&self, scope: MemoryScope, owner_context: &str) -> KernelResult<Vec<MemoryRecord>> {
+        self.query(scope, owner_context)
+    }
+}
+
 struct FakePlanningProvider;
 
 impl PlanningProvider for FakePlanningProvider {
     fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> Plan {
         Plan::new("plan.core", task_id, run_id, summary)
+    }
+}
+
+struct NamedPlanningProvider {
+    plan_id: &'static str,
+}
+
+impl NamedPlanningProvider {
+    fn new(plan_id: &'static str) -> Self {
+        Self { plan_id }
+    }
+}
+
+impl PlanningProvider for NamedPlanningProvider {
+    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> Plan {
+        Plan::new(self.plan_id, task_id, run_id, summary)
     }
 }
 
@@ -538,13 +1126,94 @@ impl HostProvider for FakeHostProvider {
     }
 }
 
+struct NamedHostProvider {
+    provider_id: &'static str,
+    read_content: &'static str,
+}
+
+impl NamedHostProvider {
+    fn new(provider_id: &'static str, read_content: &'static str) -> Self {
+        Self {
+            provider_id,
+            read_content,
+        }
+    }
+}
+
+impl HostProvider for NamedHostProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        provider(
+            self.provider_id,
+            "host",
+            vec![
+                "host.filesystem",
+                "host.process",
+                "host.network",
+                "host.secrets",
+            ],
+        )
+    }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
+    }
+
+    fn filesystem(&self, request: FilesystemRequest) -> KernelResult<FilesystemResult> {
+        Ok(FilesystemResult::read(
+            request.operation_id,
+            self.read_content,
+        ))
+    }
+
+    fn process(
+        &self,
+        request: sdkwork_agent_kernel::ProcessRequest,
+    ) -> KernelResult<sdkwork_agent_kernel::ProcessResult> {
+        Ok(sdkwork_agent_kernel::ProcessResult::exited(
+            request.operation_id,
+            0,
+            "",
+            "",
+        ))
+    }
+
+    fn network(
+        &self,
+        request: sdkwork_agent_kernel::NetworkRequest,
+    ) -> KernelResult<sdkwork_agent_kernel::NetworkResult> {
+        Ok(sdkwork_agent_kernel::NetworkResult::response(
+            request.operation_id,
+            200,
+            "",
+        ))
+    }
+
+    fn resolve_secret(&self, secret_ref: SecretRef) -> KernelResult<SecretValue> {
+        Ok(SecretValue::new(secret_ref.secret_ref_id, "secret"))
+    }
+}
+
 #[derive(Debug)]
-struct FakeProtocolAdapter;
+struct FakeProtocolAdapter {
+    adapter_id: &'static str,
+    task_id: &'static str,
+    response_id: &'static str,
+}
+
+impl FakeProtocolAdapter {
+    fn new(adapter_id: &'static str, task_id: &'static str, response_id: &'static str) -> Self {
+        Self {
+            adapter_id,
+            task_id,
+            response_id,
+        }
+    }
+}
 
 impl ProtocolAdapter for FakeProtocolAdapter {
     fn manifest(&self) -> ProtocolAdapterManifest {
         ProtocolAdapterManifest::new(
-            "adapter.protocol.typed",
+            self.adapter_id,
             ProtocolFamily::Http,
             "1.1",
             ProtocolTransport::Http,
@@ -558,7 +1227,7 @@ impl ProtocolAdapter for FakeProtocolAdapter {
     }
 
     fn map_request_to_task(&self, _request: ProtocolAdapterRequest) -> KernelResult<AgentTask> {
-        Ok(AgentTask::new("task.protocol", "session.protocol", "hello"))
+        Ok(AgentTask::new(self.task_id, "session.protocol", "hello"))
     }
 
     fn map_event_to_stream_update(&self, event: KernelEvent) -> KernelResult<ProtocolStreamUpdate> {
@@ -567,7 +1236,7 @@ impl ProtocolAdapter for FakeProtocolAdapter {
 
     fn map_response(&self, task: AgentTask) -> KernelResult<ProtocolAdapterResponse> {
         Ok(ProtocolAdapterResponse::accepted(
-            "response.protocol",
+            self.response_id,
             task.task_id,
         ))
     }
@@ -581,6 +1250,57 @@ impl TelemetryProvider for FakeTelemetryProvider {
     }
 
     fn record_event(&mut self, _event: KernelEvent) -> KernelResult<()> {
+        Ok(())
+    }
+
+    fn record_metric(
+        &mut self,
+        _metric: sdkwork_agent_kernel::TelemetryMetric,
+    ) -> KernelResult<()> {
+        Ok(())
+    }
+
+    fn record_log(&mut self, _log: sdkwork_agent_kernel::TelemetryLogRecord) -> KernelResult<()> {
+        Ok(())
+    }
+
+    fn record_audit(&mut self, _audit: sdkwork_agent_kernel::AuditRecord) -> KernelResult<()> {
+        Ok(())
+    }
+
+    fn start_span(&mut self, _span: sdkwork_agent_kernel::TelemetrySpan) -> KernelResult<()> {
+        Ok(())
+    }
+
+    fn finish_span(&mut self, _span: sdkwork_agent_kernel::TelemetrySpan) -> KernelResult<()> {
+        Ok(())
+    }
+}
+
+struct RecordingTelemetryProvider {
+    provider_id: &'static str,
+    event_ids: Arc<Mutex<Vec<String>>>,
+}
+
+impl RecordingTelemetryProvider {
+    fn new(provider_id: &'static str, event_ids: Arc<Mutex<Vec<String>>>) -> Self {
+        Self {
+            provider_id,
+            event_ids,
+        }
+    }
+}
+
+impl TelemetryProvider for RecordingTelemetryProvider {
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
+    }
+
+    fn record_event(&mut self, event: KernelEvent) -> KernelResult<()> {
+        self.event_ids
+            .lock()
+            .expect("recording telemetry sink lock")
+            .push(format!("{}:{}", self.provider_id, event.event_id));
         Ok(())
     }
 

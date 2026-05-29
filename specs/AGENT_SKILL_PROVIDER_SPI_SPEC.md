@@ -78,6 +78,11 @@ Rules:
 - Manifest-only skill providers are valid for negotiation and introspection.
 - Direct local SPI execution against a manifest-only skill provider `MUST`
   return `provider_unavailable`.
+- Runtime registries `MUST` allow multiple typed skill providers to be
+  registered in a single agent runtime.
+- The first typed skill provider is the deterministic default.
+- Callers that need a specific skill pack implementation `MUST` resolve it by
+  provider id.
 - Typed skill providers `MUST` appear in runtime diagnostics as typed
   registered providers.
 - The runtime capability manifest `MUST` preserve `provider_family: skill`,
@@ -88,6 +93,7 @@ Rules:
 Required cases:
 
 - Typed skill provider registers and appears in capability manifest.
+- Multiple typed skill providers can coexist and be selected by provider id.
 - Manifest-only skill provider negotiates capabilities but direct execution
   returns `provider_unavailable`.
 - Skills can be listed, described, and invoked.

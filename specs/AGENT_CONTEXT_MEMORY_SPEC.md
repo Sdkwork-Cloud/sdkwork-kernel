@@ -63,6 +63,12 @@ Rules:
 - Ranking `SHOULD` be deterministic when inputs are identical.
 - Trimming `MUST` preserve policy-critical frames or explain removal.
 - Explain `MUST` describe why context was included.
+- Runtime registries `MUST` support multiple typed context providers in one
+  agent runtime. The default provider is the deterministic first registered
+  provider; callers that require a specific retrieval, workspace, memory-backed,
+  or host-provided context strategy `MUST` select it by provider id.
+- Context provider diagnostics `MUST` report health per registered provider id
+  without collapsing multiple context implementations into one manifest entry.
 
 ## 3. Memory Record
 
@@ -116,6 +122,12 @@ Rules:
 - Delete/export `MUST` be supported when provider stores personal or regulated
   data.
 - Provider errors `MUST` map to kernel error kinds.
+- Runtime registries `MUST` support multiple typed memory providers in one
+  agent runtime. The default provider is the deterministic first registered
+  provider; callers that require a specific session, tenant, vector, external,
+  or durable memory store `MUST` select it by provider id.
+- Memory provider diagnostics `MUST` report health per registered provider id
+  without collapsing multiple memory implementations into one manifest entry.
 
 ## 5. Redaction And Privacy
 

@@ -341,9 +341,13 @@ Rules:
   configuration providers.
   Provider manifests are the negotiation and introspection surface; typed
   registry entries are the execution surface.
-- Runtime implementations `MUST` support multiple model providers per agent
-  runtime and provider-id selection so one agent can use different LLM
-  implementations without replacing the kernel object model.
+- Runtime implementations `MUST` support multiple typed providers with
+  provider-id selection for the provider families where composition is expected:
+  model, tool, policy, context, memory, planning, host, protocol adapter, MCP,
+  Agent Skill, and telemetry. One agent can use different LLM implementations,
+  tool implementations, context assembly strategies, memory stores, planners,
+  host capability bridges, protocol bridges, MCP integrations, skill packs, and
+  observability sinks without replacing the kernel object model.
 - Runtime implementations that claim MCP support `MUST` expose MCP as
   `provider_family: mcp` with `mcp.tools`, `mcp.resources`, and/or
   `mcp.prompts` capabilities. MCP remains an external protocol surface, not the

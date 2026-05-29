@@ -76,12 +76,23 @@ agent needs:
 - Agent sessions, tasks, runs, steps, messages, parts, and artifacts.
 - Model provider SPI, including multiple model providers per runtime and
   provider-id selection for different LLM implementations.
-- Tool provider SPI.
-- MCP provider SPI for tools, resources, prompts, and server descriptors.
-- Agent Skill provider SPI for discoverable and invocable skill packs.
-- Context and memory SPI.
-- Planning and execution SPI.
+- Tool provider SPI with multiple tool implementations and provider-id
+  selection.
+- Policy provider SPI with multiple policy engines and provider-id selection.
+- MCP provider SPI for tools, resources, prompts, server descriptors, and
+  provider-id selection across multiple MCP implementations.
+- Agent Skill provider SPI for discoverable and invocable skill packs with
+  provider-id selection across multiple skill implementations.
+- Context SPI with multiple context assembly implementations and provider-id
+  selection, plus memory SPI for durable/retrievable state.
+- Planning and execution SPI with multiple planner implementations and
+  provider-id selection.
 - Policy, permission, security, sandbox, and audit hooks.
+- Protocol adapter SPI with multiple protocol bridges and provider-id
+  selection.
+- Memory, host, and telemetry provider SPI families also support multiple
+  registered implementations with deterministic defaults and provider-id
+  selection while preserving synchronized handles for stateful providers.
 - Runtime host SPI for environment, storage, time, secrets, process, network,
   filesystem, and task execution.
 - Event, telemetry, trace, log, metrics, and diagnostic contracts.
@@ -304,7 +315,8 @@ Implemented SPI groups:
   `AgentConfigurationUpgradePlan`, install/upgrade/uninstall policy categories,
   and `agent.install.*` event mapping.
 - Runtime bootstrap: `RuntimeBuilder`, `RuntimeBootstrapReport`,
-  `AgentKernelHost`, `AgentRuntimeRegistration`, `AgentRuntimeSlot`, capability
+  `AgentKernelHost`, `AgentRuntimeRegistration`, `AgentRuntimeSlot`,
+  `AgentRuntimeSlotState`, `AgentRuntimeExecutionHandle`, capability
   negotiation, standard installer/configuration provider registration,
   `agent.install`/`agent.uninstall`/`agent.upgrade`/`agent.configure`
   capability metadata, typed local provider registry accessors for
@@ -312,11 +324,14 @@ Implemented SPI groups:
   `MemoryProvider`, `PlanningProvider`, `HostProvider`, `ProtocolAdapter`,
   `McpProvider`, `AgentSkillProvider`, `TelemetryProvider`, `AgentInstaller`,
   and `AgentConfigurationProvider`,
-  multiple typed model provider registration with provider-id lookup,
-  deterministic default model-provider selection,
+  multiple typed model, tool, policy, context, memory, planning, host, protocol
+  adapter, MCP, Agent Skill, and telemetry provider registration with
+  provider-id lookup,
+  deterministic default provider selection for multi-provider families,
   `min_version`-aware capability negotiation,
   deterministic compatible-provider selection,
-  host-level loading/unloading of multiple runtime implementations,
+  host-level loading, starting, stopping, failing, and active-unload protection
+  for multiple runtime implementations,
   deterministic diagnostics/conformance aggregation for multiple agents,
   manifest-only `provider_unavailable` behavior, synchronized handles for
   stateful memory/telemetry providers, package-manifest-driven provider

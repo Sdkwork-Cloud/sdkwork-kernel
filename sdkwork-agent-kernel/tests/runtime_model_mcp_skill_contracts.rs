@@ -66,8 +66,36 @@ fn runtime_registry_supports_multiple_llm_providers_mcp_and_agent_skills() {
             "1.0.0",
             StaticModelProvider::new("provider.model.anthropic", "anthropic response"),
         )
-        .register_mcp_provider("provider.mcp.github", "1.0.0", FakeMcpProvider)
-        .register_agent_skill_provider("provider.skill.claude", "1.0.0", FakeAgentSkillProvider)
+        .register_mcp_provider(
+            "provider.mcp.github",
+            "1.0.0",
+            FakeMcpProvider::new("provider.mcp.github", "mcp.github", "mcp.github.search"),
+        )
+        .register_mcp_provider(
+            "provider.mcp.gitlab",
+            "1.0.0",
+            FakeMcpProvider::new("provider.mcp.gitlab", "mcp.gitlab", "mcp.gitlab.search"),
+        )
+        .register_agent_skill_provider(
+            "provider.skill.claude",
+            "1.0.0",
+            FakeAgentSkillProvider::new(
+                "provider.skill.claude",
+                "skill.code-review",
+                "claude-sonnet",
+                "reviewed diff",
+            ),
+        )
+        .register_agent_skill_provider(
+            "provider.skill.local",
+            "1.0.0",
+            FakeAgentSkillProvider::new(
+                "provider.skill.local",
+                "skill.local-refactor",
+                "local-model",
+                "refactored locally",
+            ),
+        )
         .bootstrap()
         .expect("runtime bootstraps");
 
@@ -98,6 +126,10 @@ fn runtime_registry_supports_multiple_llm_providers_mcp_and_agent_skills() {
         .expect("selected model invokes");
     assert_eq!(anthropic_model.messages, ["anthropic response"]);
 
+    assert_eq!(
+        report.runtime.mcp_provider_ids(),
+        ["provider.mcp.github", "provider.mcp.gitlab"]
+    );
     let mcp = report
         .runtime
         .mcp_provider()
@@ -123,7 +155,23 @@ fn runtime_registry_supports_multiple_llm_providers_mcp_and_agent_skills() {
         .messages,
         ["review diff"]
     );
+    let gitlab_mcp = report
+        .runtime
+        .mcp_provider_by_id("provider.mcp.gitlab")
+        .expect("gitlab mcp provider is registered");
+    assert_eq!(gitlab_mcp.list_servers()[0].server_id, "mcp.gitlab");
+    assert_eq!(
+        gitlab_mcp
+            .list_tools("mcp.gitlab")
+            .expect("gitlab mcp tools list")[0]
+            .tool_id,
+        "mcp.gitlab.search"
+    );
 
+    assert_eq!(
+        report.runtime.agent_skill_provider_ids(),
+        ["provider.skill.claude", "provider.skill.local"]
+    );
     let skills = report
         .runtime
         .agent_skill_provider()
@@ -144,6 +192,25 @@ fn runtime_registry_supports_multiple_llm_providers_mcp_and_agent_skills() {
         .expect("skill invokes");
     assert_eq!(skill_result.status, AgentSkillStatus::Succeeded);
     assert_eq!(skill_result.output, "reviewed diff");
+    let local_skills = report
+        .runtime
+        .agent_skill_provider_by_id("provider.skill.local")
+        .expect("local skill provider is registered");
+    assert_eq!(
+        local_skills
+            .describe_skill("skill.local-refactor")
+            .expect("local skill exists")
+            .model_hint
+            .as_deref(),
+        Some("local-model")
+    );
+    let local_skill_result = local_skills
+        .invoke_skill(
+            AgentSkillRequest::new("skill-request.2", "skill.local-refactor")
+                .with_argument("scope", "diff"),
+        )
+        .expect("local skill invokes");
+    assert_eq!(local_skill_result.output, "refactored locally");
 
     let capability_manifest = report.runtime.capability_manifest();
     assert!(capability_manifest
@@ -156,6 +223,16 @@ fn runtime_registry_supports_multiple_llm_providers_mcp_and_agent_skills() {
         .iter()
         .any(|provider| provider.provider_family == "skill"
             && provider.provider_id == "provider.skill.claude"));
+    assert!(capability_manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "mcp"
+            && provider.provider_id == "provider.mcp.gitlab"));
+    assert!(capability_manifest
+        .providers
+        .iter()
+        .any(|provider| provider.provider_family == "skill"
+            && provider.provider_id == "provider.skill.local"));
     assert!(capability_manifest
         .capabilities
         .iter()
@@ -204,14 +281,28 @@ impl ModelProvider for StaticModelProvider {
     }
 }
 
-struct FakeMcpProvider;
+struct FakeMcpProvider {
+    provider_id: &'static str,
+    server_id: &'static str,
+    tool_id: &'static str,
+}
+
+impl FakeMcpProvider {
+    fn new(provider_id: &'static str, server_id: &'static str, tool_id: &'static str) -> Self {
+        Self {
+            provider_id,
+            server_id,
+            tool_id,
+        }
+    }
+}
 
 impl McpProvider for FakeMcpProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.mcp.github",
+            self.provider_id,
             "mcp",
-            "github-mcp",
+            self.provider_id,
             "1.0.0",
             vec![
                 "mcp.tools".to_string(),
@@ -227,7 +318,7 @@ impl McpProvider for FakeMcpProvider {
 
     fn list_servers(&self) -> Vec<McpServerDescriptor> {
         vec![
-            McpServerDescriptor::new("mcp.github", "provider.mcp.github", "stdio")
+            McpServerDescriptor::new(self.server_id, self.provider_id, "stdio")
                 .with_capability("tools")
                 .with_capability("resources")
                 .with_capability("prompts"),
@@ -235,22 +326,22 @@ impl McpProvider for FakeMcpProvider {
     }
 
     fn list_tools(&self, server_id: &str) -> KernelResult<Vec<ToolDescriptor>> {
-        assert_eq!(server_id, "mcp.github");
+        assert_eq!(server_id, self.server_id);
         Ok(vec![ToolDescriptor::new(
-            "mcp.github.search",
-            "provider.mcp.github",
-            "GitHub Search",
+            self.tool_id,
+            self.provider_id,
+            "MCP Search",
             SideEffectLevel::ReadOnly,
         )])
     }
 
     fn invoke_tool(&self, server_id: &str, call: ToolCall) -> KernelResult<ToolResult> {
-        assert_eq!(server_id, "mcp.github");
+        assert_eq!(server_id, self.server_id);
         Ok(ToolResult::succeeded(call.tool_call_id, "mcp tool output"))
     }
 
     fn list_resources(&self, server_id: &str) -> KernelResult<Vec<McpResourceDescriptor>> {
-        assert_eq!(server_id, "mcp.github");
+        assert_eq!(server_id, self.server_id);
         Ok(vec![McpResourceDescriptor::new(
             "repo://sdkwork/README.md",
             "README.md",
@@ -259,13 +350,13 @@ impl McpProvider for FakeMcpProvider {
     }
 
     fn read_resource(&self, server_id: &str, uri: &str) -> KernelResult<McpResourceContent> {
-        assert_eq!(server_id, "mcp.github");
+        assert_eq!(server_id, self.server_id);
         assert_eq!(uri, "repo://sdkwork/README.md");
         Ok(McpResourceContent::new(uri, "text/markdown", "# SDKWork"))
     }
 
     fn list_prompts(&self, server_id: &str) -> KernelResult<Vec<McpPromptDescriptor>> {
-        assert_eq!(server_id, "mcp.github");
+        assert_eq!(server_id, self.server_id);
         Ok(vec![McpPromptDescriptor::new(
             "prompt.code-review",
             "Code Review",
@@ -279,7 +370,7 @@ impl McpProvider for FakeMcpProvider {
         prompt_id: &str,
         arguments: Vec<(String, String)>,
     ) -> KernelResult<McpPromptMessage> {
-        assert_eq!(server_id, "mcp.github");
+        assert_eq!(server_id, self.server_id);
         assert_eq!(prompt_id, "prompt.code-review");
         assert_eq!(arguments, [("scope".to_string(), "diff".to_string())]);
         Ok(McpPromptMessage::new(
@@ -289,14 +380,35 @@ impl McpProvider for FakeMcpProvider {
     }
 }
 
-struct FakeAgentSkillProvider;
+struct FakeAgentSkillProvider {
+    provider_id: &'static str,
+    skill_id: &'static str,
+    model_hint: &'static str,
+    output: &'static str,
+}
+
+impl FakeAgentSkillProvider {
+    fn new(
+        provider_id: &'static str,
+        skill_id: &'static str,
+        model_hint: &'static str,
+        output: &'static str,
+    ) -> Self {
+        Self {
+            provider_id,
+            skill_id,
+            model_hint,
+            output,
+        }
+    }
+}
 
 impl AgentSkillProvider for FakeAgentSkillProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.skill.claude",
+            self.provider_id,
             "skill",
-            "claude-skills",
+            self.provider_id,
             "1.0.0",
             vec!["skill.discover".to_string(), "skill.invoke".to_string()],
         )
@@ -308,23 +420,23 @@ impl AgentSkillProvider for FakeAgentSkillProvider {
 
     fn list_skills(&self) -> Vec<AgentSkillDescriptor> {
         vec![AgentSkillDescriptor::new(
-            "skill.code-review",
-            "Code Review",
+            self.skill_id,
+            "Agent Skill",
             "Review code changes and return risks.",
             AgentSkillInvocationMode::ModelInvocable,
         )
-        .with_model_hint("claude-sonnet")
+        .with_model_hint(self.model_hint)
         .with_allowed_tool("Read")
         .with_allowed_tool("Grep")]
     }
 
     fn invoke_skill(&self, request: AgentSkillRequest) -> KernelResult<AgentSkillResult> {
-        assert_eq!(request.skill_id, "skill.code-review");
+        assert_eq!(request.skill_id, self.skill_id);
         assert_eq!(request.argument_value("scope"), Some("diff"));
         Ok(AgentSkillResult::succeeded(
             request.skill_request_id,
             request.skill_id,
-            "reviewed diff",
+            self.output,
         ))
     }
 }

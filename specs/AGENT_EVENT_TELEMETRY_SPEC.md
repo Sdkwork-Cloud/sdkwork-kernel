@@ -222,6 +222,12 @@ Implemented baseline behavior:
   duration, status, attributes, and redaction classification.
 - `TelemetryProvider` defines sinks for events, metrics, logs, audit records,
   span start, span finish, and provider health.
+- Runtime registries `MUST` support multiple typed telemetry providers in one
+  agent runtime. The default provider is the deterministic first registered
+  provider; callers that require a specific audit, event, metrics, logs, traces,
+  or external observability sink `MUST` select it by provider id.
+- Telemetry provider diagnostics `MUST` report health per registered provider
+  id without collapsing multiple telemetry sinks into one manifest entry.
 
 ## 10. Redaction Classification
 

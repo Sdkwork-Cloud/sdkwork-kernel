@@ -558,6 +558,8 @@ components:
         defaultCodeTaskIntent:
           type: [object, 'null']
           additionalProperties: true
+        expectedVersion:
+          $ref: '#/components/schemas/Int64String'
         requestedAt:
           type: string
           format: date-time
@@ -570,6 +572,8 @@ components:
       properties:
         targetStatus:
           $ref: '#/components/schemas/AgentStatus'
+        expectedVersion:
+          $ref: '#/components/schemas/Int64String'
         requestedAt:
           type: string
           format: date-time
@@ -579,6 +583,8 @@ components:
       required:
         - requestedAt
       properties:
+        expectedVersion:
+          $ref: '#/components/schemas/Int64String'
         requestedAt:
           type: string
           format: date-time

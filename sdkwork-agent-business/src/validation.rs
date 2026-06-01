@@ -20,6 +20,10 @@ pub(crate) fn parse_owner_user_id(value: &str) -> KernelResult<u64> {
     parse_int64_string_field(value, "owner_user_id")
 }
 
+pub(crate) fn parse_expected_version(value: &str) -> KernelResult<u64> {
+    parse_int64_string_field(value, "expectedVersion")
+}
+
 pub(crate) fn validate_requested_at(value: &str) -> KernelResult<()> {
     validate_rfc3339_datetime(value, "requestedAt")
 }
@@ -110,6 +114,18 @@ mod tests {
         match error {
             KernelError::Validation { message } => {
                 assert!(message.contains("requestedAt"));
+            }
+            _ => panic!("expected validation error"),
+        }
+    }
+
+    #[test]
+    fn parse_expected_version_uses_api_field_name() {
+        let error = parse_expected_version("1x")
+            .expect_err("invalid expectedVersion should fail");
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("expectedVersion"));
             }
             _ => panic!("expected validation error"),
         }

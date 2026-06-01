@@ -239,6 +239,7 @@ struct UpdateAgentBody {
     visibility: Option<String>,
     tags: Option<Vec<String>>,
     default_code_task_intent: Option<CodeTaskIntentBody>,
+    expected_version: Option<String>,
     requested_at: String,
 }
 
@@ -246,18 +247,21 @@ struct UpdateAgentBody {
 #[serde(rename_all = "camelCase")]
 struct UpdateAgentStatusBody {
     target_status: String,
+    expected_version: Option<String>,
     requested_at: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeleteAgentBody {
+    expected_version: Option<String>,
     requested_at: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RestoreAgentBody {
+    expected_version: Option<String>,
     requested_at: String,
 }
 
@@ -558,6 +562,7 @@ async fn app_delete_agent(
     let command = DeleteAgentRequestDto {
         tenant_id: query.tenant_id,
         agent_id,
+        expected_version: body.expected_version,
         requested_at: body.requested_at,
     }
     .into_command(subject)
@@ -596,6 +601,7 @@ async fn backend_update_agent_status(
     let command = UpdateAgentStatusRequestDto {
         tenant_id: query.tenant_id,
         agent_id,
+        expected_version: body.expected_version,
         target_status: body.target_status,
         requested_at: body.requested_at,
     }
@@ -793,6 +799,7 @@ async fn execute_update(
     let command = UpdateAgentRequestDto {
         tenant_id: query.tenant_id,
         agent_id,
+        expected_version: body.expected_version,
         display_name: body.display_name,
         description: body.description,
         visibility: body.visibility,
@@ -820,6 +827,7 @@ async fn execute_restore(
     let command = RestoreAgentRequestDto {
         tenant_id: query.tenant_id,
         agent_id,
+        expected_version: body.expected_version,
         requested_at: body.requested_at,
     }
     .into_command(subject)

@@ -5,7 +5,8 @@ use crate::application::{
 use crate::domain::{AgentBusinessRecord, AgentBusinessStatus, AgentVisibility};
 use crate::ports::AgentListQuery;
 use crate::validation::{
-    parse_organization_id, parse_owner_user_id, parse_tenant_id, validate_requested_at,
+    parse_expected_version, parse_organization_id, parse_owner_user_id, parse_tenant_id,
+    validate_requested_at,
 };
 use sdkwork_agent_kernel::{AgentManifest, KernelError, KernelResult, PolicySubject};
 use sdkwork_code_kernel::CodeTaskIntent;
@@ -82,6 +83,7 @@ impl CreateAgentRequestDto {
 pub struct UpdateAgentRequestDto {
     pub tenant_id: String,
     pub agent_id: String,
+    pub expected_version: Option<String>,
     pub display_name: Option<String>,
     pub description: Option<String>,
     pub visibility: Option<String>,
@@ -98,9 +100,15 @@ impl UpdateAgentRequestDto {
             .as_ref()
             .map(|value| parse_visibility(value))
             .transpose()?;
+        let expected_version = self
+            .expected_version
+            .as_deref()
+            .map(parse_expected_version)
+            .transpose()?;
         Ok(UpdateAgentCommand {
             tenant_id: parse_tenant_id(&self.tenant_id)?,
             agent_id: self.agent_id,
+            expected_version,
             display_name: self.display_name,
             description: self.description,
             visibility,
@@ -116,6 +124,7 @@ impl UpdateAgentRequestDto {
 pub struct UpdateAgentStatusRequestDto {
     pub tenant_id: String,
     pub agent_id: String,
+    pub expected_version: Option<String>,
     pub target_status: String,
     pub requested_at: String,
 }
@@ -123,9 +132,15 @@ pub struct UpdateAgentStatusRequestDto {
 impl UpdateAgentStatusRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<ChangeAgentStatusCommand> {
         validate_requested_at(&self.requested_at)?;
+        let expected_version = self
+            .expected_version
+            .as_deref()
+            .map(parse_expected_version)
+            .transpose()?;
         Ok(ChangeAgentStatusCommand {
             tenant_id: parse_tenant_id(&self.tenant_id)?,
             agent_id: self.agent_id,
+            expected_version,
             target_status: parse_status(&self.target_status)?,
             requested_by,
             requested_at: self.requested_at,
@@ -137,15 +152,22 @@ impl UpdateAgentStatusRequestDto {
 pub struct DeleteAgentRequestDto {
     pub tenant_id: String,
     pub agent_id: String,
+    pub expected_version: Option<String>,
     pub requested_at: String,
 }
 
 impl DeleteAgentRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<DeleteAgentCommand> {
         validate_requested_at(&self.requested_at)?;
+        let expected_version = self
+            .expected_version
+            .as_deref()
+            .map(parse_expected_version)
+            .transpose()?;
         Ok(DeleteAgentCommand {
             tenant_id: parse_tenant_id(&self.tenant_id)?,
             agent_id: self.agent_id,
+            expected_version,
             requested_by,
             requested_at: self.requested_at,
         })
@@ -156,15 +178,22 @@ impl DeleteAgentRequestDto {
 pub struct RestoreAgentRequestDto {
     pub tenant_id: String,
     pub agent_id: String,
+    pub expected_version: Option<String>,
     pub requested_at: String,
 }
 
 impl RestoreAgentRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<RestoreAgentCommand> {
         validate_requested_at(&self.requested_at)?;
+        let expected_version = self
+            .expected_version
+            .as_deref()
+            .map(parse_expected_version)
+            .transpose()?;
         Ok(RestoreAgentCommand {
             tenant_id: parse_tenant_id(&self.tenant_id)?,
             agent_id: self.agent_id,
+            expected_version,
             requested_by,
             requested_at: self.requested_at,
         })
@@ -355,6 +384,7 @@ mod tests {
         let result = UpdateAgentStatusRequestDto {
             tenant_id: "1".to_string(),
             agent_id: "agent.alpha".to_string(),
+            expected_version: None,
             target_status: "ready".to_string(),
             requested_at: "2026-06-01T00:00:00Z".to_string(),
         }
@@ -397,6 +427,7 @@ mod tests {
         let restore_error = RestoreAgentRequestDto {
             tenant_id: "1".to_string(),
             agent_id: "agent.alpha".to_string(),
+            expected_version: None,
             requested_at: "not-a-date".to_string(),
         }
         .into_command(sample_subject())
@@ -404,6 +435,30 @@ mod tests {
         match restore_error {
             KernelError::Validation { message } => {
                 assert!(message.contains("requestedAt"));
+            }
+            _ => panic!("expected validation error"),
+        }
+    }
+
+    #[test]
+    fn invalid_expected_version_is_rejected_for_mutation_commands() {
+        let update_error = UpdateAgentRequestDto {
+            tenant_id: "1".to_string(),
+            agent_id: "agent.alpha".to_string(),
+            expected_version: Some("1x".to_string()),
+            display_name: None,
+            description: None,
+            visibility: None,
+            tags: None,
+            default_code_task_intent: None,
+            requested_at: "2026-06-01T00:00:00Z".to_string(),
+        }
+        .into_command(sample_subject())
+        .expect_err("invalid expectedVersion should fail");
+
+        match update_error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("expectedVersion"));
             }
             _ => panic!("expected validation error"),
         }

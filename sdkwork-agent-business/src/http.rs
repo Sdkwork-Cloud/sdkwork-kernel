@@ -374,12 +374,35 @@ struct ApiProblem {
     response: ProblemDetailResponse,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum ErrorCategory {
+    Validation,
+    Permission,
+    Business,
+    Concurrency,
+    Resource,
+    Internal,
+}
+
+impl ErrorCategory {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Validation => "validation",
+            Self::Permission => "permission",
+            Self::Business => "business",
+            Self::Concurrency => "concurrency",
+            Self::Resource => "resource",
+            Self::Internal => "internal",
+        }
+    }
+}
+
 impl ApiProblem {
     fn validation(detail: impl Into<String>) -> Self {
         Self::new(
             StatusCode::BAD_REQUEST,
             "validation_error",
-            "validation",
+            ErrorCategory::Validation,
             false,
             detail,
         )
@@ -389,35 +412,47 @@ impl ApiProblem {
         Self::new(
             StatusCode::FORBIDDEN,
             "permission_required",
-            "permission",
+            ErrorCategory::Permission,
             false,
             detail,
         )
     }
 
     fn conflict(detail: impl Into<String>) -> Self {
-        Self::new(StatusCode::CONFLICT, "conflict", "business", false, detail)
+        Self::new(
+            StatusCode::CONFLICT,
+            "conflict",
+            ErrorCategory::Business,
+            false,
+            detail,
+        )
     }
 
     fn version_conflict(detail: impl Into<String>) -> Self {
         Self::new(
             StatusCode::CONFLICT,
             "version_conflict",
-            "concurrency",
+            ErrorCategory::Concurrency,
             true,
             detail,
         )
     }
 
     fn not_found(detail: impl Into<String>) -> Self {
-        Self::new(StatusCode::NOT_FOUND, "not_found", "resource", false, detail)
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "not_found",
+            ErrorCategory::Resource,
+            false,
+            detail,
+        )
     }
 
     fn internal(detail: impl Into<String>) -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             "internal_error",
-            "internal",
+            ErrorCategory::Internal,
             false,
             detail,
         )
@@ -426,7 +461,7 @@ impl ApiProblem {
     fn new(
         status: StatusCode,
         code: impl Into<String>,
-        error_category: impl Into<String>,
+        error_category: ErrorCategory,
         retryable: bool,
         detail: impl Into<String>,
     ) -> Self {
@@ -439,7 +474,7 @@ impl ApiProblem {
                 status: status.as_u16(),
                 detail: detail.into(),
                 code,
-                error_category: error_category.into(),
+                error_category: error_category.as_str().to_string(),
                 retryable,
             },
         }
@@ -473,7 +508,7 @@ impl ApiProblem {
         Self::new(
             rejection.status(),
             "validation_error",
-            "validation",
+            ErrorCategory::Validation,
             false,
             format!("invalid json request: {}", rejection.body_text()),
         )
@@ -483,7 +518,7 @@ impl ApiProblem {
         Self::new(
             rejection.status(),
             "validation_error",
-            "validation",
+            ErrorCategory::Validation,
             false,
             format!("invalid query request: {}", rejection.body_text()),
         )
@@ -493,7 +528,7 @@ impl ApiProblem {
         Self::new(
             rejection.status(),
             "validation_error",
-            "validation",
+            ErrorCategory::Validation,
             false,
             format!("invalid path request: {}", rejection.body_text()),
         )

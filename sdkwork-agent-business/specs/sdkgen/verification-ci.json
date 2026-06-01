@@ -2,7 +2,7 @@
     "schemaVersion":  1,
     "module":  "sdkwork-agent-business",
     "mode":  "DryRun",
-    "startedAt":  "2026-06-01T16:25:25.4340088+08:00",
+    "startedAt":  "2026-06-01T16:28:39.7707156+08:00",
     "skipBuild":  true,
     "cleanTmp":  false,
     "sdkgenPath":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\sdk\\sdkwork-sdk-generator\\bin\\sdkgen.js",
@@ -57,8 +57,8 @@
     "applyResults":  [
 
                      ],
-    "finishedAt":  "2026-06-01T16:25:29.0397915+08:00",
-    "durationSeconds":  3.606,
+    "finishedAt":  "2026-06-01T16:28:41.8136535+08:00",
+    "durationSeconds":  2.043,
     "tmpRemoved":  false,
     "tmpExistsAfterRun":  false
 }

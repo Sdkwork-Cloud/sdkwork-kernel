@@ -68,3 +68,4 @@
 - Operation-level OpenAPI responses now include explicit `409` `version_conflict` examples for update/delete/restore/status operations, and SDK apply verification completed (`verify-sdkgen.ps1 -Mode Apply -CleanTmp`): pass
 - Create conflict semantics completed: app/backend `agents.create` now include operation-level `409 conflict` examples (duplicate `agent_id/code`), with HTTP contract test coverage for duplicate create: pass
 - `ProblemDetail` contract enriched with `errorCategory` and `retryable` in runtime response + app/backend OpenAPI schema/examples; HTTP contract tests assert validation/conflict/version_conflict category and retryability semantics: pass
+- `errorCategory` mapping refactored to a centralized internal enum (`ErrorCategory`) for deterministic classification and lower maintenance risk when adding new error codes: pass

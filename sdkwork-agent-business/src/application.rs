@@ -328,6 +328,21 @@ where
         Ok(self.repository.list(&command.query))
     }
 
+    pub fn list_agent_audit_events(
+        &mut self,
+        tenant_id: u64,
+        agent_id: &str,
+        requested_by: PolicySubject,
+    ) -> KernelResult<Vec<KernelEvent>> {
+        self.authorize(
+            "agent.business.audit.read",
+            requested_by,
+            format!("agent.business.{}", agent_id),
+            "audit.read",
+        )?;
+        self.audit_sink.list_events(tenant_id, agent_id)
+    }
+
     fn authorize(
         &mut self,
         request_id: impl Into<String>,

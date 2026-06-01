@@ -35,6 +35,24 @@ impl AgentAuditSink for RecordingAuditSink {
             .push(event);
         Ok(())
     }
+
+    fn list_events(&self, tenant_id: u64, agent_id: &str) -> KernelResult<Vec<KernelEvent>> {
+        let tenant_pattern = format!("tenant_id={tenant_id};");
+        let agent_pattern = format!("agent_id={agent_id};");
+        let mut events = self
+            .events
+            .lock()
+            .expect("recording audit mutex poisoned")
+            .iter()
+            .filter(|event| {
+                event.payload.contains(tenant_pattern.as_str())
+                    && event.payload.contains(agent_pattern.as_str())
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        events.sort_by(|left, right| right.occurred_at.cmp(&left.occurred_at));
+        Ok(events)
+    }
 }
 
 fn sample_manifest(agent_id: &str) -> AgentManifest {
@@ -531,4 +549,41 @@ fn policy_category_constant_is_sdkwork_agent_business_manage() {
         DEFAULT_AGENT_MANAGEMENT_POLICY_CATEGORY,
         "agent.business.manage"
     );
+}
+
+#[test]
+fn list_agent_audit_events_returns_events_for_agent() {
+    let repository = InMemoryAgentRepository::new();
+    let (audit_sink, _events) = RecordingAuditSink::new();
+    let policy_provider = AllowAllPolicyProvider::allow("policy.memory");
+    let mut service = AgentBusinessService::new(repository, audit_sink, policy_provider);
+
+    service
+        .create_agent(create_agent_cmd(
+            "agent.audit.list",
+            1,
+            10,
+            100,
+            "audit-list",
+            "Audit List",
+            "2026-06-01T04:00:00Z",
+        ))
+        .expect("create should succeed");
+
+    service
+        .change_status(ChangeAgentStatusCommand {
+            tenant_id: 1,
+            agent_id: "agent.audit.list".to_string(),
+            target_status: AgentBusinessStatus::Active,
+            requested_by: sample_subject(),
+            requested_at: "2026-06-01T04:05:00Z".to_string(),
+        })
+        .expect("status transition should succeed");
+
+    let events = service
+        .list_agent_audit_events(1, "agent.audit.list", sample_subject())
+        .expect("list audit events should succeed");
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0].event_type, "agent.business.status_changed");
+    assert_eq!(events[1].event_type, "agent.business.created");
 }

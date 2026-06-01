@@ -113,6 +113,23 @@ impl AgentAuditSink for InMemoryAgentAuditSink {
         self.events.push(event);
         Ok(())
     }
+
+    fn list_events(&self, tenant_id: u64, agent_id: &str) -> KernelResult<Vec<KernelEvent>> {
+        let tenant_pattern = format!("tenant_id={tenant_id};");
+        let agent_pattern = format!("agent_id={agent_id};");
+        let mut events: Vec<KernelEvent> = self
+            .events
+            .iter()
+            .filter(|event| {
+                event.payload.contains(tenant_pattern.as_str())
+                    && event.payload.contains(agent_pattern.as_str())
+            })
+            .cloned()
+            .collect();
+
+        events.sort_by(|left, right| right.occurred_at.cmp(&left.occurred_at));
+        Ok(events)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

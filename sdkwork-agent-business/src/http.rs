@@ -82,6 +82,14 @@ impl AgentAuditSink for DynAgentAuditSink {
     fn record(&mut self, event: sdkwork_agent_kernel::KernelEvent) -> KernelResult<()> {
         self.0.record(event)
     }
+
+    fn list_events(
+        &self,
+        tenant_id: u64,
+        agent_id: &str,
+    ) -> KernelResult<Vec<sdkwork_agent_kernel::KernelEvent>> {
+        self.0.list_events(tenant_id, agent_id)
+    }
 }
 
 impl PolicyProvider for DynPolicyProvider {
@@ -167,6 +175,12 @@ struct ListAgentsQueryParams {
 #[derive(Debug, Clone, Deserialize)]
 struct TenantQueryParams {
     tenant_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TenantAgentPathParams {
+    #[serde(rename = "agentId")]
+    agent_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -498,17 +512,48 @@ async fn backend_update_agent_status(
 }
 
 async fn backend_list_agent_audit_events(
+    State(state): State<AgentHttpState>,
+    Path(path): Path<TenantAgentPathParams>,
     Query(query): Query<ListAgentsQueryParams>,
+    headers: HeaderMap,
 ) -> Result<Json<AgentAuditEventsListResponse>, ApiProblem> {
+    let subject = extract_policy_subject(headers, query.tenant_id.as_str())?;
+    let tenant_id = query
+        .tenant_id
+        .parse::<u64>()
+        .map_err(|_| ApiProblem::validation("tenant_id must be int64 string"))?;
+    let events = with_service_mut(&state, |service| {
+        service.list_agent_audit_events(tenant_id, path.agent_id.as_str(), subject)
+    })?;
+
     let (page, page_size) = normalized_pagination(query.page, query.page_size);
+    let total_items = events.len();
+    let total_pages = if total_items == 0 {
+        0
+    } else {
+        total_items.div_ceil(page_size)
+    };
+    let paged = paginate(events, page, page_size);
+
+    let items: Vec<AgentAuditEventResponse> = paged
+        .into_iter()
+        .map(|event| AgentAuditEventResponse {
+            event_id: event.event_id,
+            event_type: event.event_type,
+            severity: kernel_event_severity(event.severity).to_string(),
+            payload: event.payload,
+            occurred_at: event.occurred_at.unwrap_or_default(),
+        })
+        .collect();
+
     Ok(Json(AgentAuditEventsListResponse {
         data: AgentAuditEventsData {
-            items: Vec::new(),
+            items,
             page_info: PageInfoResponse {
                 page,
                 page_size,
-                total_items: "0".to_string(),
-                total_pages: 0,
+                total_items: total_items.to_string(),
+                total_pages,
             },
         },
     }))
@@ -715,6 +760,15 @@ fn intent_to_value(intent: &CodeTaskIntent) -> Value {
         "contextPaths": intent.context_paths,
         "constraints": intent.constraints,
     })
+}
+
+fn kernel_event_severity(severity: sdkwork_agent_kernel::KernelEventSeverity) -> &'static str {
+    match severity {
+        sdkwork_agent_kernel::KernelEventSeverity::Debug => "debug",
+        sdkwork_agent_kernel::KernelEventSeverity::Info => "info",
+        sdkwork_agent_kernel::KernelEventSeverity::Warn => "warn",
+        sdkwork_agent_kernel::KernelEventSeverity::Error => "error",
+    }
 }
 
 fn extract_policy_subject(headers: HeaderMap, tenant_id: &str) -> Result<PolicySubject, ApiProblem> {

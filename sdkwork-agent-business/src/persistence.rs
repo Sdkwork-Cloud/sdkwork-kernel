@@ -23,6 +23,9 @@ pub const SQL_LIST_AGENT_BUSINESS: &str =
     "SELECT id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, status, visibility, tags_json, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at, version FROM ai_agent_business WHERE tenant_id = $1 ORDER BY updated_at DESC";
 pub const SQL_INSERT_AUDIT_EVENT: &str =
     "INSERT INTO ai_agent_business_audit_event (uuid, tenant_id, organization_id, agent_business_id, agent_id, action, subject_id, subject_tenant_id, request_id, trace_id, payload_json, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)";
+#[cfg(feature = "postgres-sync")]
+pub const SQL_LIST_AUDIT_EVENTS_BY_TENANT_AND_AGENT_ID: &str =
+    "SELECT id, uuid, tenant_id, organization_id, agent_business_id, agent_id, action, subject_id, subject_tenant_id, request_id, trace_id, payload_json, created_at::text AS created_at FROM ai_agent_business_audit_event WHERE tenant_id = $1 AND agent_id = $2 ORDER BY created_at DESC";
 pub const SQL_NEXT_AGENT_BUSINESS_ID: &str =
     "SELECT nextval(pg_get_serial_sequence('ai_agent_business', 'id')) AS next_id";
 
@@ -175,6 +178,36 @@ impl AgentAuditEventRow {
             .occurred_at(self.created_at),
         )
     }
+
+    #[cfg(feature = "postgres-sync")]
+    fn from_pg_row(row: &Row) -> KernelResult<Self> {
+        Ok(Self {
+            id: int64_to_u64(row.try_get::<_, i64>("id").map_err(map_postgres_error)?, "id")?,
+            uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+            tenant_id: int64_to_u64(
+                row.try_get::<_, i64>("tenant_id").map_err(map_postgres_error)?,
+                "tenant_id",
+            )?,
+            organization_id: int64_to_u64(
+                row.try_get::<_, i64>("organization_id")
+                    .map_err(map_postgres_error)?,
+                "organization_id",
+            )?,
+            agent_business_id: int64_to_u64(
+                row.try_get::<_, i64>("agent_business_id")
+                    .map_err(map_postgres_error)?,
+                "agent_business_id",
+            )?,
+            agent_id: row.try_get("agent_id").map_err(map_postgres_error)?,
+            action: row.try_get("action").map_err(map_postgres_error)?,
+            subject_id: row.try_get("subject_id").map_err(map_postgres_error)?,
+            subject_tenant_id: row.try_get("subject_tenant_id").map_err(map_postgres_error)?,
+            request_id: row.try_get("request_id").map_err(map_postgres_error)?,
+            trace_id: row.try_get("trace_id").map_err(map_postgres_error)?,
+            payload_json: row.try_get("payload_json").map_err(map_postgres_error)?,
+            created_at: row.try_get("created_at").map_err(map_postgres_error)?,
+        })
+    }
 }
 
 pub trait PostgresAgentRepositoryAdapter {
@@ -234,6 +267,10 @@ where
 
 pub trait PostgresAuditAdapter {
     fn insert_audit_row(&mut self, row: AgentAuditEventRow) -> KernelResult<()>;
+    fn list_audit_rows(&self, tenant_id: u64, agent_id: &str) -> KernelResult<Vec<AgentAuditEventRow>> {
+        let _ = (tenant_id, agent_id);
+        Ok(Vec::new())
+    }
 }
 
 #[cfg(feature = "postgres-sync")]
@@ -451,6 +488,16 @@ impl PostgresAuditAdapter for SyncPostgresAdapter {
             Ok(())
         })
     }
+
+    fn list_audit_rows(&self, tenant_id: u64, agent_id: &str) -> KernelResult<Vec<AgentAuditEventRow>> {
+        let tenant_id = u64_to_i64(tenant_id, "tenant_id")?;
+        self.with_locked_client(|client| {
+            let rows = client
+                .query(SQL_LIST_AUDIT_EVENTS_BY_TENANT_AND_AGENT_ID, &[&tenant_id, &agent_id])
+                .map_err(map_postgres_error)?;
+            rows.iter().map(AgentAuditEventRow::from_pg_row).collect()
+        })
+    }
 }
 
 pub struct PostgresAgentAuditSink<A>
@@ -498,6 +545,14 @@ where
             self.agent_id.as_str(),
         )?;
         self.adapter.insert_audit_row(row)
+    }
+
+    fn list_events(&self, tenant_id: u64, agent_id: &str) -> KernelResult<Vec<KernelEvent>> {
+        self.adapter
+            .list_audit_rows(tenant_id, agent_id)?
+            .into_iter()
+            .map(AgentAuditEventRow::into_kernel_event)
+            .collect()
     }
 }
 

@@ -49,4 +49,8 @@ pub trait AgentRepository {
 
 pub trait AgentAuditSink {
     fn record(&mut self, event: KernelEvent) -> KernelResult<()>;
+
+    fn list_events(&self, _tenant_id: u64, _agent_id: &str) -> KernelResult<Vec<KernelEvent>> {
+        Ok(Vec::new())
+    }
 }

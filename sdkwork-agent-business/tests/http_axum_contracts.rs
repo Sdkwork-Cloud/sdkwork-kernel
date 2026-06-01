@@ -214,3 +214,57 @@ async fn delete_without_requested_at_should_return_bad_request() {
         .expect("request should return validation error");
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
+
+#[tokio::test]
+async fn backend_audit_events_should_return_recorded_items() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.audit", "Audit").await;
+
+    let status_request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.audit/status?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "targetStatus": "active",
+                "requestedAt": "2026-06-01T02:00:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let status_response = app
+        .clone()
+        .oneshot(auth_headers(status_request))
+        .await
+        .expect("status request should succeed");
+    assert_eq!(status_response.status(), StatusCode::OK);
+
+    let list_request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/ai/agents/agent.audit/audit_events?tenant_id=1&page=1&page_size=10")
+        .body(Body::empty())
+        .expect("request should be built");
+    let list_response = app
+        .clone()
+        .oneshot(auth_headers(list_request))
+        .await
+        .expect("audit list should succeed");
+    assert_eq!(list_response.status(), StatusCode::OK);
+
+    let body_bytes = to_bytes(list_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    let items = body_json["data"]["items"]
+        .as_array()
+        .expect("items should be array");
+    assert!(!items.is_empty(), "audit list should not be empty");
+    assert_eq!(body_json["data"]["pageInfo"]["totalItems"], "2");
+}

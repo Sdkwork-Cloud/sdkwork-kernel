@@ -70,3 +70,4 @@
 - `ProblemDetail` contract enriched with `errorCategory` and `retryable` in runtime response + app/backend OpenAPI schema/examples; HTTP contract tests assert validation/conflict/version_conflict category and retryability semantics: pass
 - `errorCategory` mapping refactored to a centralized internal enum (`ErrorCategory`) for deterministic classification and lower maintenance risk when adding new error codes: pass
 - Operation-level `403 permission_required` and `404 not_found` examples added for core create/retrieve/update/delete/restore/status operations, with HTTP contract tests for permission-denied and missing-resource responses (`errorCategory`/`retryable` validated): pass
+- Backend `agents.auditEvents.list` now defines operation-level `403 permission_required` problem example, and HTTP contract tests now cover missing-resource `404 not_found` semantics for delete/status/restore plus audit-events permission-denied regression: pass

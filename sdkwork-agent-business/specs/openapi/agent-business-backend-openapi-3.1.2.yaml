@@ -395,6 +395,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentAuditEventListResponse'
+        '403':
+          description: Permission denied
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/permission_required
+                title: permission_required
+                status: 403
+                detail: agent management denied
+                code: permission_required
+                errorCategory: permission
+                retryable: false
         default:
           $ref: '#/components/responses/Problem'
 components:

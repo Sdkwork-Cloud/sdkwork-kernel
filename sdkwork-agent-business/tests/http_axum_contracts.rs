@@ -1069,3 +1069,153 @@ async fn permission_denied_should_return_permission_problem_detail() {
     assert_eq!(body_json["errorCategory"], "permission");
     assert_eq!(body_json["retryable"], false);
 }
+
+#[tokio::test]
+async fn delete_missing_agent_should_return_not_found_problem_detail() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri("/app/v3/api/ai/agents/agent.missing.delete?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "requestedAt": "2026-06-01T08:00:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("request should return problem detail");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "not_found");
+    assert_eq!(body_json["errorCategory"], "resource");
+    assert_eq!(body_json["retryable"], false);
+}
+
+#[tokio::test]
+async fn status_missing_agent_should_return_not_found_problem_detail() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.missing.status/status?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "targetStatus": "active",
+                "requestedAt": "2026-06-01T08:01:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("request should return problem detail");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "not_found");
+    assert_eq!(body_json["errorCategory"], "resource");
+    assert_eq!(body_json["retryable"], false);
+}
+
+#[tokio::test]
+async fn restore_missing_agent_should_return_not_found_problem_detail() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.missing.restore/restore?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "requestedAt": "2026-06-01T08:02:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("request should return problem detail");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "not_found");
+    assert_eq!(body_json["errorCategory"], "resource");
+    assert_eq!(body_json["retryable"], false);
+}
+
+#[tokio::test]
+async fn backend_audit_events_permission_denied_should_return_forbidden_problem_detail() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider {
+            provider_id: "policy.memory".to_string(),
+            mode: PolicyMode::Deny("agent.business.denied".to_string()),
+        },
+    );
+    let app = build_combined_router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/ai/agents/agent.audit.denied/audit_events?tenant_id=1")
+        .body(Body::empty())
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("request should return problem detail");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "permission_required");
+    assert_eq!(body_json["errorCategory"], "permission");
+    assert_eq!(body_json["retryable"], false);
+}

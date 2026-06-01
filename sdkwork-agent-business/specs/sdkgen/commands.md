@@ -42,3 +42,25 @@ node sdk/sdkwork-sdk-generator/bin/sdkgen.js generate \
 - Operation IDs use dotted lowerCamelCase resource style.
 - Security uses dual token (`AuthToken` + `AccessToken`) for protected endpoints.
 - Problem responses use `application/problem+json` with RFC 9457 shape.
+
+## Module-Local SDK Verification
+
+Run inside repository root to validate both app/backend OpenAPI contracts
+against `sdkwork-sdk-generator` without touching external SDK repositories.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun
+```
+
+Apply generation into `apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/.tmp`
+and run generated package check/build:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode Apply
+```
+
+Optional cleanup of temporary outputs after verification:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode Apply -CleanTmp
+```

@@ -106,3 +106,7 @@ cargo test --features http-axum --manifest-path apps/sdkwork-birdcoder/kernel/sd
 ```bash
 cargo test --features postgres-sync --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml
 ```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun
+```

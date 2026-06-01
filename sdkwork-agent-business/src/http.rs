@@ -19,6 +19,8 @@ use sdkwork_code_kernel::CodeTaskIntent;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 const HEADER_SUBJECT_ID: &str = "x-subject-id";
 const HEADER_SUBJECT_TENANT_ID: &str = "x-subject-tenant-id";
@@ -851,35 +853,65 @@ fn filter_audit_events(
         }
     }
 
-    let filtered = events
-        .into_iter()
-        .filter(|event| {
-            let action_ok = query
-                .action
-                .as_ref()
-                .map(|action| action == audit_event_action(event.event_type.as_str()))
-                .unwrap_or(true);
+    let from = parse_optional_query_datetime("from", query.from.as_deref())?;
+    let to = parse_optional_query_datetime("to", query.to.as_deref())?;
+    if let (Some(from_value), Some(to_value)) = (from.as_ref(), to.as_ref()) {
+        if from_value > to_value {
+            return Err(ApiProblem::validation("from must be less than or equal to to"));
+        }
+    }
 
-            let occurred_at = event.occurred_at.as_deref().unwrap_or("");
-            let from_ok = query
-                .from
-                .as_ref()
-                .map(|from| occurred_at >= from.as_str())
-                .unwrap_or(true);
-            let to_ok = query
-                .to
-                .as_ref()
-                .map(|to| occurred_at <= to.as_str())
-                .unwrap_or(true);
+    let mut filtered = Vec::new();
+    for event in events {
+        let action_ok = query
+            .action
+            .as_ref()
+            .map(|action| action == audit_event_action(event.event_type.as_str()))
+            .unwrap_or(true);
+        if !action_ok {
+            continue;
+        }
 
-            action_ok && from_ok && to_ok
-        })
-        .collect();
+        let occurred_at_raw = event
+            .occurred_at
+            .as_deref()
+            .ok_or_else(|| ApiProblem::internal("audit event occurred_at is missing"))?;
+        let occurred_at = OffsetDateTime::parse(occurred_at_raw, &Rfc3339).map_err(|error| {
+            ApiProblem::internal(format!(
+                "audit event occurred_at is not valid rfc3339: {error}"
+            ))
+        })?;
+
+        let from_ok = from
+            .as_ref()
+            .map(|from_value| occurred_at >= *from_value)
+            .unwrap_or(true);
+        let to_ok = to
+            .as_ref()
+            .map(|to_value| occurred_at <= *to_value)
+            .unwrap_or(true);
+        if from_ok && to_ok {
+            filtered.push(event);
+        }
+    }
     Ok(filtered)
 }
 
 fn audit_event_action(event_type: &str) -> &str {
     event_type.rsplit('.').next().unwrap_or(event_type)
+}
+
+fn parse_optional_query_datetime(
+    field_name: &str,
+    value: Option<&str>,
+) -> Result<Option<OffsetDateTime>, ApiProblem> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let parsed = OffsetDateTime::parse(value, &Rfc3339).map_err(|error| {
+        ApiProblem::validation(format!("{field_name} must be RFC3339 date-time: {error}"))
+    })?;
+    Ok(Some(parsed))
 }
 
 fn extract_policy_subject(headers: HeaderMap, tenant_id: &str) -> Result<PolicySubject, ApiProblem> {

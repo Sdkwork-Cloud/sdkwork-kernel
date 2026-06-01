@@ -41,6 +41,9 @@ sdkwork-agent-business/
 |-- tests/
 |   |-- agent_business_service_contracts.rs
 |   `-- http_axum_contracts.rs
+|-- scripts/
+|   |-- verify-sdkgen.ps1
+|   `-- verify-ci.ps1
 `-- specs/
     |-- README.md
     |-- component.spec.json
@@ -109,4 +112,12 @@ cargo test --features postgres-sync --manifest-path apps/sdkwork-birdcoder/kerne
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun -SkipBuild -JsonReportPath specs/sdkgen/verification-latest.json
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-ci.ps1
 ```

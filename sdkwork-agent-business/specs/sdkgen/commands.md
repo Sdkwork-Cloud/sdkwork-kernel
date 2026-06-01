@@ -52,6 +52,12 @@ against `sdkwork-sdk-generator` without touching external SDK repositories.
 powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun
 ```
 
+Generate structured dry-run evidence as JSON:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun -SkipBuild -JsonReportPath specs/sdkgen/verification-latest.json
+```
+
 Apply generation into `apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/.tmp`
 and run generated package check/build:
 
@@ -63,6 +69,24 @@ Optional cleanup of temporary outputs after verification:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode Apply -CleanTmp
+```
+
+## Lightweight CI Verification
+
+Run unit tests and SDK dry-run verification in one command:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-ci.ps1
+```
+
+Skip either phase when diagnosing failures:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-ci.ps1 -SkipCargoTest
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-ci.ps1 -SkipSdkgenDryRun
 ```
 
 ## Latest Verification Record

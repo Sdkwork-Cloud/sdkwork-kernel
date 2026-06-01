@@ -79,3 +79,5 @@ or document this component, but they must not contradict
 - `cargo test --features http-axum --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml`
 - `cargo test --features postgres-sync --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml`
 - `powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun`
+- `powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun -SkipBuild -JsonReportPath specs/sdkgen/verification-latest.json`
+- `powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-ci.ps1`

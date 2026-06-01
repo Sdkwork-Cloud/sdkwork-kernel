@@ -4,7 +4,8 @@
 - Date (local): `2026-06-01`
 - Scope: app/backend OpenAPI -> SDK generation -> package check/build
 - Command:
-  - `powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode Apply -CleanTmp`
+  - `powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode Apply -CleanTmp -JsonReportPath specs/sdkgen/verification-latest.json`
+  - JSON report: `specs/sdkgen/verification-latest.json`
 
 ## Dry-Run Summary
 
@@ -14,9 +15,9 @@
   - risk: `medium`
   - has changes: `true`
 - backend
-  - resolved version: `1.0.12`
-  - change fingerprint: `ef208372b4c073f056ad9a24bf942ca042614033ad7d98d9d9d6318f3397227e`
-  - risk: `medium`
+  - resolved version: `1.0.11`
+  - change fingerprint: `6695a725196dd2609f26554cf072a7962256f5131dec250637c140cbf927dc29`
+  - risk: `high`
   - has changes: `true`
 
 ## Apply Result
@@ -27,10 +28,10 @@
   - generator result: success
   - impact: `build-metadata`, `documentation`
 - backend SDK (`sdkwork-agent-business-backend-sdk`)
-  - fixed version: `1.0.12`
+  - fixed version: `1.0.11`
   - output: `apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/.tmp/agent-business-backend-sdk-typescript`
   - generator result: success
-  - impact: `build-metadata`, `documentation`
+  - impact: `api-surface`, `models`, `runtime`, `build-metadata`, `publish-workflow`, `documentation`, `custom-scaffold`, `unknown`
 
 ## Package Verification
 
@@ -41,7 +42,7 @@
 - backend generated package
   - `publish-core --action check`: pass
   - `publish-core --action build`: pass
-  - npm pack artifact: `sdkwork-backend-sdk-1.0.12.tgz`
+  - npm pack artifact: `sdkwork-backend-sdk-1.0.11.tgz`
 
 ## Cleanup
 

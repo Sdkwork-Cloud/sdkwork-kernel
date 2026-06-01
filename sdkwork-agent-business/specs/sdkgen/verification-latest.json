@@ -1,0 +1,75 @@
+﻿{
+    "schemaVersion":  1,
+    "module":  "sdkwork-agent-business",
+    "mode":  "Apply",
+    "startedAt":  "2026-06-01T14:40:19.6384227+08:00",
+    "skipBuild":  false,
+    "cleanTmp":  true,
+    "sdkgenPath":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\sdk\\sdkwork-sdk-generator\\bin\\sdkgen.js",
+    "plans":  [
+                  {
+                      "name":  "app",
+                      "input":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\apps\\sdkwork-birdcoder\\kernel\\sdkwork-agent-business\\specs\\openapi\\agent-business-app-openapi-3.1.2.yaml",
+                      "output":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\apps\\sdkwork-birdcoder\\kernel\\sdkwork-agent-business\\.tmp\\agent-business-app-sdk-typescript",
+                      "sdkName":  "sdkwork-agent-business-app-sdk",
+                      "sdkType":  "app",
+                      "apiPrefix":  "/app/v3/api",
+                      "sdkVersion":  "1.0.36",
+                      "fingerprint":  "d6798a705898520e5faeedb0de17d32614ebfccc92bb19833939339849ea6547",
+                      "hasChanges":  true,
+                      "riskLevel":  "medium",
+                      "hasDestructiveChanges":  false,
+                      "impactAreas":  [
+                                          "build-metadata",
+                                          "documentation"
+                                      ]
+                  },
+                  {
+                      "name":  "backend",
+                      "input":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\apps\\sdkwork-birdcoder\\kernel\\sdkwork-agent-business\\specs\\openapi\\agent-business-backend-openapi-3.1.2.yaml",
+                      "output":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\apps\\sdkwork-birdcoder\\kernel\\sdkwork-agent-business\\.tmp\\agent-business-backend-sdk-typescript",
+                      "sdkName":  "sdkwork-agent-business-backend-sdk",
+                      "sdkType":  "backend",
+                      "apiPrefix":  "/backend/v3/api",
+                      "sdkVersion":  "1.0.11",
+                      "fingerprint":  "6695a725196dd2609f26554cf072a7962256f5131dec250637c140cbf927dc29",
+                      "hasChanges":  true,
+                      "riskLevel":  "high",
+                      "hasDestructiveChanges":  false,
+                      "impactAreas":  [
+                                          "api-surface",
+                                          "models",
+                                          "runtime",
+                                          "build-metadata",
+                                          "publish-workflow",
+                                          "documentation",
+                                          "custom-scaffold",
+                                          "unknown"
+                                      ]
+                  }
+              ],
+    "applyResults":  [
+                         {
+                             "name":  "app",
+                             "output":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\apps\\sdkwork-birdcoder\\kernel\\sdkwork-agent-business\\.tmp\\agent-business-app-sdk-typescript",
+                             "sdkVersion":  "1.0.36",
+                             "fingerprint":  "d6798a705898520e5faeedb0de17d32614ebfccc92bb19833939339849ea6547",
+                             "generated":  true,
+                             "publishCheck":  "passed",
+                             "publishBuild":  "passed"
+                         },
+                         {
+                             "name":  "backend",
+                             "output":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\apps\\sdkwork-birdcoder\\kernel\\sdkwork-agent-business\\.tmp\\agent-business-backend-sdk-typescript",
+                             "sdkVersion":  "1.0.11",
+                             "fingerprint":  "6695a725196dd2609f26554cf072a7962256f5131dec250637c140cbf927dc29",
+                             "generated":  true,
+                             "publishCheck":  "passed",
+                             "publishBuild":  "passed"
+                         }
+                     ],
+    "finishedAt":  "2026-06-01T14:40:29.5907585+08:00",
+    "durationSeconds":  9.952,
+    "tmpRemoved":  true,
+    "tmpExistsAfterRun":  false
+}

@@ -2,7 +2,8 @@ param(
     [ValidateSet("DryRun", "Apply")]
     [string]$Mode = "DryRun",
     [switch]$SkipBuild,
-    [switch]$CleanTmp
+    [switch]$CleanTmp,
+    [string]$JsonReportPath
 )
 
 Set-StrictMode -Version Latest
@@ -11,6 +12,7 @@ $ErrorActionPreference = "Stop"
 $moduleRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $repoRoot = (Resolve-Path (Join-Path $moduleRoot "..\..\..\..")).Path
 $sdkgen = Join-Path $repoRoot "sdk\sdkwork-sdk-generator\bin\sdkgen.js"
+$startedAt = Get-Date
 
 if (-not (Test-Path $sdkgen)) {
     throw "sdkgen entrypoint not found: $sdkgen"
@@ -94,19 +96,27 @@ function Invoke-SdkPackageVerification {
     param([hashtable]$definition)
 
     if ($SkipBuild) {
-        return
+        return [pscustomobject]@{
+            check = "skipped"
+            build = "skipped"
+        }
     }
 
     Push-Location $definition.output
     try {
-        & node ".\bin\publish-core.mjs" "--language" "typescript" "--project-dir" "." "--action" "check"
+        & node ".\bin\publish-core.mjs" "--language" "typescript" "--project-dir" "." "--action" "check" | Out-Host
         if ($LASTEXITCODE -ne 0) {
             throw "publish check failed for $($definition.name)"
         }
 
-        & node ".\bin\publish-core.mjs" "--language" "typescript" "--project-dir" "." "--action" "build"
+        & node ".\bin\publish-core.mjs" "--language" "typescript" "--project-dir" "." "--action" "build" | Out-Host
         if ($LASTEXITCODE -ne 0) {
             throw "publish build failed for $($definition.name)"
+        }
+
+        return [pscustomobject]@{
+            check = "passed"
+            build = "passed"
         }
     }
     finally {
@@ -114,15 +124,72 @@ function Invoke-SdkPackageVerification {
     }
 }
 
+function Resolve-ReportPath {
+    param([string]$path)
+
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        return $null
+    }
+    if ([System.IO.Path]::IsPathRooted($path)) {
+        return $path
+    }
+    return Join-Path $moduleRoot $path
+}
+
+function Write-JsonReport {
+    param(
+        [string]$reportPath,
+        [object]$reportObject
+    )
+
+    if ([string]::IsNullOrWhiteSpace($reportPath)) {
+        return
+    }
+
+    $reportDirectory = Split-Path -Parent $reportPath
+    if (-not [string]::IsNullOrWhiteSpace($reportDirectory) -and -not (Test-Path $reportDirectory)) {
+        New-Item -ItemType Directory -Path $reportDirectory -Force | Out-Null
+    }
+
+    $reportObject | ConvertTo-Json -Depth 30 | Set-Content -Path $reportPath -Encoding UTF8
+    Write-Host ("JSON report written: {0}" -f $reportPath)
+}
+
+$report = [ordered]@{
+    schemaVersion = 1
+    module = "sdkwork-agent-business"
+    mode = $Mode
+    startedAt = $startedAt.ToString("o")
+    skipBuild = [bool]$SkipBuild
+    cleanTmp = [bool]$CleanTmp
+    sdkgenPath = $sdkgen
+    plans = @()
+    applyResults = @()
+}
+
 $plans = @()
 foreach ($definition in $definitions) {
-    $plan = Invoke-SdkgenDryRunJson -definition $definition
+    $dryRunPlan = Invoke-SdkgenDryRunJson -definition $definition
     $plans += [pscustomobject]@{
         definition = $definition
-        sdkVersion = $plan.sdk.version
-        fingerprint = $plan.changeFingerprint
-        hasChanges = $plan.hasChanges
-        riskLevel = $plan.executionDecision.riskLevel
+        sdkVersion = $dryRunPlan.sdk.version
+        fingerprint = $dryRunPlan.changeFingerprint
+        hasChanges = $dryRunPlan.hasChanges
+        riskLevel = $dryRunPlan.executionDecision.riskLevel
+    }
+    $report.plans += [ordered]@{
+        name = $definition.name
+        input = $definition.input
+        output = $definition.output
+        sdkName = $definition.sdkName
+        sdkType = $definition.sdkType
+        apiPrefix = $definition.apiPrefix
+        sdkVersion = $dryRunPlan.sdk.version
+        fingerprint = $dryRunPlan.changeFingerprint
+        hasChanges = $dryRunPlan.hasChanges
+        riskLevel = $dryRunPlan.executionDecision.riskLevel
+        hasDestructiveChanges = $dryRunPlan.hasDestructiveChanges
+        impactAreas = @($dryRunPlan.changeImpact.areas)
     }
 }
 
@@ -134,11 +201,35 @@ foreach ($plan in $plans) {
 
 if ($Mode -eq "Apply") {
     foreach ($plan in $plans) {
+        $applyResult = [ordered]@{
+            name = $plan.definition.name
+            output = $plan.definition.output
+            sdkVersion = $plan.sdkVersion
+            fingerprint = $plan.fingerprint
+            generated = $false
+            publishCheck = "not_run"
+            publishBuild = "not_run"
+        }
+
         Invoke-SdkgenApply -definition $plan.definition -version $plan.sdkVersion -fingerprint $plan.fingerprint
-        Invoke-SdkPackageVerification -definition $plan.definition
+        $applyResult.generated = $true
+
+        $publish = Invoke-SdkPackageVerification -definition $plan.definition
+        $applyResult.publishCheck = $publish.check
+        $applyResult.publishBuild = $publish.build
+        $report.applyResults += $applyResult
     }
 }
 
 if ($CleanTmp -and (Test-Path $tmpRoot)) {
     Remove-Item -LiteralPath $tmpRoot -Recurse -Force
 }
+
+$finishedAt = Get-Date
+$report.finishedAt = $finishedAt.ToString("o")
+$report.durationSeconds = [Math]::Round(($finishedAt - $startedAt).TotalSeconds, 3)
+$report.tmpRemoved = [bool]$CleanTmp
+$report.tmpExistsAfterRun = Test-Path $tmpRoot
+
+$resolvedReportPath = Resolve-ReportPath -path $JsonReportPath
+Write-JsonReport -reportPath $resolvedReportPath -reportObject $report

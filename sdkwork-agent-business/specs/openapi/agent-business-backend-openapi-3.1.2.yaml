@@ -1,0 +1,550 @@
+openapi: 3.1.2
+info:
+  title: SDKWork Agent Business Backend API
+  version: 0.1.0
+  description: Backend-facing managed agent APIs for sdkwork-agent-business.
+servers:
+  - url: http://localhost:8080
+tags:
+  - name: ai
+    description: Managed AI agent operations for backend/admin surfaces.
+paths:
+  /backend/v3/api/ai/agents:
+    get:
+      tags: [ai]
+      summary: List managed agents for backend administration
+      operationId: agents.list
+      security:
+        - AuthToken: []
+          AccessToken: []
+      x-sdkwork-domain: ai
+      x-sdkwork-resource: agents
+      x-sdkwork-permission: agent.business.list
+      x-sdkwork-tenant-scope: tenant
+      x-sdkwork-audit-event: agent.business.listed
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/OrganizationId'
+        - $ref: '#/components/parameters/OwnerUserId'
+        - $ref: '#/components/parameters/IncludeDeleted'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/SearchQ'
+      responses:
+        '200':
+          description: Managed agent list response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentListResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+    post:
+      tags: [ai]
+      summary: Create a managed agent
+      operationId: agents.create
+      security:
+        - AuthToken: []
+          AccessToken: []
+      x-sdkwork-domain: ai
+      x-sdkwork-resource: agents
+      x-sdkwork-permission: agent.business.create
+      x-sdkwork-tenant-scope: tenant
+      x-sdkwork-audit-event: agent.business.created
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentRequest'
+      responses:
+        '201':
+          description: Created managed agent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /backend/v3/api/ai/agents/{agentId}:
+    get:
+      tags: [ai]
+      summary: Retrieve one managed agent
+      operationId: agents.retrieve
+      security:
+        - AuthToken: []
+          AccessToken: []
+      x-sdkwork-domain: ai
+      x-sdkwork-resource: agents
+      x-sdkwork-permission: agent.business.retrieve
+      x-sdkwork-tenant-scope: tenant
+      x-sdkwork-audit-event: agent.business.retrieved
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/AgentIdPath'
+      responses:
+        '200':
+          description: Managed agent response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+    patch:
+      tags: [ai]
+      summary: Update one managed agent
+      operationId: agents.update
+      security:
+        - AuthToken: []
+          AccessToken: []
+      x-sdkwork-domain: ai
+      x-sdkwork-resource: agents
+      x-sdkwork-permission: agent.business.update
+      x-sdkwork-tenant-scope: tenant
+      x-sdkwork-audit-event: agent.business.updated
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/AgentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAgentRequest'
+      responses:
+        '200':
+          description: Updated managed agent response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /backend/v3/api/ai/agents/{agentId}/status:
+    post:
+      tags: [ai]
+      summary: Update managed agent status
+      operationId: agents.status.update
+      security:
+        - AuthToken: []
+          AccessToken: []
+      x-sdkwork-domain: ai
+      x-sdkwork-resource: agents.status
+      x-sdkwork-permission: agent.business.status.update
+      x-sdkwork-tenant-scope: tenant
+      x-sdkwork-audit-event: agent.business.status_changed
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/AgentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAgentStatusRequest'
+      responses:
+        '200':
+          description: Updated managed agent response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /backend/v3/api/ai/agents/{agentId}/audit_events:
+    get:
+      tags: [ai]
+      summary: List managed agent audit events
+      operationId: agents.auditEvents.list
+      security:
+        - AuthToken: []
+          AccessToken: []
+      x-sdkwork-domain: ai
+      x-sdkwork-resource: agents.auditEvents
+      x-sdkwork-permission: agent.business.audit.read
+      x-sdkwork-tenant-scope: tenant
+      x-sdkwork-audit-event: agent.business.audit_events.listed
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/AgentIdPath'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Managed agent audit events response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentAuditEventListResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+components:
+  securitySchemes:
+    AuthToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    AccessToken:
+      type: apiKey
+      in: header
+      name: Access-Token
+  parameters:
+    TenantId:
+      name: tenant_id
+      in: query
+      required: true
+      description: Tenant id in int64-string form.
+      schema:
+        $ref: '#/components/schemas/Int64String'
+    OrganizationId:
+      name: organization_id
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/Int64String'
+    OwnerUserId:
+      name: owner_user_id
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/Int64String'
+    IncludeDeleted:
+      name: include_deleted
+      in: query
+      required: false
+      schema:
+        type: boolean
+        default: false
+    Page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 20
+    SearchQ:
+      name: q
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    AgentIdPath:
+      name: agentId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+  responses:
+    Problem:
+      description: RFC 9457 problem detail response
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+  schemas:
+    Int64String:
+      type: string
+      pattern: '^[0-9]+$'
+    AgentStatus:
+      type: string
+      enum: [draft, active, disabled, archived, deleted]
+    AgentVisibility:
+      type: string
+      enum: [private, organization, tenant, public]
+    PageInfo:
+      type: object
+      additionalProperties: false
+      required:
+        - page
+        - pageSize
+        - totalItems
+        - totalPages
+      properties:
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 200
+        totalItems:
+          $ref: '#/components/schemas/Int64String'
+        totalPages:
+          type: integer
+          minimum: 0
+    AgentRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - agentId
+        - tenantId
+        - organizationId
+        - ownerUserId
+        - code
+        - displayName
+        - manifest
+        - status
+        - visibility
+        - tags
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          $ref: '#/components/schemas/Int64String'
+        agentId:
+          type: string
+        tenantId:
+          $ref: '#/components/schemas/Int64String'
+        organizationId:
+          $ref: '#/components/schemas/Int64String'
+        ownerUserId:
+          $ref: '#/components/schemas/Int64String'
+        code:
+          type: string
+          minLength: 1
+          maxLength: 128
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: [string, 'null']
+          maxLength: 4096
+        manifest:
+          type: object
+          additionalProperties: true
+        defaultCodeTaskIntent:
+          type: [object, 'null']
+          additionalProperties: true
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+        visibility:
+          $ref: '#/components/schemas/AgentVisibility'
+        tags:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          maxItems: 64
+        version:
+          $ref: '#/components/schemas/Int64String'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        deletedAt:
+          type: [string, 'null']
+          format: date-time
+    AgentResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AgentRecord'
+        requestId:
+          type: string
+    AgentListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [items, pageInfo]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AgentRecord'
+            pageInfo:
+              $ref: '#/components/schemas/PageInfo'
+        requestId:
+          type: string
+    AgentAuditEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - eventType
+        - severity
+        - payload
+        - occurredAt
+      properties:
+        eventId:
+          type: string
+        eventType:
+          type: string
+        severity:
+          type: string
+        payload:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+    AgentAuditEventListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [items, pageInfo]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AgentAuditEvent'
+            pageInfo:
+              $ref: '#/components/schemas/PageInfo'
+        requestId:
+          type: string
+    CreateAgentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - agentId
+        - organizationId
+        - ownerUserId
+        - code
+        - displayName
+        - manifest
+        - visibility
+        - requestedAt
+      properties:
+        agentId:
+          type: string
+          minLength: 1
+          maxLength: 128
+        organizationId:
+          $ref: '#/components/schemas/Int64String'
+        ownerUserId:
+          $ref: '#/components/schemas/Int64String'
+        code:
+          type: string
+          minLength: 1
+          maxLength: 128
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: [string, 'null']
+          maxLength: 4096
+        manifest:
+          type: object
+          additionalProperties: true
+        defaultCodeTaskIntent:
+          type: [object, 'null']
+          additionalProperties: true
+        visibility:
+          $ref: '#/components/schemas/AgentVisibility'
+        tags:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          maxItems: 64
+        requestedAt:
+          type: string
+          format: date-time
+    UpdateAgentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - requestedAt
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: [string, 'null']
+          maxLength: 4096
+        visibility:
+          $ref: '#/components/schemas/AgentVisibility'
+        tags:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          maxItems: 64
+        defaultCodeTaskIntent:
+          type: [object, 'null']
+          additionalProperties: true
+        requestedAt:
+          type: string
+          format: date-time
+    UpdateAgentStatusRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - targetStatus
+        - requestedAt
+      properties:
+        targetStatus:
+          $ref: '#/components/schemas/AgentStatus'
+        requestedAt:
+          type: string
+          format: date-time
+    FieldError:
+      type: object
+      additionalProperties: false
+      required: [field, reason]
+      properties:
+        field:
+          type: string
+        reason:
+          type: string
+    ProblemDetail:
+      type: object
+      additionalProperties: true
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 100
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+        traceId:
+          type: string
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldError'

@@ -1,7 +1,7 @@
 # SDKWork Agent & Code Kernel Standard
 
 Domain: `intelligence`
-Capability: `agent-kernel`, `code-kernel`, `kernel-ui`
+Capability: `agent-kernel`, `agent-business`, `code-kernel`, `kernel-ui`
 Package type: industry kernel standard
 Status: standard candidate
 
@@ -85,6 +85,7 @@ kernel/
 |-- README.md
 |-- specs/
 |-- sdkwork-agent-kernel/
+|-- sdkwork-agent-business/
 |-- sdkwork-code-kernel/
 `-- sdkwork-kernel-ui/
 ```
@@ -172,6 +173,22 @@ The code kernel must expose code-agent mechanisms. Product policy belongs in
 applications and configured providers. For example, whether a product asks the
 user before a specific class of command is a policy decision; the kernel must
 provide the permission hook, event, and decision point.
+
+### `sdkwork-agent-business`
+
+Rust implementation boundary for managed-agent business operations.
+
+This layer depends on `sdkwork-agent-kernel` and `sdkwork-code-kernel` and
+provides:
+
+- Tenant-scoped managed agent lifecycle and CRUD orchestration.
+- Policy-checked status transitions and soft-delete/restore semantics.
+- Audit event contracts for managed operations.
+- App-api and backend-api OpenAPI contracts for SDK generation.
+- Database contracts and SQL baseline for persistence adapters.
+
+This layer must not bypass kernel policy hooks, duplicate agent runtime SPI, or
+introduce frontend transport code.
 
 ### `sdkwork-kernel-ui`
 
@@ -567,6 +584,7 @@ node kernel/sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs
 
 # Rust kernel checks, paths may be refined by concrete crate layout
 cargo test --manifest-path kernel/sdkwork-agent-kernel/Cargo.toml
+cargo test --manifest-path kernel/sdkwork-agent-business/Cargo.toml
 cargo test --manifest-path kernel/sdkwork-code-kernel/Cargo.toml
 
 # Kernel UI checks

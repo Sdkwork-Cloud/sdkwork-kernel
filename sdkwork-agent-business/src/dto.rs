@@ -1,0 +1,382 @@
+use crate::application::{
+    ChangeAgentStatusCommand, CreateAgentCommand, DeleteAgentCommand, GetAgentCommand,
+    ListAgentsCommand, RestoreAgentCommand, UpdateAgentCommand,
+};
+use crate::domain::{AgentBusinessRecord, AgentBusinessStatus, AgentVisibility};
+use crate::ports::AgentListQuery;
+use sdkwork_agent_kernel::{AgentManifest, KernelError, KernelResult, PolicySubject};
+use sdkwork_code_kernel::CodeTaskIntent;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListAgentsRequestDto {
+    pub tenant_id: String,
+    pub organization_id: Option<String>,
+    pub owner_user_id: Option<String>,
+    pub include_deleted: bool,
+}
+
+impl ListAgentsRequestDto {
+    pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<ListAgentsCommand> {
+        let mut query = AgentListQuery::for_tenant(parse_int64_field(&self.tenant_id, "tenant_id")?);
+        if let Some(organization_id) = self.organization_id {
+            query = query.for_organization(parse_int64_field(&organization_id, "organization_id")?);
+        }
+        if let Some(owner_user_id) = self.owner_user_id {
+            query = query.for_owner(parse_int64_field(&owner_user_id, "owner_user_id")?);
+        }
+        if self.include_deleted {
+            query = query.with_deleted();
+        }
+        Ok(ListAgentsCommand {
+            query,
+            requested_by,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateAgentRequestDto {
+    pub agent_id: String,
+    pub tenant_id: String,
+    pub organization_id: String,
+    pub owner_user_id: String,
+    pub code: String,
+    pub display_name: String,
+    pub description: Option<String>,
+    pub manifest: AgentManifest,
+    pub visibility: String,
+    pub tags: Vec<String>,
+    pub default_code_task_intent: Option<CodeTaskIntent>,
+    pub requested_at: String,
+}
+
+impl CreateAgentRequestDto {
+    pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<CreateAgentCommand> {
+        Ok(CreateAgentCommand {
+            agent_id: self.agent_id,
+            tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
+            organization_id: parse_int64_field(&self.organization_id, "organization_id")?,
+            owner_user_id: parse_int64_field(&self.owner_user_id, "owner_user_id")?,
+            code: self.code,
+            display_name: self.display_name,
+            description: self.description,
+            manifest: self.manifest,
+            visibility: parse_visibility(&self.visibility)?,
+            tags: self.tags,
+            default_code_task_intent: self.default_code_task_intent,
+            requested_by,
+            requested_at: self.requested_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateAgentRequestDto {
+    pub tenant_id: String,
+    pub agent_id: String,
+    pub display_name: Option<String>,
+    pub description: Option<String>,
+    pub visibility: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub default_code_task_intent: Option<CodeTaskIntent>,
+    pub requested_at: String,
+}
+
+impl UpdateAgentRequestDto {
+    pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<UpdateAgentCommand> {
+        let visibility = self
+            .visibility
+            .as_ref()
+            .map(|value| parse_visibility(value))
+            .transpose()?;
+        Ok(UpdateAgentCommand {
+            tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
+            agent_id: self.agent_id,
+            display_name: self.display_name,
+            description: self.description,
+            visibility,
+            tags: self.tags,
+            default_code_task_intent: self.default_code_task_intent,
+            requested_by,
+            requested_at: self.requested_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateAgentStatusRequestDto {
+    pub tenant_id: String,
+    pub agent_id: String,
+    pub target_status: String,
+    pub requested_at: String,
+}
+
+impl UpdateAgentStatusRequestDto {
+    pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<ChangeAgentStatusCommand> {
+        Ok(ChangeAgentStatusCommand {
+            tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
+            agent_id: self.agent_id,
+            target_status: parse_status(&self.target_status)?,
+            requested_by,
+            requested_at: self.requested_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeleteAgentRequestDto {
+    pub tenant_id: String,
+    pub agent_id: String,
+    pub requested_at: String,
+}
+
+impl DeleteAgentRequestDto {
+    pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<DeleteAgentCommand> {
+        Ok(DeleteAgentCommand {
+            tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
+            agent_id: self.agent_id,
+            requested_by,
+            requested_at: self.requested_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestoreAgentRequestDto {
+    pub tenant_id: String,
+    pub agent_id: String,
+    pub requested_at: String,
+}
+
+impl RestoreAgentRequestDto {
+    pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<RestoreAgentCommand> {
+        Ok(RestoreAgentCommand {
+            tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
+            agent_id: self.agent_id,
+            requested_by,
+            requested_at: self.requested_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GetAgentRequestDto {
+    pub tenant_id: String,
+    pub agent_id: String,
+}
+
+impl GetAgentRequestDto {
+    pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<GetAgentCommand> {
+        Ok(GetAgentCommand {
+            tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
+            agent_id: self.agent_id,
+            requested_by,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentRecordDto {
+    pub id: String,
+    pub agent_id: String,
+    pub tenant_id: String,
+    pub organization_id: String,
+    pub owner_user_id: String,
+    pub code: String,
+    pub display_name: String,
+    pub description: Option<String>,
+    pub manifest: AgentManifest,
+    pub default_code_task_intent: Option<CodeTaskIntent>,
+    pub status: String,
+    pub visibility: String,
+    pub tags: Vec<String>,
+    pub version: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub deleted_at: Option<String>,
+}
+
+impl AgentRecordDto {
+    pub fn from_record(record: &AgentBusinessRecord) -> Self {
+        Self {
+            id: record.id.to_string(),
+            agent_id: record.agent_id.clone(),
+            tenant_id: record.tenant_id.to_string(),
+            organization_id: record.organization_id.to_string(),
+            owner_user_id: record.owner_user_id.to_string(),
+            code: record.code.clone(),
+            display_name: record.display_name.clone(),
+            description: record.description.clone(),
+            manifest: record.manifest.clone(),
+            default_code_task_intent: record.default_code_task_intent.clone(),
+            status: record.status.as_str().to_string(),
+            visibility: record.visibility.as_str().to_string(),
+            tags: record.tags.clone(),
+            version: record.version.to_string(),
+            created_at: record.created_at.clone(),
+            updated_at: record.updated_at.clone(),
+            deleted_at: record.deleted_at.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentResponseDto {
+    pub data: AgentRecordDto,
+}
+
+impl AgentResponseDto {
+    pub fn from_record(record: &AgentBusinessRecord) -> Self {
+        Self {
+            data: AgentRecordDto::from_record(record),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentListDataDto {
+    pub items: Vec<AgentRecordDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentListResponseDto {
+    pub data: AgentListDataDto,
+}
+
+impl AgentListResponseDto {
+    pub fn from_records(records: &[AgentBusinessRecord]) -> Self {
+        Self {
+            data: AgentListDataDto {
+                items: records.iter().map(AgentRecordDto::from_record).collect(),
+            },
+        }
+    }
+}
+
+fn parse_int64_field(value: &str, field_name: &str) -> KernelResult<u64> {
+    value
+        .parse::<u64>()
+        .map_err(|_| KernelError::validation(format!("{field_name} must be int64 string")))
+}
+
+fn parse_visibility(value: &str) -> KernelResult<AgentVisibility> {
+    AgentVisibility::from_str(value).ok_or_else(|| {
+        KernelError::validation(format!(
+            "visibility must be one of private, organization, tenant, public: {value}"
+        ))
+    })
+}
+
+fn parse_status(value: &str) -> KernelResult<AgentBusinessStatus> {
+    AgentBusinessStatus::from_str(value).ok_or_else(|| {
+        KernelError::validation(format!(
+            "target_status must be one of draft, active, disabled, archived, deleted: {value}"
+        ))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sdkwork_agent_kernel::PolicySubject;
+
+    fn sample_manifest(agent_id: &str) -> AgentManifest {
+        AgentManifest {
+            schema_version: "1.0.0".to_string(),
+            manifest_type: "agent".to_string(),
+            agent_id: agent_id.to_string(),
+            name: "sample-agent".to_string(),
+            display_name: "Sample Agent".to_string(),
+            description: "sample".to_string(),
+            version: "0.1.0".to_string(),
+            domain: "intelligence".to_string(),
+            required_capabilities: vec!["model.chat".to_string()],
+            optional_capabilities: vec!["tool.invoke".to_string()],
+            required_capability_requirements: vec![],
+            optional_capability_requirements: vec![],
+            event_families: vec!["agent.lifecycle".to_string()],
+            owner_name: "sdkwork".to_string(),
+            status: "active".to_string(),
+        }
+    }
+
+    fn sample_subject() -> PolicySubject {
+        PolicySubject::new("u-1", "t-1")
+    }
+
+    #[test]
+    fn create_request_maps_to_command() {
+        let command = CreateAgentRequestDto {
+            agent_id: "agent.alpha".to_string(),
+            tenant_id: "1".to_string(),
+            organization_id: "10".to_string(),
+            owner_user_id: "100".to_string(),
+            code: "alpha".to_string(),
+            display_name: "Alpha".to_string(),
+            description: Some("alpha".to_string()),
+            manifest: sample_manifest("agent.alpha"),
+            visibility: "organization".to_string(),
+            tags: vec!["starter".to_string()],
+            default_code_task_intent: Some(CodeTaskIntent::new("Refactor runtime")),
+            requested_at: "2026-06-01T00:00:00Z".to_string(),
+        }
+        .into_command(sample_subject())
+        .expect("mapping should succeed");
+
+        assert_eq!(command.tenant_id, 1);
+        assert_eq!(command.organization_id, 10);
+        assert_eq!(command.owner_user_id, 100);
+        assert_eq!(command.visibility, AgentVisibility::Organization);
+    }
+
+    #[test]
+    fn invalid_status_is_rejected() {
+        let result = UpdateAgentStatusRequestDto {
+            tenant_id: "1".to_string(),
+            agent_id: "agent.alpha".to_string(),
+            target_status: "ready".to_string(),
+            requested_at: "2026-06-01T00:00:00Z".to_string(),
+        }
+        .into_command(sample_subject());
+
+        let error = result.expect_err("invalid status should fail");
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("target_status"));
+            }
+            _ => panic!("expected validation error"),
+        }
+    }
+
+    #[test]
+    fn record_maps_to_dto_with_int64_strings() {
+        let record = AgentBusinessRecord {
+            id: 7,
+            agent_id: "agent.alpha".to_string(),
+            tenant_id: 1,
+            organization_id: 10,
+            owner_user_id: 100,
+            code: "alpha".to_string(),
+            display_name: "Alpha".to_string(),
+            description: None,
+            manifest: sample_manifest("agent.alpha"),
+            default_code_task_intent: None,
+            status: AgentBusinessStatus::Draft,
+            visibility: AgentVisibility::Private,
+            tags: vec!["starter".to_string()],
+            version: 2,
+            created_at: "2026-06-01T00:00:00Z".to_string(),
+            updated_at: "2026-06-01T00:00:00Z".to_string(),
+            deleted_at: None,
+        };
+        let dto = AgentRecordDto::from_record(&record);
+
+        assert_eq!(dto.id, "7");
+        assert_eq!(dto.tenant_id, "1");
+        assert_eq!(dto.organization_id, "10");
+        assert_eq!(dto.owner_user_id, "100");
+        assert_eq!(dto.version, "2");
+        assert_eq!(dto.status, "draft");
+        assert_eq!(dto.visibility, "private");
+    }
+}

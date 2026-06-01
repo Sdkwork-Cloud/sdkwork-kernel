@@ -45,7 +45,18 @@ const requiredSchemas = [
 
 const requiredRustCrates = [
   ['sdkwork-agent-kernel', ['src/lib.rs', 'Cargo.toml', 'README.md']],
-  ['sdkwork-code-kernel', ['src/lib.rs', 'Cargo.toml', 'README.md']]
+  ['sdkwork-code-kernel', ['src/lib.rs', 'Cargo.toml', 'README.md']],
+  [
+    'sdkwork-agent-business',
+    [
+      'src/lib.rs',
+      'Cargo.toml',
+      'README.md',
+      'specs/component.spec.json',
+      'specs/openapi/agent-business-app-openapi-3.1.2.yaml',
+      'specs/openapi/agent-business-backend-openapi-3.1.2.yaml'
+    ]
+  ]
 ];
 
 const requiredUiPackages = [

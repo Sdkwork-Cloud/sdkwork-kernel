@@ -18,7 +18,7 @@ pub const SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID: &str =
 pub const SQL_INSERT_AGENT_BUSINESS: &str =
     "INSERT INTO ai_agent_business (id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, status, visibility, tags_json, created_at, updated_at, deleted_at, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)";
 pub const SQL_UPDATE_AGENT_BUSINESS: &str =
-    "UPDATE ai_agent_business SET organization_id = $1, owner_user_id = $2, code = $3, display_name = $4, description = $5, manifest_json = $6, default_code_task_intent_json = $7, status = $8, visibility = $9, tags_json = $10, updated_at = $11, deleted_at = $12, version = $13 WHERE tenant_id = $14 AND agent_id = $15";
+    "UPDATE ai_agent_business SET organization_id = $1, owner_user_id = $2, code = $3, display_name = $4, description = $5, manifest_json = $6, default_code_task_intent_json = $7, status = $8, visibility = $9, tags_json = $10, updated_at = $11, deleted_at = $12, version = $13 WHERE tenant_id = $14 AND agent_id = $15 AND version = $16";
 pub const SQL_LIST_AGENT_BUSINESS: &str =
     "SELECT id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, status, visibility, tags_json, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at, version FROM ai_agent_business WHERE tenant_id = $1 ORDER BY updated_at DESC";
 pub const SQL_INSERT_AUDIT_EVENT: &str =
@@ -366,6 +366,10 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
         let owner_user_id = u64_to_i64(row.owner_user_id, "owner_user_id")?;
         let version = u64_to_i64(row.version, "version")?;
+        let previous_version = u64_to_i64(
+            expected_previous_version(row.version)?,
+            "previous_version",
+        )?;
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
 
         self.with_locked_client(|client| {
@@ -388,11 +392,22 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
                         &version,
                         &tenant_id,
                         &row.agent_id,
+                        &previous_version,
                     ],
                 )
                 .map_err(map_postgres_error)?;
 
             if updated_rows == 0 {
+                let exists = client
+                    .query_opt(
+                        SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID,
+                        &[&tenant_id, &row.agent_id],
+                    )
+                    .map_err(map_postgres_error)?
+                    .is_some();
+                if exists {
+                    return Err(KernelError::conflict("agent version mismatch"));
+                }
                 return Err(KernelError::validation("agent not found"));
             }
             Ok(())
@@ -782,6 +797,13 @@ fn source_from_str(value: &str) -> KernelResult<KernelEventSource> {
     }
 }
 
+#[cfg(any(feature = "postgres-sync", test))]
+fn expected_previous_version(next_version: u64) -> KernelResult<u64> {
+    next_version
+        .checked_sub(1)
+        .ok_or_else(|| KernelError::validation("agent version must be >= 1 for update"))
+}
+
 #[cfg(feature = "postgres-sync")]
 fn map_postgres_error(error: postgres::Error) -> KernelError {
     KernelError::provider_error("postgres_error", error.to_string())
@@ -869,9 +891,27 @@ mod tests {
         assert!(SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID.contains("agent_id = $2"));
         assert!(SQL_INSERT_AGENT_BUSINESS.contains("VALUES ($1"));
         assert!(SQL_INSERT_AGENT_BUSINESS.contains("$18"));
-        assert!(SQL_UPDATE_AGENT_BUSINESS.contains("WHERE tenant_id = $14 AND agent_id = $15"));
+        assert!(SQL_UPDATE_AGENT_BUSINESS.contains("WHERE tenant_id = $14 AND agent_id = $15 AND version = $16"));
         assert!(SQL_LIST_AGENT_BUSINESS.contains("ORDER BY updated_at DESC"));
         assert!(SQL_INSERT_AUDIT_EVENT.contains("$12"));
+    }
+
+    #[test]
+    fn expected_previous_version_maps_incremented_version() {
+        let previous = expected_previous_version(3).expect("version should map");
+        assert_eq!(previous, 2);
+    }
+
+    #[test]
+    fn expected_previous_version_rejects_zero() {
+        let error =
+            expected_previous_version(0).expect_err("version=0 cannot be used for update precondition");
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains(">= 1"));
+            }
+            _ => panic!("expected validation error"),
+        }
     }
 
     #[test]

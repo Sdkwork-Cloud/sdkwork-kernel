@@ -57,6 +57,13 @@ impl AgentRepository for InMemoryAgentRepository {
         else {
             return Err(KernelError::validation("agent not found"));
         };
+        let expected_version = self.records[index].version.saturating_add(1);
+        if record.version != expected_version {
+            return Err(KernelError::conflict(format!(
+                "agent version mismatch: expected={expected_version}, actual={}",
+                record.version
+            )));
+        }
         if self.records.iter().enumerate().any(|(current, existing)| {
             current != index && existing.tenant_id == record.tenant_id && existing.code == record.code
         }) {
@@ -195,6 +202,73 @@ impl PolicyProvider for AllowAllPolicyProvider {
                 self.provider_id.clone(),
                 reason.clone(),
             )),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{AgentBusinessStatus, AgentVisibility};
+    use sdkwork_agent_kernel::AgentManifest;
+
+    fn sample_manifest(agent_id: &str) -> AgentManifest {
+        AgentManifest {
+            schema_version: "1.0.0".to_string(),
+            manifest_type: "agent".to_string(),
+            agent_id: agent_id.to_string(),
+            name: "sample-agent".to_string(),
+            display_name: "Sample Agent".to_string(),
+            description: "sample".to_string(),
+            version: "0.1.0".to_string(),
+            domain: "intelligence".to_string(),
+            required_capabilities: vec!["model.chat".to_string()],
+            optional_capabilities: vec!["tool.invoke".to_string()],
+            required_capability_requirements: vec![],
+            optional_capability_requirements: vec![],
+            event_families: vec!["agent.lifecycle".to_string()],
+            owner_name: "sdkwork".to_string(),
+            status: "active".to_string(),
+        }
+    }
+
+    #[test]
+    fn in_memory_repository_rejects_stale_record_version_update() {
+        let mut repository = InMemoryAgentRepository::new();
+        let record = AgentBusinessRecord {
+            id: 1,
+            agent_id: "agent.alpha".to_string(),
+            tenant_id: 1,
+            organization_id: 10,
+            owner_user_id: 100,
+            code: "alpha".to_string(),
+            display_name: "Alpha".to_string(),
+            description: None,
+            manifest: sample_manifest("agent.alpha"),
+            default_code_task_intent: None,
+            status: AgentBusinessStatus::Draft,
+            visibility: AgentVisibility::Organization,
+            tags: vec!["starter".to_string()],
+            version: 1,
+            created_at: "2026-06-01T00:00:00Z".to_string(),
+            updated_at: "2026-06-01T00:00:00Z".to_string(),
+            deleted_at: None,
+        };
+        repository
+            .insert(record.clone())
+            .expect("initial insert should succeed");
+
+        let mut stale = record.clone();
+        stale.display_name = "Alpha stale".to_string();
+        let error = repository
+            .update(stale)
+            .expect_err("stale version should fail");
+        match error {
+            KernelError::Structured { info } => {
+                assert_eq!(info.kind.as_str(), "conflict");
+                assert!(info.message.contains("version mismatch"));
+            }
+            _ => panic!("expected structured conflict"),
         }
     }
 }

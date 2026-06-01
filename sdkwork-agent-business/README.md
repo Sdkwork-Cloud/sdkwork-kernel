@@ -18,6 +18,8 @@ integration. It defines:
   adapters
 - optional `postgres-sync` feature with executable PostgreSQL adapter for
   repository/audit writes
+- optional `http-axum` feature with app-api/backend-api router composition and
+  RFC 9457 problem detail responses
 - app-api/backend-api route and operation contract declarations
 - app-api/backend-api DTO mapping contracts
 - database contract and DDL baseline for deployment-specific adapters
@@ -34,9 +36,11 @@ sdkwork-agent-business/
 |   |-- application.rs       # command models + business service orchestration
 |   |-- ports.rs             # repository/audit interfaces
 |   |-- infrastructure.rs    # in-memory adapters + policy stub for tests
-|   `-- persistence.rs       # postgres row mapping, SQL constants, adapter wrappers
+|   |-- persistence.rs       # postgres row mapping, SQL constants, adapter wrappers
+|   `-- http.rs              # optional axum app-api/backend-api route entrypoints
 |-- tests/
-|   `-- agent_business_service_contracts.rs
+|   |-- agent_business_service_contracts.rs
+|   `-- http_axum_contracts.rs
 `-- specs/
     |-- README.md
     |-- component.spec.json
@@ -90,6 +94,10 @@ node sdk/sdkwork-sdk-generator/bin/sdkgen.js generate \
 
 ```bash
 cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml
+```
+
+```bash
+cargo test --features http-axum --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml
 ```
 
 ```bash

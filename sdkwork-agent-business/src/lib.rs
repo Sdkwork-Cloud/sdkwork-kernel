@@ -5,6 +5,8 @@ mod dto;
 mod infrastructure;
 mod persistence;
 mod ports;
+#[cfg(feature = "http-axum")]
+mod http;
 
 pub use api::{
     ApiOperation, AGENT_BACKEND_API_OPERATIONS, AGENT_BACKEND_API_PREFIX, AGENT_APP_API_OPERATIONS,
@@ -35,3 +37,5 @@ pub use persistence::{
 #[cfg(feature = "postgres-sync")]
 pub use persistence::SyncPostgresAdapter;
 pub use ports::{AgentAuditSink, AgentListQuery, AgentRepository};
+#[cfg(feature = "http-axum")]
+pub use http::{build_app_router, build_backend_router, build_combined_router, AgentHttpState};

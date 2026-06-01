@@ -138,6 +138,12 @@ paths:
       parameters:
         - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/AgentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteAgentRequest'
       responses:
         '200':
           description: Soft-deleted managed agent response
@@ -425,6 +431,15 @@ components:
         defaultCodeTaskIntent:
           type: [object, 'null']
           additionalProperties: true
+        requestedAt:
+          type: string
+          format: date-time
+    DeleteAgentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - requestedAt
+      properties:
         requestedAt:
           type: string
           format: date-time

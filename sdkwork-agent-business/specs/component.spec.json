@@ -110,7 +110,8 @@
       "sdkwork_agent_business::dto::*",
       "sdkwork_agent_business::ports::*",
       "sdkwork_agent_business::infrastructure::*",
-      "sdkwork_agent_business::persistence::*"
+      "sdkwork_agent_business::persistence::*",
+      "sdkwork_agent_business::{AgentHttpState,build_app_router,build_backend_router,build_combined_router} [feature=http-axum]"
     ],
     "runtimeEntrypoints": [
       "Cargo.toml"
@@ -134,6 +135,7 @@
   "verification": {
     "commands": [
       "cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml",
+      "cargo test --features http-axum --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml",
       "cargo test --features postgres-sync --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml"
     ]
   },

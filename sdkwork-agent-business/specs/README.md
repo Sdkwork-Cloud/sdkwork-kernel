@@ -64,6 +64,8 @@ or document this component, but they must not contradict
 - `sdkwork_agent_business::persistence::*` PostgreSQL-oriented row mapping,
   SQL contracts, repository/audit adapters, and optional `postgres-sync`
   executable adapter.
+- `sdkwork_agent_business::{AgentHttpState, build_app_router, build_backend_router, build_combined_router}`
+  optional `http-axum` entrypoints for app-api/backend-api route integration.
 
 ## SDK Clients
 
@@ -74,4 +76,5 @@ or document this component, but they must not contradict
 ## Verification
 
 - `cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml`
+- `cargo test --features http-axum --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml`
 - `cargo test --features postgres-sync --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml`

@@ -5,7 +5,7 @@ use crate::dto::{
     UpdateAgentStatusRequestDto,
 };
 use crate::ports::{AgentAuditSink, AgentRepository};
-use crate::validation::parse_optional_rfc3339_datetime;
+use crate::validation::{parse_optional_rfc3339_datetime, parse_rfc3339_datetime};
 use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
 use axum::http::header::CONTENT_TYPE;
@@ -21,7 +21,6 @@ use sdkwork_code_kernel::CodeTaskIntent;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 const HEADER_SUBJECT_ID: &str = "x-subject-id";
@@ -942,11 +941,8 @@ fn filter_audit_events(
             .occurred_at
             .as_deref()
             .ok_or_else(|| ApiProblem::internal("audit event occurred_at is missing"))?;
-        let occurred_at = OffsetDateTime::parse(occurred_at_raw, &Rfc3339).map_err(|error| {
-            ApiProblem::internal(format!(
-                "audit event occurred_at is not valid rfc3339: {error}"
-            ))
-        })?;
+        let occurred_at = parse_rfc3339_datetime(occurred_at_raw, "audit event occurred_at")
+            .map_err(|error| ApiProblem::internal(error.safe_message()))?;
 
         let from_ok = from
             .as_ref()

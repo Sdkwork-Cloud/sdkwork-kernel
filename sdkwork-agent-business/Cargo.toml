@@ -6,7 +6,7 @@ edition = "2021"
 [features]
 default = []
 postgres-sync = ["dep:postgres"]
-http-axum = ["dep:axum", "dep:tokio", "dep:tower", "dep:time"]
+http-axum = ["dep:axum", "dep:tokio", "dep:tower"]
 
 [lib]
 name = "sdkwork_agent_business"
@@ -21,4 +21,4 @@ postgres = { version = "0.19", optional = true }
 axum = { version = "0.8", optional = true, features = ["json"] }
 tokio = { version = "1.0", optional = true, features = ["rt-multi-thread", "macros"] }
 tower = { version = "0.5", optional = true, features = ["util"] }
-time = { version = "0.3", optional = true, features = ["parsing"] }
+time = { version = "0.3", features = ["parsing"] }

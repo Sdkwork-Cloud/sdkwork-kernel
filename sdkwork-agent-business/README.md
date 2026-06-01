@@ -70,6 +70,8 @@ sdkwork-agent-business/
   `action/from/to` filters; `from`/`to` must be RFC3339 and `from <= to`.
 - Agent list endpoint supports optional `q` fuzzy search over `agentId`, `code`,
   `displayName`, and `description`.
+- All mutation requests validate `requestedAt` strictly as RFC3339
+  date-time (`create/update/delete/status/restore`).
 - Operation IDs follow dotted resource style, for example `agents.create`,
   `agents.status.update`, and `agents.auditEvents.list`.
 

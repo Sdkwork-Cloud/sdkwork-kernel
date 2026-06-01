@@ -6,6 +6,8 @@ use crate::domain::{AgentBusinessRecord, AgentBusinessStatus, AgentVisibility};
 use crate::ports::AgentListQuery;
 use sdkwork_agent_kernel::{AgentManifest, KernelError, KernelResult, PolicySubject};
 use sdkwork_code_kernel::CodeTaskIntent;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListAgentsRequestDto {
@@ -56,6 +58,7 @@ pub struct CreateAgentRequestDto {
 
 impl CreateAgentRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<CreateAgentCommand> {
+        let requested_at = parse_rfc3339_field(&self.requested_at, "requested_at")?;
         Ok(CreateAgentCommand {
             agent_id: self.agent_id,
             tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
@@ -69,7 +72,7 @@ impl CreateAgentRequestDto {
             tags: self.tags,
             default_code_task_intent: self.default_code_task_intent,
             requested_by,
-            requested_at: self.requested_at,
+            requested_at,
         })
     }
 }
@@ -88,6 +91,7 @@ pub struct UpdateAgentRequestDto {
 
 impl UpdateAgentRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<UpdateAgentCommand> {
+        let requested_at = parse_rfc3339_field(&self.requested_at, "requested_at")?;
         let visibility = self
             .visibility
             .as_ref()
@@ -102,7 +106,7 @@ impl UpdateAgentRequestDto {
             tags: self.tags,
             default_code_task_intent: self.default_code_task_intent,
             requested_by,
-            requested_at: self.requested_at,
+            requested_at,
         })
     }
 }
@@ -117,12 +121,13 @@ pub struct UpdateAgentStatusRequestDto {
 
 impl UpdateAgentStatusRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<ChangeAgentStatusCommand> {
+        let requested_at = parse_rfc3339_field(&self.requested_at, "requested_at")?;
         Ok(ChangeAgentStatusCommand {
             tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
             agent_id: self.agent_id,
             target_status: parse_status(&self.target_status)?,
             requested_by,
-            requested_at: self.requested_at,
+            requested_at,
         })
     }
 }
@@ -136,11 +141,12 @@ pub struct DeleteAgentRequestDto {
 
 impl DeleteAgentRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<DeleteAgentCommand> {
+        let requested_at = parse_rfc3339_field(&self.requested_at, "requested_at")?;
         Ok(DeleteAgentCommand {
             tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
             agent_id: self.agent_id,
             requested_by,
-            requested_at: self.requested_at,
+            requested_at,
         })
     }
 }
@@ -154,11 +160,12 @@ pub struct RestoreAgentRequestDto {
 
 impl RestoreAgentRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<RestoreAgentCommand> {
+        let requested_at = parse_rfc3339_field(&self.requested_at, "requested_at")?;
         Ok(RestoreAgentCommand {
             tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
             agent_id: self.agent_id,
             requested_by,
-            requested_at: self.requested_at,
+            requested_at,
         })
     }
 }
@@ -279,6 +286,13 @@ fn parse_status(value: &str) -> KernelResult<AgentBusinessStatus> {
     })
 }
 
+fn parse_rfc3339_field(value: &str, field_name: &str) -> KernelResult<String> {
+    OffsetDateTime::parse(value, &Rfc3339).map_err(|error| {
+        KernelError::validation(format!("{field_name} must be RFC3339 date-time: {error}"))
+    })?;
+    Ok(value.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,6 +376,46 @@ mod tests {
         match error {
             KernelError::Validation { message } => {
                 assert!(message.contains("target_status"));
+            }
+            _ => panic!("expected validation error"),
+        }
+    }
+
+    #[test]
+    fn invalid_requested_at_is_rejected_for_mutation_commands() {
+        let create_error = CreateAgentRequestDto {
+            agent_id: "agent.alpha".to_string(),
+            tenant_id: "1".to_string(),
+            organization_id: "10".to_string(),
+            owner_user_id: "100".to_string(),
+            code: "alpha".to_string(),
+            display_name: "Alpha".to_string(),
+            description: Some("alpha".to_string()),
+            manifest: sample_manifest("agent.alpha"),
+            visibility: "organization".to_string(),
+            tags: vec!["starter".to_string()],
+            default_code_task_intent: Some(CodeTaskIntent::new("Refactor runtime")),
+            requested_at: "2026-06-01".to_string(),
+        }
+        .into_command(sample_subject())
+        .expect_err("invalid requested_at should fail");
+        match create_error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("requested_at"));
+            }
+            _ => panic!("expected validation error"),
+        }
+
+        let restore_error = RestoreAgentRequestDto {
+            tenant_id: "1".to_string(),
+            agent_id: "agent.alpha".to_string(),
+            requested_at: "not-a-date".to_string(),
+        }
+        .into_command(sample_subject())
+        .expect_err("invalid requested_at should fail");
+        match restore_error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("requested_at"));
             }
             _ => panic!("expected validation error"),
         }

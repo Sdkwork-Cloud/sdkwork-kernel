@@ -269,6 +269,107 @@ async fn delete_without_requested_at_should_return_bad_request() {
 }
 
 #[tokio::test]
+async fn create_with_invalid_requested_at_should_return_bad_request() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            create_body("agent.invalid.time", "InvalidTime", "2026-06-01").to_string(),
+        ))
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("request should return validation error");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "validation_error");
+    assert!(
+        body_json["detail"]
+            .as_str()
+            .expect("detail should exist")
+            .contains("requested_at")
+    );
+}
+
+#[tokio::test]
+async fn restore_with_invalid_requested_at_should_return_bad_request() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.restore.invalid-time", "RestoreInvalidTime").await;
+
+    let delete_request = Request::builder()
+        .method("DELETE")
+        .uri("/app/v3/api/ai/agents/agent.restore.invalid-time?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "requestedAt": "2026-06-01T04:00:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let delete_response = app
+        .clone()
+        .oneshot(auth_headers(delete_request))
+        .await
+        .expect("delete request should succeed");
+    assert_eq!(delete_response.status(), StatusCode::OK);
+
+    let restore_request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.restore.invalid-time/restore?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "requestedAt": "2026-06-01"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let restore_response = app
+        .clone()
+        .oneshot(auth_headers(restore_request))
+        .await
+        .expect("restore request should return validation error");
+    assert_eq!(restore_response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        restore_response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+}
+
+#[tokio::test]
 async fn app_restore_should_restore_deleted_agent() {
     let state = AgentHttpState::new(
         InMemoryAgentRepository::new(),

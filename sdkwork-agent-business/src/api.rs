@@ -40,6 +40,12 @@ pub const AGENT_APP_API_OPERATIONS: &[ApiOperation] = &[
         tag: "ai",
         operation_id: "agents.delete",
     },
+    ApiOperation {
+        method: "POST",
+        path: "/app/v3/api/ai/agents/{agentId}/restore",
+        tag: "ai",
+        operation_id: "agents.restore",
+    },
 ];
 
 pub const AGENT_BACKEND_API_OPERATIONS: &[ApiOperation] = &[
@@ -72,6 +78,12 @@ pub const AGENT_BACKEND_API_OPERATIONS: &[ApiOperation] = &[
         path: "/backend/v3/api/ai/agents/{agentId}/status",
         tag: "ai",
         operation_id: "agents.status.update",
+    },
+    ApiOperation {
+        method: "POST",
+        path: "/backend/v3/api/ai/agents/{agentId}/restore",
+        tag: "ai",
+        operation_id: "agents.restore",
     },
     ApiOperation {
         method: "GET",

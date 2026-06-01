@@ -62,6 +62,9 @@ sdkwork-agent-business/
 - Canonical resources:
   - `/app/v3/api/ai/agents`
   - `/backend/v3/api/ai/agents`
+- Restore endpoints:
+  - `/app/v3/api/ai/agents/{agentId}/restore`
+  - `/backend/v3/api/ai/agents/{agentId}/restore`
 - Backend audit endpoint `/backend/v3/api/ai/agents/{agentId}/audit_events`
   returns recorded audit events with `page/page_size` pagination and optional
   `action/from/to` filters; `from`/`to` must be RFC3339 and `from <= to`.

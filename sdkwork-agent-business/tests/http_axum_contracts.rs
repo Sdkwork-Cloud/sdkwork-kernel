@@ -269,6 +269,116 @@ async fn delete_without_requested_at_should_return_bad_request() {
 }
 
 #[tokio::test]
+async fn app_restore_should_restore_deleted_agent() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.restore.app", "RestoreApp").await;
+
+    let delete_request = Request::builder()
+        .method("DELETE")
+        .uri("/app/v3/api/ai/agents/agent.restore.app?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "requestedAt": "2026-06-01T03:00:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let delete_response = app
+        .clone()
+        .oneshot(auth_headers(delete_request))
+        .await
+        .expect("delete request should succeed");
+    assert_eq!(delete_response.status(), StatusCode::OK);
+
+    let restore_request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents/agent.restore.app/restore?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "requestedAt": "2026-06-01T03:01:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let restore_response = app
+        .clone()
+        .oneshot(auth_headers(restore_request))
+        .await
+        .expect("restore request should succeed");
+    assert_eq!(restore_response.status(), StatusCode::OK);
+
+    let body_bytes = to_bytes(restore_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["status"], "active");
+}
+
+#[tokio::test]
+async fn backend_restore_should_restore_deleted_agent() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.restore.backend", "RestoreBackend").await;
+
+    let delete_request = Request::builder()
+        .method("DELETE")
+        .uri("/app/v3/api/ai/agents/agent.restore.backend?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "requestedAt": "2026-06-01T04:00:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let delete_response = app
+        .clone()
+        .oneshot(auth_headers(delete_request))
+        .await
+        .expect("delete request should succeed");
+    assert_eq!(delete_response.status(), StatusCode::OK);
+
+    let restore_request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.restore.backend/restore?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "requestedAt": "2026-06-01T04:01:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let restore_response = app
+        .clone()
+        .oneshot(auth_headers(restore_request))
+        .await
+        .expect("restore request should succeed");
+    assert_eq!(restore_response.status(), StatusCode::OK);
+
+    let body_bytes = to_bytes(restore_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["status"], "active");
+}
+
+#[tokio::test]
 async fn backend_audit_events_should_return_recorded_items() {
     let state = AgentHttpState::new(
         InMemoryAgentRepository::new(),

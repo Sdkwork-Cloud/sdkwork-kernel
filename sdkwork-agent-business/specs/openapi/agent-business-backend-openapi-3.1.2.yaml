@@ -154,6 +154,37 @@ paths:
                 $ref: '#/components/schemas/AgentResponse'
         default:
           $ref: '#/components/responses/Problem'
+  /backend/v3/api/ai/agents/{agentId}/restore:
+    post:
+      tags: [ai]
+      summary: Restore one soft-deleted managed agent
+      operationId: agents.restore
+      security:
+        - AuthToken: []
+          AccessToken: []
+      x-sdkwork-domain: ai
+      x-sdkwork-resource: agents
+      x-sdkwork-permission: agent.business.restore
+      x-sdkwork-tenant-scope: tenant
+      x-sdkwork-audit-event: agent.business.restored
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/AgentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RestoreAgentRequest'
+      responses:
+        '200':
+          description: Restored managed agent response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentResponse'
+        default:
+          $ref: '#/components/responses/Problem'
   /backend/v3/api/ai/agents/{agentId}/audit_events:
     get:
       tags: [ai]
@@ -539,6 +570,15 @@ components:
       properties:
         targetStatus:
           $ref: '#/components/schemas/AgentStatus'
+        requestedAt:
+          type: string
+          format: date-time
+    RestoreAgentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - requestedAt
+      properties:
         requestedAt:
           type: string
           format: date-time

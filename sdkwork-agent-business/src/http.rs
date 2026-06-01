@@ -1,7 +1,8 @@
 use crate::application::AgentBusinessService;
 use crate::dto::{
     AgentRecordDto, CreateAgentRequestDto, DeleteAgentRequestDto, GetAgentRequestDto,
-    ListAgentsRequestDto, UpdateAgentRequestDto, UpdateAgentStatusRequestDto,
+    ListAgentsRequestDto, RestoreAgentRequestDto, UpdateAgentRequestDto,
+    UpdateAgentStatusRequestDto,
 };
 use crate::ports::{AgentAuditSink, AgentRepository};
 use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
@@ -144,6 +145,10 @@ pub fn build_app_router() -> Router<AgentHttpState> {
             "/app/v3/api/ai/agents/{agentId}",
             get(app_get_agent).patch(app_update_agent).delete(app_delete_agent),
         )
+        .route(
+            "/app/v3/api/ai/agents/{agentId}/restore",
+            post(app_restore_agent),
+        )
 }
 
 pub fn build_backend_router() -> Router<AgentHttpState> {
@@ -159,6 +164,10 @@ pub fn build_backend_router() -> Router<AgentHttpState> {
         .route(
             "/backend/v3/api/ai/agents/{agentId}/status",
             post(backend_update_agent_status),
+        )
+        .route(
+            "/backend/v3/api/ai/agents/{agentId}/restore",
+            post(backend_restore_agent),
         )
         .route(
             "/backend/v3/api/ai/agents/{agentId}/audit_events",
@@ -241,6 +250,12 @@ struct UpdateAgentStatusBody {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DeleteAgentBody {
+    requested_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RestoreAgentBody {
     requested_at: String,
 }
 
@@ -552,6 +567,19 @@ async fn app_delete_agent(
     }))
 }
 
+async fn app_restore_agent(
+    State(state): State<AgentHttpState>,
+    agent_id: Result<Path<String>, PathRejection>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
+    headers: HeaderMap,
+    body: Result<Json<RestoreAgentBody>, JsonRejection>,
+) -> Result<Json<AgentResponse>, ApiProblem> {
+    let Path(agent_id) = agent_id.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
+    execute_restore(state, query, agent_id, headers, body).await
+}
+
 async fn backend_update_agent_status(
     State(state): State<AgentHttpState>,
     agent_id: Result<Path<String>, PathRejection>,
@@ -576,6 +604,19 @@ async fn backend_update_agent_status(
     Ok(Json(AgentResponse {
         data: map_agent_record(&AgentRecordDto::from_record(&record))?,
     }))
+}
+
+async fn backend_restore_agent(
+    State(state): State<AgentHttpState>,
+    agent_id: Result<Path<String>, PathRejection>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
+    headers: HeaderMap,
+    body: Result<Json<RestoreAgentBody>, JsonRejection>,
+) -> Result<Json<AgentResponse>, ApiProblem> {
+    let Path(agent_id) = agent_id.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
+    execute_restore(state, query, agent_id, headers, body).await
 }
 
 async fn backend_list_agent_audit_events(
@@ -764,6 +805,28 @@ async fn execute_update(
     .map_err(ApiProblem::from_kernel_error)?;
 
     let record = with_service_mut(&state, |service| service.update_agent(command))?;
+    Ok(Json(AgentResponse {
+        data: map_agent_record(&AgentRecordDto::from_record(&record))?,
+    }))
+}
+
+async fn execute_restore(
+    state: AgentHttpState,
+    query: TenantQueryParams,
+    agent_id: String,
+    headers: HeaderMap,
+    body: RestoreAgentBody,
+) -> Result<Json<AgentResponse>, ApiProblem> {
+    let subject = extract_policy_subject(headers, query.tenant_id.as_str())?;
+    let command = RestoreAgentRequestDto {
+        tenant_id: query.tenant_id,
+        agent_id,
+        requested_at: body.requested_at,
+    }
+    .into_command(subject)
+    .map_err(ApiProblem::from_kernel_error)?;
+
+    let record = with_service_mut(&state, |service| service.restore_agent(command))?;
     Ok(Json(AgentResponse {
         data: map_agent_record(&AgentRecordDto::from_record(&record))?,
     }))

@@ -66,3 +66,4 @@
 - Repository-level optimistic locking hardened: in-memory adapter enforces monotonic `version`, and postgres update SQL now includes `WHERE ... AND version = previous_version` precondition with conflict mapping: pass
 - API conflict semantics refined: optimistic-concurrency conflicts now return `application/problem+json` code `version_conflict`, and app/backend OpenAPI `Problem` examples include `version_conflict` payload: pass
 - Operation-level OpenAPI responses now include explicit `409` `version_conflict` examples for update/delete/restore/status operations, and SDK apply verification completed (`verify-sdkgen.ps1 -Mode Apply -CleanTmp`): pass
+- Create conflict semantics completed: app/backend `agents.create` now include operation-level `409 conflict` examples (duplicate `agent_id/code`), with HTTP contract test coverage for duplicate create: pass

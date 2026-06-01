@@ -315,6 +315,53 @@ async fn create_with_invalid_requested_at_should_return_bad_request() {
 }
 
 #[tokio::test]
+async fn create_duplicate_agent_should_return_conflict() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.dup.conflict", "DupConflict").await;
+
+    let duplicate_request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            create_body(
+                "agent.dup.conflict",
+                "DupConflict",
+                "2026-06-01T03:00:00Z",
+            )
+            .to_string(),
+        ))
+        .expect("request should be built");
+
+    let duplicate_response = app
+        .clone()
+        .oneshot(auth_headers(duplicate_request))
+        .await
+        .expect("duplicate create should return conflict");
+    assert_eq!(duplicate_response.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        duplicate_response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+
+    let body_bytes = to_bytes(duplicate_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "conflict");
+}
+
+#[tokio::test]
 async fn restore_with_invalid_requested_at_should_return_bad_request() {
     let state = AgentHttpState::new(
         InMemoryAgentRepository::new(),

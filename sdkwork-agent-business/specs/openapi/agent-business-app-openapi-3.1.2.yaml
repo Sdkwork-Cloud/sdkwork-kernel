@@ -66,6 +66,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentResponse'
+        '409':
+          description: Resource conflict (duplicate agent_id or code within tenant scope)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/conflict
+                title: conflict
+                status: 409
+                detail: agent already exists
+                code: conflict
         default:
           $ref: '#/components/responses/Problem'
   /app/v3/api/ai/agents/{agentId}:

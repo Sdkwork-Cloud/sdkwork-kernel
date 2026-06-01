@@ -64,3 +64,8 @@ Optional cleanup of temporary outputs after verification:
 ```powershell
 powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode Apply -CleanTmp
 ```
+
+## Latest Verification Record
+
+- `verification-latest.md` stores the latest apply/check/build evidence for
+  audit and release review.

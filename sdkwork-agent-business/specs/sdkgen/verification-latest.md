@@ -10,23 +10,23 @@
 ## Dry-Run Summary
 
 - app
-  - resolved version: `1.0.36`
-  - change fingerprint: `d6798a705898520e5faeedb0de17d32614ebfccc92bb19833939339849ea6547`
-  - risk: `medium`
+  - resolved version: `1.0.35`
+  - change fingerprint: `18bfcb0c2705e66889bd89b823999045d6386b2d0e926522084b0f7f161c0275`
+  - risk: `high`
   - has changes: `true`
 - backend
   - resolved version: `1.0.11`
-  - change fingerprint: `6695a725196dd2609f26554cf072a7962256f5131dec250637c140cbf927dc29`
+  - change fingerprint: `8a71d744793e81d7f2422b12563385eafcd46e5b4b2982b5d700721d55b34efb`
   - risk: `high`
   - has changes: `true`
 
 ## Apply Result
 
 - app SDK (`sdkwork-agent-business-app-sdk`)
-  - fixed version: `1.0.36`
+  - fixed version: `1.0.35`
   - output: `apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/.tmp/agent-business-app-sdk-typescript`
   - generator result: success
-  - impact: `build-metadata`, `documentation`
+  - impact: `api-surface`, `models`, `runtime`, `build-metadata`, `publish-workflow`, `documentation`, `custom-scaffold`, `unknown`
 - backend SDK (`sdkwork-agent-business-backend-sdk`)
   - fixed version: `1.0.11`
   - output: `apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/.tmp/agent-business-backend-sdk-typescript`
@@ -38,7 +38,7 @@
 - app generated package
   - `publish-core --action check`: pass
   - `publish-core --action build`: pass
-  - npm pack artifact: `sdkwork-app-sdk-1.0.36.tgz`
+  - npm pack artifact: `sdkwork-app-sdk-1.0.35.tgz`
 - backend generated package
   - `publish-core --action check`: pass
   - `publish-core --action build`: pass
@@ -65,3 +65,4 @@
 - Added optional `expectedVersion` optimistic-concurrency validation for update/status/delete/restore across dto/http/service, and aligned app/backend OpenAPI contracts: pass
 - Repository-level optimistic locking hardened: in-memory adapter enforces monotonic `version`, and postgres update SQL now includes `WHERE ... AND version = previous_version` precondition with conflict mapping: pass
 - API conflict semantics refined: optimistic-concurrency conflicts now return `application/problem+json` code `version_conflict`, and app/backend OpenAPI `Problem` examples include `version_conflict` payload: pass
+- Operation-level OpenAPI responses now include explicit `409` `version_conflict` examples for update/delete/restore/status operations, and SDK apply verification completed (`verify-sdkgen.ps1 -Mode Apply -CleanTmp`): pass

@@ -592,6 +592,72 @@ async fn update_with_stale_expected_version_should_return_conflict() {
 }
 
 #[tokio::test]
+async fn status_update_with_stale_expected_version_should_return_version_conflict() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.expected.status", "ExpectedStatus").await;
+
+    let first_status_update = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.expected.status/status?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "targetStatus": "active",
+                "expectedVersion": "1",
+                "requestedAt": "2026-06-01T06:00:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let first_status_response = app
+        .clone()
+        .oneshot(auth_headers(first_status_update))
+        .await
+        .expect("first status update should succeed");
+    assert_eq!(first_status_response.status(), StatusCode::OK);
+
+    let stale_status_update = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.expected.status/status?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "targetStatus": "disabled",
+                "expectedVersion": "1",
+                "requestedAt": "2026-06-01T06:01:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let stale_status_response = app
+        .clone()
+        .oneshot(auth_headers(stale_status_update))
+        .await
+        .expect("stale status update should return conflict");
+    assert_eq!(stale_status_response.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        stale_status_response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+
+    let body_bytes = to_bytes(stale_status_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "version_conflict");
+}
+
+#[tokio::test]
 async fn backend_audit_events_should_return_recorded_items() {
     let state = AgentHttpState::new(
         InMemoryAgentRepository::new(),

@@ -121,6 +121,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentResponse'
+        '409':
+          description: Optimistic concurrency conflict (stale expectedVersion)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/version_conflict
+                title: version_conflict
+                status: 409
+                detail: "agent version mismatch: expected=2, actual=3"
+                code: version_conflict
         default:
           $ref: '#/components/responses/Problem'
   /backend/v3/api/ai/agents/{agentId}/status:
@@ -152,6 +164,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentResponse'
+        '409':
+          description: Optimistic concurrency conflict (stale expectedVersion)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/version_conflict
+                title: version_conflict
+                status: 409
+                detail: "agent version mismatch: expected=2, actual=3"
+                code: version_conflict
         default:
           $ref: '#/components/responses/Problem'
   /backend/v3/api/ai/agents/{agentId}/restore:
@@ -183,6 +207,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentResponse'
+        '409':
+          description: Optimistic concurrency conflict (stale expectedVersion)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/version_conflict
+                title: version_conflict
+                status: 409
+                detail: "agent version mismatch: expected=2, actual=3"
+                code: version_conflict
         default:
           $ref: '#/components/responses/Problem'
   /backend/v3/api/ai/agents/{agentId}/audit_events:

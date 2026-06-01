@@ -2,7 +2,7 @@
     "schemaVersion":  1,
     "module":  "sdkwork-agent-business",
     "mode":  "Apply",
-    "startedAt":  "2026-06-01T14:40:19.6384227+08:00",
+    "startedAt":  "2026-06-01T16:16:47.9419059+08:00",
     "skipBuild":  false,
     "cleanTmp":  true,
     "sdkgenPath":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\sdk\\sdkwork-sdk-generator\\bin\\sdkgen.js",
@@ -14,14 +14,20 @@
                       "sdkName":  "sdkwork-agent-business-app-sdk",
                       "sdkType":  "app",
                       "apiPrefix":  "/app/v3/api",
-                      "sdkVersion":  "1.0.36",
-                      "fingerprint":  "d6798a705898520e5faeedb0de17d32614ebfccc92bb19833939339849ea6547",
+                      "sdkVersion":  "1.0.35",
+                      "fingerprint":  "18bfcb0c2705e66889bd89b823999045d6386b2d0e926522084b0f7f161c0275",
                       "hasChanges":  true,
-                      "riskLevel":  "medium",
+                      "riskLevel":  "high",
                       "hasDestructiveChanges":  false,
                       "impactAreas":  [
+                                          "api-surface",
+                                          "models",
+                                          "runtime",
                                           "build-metadata",
-                                          "documentation"
+                                          "publish-workflow",
+                                          "documentation",
+                                          "custom-scaffold",
+                                          "unknown"
                                       ]
                   },
                   {
@@ -32,7 +38,7 @@
                       "sdkType":  "backend",
                       "apiPrefix":  "/backend/v3/api",
                       "sdkVersion":  "1.0.11",
-                      "fingerprint":  "6695a725196dd2609f26554cf072a7962256f5131dec250637c140cbf927dc29",
+                      "fingerprint":  "8a71d744793e81d7f2422b12563385eafcd46e5b4b2982b5d700721d55b34efb",
                       "hasChanges":  true,
                       "riskLevel":  "high",
                       "hasDestructiveChanges":  false,
@@ -52,8 +58,8 @@
                          {
                              "name":  "app",
                              "output":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\apps\\sdkwork-birdcoder\\kernel\\sdkwork-agent-business\\.tmp\\agent-business-app-sdk-typescript",
-                             "sdkVersion":  "1.0.36",
-                             "fingerprint":  "d6798a705898520e5faeedb0de17d32614ebfccc92bb19833939339849ea6547",
+                             "sdkVersion":  "1.0.35",
+                             "fingerprint":  "18bfcb0c2705e66889bd89b823999045d6386b2d0e926522084b0f7f161c0275",
                              "generated":  true,
                              "publishCheck":  "passed",
                              "publishBuild":  "passed"
@@ -62,14 +68,14 @@
                              "name":  "backend",
                              "output":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\apps\\sdkwork-birdcoder\\kernel\\sdkwork-agent-business\\.tmp\\agent-business-backend-sdk-typescript",
                              "sdkVersion":  "1.0.11",
-                             "fingerprint":  "6695a725196dd2609f26554cf072a7962256f5131dec250637c140cbf927dc29",
+                             "fingerprint":  "8a71d744793e81d7f2422b12563385eafcd46e5b4b2982b5d700721d55b34efb",
                              "generated":  true,
                              "publishCheck":  "passed",
                              "publishBuild":  "passed"
                          }
                      ],
-    "finishedAt":  "2026-06-01T14:40:29.5907585+08:00",
-    "durationSeconds":  9.952,
+    "finishedAt":  "2026-06-01T16:17:02.5151930+08:00",
+    "durationSeconds":  14.573,
     "tmpRemoved":  true,
     "tmpExistsAfterRun":  false
 }

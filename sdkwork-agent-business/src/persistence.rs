@@ -5,17 +5,26 @@ use sdkwork_agent_kernel::{
 };
 use sdkwork_code_kernel::CodeTaskIntent;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "postgres-sync")]
+use postgres::{Client, NoTls, Row};
+#[cfg(feature = "postgres-sync")]
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex,
+};
 
 pub const SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID: &str =
-    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, status, visibility, tags_json, created_at, updated_at, deleted_at, version FROM ai_agent_business WHERE tenant_id = $1 AND agent_id = $2 LIMIT 1";
+    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, status, visibility, tags_json, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at, version FROM ai_agent_business WHERE tenant_id = $1 AND agent_id = $2 LIMIT 1";
 pub const SQL_INSERT_AGENT_BUSINESS: &str =
-    "INSERT INTO ai_agent_business (uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, status, visibility, tags_json, created_at, updated_at, deleted_at, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)";
+    "INSERT INTO ai_agent_business (id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, status, visibility, tags_json, created_at, updated_at, deleted_at, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)";
 pub const SQL_UPDATE_AGENT_BUSINESS: &str =
     "UPDATE ai_agent_business SET organization_id = $1, owner_user_id = $2, code = $3, display_name = $4, description = $5, manifest_json = $6, default_code_task_intent_json = $7, status = $8, visibility = $9, tags_json = $10, updated_at = $11, deleted_at = $12, version = $13 WHERE tenant_id = $14 AND agent_id = $15";
 pub const SQL_LIST_AGENT_BUSINESS: &str =
-    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, status, visibility, tags_json, created_at, updated_at, deleted_at, version FROM ai_agent_business WHERE tenant_id = $1 ORDER BY updated_at DESC";
+    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, status, visibility, tags_json, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at, version FROM ai_agent_business WHERE tenant_id = $1 ORDER BY updated_at DESC";
 pub const SQL_INSERT_AUDIT_EVENT: &str =
     "INSERT INTO ai_agent_business_audit_event (uuid, tenant_id, organization_id, agent_business_id, agent_id, action, subject_id, subject_tenant_id, request_id, trace_id, payload_json, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)";
+pub const SQL_NEXT_AGENT_BUSINESS_ID: &str =
+    "SELECT nextval(pg_get_serial_sequence('ai_agent_business', 'id')) AS next_id";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentBusinessRow {
@@ -225,6 +234,223 @@ where
 
 pub trait PostgresAuditAdapter {
     fn insert_audit_row(&mut self, row: AgentAuditEventRow) -> KernelResult<()>;
+}
+
+#[cfg(feature = "postgres-sync")]
+pub struct SyncPostgresAdapter {
+    client: Mutex<Client>,
+    fallback_next_id: AtomicU64,
+}
+
+#[cfg(feature = "postgres-sync")]
+impl SyncPostgresAdapter {
+    pub fn connect(connection_uri: &str) -> KernelResult<Self> {
+        let client = Client::connect(connection_uri, NoTls).map_err(map_postgres_error)?;
+        Ok(Self {
+            client: Mutex::new(client),
+            fallback_next_id: AtomicU64::new(1),
+        })
+    }
+
+    pub fn with_client(client: Client) -> Self {
+        Self {
+            client: Mutex::new(client),
+            fallback_next_id: AtomicU64::new(1),
+        }
+    }
+
+    fn with_locked_client<T>(
+        &self,
+        action: impl FnOnce(&mut Client) -> KernelResult<T>,
+    ) -> KernelResult<T> {
+        let mut client = self
+            .client
+            .lock()
+            .map_err(|_| KernelError::provider_error("postgres_lock_error", "postgres mutex poisoned"))?;
+        action(&mut client)
+    }
+}
+
+#[cfg(feature = "postgres-sync")]
+impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
+    fn next_id(&mut self) -> u64 {
+        let next_id = self.with_locked_client(|client| {
+            let row = client
+                .query_one(SQL_NEXT_AGENT_BUSINESS_ID, &[])
+                .map_err(map_postgres_error)?;
+            let value: i64 = row.try_get("next_id").map_err(map_postgres_error)?;
+            int64_to_u64(value, "next_id")
+        });
+
+        match next_id {
+            Ok(value) if value > 0 => value,
+            _ => self.fallback_next_id.fetch_add(1, Ordering::SeqCst),
+        }
+    }
+
+    fn insert_row(&mut self, row: AgentBusinessRow) -> KernelResult<()> {
+        let id = u64_to_i64(row.id, "id")?;
+        let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
+        let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
+        let owner_user_id = u64_to_i64(row.owner_user_id, "owner_user_id")?;
+        let version = u64_to_i64(row.version, "version")?;
+
+        self.with_locked_client(|client| {
+            client
+                .execute(
+                    SQL_INSERT_AGENT_BUSINESS,
+                    &[
+                        &id,
+                        &row.uuid,
+                        &tenant_id,
+                        &organization_id,
+                        &owner_user_id,
+                        &row.agent_id,
+                        &row.code,
+                        &row.display_name,
+                        &row.description,
+                        &row.manifest_json,
+                        &row.default_code_task_intent_json,
+                        &row.status,
+                        &row.visibility,
+                        &row.tags_json,
+                        &row.created_at,
+                        &row.updated_at,
+                        &row.deleted_at,
+                        &version,
+                    ],
+                )
+                .map_err(map_postgres_error)?;
+            Ok(())
+        })
+    }
+
+    fn update_row(&mut self, row: AgentBusinessRow) -> KernelResult<()> {
+        let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
+        let owner_user_id = u64_to_i64(row.owner_user_id, "owner_user_id")?;
+        let version = u64_to_i64(row.version, "version")?;
+        let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
+
+        self.with_locked_client(|client| {
+            let updated_rows = client
+                .execute(
+                    SQL_UPDATE_AGENT_BUSINESS,
+                    &[
+                        &organization_id,
+                        &owner_user_id,
+                        &row.code,
+                        &row.display_name,
+                        &row.description,
+                        &row.manifest_json,
+                        &row.default_code_task_intent_json,
+                        &row.status,
+                        &row.visibility,
+                        &row.tags_json,
+                        &row.updated_at,
+                        &row.deleted_at,
+                        &version,
+                        &tenant_id,
+                        &row.agent_id,
+                    ],
+                )
+                .map_err(map_postgres_error)?;
+
+            if updated_rows == 0 {
+                return Err(KernelError::validation("agent not found"));
+            }
+            Ok(())
+        })
+    }
+
+    fn get_row(&self, tenant_id: u64, agent_id: &str) -> Option<AgentBusinessRow> {
+        let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
+        self.with_locked_client(|client| {
+            let row = client
+                .query_opt(SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID, &[&tenant_id, &agent_id])
+                .map_err(map_postgres_error)?;
+            row.map(pg_row_to_agent_business_row).transpose()
+        })
+        .ok()
+        .flatten()
+    }
+
+    fn list_rows(&self, query: &AgentListQuery) -> Vec<AgentBusinessRow> {
+        let tenant_id = match u64_to_i64(query.tenant_id, "tenant_id") {
+            Ok(value) => value,
+            Err(_) => return Vec::new(),
+        };
+
+        self.with_locked_client(|client| {
+            let rows = client
+                .query(SQL_LIST_AGENT_BUSINESS, &[&tenant_id])
+                .map_err(map_postgres_error)?;
+
+            let mut mapped_rows = Vec::with_capacity(rows.len());
+            for row in rows {
+                mapped_rows.push(pg_row_to_agent_business_row(row)?);
+            }
+            Ok(mapped_rows)
+        })
+        .map(|rows| {
+            rows.into_iter()
+                .filter(|row| {
+                    if let Some(organization_id) = query.organization_id {
+                        row.organization_id == organization_id
+                    } else {
+                        true
+                    }
+                })
+                .filter(|row| {
+                    if let Some(owner_user_id) = query.owner_user_id {
+                        row.owner_user_id == owner_user_id
+                    } else {
+                        true
+                    }
+                })
+                .filter(|row| {
+                    if query.include_deleted {
+                        true
+                    } else {
+                        row.status != AgentBusinessStatus::Deleted.as_db_code()
+                            && row.deleted_at.is_none()
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+    }
+}
+
+#[cfg(feature = "postgres-sync")]
+impl PostgresAuditAdapter for SyncPostgresAdapter {
+    fn insert_audit_row(&mut self, row: AgentAuditEventRow) -> KernelResult<()> {
+        let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
+        let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
+        let agent_business_id = u64_to_i64(row.agent_business_id, "agent_business_id")?;
+
+        self.with_locked_client(|client| {
+            client
+                .execute(
+                    SQL_INSERT_AUDIT_EVENT,
+                    &[
+                        &row.uuid,
+                        &tenant_id,
+                        &organization_id,
+                        &agent_business_id,
+                        &row.agent_id,
+                        &row.action,
+                        &row.subject_id,
+                        &row.subject_tenant_id,
+                        &row.request_id,
+                        &row.trace_id,
+                        &row.payload_json,
+                        &row.created_at,
+                    ],
+                )
+                .map_err(map_postgres_error)?;
+            Ok(())
+        })
+    }
 }
 
 pub struct PostgresAgentAuditSink<A>
@@ -481,6 +707,62 @@ fn source_from_str(value: &str) -> KernelResult<KernelEventSource> {
     }
 }
 
+#[cfg(feature = "postgres-sync")]
+fn map_postgres_error(error: postgres::Error) -> KernelError {
+    KernelError::provider_error("postgres_error", error.to_string())
+}
+
+#[cfg(feature = "postgres-sync")]
+fn u64_to_i64(value: u64, field: &str) -> KernelResult<i64> {
+    i64::try_from(value)
+        .map_err(|_| KernelError::validation(format!("{field} exceeds postgres int64 range")))
+}
+
+#[cfg(feature = "postgres-sync")]
+fn int64_to_u64(value: i64, field: &str) -> KernelResult<u64> {
+    u64::try_from(value).map_err(|_| {
+        KernelError::validation(format!("{field} must be a positive postgres int64 value"))
+    })
+}
+
+#[cfg(feature = "postgres-sync")]
+fn pg_row_to_agent_business_row(row: Row) -> KernelResult<AgentBusinessRow> {
+    Ok(AgentBusinessRow {
+        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        tenant_id: int64_to_u64(
+            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            "tenant_id",
+        )?,
+        organization_id: int64_to_u64(
+            row.try_get("organization_id").map_err(map_postgres_error)?,
+            "organization_id",
+        )?,
+        owner_user_id: int64_to_u64(
+            row.try_get("owner_user_id").map_err(map_postgres_error)?,
+            "owner_user_id",
+        )?,
+        agent_id: row.try_get("agent_id").map_err(map_postgres_error)?,
+        code: row.try_get("code").map_err(map_postgres_error)?,
+        display_name: row.try_get("display_name").map_err(map_postgres_error)?,
+        description: row.try_get("description").map_err(map_postgres_error)?,
+        manifest_json: row.try_get("manifest_json").map_err(map_postgres_error)?,
+        default_code_task_intent_json: row
+            .try_get("default_code_task_intent_json")
+            .map_err(map_postgres_error)?,
+        status: row.try_get("status").map_err(map_postgres_error)?,
+        visibility: row.try_get("visibility").map_err(map_postgres_error)?,
+        tags_json: row.try_get("tags_json").map_err(map_postgres_error)?,
+        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
+        deleted_at: row.try_get("deleted_at").map_err(map_postgres_error)?,
+        version: int64_to_u64(
+            row.try_get("version").map_err(map_postgres_error)?,
+            "version",
+        )?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,6 +785,18 @@ mod tests {
             owner_name: "sdkwork".to_string(),
             status: "active".to_string(),
         }
+    }
+
+    #[test]
+    fn sql_contracts_use_expected_placeholders_and_filters() {
+        assert!(SQL_NEXT_AGENT_BUSINESS_ID.contains("pg_get_serial_sequence"));
+        assert!(SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID.contains("tenant_id = $1"));
+        assert!(SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID.contains("agent_id = $2"));
+        assert!(SQL_INSERT_AGENT_BUSINESS.contains("VALUES ($1"));
+        assert!(SQL_INSERT_AGENT_BUSINESS.contains("$18"));
+        assert!(SQL_UPDATE_AGENT_BUSINESS.contains("WHERE tenant_id = $14 AND agent_id = $15"));
+        assert!(SQL_LIST_AGENT_BUSINESS.contains("ORDER BY updated_at DESC"));
+        assert!(SQL_INSERT_AUDIT_EVENT.contains("$12"));
     }
 
     #[test]

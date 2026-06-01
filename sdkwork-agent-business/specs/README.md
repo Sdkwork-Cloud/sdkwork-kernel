@@ -62,7 +62,8 @@ or document this component, but they must not contradict
 - `sdkwork_agent_business::infrastructure::*` deterministic in-memory adapters
   for contract tests.
 - `sdkwork_agent_business::persistence::*` PostgreSQL-oriented row mapping,
-  SQL contracts, and repository/audit adapters.
+  SQL contracts, repository/audit adapters, and optional `postgres-sync`
+  executable adapter.
 
 ## SDK Clients
 
@@ -73,3 +74,4 @@ or document this component, but they must not contradict
 ## Verification
 
 - `cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml`
+- `cargo test --features postgres-sync --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml`

@@ -133,7 +133,8 @@
   },
   "verification": {
     "commands": [
-      "cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml"
+      "cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml",
+      "cargo test --features postgres-sync --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml"
     ]
   },
   "metadata": {

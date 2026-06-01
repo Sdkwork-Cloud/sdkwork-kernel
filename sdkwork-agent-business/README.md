@@ -16,6 +16,8 @@ integration. It defines:
 - repository/audit ports and deterministic in-memory adapters for tests
 - postgres-oriented row mapping and SQL contract constants for persistence
   adapters
+- optional `postgres-sync` feature with executable PostgreSQL adapter for
+  repository/audit writes
 - app-api/backend-api route and operation contract declarations
 - app-api/backend-api DTO mapping contracts
 - database contract and DDL baseline for deployment-specific adapters
@@ -88,4 +90,8 @@ node sdk/sdkwork-sdk-generator/bin/sdkgen.js generate \
 
 ```bash
 cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml
+```
+
+```bash
+cargo test --features postgres-sync --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml
 ```

@@ -29,6 +29,9 @@ pub use infrastructure::{
 pub use persistence::{
     AgentAuditEventRow, AgentBusinessRow, PostgresAgentAuditSink, PostgresAgentRepository,
     PostgresAgentRepositoryAdapter, SQL_INSERT_AGENT_BUSINESS, SQL_INSERT_AUDIT_EVENT,
-    SQL_LIST_AGENT_BUSINESS, SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID, SQL_UPDATE_AGENT_BUSINESS,
+    SQL_LIST_AGENT_BUSINESS, SQL_NEXT_AGENT_BUSINESS_ID, SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID,
+    SQL_UPDATE_AGENT_BUSINESS,
 };
+#[cfg(feature = "postgres-sync")]
+pub use persistence::SyncPostgresAdapter;
 pub use ports::{AgentAuditSink, AgentListQuery, AgentRepository};

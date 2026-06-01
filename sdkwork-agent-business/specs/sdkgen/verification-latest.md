@@ -58,3 +58,4 @@
 - CI dry-run JSON report updated: `specs/sdkgen/verification-ci.json`
 - RFC3339 strict validation for mutation `requestedAt` covered by dto/http contract tests: pass
 - RFC3339 validation error detail now uses API field naming `requestedAt`: pass
+- RFC3339 parsing logic unified into shared `validation` module and reused by dto/http query filter: pass

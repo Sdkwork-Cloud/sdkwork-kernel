@@ -5,6 +5,7 @@ mod dto;
 mod infrastructure;
 mod persistence;
 mod ports;
+mod validation;
 #[cfg(feature = "http-axum")]
 mod http;
 

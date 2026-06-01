@@ -5,6 +5,7 @@ use crate::dto::{
     UpdateAgentStatusRequestDto,
 };
 use crate::ports::{AgentAuditSink, AgentRepository};
+use crate::validation::parse_optional_rfc3339_datetime;
 use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
 use axum::http::header::CONTENT_TYPE;
@@ -970,13 +971,7 @@ fn parse_optional_query_datetime(
     field_name: &str,
     value: Option<&str>,
 ) -> Result<Option<OffsetDateTime>, ApiProblem> {
-    let Some(value) = value else {
-        return Ok(None);
-    };
-    let parsed = OffsetDateTime::parse(value, &Rfc3339).map_err(|error| {
-        ApiProblem::validation(format!("{field_name} must be RFC3339 date-time: {error}"))
-    })?;
-    Ok(Some(parsed))
+    parse_optional_rfc3339_datetime(value, field_name).map_err(ApiProblem::from_kernel_error)
 }
 
 fn extract_policy_subject(headers: HeaderMap, tenant_id: &str) -> Result<PolicySubject, ApiProblem> {

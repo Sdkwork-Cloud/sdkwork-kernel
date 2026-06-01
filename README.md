@@ -100,11 +100,12 @@ This layer defines what every SDKWork-compatible agent runtime must expose:
   authentication configuration, LLM API key configuration, and configuration
   validation SPI.
 - Agent session, task, step, and execution state contracts.
-- Model provider SPI for chat, reasoning, embedding, tool-call, streaming, and
-  multimodal-capable models when supported, including multiple LLM providers
-  per runtime with provider-id selection.
+- Model provider SPI for model catalog descriptors, request-level `model_id`
+  selection, chat, reasoning, embedding, tool-call, streaming,
+  structured-output, and multimodal-capable models when supported, including
+  multiple LLM providers per runtime with provider-id selection.
 - Tool, policy, context, memory, planning, host, protocol adapter, MCP, Agent
-  Skill, and telemetry provider SPI families support multiple runtime
+  Skill, collaboration, and telemetry provider SPI families support multiple runtime
   implementations with deterministic defaults and provider-id selection.
 - Tool provider SPI for typed tool registration, invocation, cancellation,
   output mapping, permission checks, and audit.
@@ -112,6 +113,9 @@ This layer defines what every SDKWork-compatible agent runtime must expose:
   invocation, and health without replacing kernel objects with MCP objects.
 - Agent Skill provider SPI for discoverable, invocable, policy-aware skill
   packs.
+- Collaboration SPI for agent discovery, agent cards, handoff, delegation,
+  input filtering, and multi-agent orchestration without binding the kernel to
+  one protocol.
 - Context and memory ports for short-term context, durable memory, retrieval,
   summarization, and checkpointing.
 - Planning and execution contracts for plan creation, step execution,
@@ -386,14 +390,22 @@ entries. Package bootstrap fails closed when agent ids do not match, kernel
 version compatibility is not satisfied, or a typed configuration provider omits
 required package configuration sections. Local runtime execution uses a typed
 provider registry so hosts can invoke concrete model, tool, policy, context,
-memory, planning, host, protocol adapter, MCP, Agent Skill, telemetry,
+memory, planning, host, protocol adapter, MCP, Agent Skill, collaboration, telemetry,
 installer, and configuration SPI instances without replacing the capability
 manifest as the source of truth. Multiple model, tool, policy, context, memory,
-planning, host, protocol adapter, MCP, Agent Skill, and telemetry providers may
+planning, host, protocol adapter, MCP, Agent Skill, collaboration, and telemetry providers may
 be registered in one runtime and selected by provider id, allowing each agent to
 support different LLM implementations, tool implementations, policy engines,
 context assembly strategies, memory stores, planners, host capability bridges,
-protocol bridges, MCP integrations, skill packs, and observability sinks.
+protocol bridges, MCP integrations, skill packs, collaboration backends, and
+observability sinks.
+Model providers now expose a provider-neutral `ModelDescriptor` catalog and
+request-level `model_id` selection, so one provider can publish multiple LLMs
+with explicit context limits, supported modes, structured-output support,
+tool-call support, and policy categories. Typed model provider registration
+preserves the provider manifest's declared capabilities, including
+`model.catalog`, `model.tool_call`, and `model.structured_output`, instead of
+assuming every model provider only supports `model.chat`.
 Capability negotiation now preserves
 `min_version` from agent manifests and only binds providers whose version
 satisfies the requested capability requirement. Manifest-only providers remain valid for

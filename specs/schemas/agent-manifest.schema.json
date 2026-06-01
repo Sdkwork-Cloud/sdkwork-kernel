@@ -129,7 +129,7 @@
       "required": ["family", "required", "capabilities"],
       "properties": {
         "family": {
-          "enum": ["model", "tool", "context", "memory", "planning", "policy", "telemetry", "host", "protocol_adapter", "mcp", "skill"]
+          "enum": ["model", "tool", "context", "memory", "planning", "policy", "telemetry", "host", "protocol_adapter", "mcp", "skill", "collaboration"]
         },
         "required": { "type": "boolean" },
         "capabilities": {

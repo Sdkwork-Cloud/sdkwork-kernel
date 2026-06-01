@@ -31,6 +31,7 @@ can pass the relevant conformance profile.
 | `provider-tool` | Tool provider | Tool provider registration |
 | `provider-mcp` | MCP provider | MCP tools/resources/prompts registration |
 | `provider-skill` | Agent Skill provider | Skill discovery and invocation registration |
+| `provider-collaboration` | Collaboration provider | Agent discovery, handoff, and delegation |
 | `provider-memory` | Memory provider | Memory provider registration |
 | `provider-policy` | Policy provider | Protected operations |
 | `provider-host` | Host provider | Filesystem/process/network/secrets/storage host access |
@@ -74,6 +75,9 @@ Required cases:
 - Runtime registers `agent_installer` and `agent_configuration` providers when
   install/configuration capabilities are enabled.
 - Runtime can register multiple model providers and select them by provider id.
+- Runtime typed model registration preserves provider-declared model
+  capabilities such as `model.catalog`, `model.tool_call`, and
+  `model.structured_output` in the capability manifest.
 - Runtime can register multiple tool providers and select them by provider id.
 - Runtime can register multiple policy providers and select them by provider id.
 - Runtime can register multiple context providers and select them by provider
@@ -88,6 +92,8 @@ Required cases:
   then select them by provider id.
 - Runtime can register multiple Agent Skill providers for skill discovery and
   invocation, then select them by provider id.
+- Runtime can register multiple collaboration providers for agent discovery,
+  handoff, and delegation, then select them by provider id.
 - Runtime can register multiple telemetry providers and select them by provider
   id.
 - Runtime host can load, start, stop, fail, query, unload, and aggregate
@@ -170,6 +176,13 @@ Required cases:
 Required cases:
 
 - Provider manifest validates.
+- Provider exposes `ModelDescriptor` catalog entries when it declares
+  `model.catalog`.
+- Model descriptors declare stable model ids, provider ids, supported
+  capabilities, supported modes, response formats, tool capabilities, policy
+  categories, and context limits when known.
+- Request-level `model_id` selects a model from the provider catalog.
+- Unknown model ids fail with stable kernel error mapping.
 - Chat invocation returns normalized `ModelResponse`.
 - Streaming returns ordered chunks/events.
 - Tool-call output maps to typed tool-call request.

@@ -68,7 +68,7 @@
       "properties": {
         "provider_id": { "type": "string", "pattern": "^provider\\.[a-z0-9_.-]+\\.[a-z0-9.-]+$" },
         "provider_family": {
-          "enum": ["model", "tool", "context", "memory", "planning", "policy", "telemetry", "host", "protocol_adapter", "mcp", "skill", "agent_installer", "agent_configuration"]
+          "enum": ["model", "tool", "context", "memory", "planning", "policy", "telemetry", "host", "protocol_adapter", "mcp", "skill", "collaboration", "agent_installer", "agent_configuration"]
         },
         "version": { "$ref": "#/$defs/semver" },
         "status": { "enum": ["available", "degraded", "unavailable"] }

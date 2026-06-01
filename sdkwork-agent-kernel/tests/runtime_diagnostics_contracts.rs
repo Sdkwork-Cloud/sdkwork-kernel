@@ -164,6 +164,7 @@ fn runtime_diagnostics_report_typed_manifest_only_health_and_missing_standard_fa
             "protocol_adapter",
             "mcp",
             "skill",
+            "collaboration",
             "telemetry",
             "agent_installer",
             "agent_configuration"

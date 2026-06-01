@@ -96,11 +96,17 @@ Rules:
   typed local SPI provider registration.
 - Runtime builders `MUST` expose typed local registration paths for the core
   driver families: `model`, `tool`, `policy`, `context`, `memory`, `planning`,
-  `host`, `protocol_adapter`, `mcp`, `skill`, and `telemetry`.
+  `host`, `protocol_adapter`, `mcp`, `skill`, `collaboration`, and
+  `telemetry`.
 - Runtime builders `MUST` support multiple typed `model` providers in one
   runtime. The default model provider is the deterministic first registered
   typed model provider; callers that need a specific LLM implementation `MUST`
   select it by provider id.
+- Typed model provider registration `MUST` preserve the provider manifest's
+  declared model capabilities, including `model.catalog`,
+  `model.structured_output`, `model.tool_call`, `model.streaming`, and
+  `model.cancellation`, rather than forcing every typed model provider to
+  expose only `model.chat`.
 - Runtime builders `MUST` support multiple typed `tool` providers in one
   runtime. The default tool provider is the deterministic first registered typed
   tool provider; callers that need a specific tool implementation `MUST`
@@ -141,6 +147,11 @@ Rules:
   runtime. The default Agent Skill provider is the deterministic first
   registered typed skill provider; callers that need a specific skill pack
   implementation `MUST` select it by provider id.
+- Runtime builders `MUST` support multiple typed `collaboration` providers in
+  one runtime. The default collaboration provider is the deterministic first
+  registered typed collaboration provider; callers that need a specific local,
+  remote, A2A-backed, or supervisor-backed collaboration implementation `MUST`
+  select it by provider id.
 - Runtime builders `MUST` support multiple typed `telemetry` providers in one
   runtime. The default telemetry provider is the deterministic first registered
   typed telemetry provider; callers that need a specific audit, event, metrics,
@@ -167,11 +178,16 @@ Rules:
   SPI instance available through runtime accessors after bootstrap.
 - Typed core provider registration `MUST` make the concrete SPI instance
   available through runtime accessors after bootstrap.
+- Typed model provider registration `MUST` expose model catalog discovery
+  through `list_models` and `describe_model` when the provider declares
+  `model.catalog`.
 - Typed MCP provider registration `MUST` expose tools, resources, and prompts
   through the MCP provider SPI without forcing resources or prompts into tool
   descriptors.
 - Typed Agent Skill provider registration `MUST` expose skill discovery,
   description, invocation, and health through the skill provider SPI.
+- Typed collaboration provider registration `MUST` expose agent discovery,
+  handoff, delegation, and health through the collaboration provider SPI.
 - Manifest-only providers `MUST` remain valid for negotiation and capability
   introspection but `MUST` report `provider_unavailable` when local runtime code
   attempts direct SPI execution.
@@ -238,6 +254,9 @@ Required runtime operations:
 - `get_agent_skill_provider`
 - `list_agent_skill_provider_ids`
 - `get_agent_skill_provider_by_id`
+- `get_collaboration_provider`
+- `list_collaboration_provider_ids`
+- `get_collaboration_provider_by_id`
 - `get_telemetry_provider`
 - `list_telemetry_provider_ids`
 - `get_telemetry_provider_by_id`
@@ -436,6 +455,8 @@ Required cases:
 - Multiple protocol adapters can be registered and selected by provider id.
 - Multiple MCP providers can be registered and selected by provider id.
 - Multiple Agent Skill providers can be registered and selected by provider id.
+- Multiple collaboration providers can be registered and selected by provider
+  id.
 - Multiple telemetry providers can be registered and selected by provider id.
 - MCP providers can expose tools, resources, and prompts through typed SPI.
 - Agent Skill providers can list, describe, and invoke skills through typed SPI.

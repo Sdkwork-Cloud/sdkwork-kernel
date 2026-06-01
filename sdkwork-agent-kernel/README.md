@@ -83,6 +83,9 @@ agent needs:
   provider-id selection across multiple MCP implementations.
 - Agent Skill provider SPI for discoverable and invocable skill packs with
   provider-id selection across multiple skill implementations.
+- Collaboration provider SPI for agent discovery, agent cards, handoff,
+  delegation, input filtering, and provider-id selection across multiple
+  collaboration implementations.
 - Context SPI with multiple context assembly implementations and provider-id
   selection, plus memory SPI for durable/retrievable state.
 - Planning and execution SPI with multiple planner implementations and
@@ -143,7 +146,8 @@ The agent kernel standard is centered on these stable objects:
 | `AgentMessage` | Conversation or protocol message exchanged with user, model, tool, or another agent |
 | `AgentPart` | Typed message content part such as text, JSON, file reference, image, audio, or artifact reference |
 | `AgentArtifact` | Durable output produced by an agent task |
-| `ModelRequest` / `ModelResponse` | Provider-neutral model invocation contract |
+| `ModelDescriptor` | Provider-neutral catalog record for a selectable LLM |
+| `ModelRequest` / `ModelResponse` | Provider-neutral model invocation contract with request-level model selection |
 | `ToolDescriptor` / `ToolCall` / `ToolResult` | Provider-neutral tool registration and invocation contract |
 | `ContextFrame` | Bounded context item made available to a run |
 | `MemoryRecord` | Durable or retrievable memory entry |
@@ -248,8 +252,9 @@ agent-kernel -> direct filesystem/process/network side effects outside host SPI
 
 The first-class provider families are:
 
-- `ModelProvider`: model invocation, streaming, tool-call support, usage, and
-  cancellation.
+- `ModelProvider`: model catalog discovery, model descriptor lookup,
+  request-level model selection, invocation, streaming, tool-call support,
+  usage, and cancellation.
 - `ToolProvider`: tool discovery, schema, invocation, result mapping,
   permission metadata, and cancellation.
 - `ContextProvider`: context assembly, ranking, trimming, and provenance.
@@ -268,6 +273,8 @@ The first-class provider families are:
   resources, prompts, invocation, and health.
 - `AgentSkillProvider`: `skill` provider family for skill discovery,
   description, invocation, cancellation, model hints, allowed tools, and health.
+- `AgentCollaborationProvider`: `collaboration` provider family for agent
+  discovery, agent cards, handoff, delegation, input filtering, and health.
 - `AgentInstaller`: `agent_installer` provider family for install, uninstall,
   upgrade, package-source handling, and install health.
 - `AgentConfigurationProvider`: `agent_configuration` provider family for
@@ -322,10 +329,10 @@ Implemented SPI groups:
   capability metadata, typed local provider registry accessors for
   `ModelProvider`, `ToolProvider`, `PolicyProvider`, `ContextProvider`,
   `MemoryProvider`, `PlanningProvider`, `HostProvider`, `ProtocolAdapter`,
-  `McpProvider`, `AgentSkillProvider`, `TelemetryProvider`, `AgentInstaller`,
-  and `AgentConfigurationProvider`,
+  `McpProvider`, `AgentSkillProvider`, `AgentCollaborationProvider`,
+  `TelemetryProvider`, `AgentInstaller`, and `AgentConfigurationProvider`,
   multiple typed model, tool, policy, context, memory, planning, host, protocol
-  adapter, MCP, Agent Skill, and telemetry provider registration with
+  adapter, MCP, Agent Skill, collaboration, and telemetry provider registration with
   provider-id lookup,
   deterministic default provider selection for multi-provider families,
   `min_version`-aware capability negotiation,
@@ -360,11 +367,16 @@ Implemented SPI groups:
   trace/provenance metadata, untrusted-context marking, redaction aggregation,
   `agent.message.created` and `agent.artifact.created` event mapping, and
   artifact read/write policy request generation.
-- Model SPI: request context propagation across session/task/run/step,
-  structured response formats, policy and trace binding, timeout metadata,
-  provider-neutral usage accounting, tool-call handoff, streaming chunks,
-  cancellation fallback behavior, finish reasons, redaction classification, and
-  diagnostics, with multiple LLM provider ids exposed by the runtime.
+- Model SPI: `ModelDescriptor` catalog records, request-level `model_id`
+  selection, request context propagation across session/task/run/step,
+  context-frame references, attached tool descriptors, structured response
+  formats, namespaced model parameters, policy and trace binding, timeout
+  metadata, provider-neutral usage accounting, tool-call handoff, streaming
+  chunks, cancellation fallback behavior, finish reasons, redaction
+  classification, diagnostics, and runtime negotiation of provider-declared
+  capabilities such as `model.catalog`, `model.tool_call`, and
+  `model.structured_output`, with multiple LLM provider ids exposed by the
+  runtime.
 - MCP SPI: `McpProvider`, `McpServerDescriptor`, `McpResourceDescriptor`,
   `McpResourceContent`, `McpPromptDescriptor`, and `McpPromptMessage` for MCP
   tools, resources, prompts, invocation, and provider health without making MCP

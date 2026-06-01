@@ -91,7 +91,7 @@ product host / application
   -> AgentRuntime
   -> session/task/run/step engine
   -> provider SPI: model, tool, context, memory, planning, policy, telemetry,
-     host
+     host, protocol adapter, MCP, Agent Skill, collaboration
   -> core contracts and event model
 ```
 
@@ -127,6 +127,7 @@ agent-kernel -> direct filesystem/process/network/secrets side effects
 | `AgentMessage` | stable | Message exchanged by users, agents, models, tools, or adapters |
 | `AgentPart` | stable | Typed message content unit |
 | `AgentArtifact` | stable | Durable task output or referenced output |
+| `ModelDescriptor` | stable | Provider-neutral catalog record for a selectable LLM |
 | `ModelRequest` | stable | Provider-neutral model request |
 | `ModelResponse` | stable | Provider-neutral model response |
 | `ToolDescriptor` | stable | Tool declaration and invocation schema |
@@ -288,6 +289,7 @@ Required capability families:
 - `protocol_adapter`
 - `mcp`
 - `skill`
+- `collaboration`
 - `agent_installer`
 - `agent_configuration`
 
@@ -337,17 +339,18 @@ Rules:
   declares every section kind required by the package manifest.
 - Runtime implementations `MUST` keep a typed provider registry for local
   provider instances, including model, tool, policy, context, memory, planning,
-  host, protocol adapter, MCP, Agent Skill, telemetry, installer, and
+  host, protocol adapter, MCP, Agent Skill, collaboration, telemetry, installer, and
   configuration providers.
   Provider manifests are the negotiation and introspection surface; typed
   registry entries are the execution surface.
 - Runtime implementations `MUST` support multiple typed providers with
   provider-id selection for the provider families where composition is expected:
   model, tool, policy, context, memory, planning, host, protocol adapter, MCP,
-  Agent Skill, and telemetry. One agent can use different LLM implementations,
-  tool implementations, context assembly strategies, memory stores, planners,
-  host capability bridges, protocol bridges, MCP integrations, skill packs, and
-  observability sinks without replacing the kernel object model.
+  Agent Skill, collaboration, and telemetry. One agent can use different LLM
+  implementations, tool implementations, context assembly strategies, memory
+  stores, planners, host capability bridges, protocol bridges, MCP integrations,
+  skill packs, collaboration backends, and observability sinks without replacing
+  the kernel object model.
 - Runtime implementations that claim MCP support `MUST` expose MCP as
   `provider_family: mcp` with `mcp.tools`, `mcp.resources`, and/or
   `mcp.prompts` capabilities. MCP remains an external protocol surface, not the
@@ -355,6 +358,9 @@ Rules:
 - Runtime implementations that claim Agent Skills support `MUST` expose skills
   as `provider_family: skill` with `skill.discover` and `skill.invoke`
   capabilities.
+- Runtime implementations that claim multi-agent collaboration support `MUST`
+  expose it as `provider_family: collaboration` with `agent.discover`,
+  `agent.handoff`, and `agent.delegate` capabilities.
 - Manifest-only provider registration `MUST` be sufficient for capability
   negotiation and introspection but `MUST` return `provider_unavailable` when
   local runtime code tries to invoke a typed SPI instance that was not
@@ -618,30 +624,43 @@ Rules:
 
 ### 7.2 `ModelProvider`
 
-`ModelProvider` abstracts model invocation.
+`ModelProvider` abstracts model discovery and invocation.
 
 Required operations:
 
-- `prepare`
+- `list_models`
+- `describe_model`
 - `invoke`
+- `health`
+
+Optional operations:
+
+- `prepare`
 - `stream`
 - `cancel`
-- `health`
 
 Capability flags:
 
-- `chat`
-- `reasoning`
-- `tool_call`
-- `streaming`
-- `embedding`
-- `multimodal_input`
-- `structured_output`
-- `usage_reporting`
-- `cancellation`
+- `model.catalog`
+- `model.chat`
+- `model.reasoning`
+- `model.tool_call`
+- `model.streaming`
+- `model.embedding`
+- `model.multimodal_input`
+- `model.structured_output`
+- `model.usage_reporting`
+- `model.cancellation`
 
 Rules:
 
+- Model catalogs `MUST` use `ModelDescriptor` so providers can expose more than
+  one selectable LLM without adding product-specific DTOs.
+- Requests that need a specific model `MUST` set `model_id`; missing `model_id`
+  means the provider default.
+- Runtime negotiation `MUST` use provider-declared model capabilities such as
+  `model.catalog`, `model.tool_call`, and `model.structured_output` instead of
+  hard-coding `model.chat`.
 - Model requests `MUST` carry trace context.
 - Tool-call outputs `MUST` be represented as typed tool-call requests.
 - Usage metadata `SHOULD` include token or equivalent accounting when available.

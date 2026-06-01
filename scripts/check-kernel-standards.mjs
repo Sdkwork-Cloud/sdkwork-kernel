@@ -15,6 +15,7 @@ const requiredSpecFiles = [
   'AGENT_MODEL_PROVIDER_SPI_SPEC.md',
   'AGENT_MCP_PROVIDER_SPI_SPEC.md',
   'AGENT_SKILL_PROVIDER_SPI_SPEC.md',
+  'AGENT_COLLABORATION_SPI_SPEC.md',
   'AGENT_TOOL_PROVIDER_SPI_SPEC.md',
   'AGENT_CONTEXT_MEMORY_SPEC.md',
   'AGENT_PLANNING_EXECUTION_SPEC.md',
@@ -96,6 +97,25 @@ for (const [crateDir, files] of requiredRustCrates) {
   }
 }
 
+const agentKernelLib = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-kernel', 'src', 'lib.rs'));
+const agentModelRust = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-kernel', 'src', 'model.rs'));
+const agentRuntimeRust = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-kernel', 'src', 'runtime.rs'));
+const modelProviderSpec = readFileIfExists(path.join(kernelRoot, 'specs', 'AGENT_MODEL_PROVIDER_SPI_SPEC.md'));
+
+for (const [label, content, requiredText] of [
+  ['agent lib exports ModelDescriptor', agentKernelLib, 'ModelDescriptor'],
+  ['model SPI defines ModelDescriptor', agentModelRust, 'pub struct ModelDescriptor'],
+  ['model request supports model_id', agentModelRust, 'pub model_id: Option<String>'],
+  ['model provider exposes list_models', agentModelRust, 'fn list_models(&self) -> Vec<ModelDescriptor>'],
+  ['runtime negotiates model.catalog metadata', agentRuntimeRust, '"model.catalog"'],
+  ['model provider spec documents model catalog', modelProviderSpec, 'ModelDescriptor'],
+  ['model provider spec documents request model_id', modelProviderSpec, 'model_id']
+]) {
+  if (!content.includes(requiredText)) {
+    errors.push(`${label} must include ${requiredText}`);
+  }
+}
+
 const codeCargo = readJsonLikeToml(path.join(kernelRoot, 'sdkwork-code-kernel', 'Cargo.toml'));
 if (codeCargo && !codeCargo.includes('sdkwork-agent-kernel')) {
   errors.push('sdkwork-code-kernel must depend on sdkwork-agent-kernel');
@@ -137,6 +157,14 @@ console.log('Kernel standards conformance check passed.');
 function readJsonLikeToml(filePath) {
   if (!fs.existsSync(filePath)) {
     return null;
+  }
+
+  return fs.readFileSync(filePath, 'utf8');
+}
+
+function readFileIfExists(filePath) {
+  if (!fs.existsSync(filePath)) {
+    return '';
   }
 
   return fs.readFileSync(filePath, 'utf8');

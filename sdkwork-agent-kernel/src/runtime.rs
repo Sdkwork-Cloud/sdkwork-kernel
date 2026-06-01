@@ -1,7 +1,7 @@
 use crate::{
-    AgentConfigSectionKind, AgentConfigurationProvider, AgentInstaller, AgentManifest,
-    AgentPackageManifest, AgentRuntimeConformanceProfile, AgentSkillProvider, Capability,
-    CapabilityManifest, CapabilityRequirement, ContextProvider, HostProvider,
+    AgentCollaborationProvider, AgentConfigSectionKind, AgentConfigurationProvider, AgentInstaller,
+    AgentManifest, AgentPackageManifest, AgentRuntimeConformanceProfile, AgentSkillProvider,
+    Capability, CapabilityManifest, CapabilityRequirement, ContextProvider, HostProvider,
     KernelConformanceCase, KernelConformanceReport, KernelError, KernelEvent, KernelEventSeverity,
     KernelResult, McpProvider, MemoryProvider, ModelProvider, PlanningProvider, PolicyCategory,
     PolicyProvider, ProtocolAdapter, ProviderHealth, ProviderManifest, SideEffectLevel,
@@ -366,6 +366,28 @@ impl AgentRuntime {
 
     pub fn agent_skill_provider_ids(&self) -> Vec<String> {
         self.provider_registry.agent_skill_provider_ids()
+    }
+
+    pub fn collaboration_provider(
+        &self,
+    ) -> KernelResult<&(dyn AgentCollaborationProvider + Send + Sync)> {
+        self.provider_registry
+            .collaboration_provider
+            .as_deref()
+            .ok_or_else(|| self.provider_error_for_family("collaboration", "agent.handoff"))
+    }
+
+    pub fn collaboration_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<&(dyn AgentCollaborationProvider + Send + Sync)> {
+        self.provider_registry
+            .collaboration_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "agent.handoff"))
+    }
+
+    pub fn collaboration_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.collaboration_provider_ids()
     }
 
     pub fn telemetry_provider(&self) -> KernelResult<Arc<Mutex<dyn TelemetryProvider + Send>>> {
@@ -770,12 +792,16 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        self.providers.push(core_provider_manifest(
-            provider_id.clone(),
-            "model",
-            version,
-            vec!["model.chat"],
-        ));
+        let mut provider_manifest = provider.provider_manifest();
+        provider_manifest.provider_id = provider_id.clone();
+        provider_manifest.provider_family = "model".to_string();
+        provider_manifest.version = version;
+        if provider_manifest.capabilities.is_empty() {
+            provider_manifest
+                .capabilities
+                .push("model.chat".to_string());
+        }
+        self.providers.push(provider_manifest);
         self.provider_registry
             .add_model_provider(provider_id, Arc::new(provider));
         self
@@ -1103,6 +1129,41 @@ impl RuntimeBuilder {
         ));
         self.provider_registry
             .add_agent_skill_provider(provider_id, Arc::new(provider));
+        self
+    }
+
+    pub fn register_collaboration_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "collaboration",
+            version,
+            vec!["agent.discover", "agent.handoff", "agent.delegate"],
+        ))
+    }
+
+    pub fn register_collaboration_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: AgentCollaborationProvider + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        self.providers.push(core_provider_manifest(
+            provider_id.clone(),
+            "collaboration",
+            version,
+            vec!["agent.discover", "agent.handoff", "agent.delegate"],
+        ));
+        self.provider_registry
+            .add_collaboration_provider(provider_id, Arc::new(provider));
         self
     }
 
@@ -1436,6 +1497,9 @@ pub struct RuntimeProviderRegistry {
     agent_skill_provider_id: Option<String>,
     agent_skill_provider: Option<Arc<dyn AgentSkillProvider + Send + Sync>>,
     agent_skill_providers: Vec<(String, Arc<dyn AgentSkillProvider + Send + Sync>)>,
+    collaboration_provider_id: Option<String>,
+    collaboration_provider: Option<Arc<dyn AgentCollaborationProvider + Send + Sync>>,
+    collaboration_providers: Vec<(String, Arc<dyn AgentCollaborationProvider + Send + Sync>)>,
     telemetry_provider_id: Option<String>,
     telemetry_provider: Option<Arc<Mutex<dyn TelemetryProvider + Send>>>,
     telemetry_providers: Vec<(String, Arc<Mutex<dyn TelemetryProvider + Send>>)>,
@@ -1694,6 +1758,35 @@ impl RuntimeProviderRegistry {
             .collect()
     }
 
+    fn add_collaboration_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<dyn AgentCollaborationProvider + Send + Sync>,
+    ) {
+        if self.collaboration_provider.is_none() {
+            self.collaboration_provider_id = Some(provider_id.clone());
+            self.collaboration_provider = Some(provider.clone());
+        }
+        self.collaboration_providers.push((provider_id, provider));
+    }
+
+    fn collaboration_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<&(dyn AgentCollaborationProvider + Send + Sync)> {
+        self.collaboration_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.as_ref())
+    }
+
+    pub fn collaboration_provider_ids(&self) -> Vec<String> {
+        self.collaboration_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
     pub fn has_agent_installer(&self) -> bool {
         self.agent_installer.is_some()
     }
@@ -1771,6 +1864,10 @@ impl RuntimeProviderRegistry {
         !self.agent_skill_providers.is_empty()
     }
 
+    pub fn has_collaboration_provider(&self) -> bool {
+        !self.collaboration_providers.is_empty()
+    }
+
     pub fn has_telemetry_provider(&self) -> bool {
         !self.telemetry_providers.is_empty()
     }
@@ -1844,6 +1941,9 @@ impl RuntimeProviderRegistry {
                 .is_some(),
             "skill" => self
                 .agent_skill_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
+            "collaboration" => self
+                .collaboration_provider_by_id(provider.provider_id.as_str())
                 .is_some(),
             "telemetry" => self
                 .telemetry_provider_by_id(provider.provider_id.as_str())
@@ -1920,6 +2020,11 @@ impl RuntimeProviderRegistry {
                 .iter()
                 .find(|(provider_id, _)| provider_id == &provider.provider_id)
                 .map(|(_, provider)| provider.health()),
+            "collaboration" => self
+                .collaboration_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .map(|(_, provider)| provider.health()),
             "telemetry" => self
                 .telemetry_providers
                 .iter()
@@ -1974,7 +2079,17 @@ impl std::fmt::Debug for RuntimeProviderRegistry {
             .field("mcp_provider_id", &self.mcp_provider_id)
             .field("has_mcp_provider", &self.has_mcp_provider())
             .field("agent_skill_provider_id", &self.agent_skill_provider_id)
+            .field("agent_skill_provider_ids", &self.agent_skill_provider_ids())
             .field("has_agent_skill_provider", &self.has_agent_skill_provider())
+            .field("collaboration_provider_id", &self.collaboration_provider_id)
+            .field(
+                "collaboration_provider_ids",
+                &self.collaboration_provider_ids(),
+            )
+            .field(
+                "has_collaboration_provider",
+                &self.has_collaboration_provider(),
+            )
             .field("telemetry_provider_id", &self.telemetry_provider_id)
             .field("telemetry_provider_ids", &self.telemetry_provider_ids())
             .field("has_telemetry_provider", &self.has_telemetry_provider())
@@ -2015,7 +2130,11 @@ impl PartialEq for RuntimeProviderRegistry {
             && self.mcp_provider_id == other.mcp_provider_id
             && self.has_mcp_provider() == other.has_mcp_provider()
             && self.agent_skill_provider_id == other.agent_skill_provider_id
+            && self.agent_skill_provider_ids() == other.agent_skill_provider_ids()
             && self.has_agent_skill_provider() == other.has_agent_skill_provider()
+            && self.collaboration_provider_id == other.collaboration_provider_id
+            && self.collaboration_provider_ids() == other.collaboration_provider_ids()
+            && self.has_collaboration_provider() == other.has_collaboration_provider()
             && self.telemetry_provider_id == other.telemetry_provider_id
             && self.telemetry_provider_ids() == other.telemetry_provider_ids()
             && self.has_telemetry_provider() == other.has_telemetry_provider()
@@ -2152,6 +2271,61 @@ fn capability_metadata(capability_id: &str) -> CapabilityMetadata {
             SideEffectLevel::SideEffectful,
             PolicyCategory::AgentConfigure,
         ),
+        "agent.discover" => lifecycle_capability_metadata(
+            vec!["list_agents", "describe_agent", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("agent.discover".to_string()),
+        ),
+        "agent.handoff" => lifecycle_capability_metadata(
+            vec!["handoff", "health"],
+            SideEffectLevel::ExternalSend,
+            PolicyCategory::ProductSpecific("agent.handoff".to_string()),
+        ),
+        "agent.delegate" => lifecycle_capability_metadata(
+            vec!["handoff", "describe_agent", "health"],
+            SideEffectLevel::ExternalSend,
+            PolicyCategory::ProductSpecific("agent.delegate".to_string()),
+        ),
+        "model.catalog" => lifecycle_capability_metadata(
+            vec!["list_models", "describe_model", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ModelInvoke,
+        ),
+        "model.chat" => lifecycle_capability_metadata(
+            vec!["invoke", "health"],
+            SideEffectLevel::ExternalSend,
+            PolicyCategory::ModelInvoke,
+        ),
+        "model.reasoning" => lifecycle_capability_metadata(
+            vec!["invoke", "stream", "health"],
+            SideEffectLevel::ExternalSend,
+            PolicyCategory::ModelInvoke,
+        ),
+        "model.tool_call" => lifecycle_capability_metadata(
+            vec!["invoke", "stream", "health"],
+            SideEffectLevel::ExternalSend,
+            PolicyCategory::ToolInvoke,
+        ),
+        "model.structured_output" => lifecycle_capability_metadata(
+            vec!["invoke", "validate_structured_output", "health"],
+            SideEffectLevel::ExternalSend,
+            PolicyCategory::ModelInvoke,
+        ),
+        "model.streaming" => lifecycle_capability_metadata(
+            vec!["stream", "health"],
+            SideEffectLevel::ExternalSend,
+            PolicyCategory::ModelInvoke,
+        ),
+        "model.embedding" => lifecycle_capability_metadata(
+            vec!["embed", "health"],
+            SideEffectLevel::ExternalSend,
+            PolicyCategory::ModelInvoke,
+        ),
+        "model.cancellation" => lifecycle_capability_metadata(
+            vec!["cancel", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::ModelInvoke,
+        ),
         "mcp.tools" => lifecycle_capability_metadata(
             vec!["list_servers", "list_tools", "invoke_tool", "health"],
             SideEffectLevel::SideEffectful,
@@ -2212,6 +2386,7 @@ fn standard_agent_provider_families() -> &'static [&'static str] {
         "protocol_adapter",
         "mcp",
         "skill",
+        "collaboration",
         "telemetry",
         "agent_installer",
         "agent_configuration",

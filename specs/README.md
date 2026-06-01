@@ -14,9 +14,10 @@ intelligence, review, artifacts, and the code-agent runtime registry.
 | [`AGENT_MANIFEST_SPEC.md`](./AGENT_MANIFEST_SPEC.md) | Agent manifest, agent card, provider manifest, capability manifest, discovery, negotiation, compatibility, deprecation, and schema validation |
 | [`AGENT_INSTALLATION_CONFIGURATION_SPEC.md`](./AGENT_INSTALLATION_CONFIGURATION_SPEC.md) | Agent installer, uninstall, upgrade, configuration sections, login auth, LLM API key secret references, policy categories, events, and conformance |
 | [`AGENT_RUNTIME_SPEC.md`](./AGENT_RUNTIME_SPEC.md) | Runtime bootstrap, provider registration, capability negotiation, runtime API, lifecycle, cancellation, timeout, persistence, and resume |
-| [`AGENT_MODEL_PROVIDER_SPI_SPEC.md`](./AGENT_MODEL_PROVIDER_SPI_SPEC.md) | Model provider operations, model request/response, streaming, tool-call output, structured output, safety, usage, cancellation, and errors |
+| [`AGENT_MODEL_PROVIDER_SPI_SPEC.md`](./AGENT_MODEL_PROVIDER_SPI_SPEC.md) | Model provider operations, model catalog descriptors, request-level model selection, model request/response, streaming, tool-call output, structured output, safety, usage, cancellation, and errors |
 | [`AGENT_MCP_PROVIDER_SPI_SPEC.md`](./AGENT_MCP_PROVIDER_SPI_SPEC.md) | MCP server descriptors, tools, resources, prompts, typed provider registration, policy, health, and conformance |
 | [`AGENT_SKILL_PROVIDER_SPI_SPEC.md`](./AGENT_SKILL_PROVIDER_SPI_SPEC.md) | Agent skill discovery, descriptors, invocation, cancellation, policy, health, and conformance |
+| [`AGENT_COLLABORATION_SPI_SPEC.md`](./AGENT_COLLABORATION_SPI_SPEC.md) | Agent discovery, handoff, delegation, and multi-agent collaboration SPI |
 | [`AGENT_TOOL_PROVIDER_SPI_SPEC.md`](./AGENT_TOOL_PROVIDER_SPI_SPEC.md) | Tool discovery, descriptors, schema, authorization, invocation, streaming, cancellation, result normalization, MCP mapping, and conformance |
 | [`AGENT_CONTEXT_MEMORY_SPEC.md`](./AGENT_CONTEXT_MEMORY_SPEC.md) | Context frames, trust/provenance, memory records, scope, retention, redaction, delete/export, and privacy-sensitive behavior |
 | [`AGENT_PLANNING_EXECUTION_SPEC.md`](./AGENT_PLANNING_EXECUTION_SPEC.md) | Plans, actions, observations, execution loop, approval gates, retry, revision, pause/resume, and conformance |
@@ -85,6 +86,9 @@ implementations mature.
       missing standard provider families.
 - [ ] Every runtime can produce standard `runtime-manifest` and
       `runtime-local` conformance reports from diagnostics.
+- [ ] Every runtime that claims model catalog support exposes
+      `model.catalog`, `ModelDescriptor`, and request-level `model_id`
+      selection through the Model provider SPI.
 - [ ] Every runtime that claims MCP support exposes `mcp.tools`,
       `mcp.resources`, or `mcp.prompts` through the MCP provider SPI.
 - [ ] Every runtime that claims Agent Skills support exposes `skill.discover`

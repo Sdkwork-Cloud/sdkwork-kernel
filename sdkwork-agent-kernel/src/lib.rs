@@ -1,3 +1,4 @@
+mod collaboration;
 mod configuration;
 mod conformance;
 mod context_memory;
@@ -20,6 +21,9 @@ mod skill;
 mod telemetry;
 mod tool;
 
+pub use collaboration::{
+    AgentCard, AgentCollaborationProvider, AgentDelegation, AgentHandoffRequest, AgentHandoffResult,
+};
 pub use configuration::{
     AgentConfigEntry, AgentConfigField, AgentConfigSection, AgentConfigSectionKind,
     AgentConfigValue, AgentConfigValueKind, AgentConfiguration, AgentConfigurationInvalidField,
@@ -69,8 +73,8 @@ pub use message::{
     AgentArtifact, AgentMessage, AgentMessageRole, AgentPart, AgentPartKind, ArtifactKind,
 };
 pub use model::{
-    ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus, ModelStreamChunk,
-    ModelUsage,
+    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
+    ModelStreamChunk, ModelUsage,
 };
 pub use package::{
     AgentPackageLifecycle, AgentPackageManifest, AgentPackageProviderBinding,

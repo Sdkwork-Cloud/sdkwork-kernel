@@ -582,7 +582,7 @@ async fn update_with_stale_expected_version_should_return_conflict() {
         .expect("response body should be readable");
     let body_json: Value =
         serde_json::from_slice(&body_bytes).expect("response body should be valid json");
-    assert_eq!(body_json["code"], "conflict");
+    assert_eq!(body_json["code"], "version_conflict");
     assert!(
         body_json["detail"]
             .as_str()

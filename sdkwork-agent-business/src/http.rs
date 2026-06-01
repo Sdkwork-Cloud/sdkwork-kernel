@@ -385,6 +385,10 @@ impl ApiProblem {
         Self::new(StatusCode::CONFLICT, "conflict", detail)
     }
 
+    fn version_conflict(detail: impl Into<String>) -> Self {
+        Self::new(StatusCode::CONFLICT, "version_conflict", detail)
+    }
+
     fn not_found(detail: impl Into<String>) -> Self {
         Self::new(StatusCode::NOT_FOUND, "not_found", detail)
     }
@@ -408,9 +412,16 @@ impl ApiProblem {
     }
 
     fn from_kernel_error(error: KernelError) -> Self {
+        let safe_message = error.safe_message();
         match error.kind() {
             KernelErrorKind::ValidationError => Self::validation(error.safe_message()),
-            KernelErrorKind::Conflict => Self::conflict(error.safe_message()),
+            KernelErrorKind::Conflict => {
+                if safe_message.contains("version mismatch") {
+                    Self::version_conflict(safe_message)
+                } else {
+                    Self::conflict(safe_message)
+                }
+            }
             KernelErrorKind::PermissionRequired | KernelErrorKind::PolicyDenied => {
                 Self::permission(error.safe_message())
             }

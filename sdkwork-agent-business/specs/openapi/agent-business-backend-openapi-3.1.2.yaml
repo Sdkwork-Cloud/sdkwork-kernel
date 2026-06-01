@@ -315,6 +315,23 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
+          examples:
+            ValidationError:
+              summary: Validation failure
+              value:
+                type: https://sdkwork.dev/problems/validation_error
+                title: validation_error
+                status: 400
+                detail: requestedAt must be RFC3339 date-time
+                code: validation_error
+            VersionConflict:
+              summary: Optimistic concurrency conflict
+              value:
+                type: https://sdkwork.dev/problems/version_conflict
+                title: version_conflict
+                status: 409
+                detail: "agent version mismatch: expected=2, actual=3"
+                code: version_conflict
   schemas:
     Int64String:
       type: string
@@ -617,6 +634,7 @@ components:
           type: string
         code:
           type: string
+          description: Error code, for example validation_error, permission_required, conflict, version_conflict, not_found, internal_error.
         traceId:
           type: string
         errors:

@@ -64,3 +64,4 @@
 - Added semantic validation wrappers (`parse_tenant_id/organization_id/owner_user_id`, `validate_requested_at`) and migrated dto/http callers: pass
 - Added optional `expectedVersion` optimistic-concurrency validation for update/status/delete/restore across dto/http/service, and aligned app/backend OpenAPI contracts: pass
 - Repository-level optimistic locking hardened: in-memory adapter enforces monotonic `version`, and postgres update SQL now includes `WHERE ... AND version = previous_version` precondition with conflict mapping: pass
+- API conflict semantics refined: optimistic-concurrency conflicts now return `application/problem+json` code `version_conflict`, and app/backend OpenAPI `Problem` examples include `version_conflict` payload: pass

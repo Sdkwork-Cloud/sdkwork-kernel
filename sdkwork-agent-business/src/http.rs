@@ -5,7 +5,9 @@ use crate::dto::{
     UpdateAgentStatusRequestDto,
 };
 use crate::ports::{AgentAuditSink, AgentRepository};
-use crate::validation::{parse_optional_rfc3339_datetime, parse_rfc3339_datetime};
+use crate::validation::{
+    parse_int64_string_field, parse_optional_rfc3339_datetime, parse_rfc3339_datetime,
+};
 use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
 use axum::http::header::CONTENT_TYPE;
@@ -628,10 +630,8 @@ async fn backend_list_agent_audit_events(
     let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let subject = extract_policy_subject(headers, query.tenant_id.as_str())?;
-    let tenant_id = query
-        .tenant_id
-        .parse::<u64>()
-        .map_err(|_| ApiProblem::validation("tenant_id must be int64 string"))?;
+    let tenant_id =
+        parse_int64_string_field(query.tenant_id.as_str(), "tenant_id").map_err(ApiProblem::from_kernel_error)?;
     let events = with_service_mut(&state, |service| {
         service.list_agent_audit_events(tenant_id, path.agent_id.as_str(), subject)
     })?;

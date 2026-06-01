@@ -2,6 +2,12 @@ use sdkwork_agent_kernel::{KernelError, KernelResult};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+pub(crate) fn parse_int64_string_field(value: &str, field_name: &str) -> KernelResult<u64> {
+    value
+        .parse::<u64>()
+        .map_err(|_| KernelError::validation(format!("{field_name} must be int64 string")))
+}
+
 pub(crate) fn validate_rfc3339_datetime(value: &str, field_name: &str) -> KernelResult<()> {
     let _ = parse_rfc3339_datetime(value, field_name)?;
     Ok(())
@@ -45,6 +51,26 @@ mod tests {
             KernelError::Validation { message } => {
                 assert!(message.contains("requestedAt"));
                 assert!(message.contains("RFC3339"));
+            }
+            _ => panic!("expected validation error"),
+        }
+    }
+
+    #[test]
+    fn parse_int64_string_field_accepts_unsigned_integer_text() {
+        let value = parse_int64_string_field("12345", "tenant_id")
+            .expect("valid int64 string should parse");
+        assert_eq!(value, 12345);
+    }
+
+    #[test]
+    fn parse_int64_string_field_rejects_non_numeric_text() {
+        let error = parse_int64_string_field("12x45", "tenant_id")
+            .expect_err("invalid int64 string should fail");
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("tenant_id"));
+                assert!(message.contains("int64 string"));
             }
             _ => panic!("expected validation error"),
         }

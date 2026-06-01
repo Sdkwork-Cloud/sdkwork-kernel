@@ -60,3 +60,4 @@
 - RFC3339 validation error detail now uses API field naming `requestedAt`: pass
 - RFC3339 parsing logic unified into shared `validation` module and reused by dto/http query filter: pass
 - Audit event `occurred_at` RFC3339 parsing now reuses shared `validation` parser while preserving `internal_error` mapping: pass
+- `tenant_id/int64 string` parsing unified into shared `validation` module for dto/http consistency: pass

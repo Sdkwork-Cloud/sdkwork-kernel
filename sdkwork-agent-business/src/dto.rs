@@ -4,7 +4,7 @@ use crate::application::{
 };
 use crate::domain::{AgentBusinessRecord, AgentBusinessStatus, AgentVisibility};
 use crate::ports::AgentListQuery;
-use crate::validation::validate_rfc3339_datetime;
+use crate::validation::{parse_int64_string_field, validate_rfc3339_datetime};
 use sdkwork_agent_kernel::{AgentManifest, KernelError, KernelResult, PolicySubject};
 use sdkwork_code_kernel::CodeTaskIntent;
 
@@ -19,12 +19,14 @@ pub struct ListAgentsRequestDto {
 
 impl ListAgentsRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<ListAgentsCommand> {
-        let mut query = AgentListQuery::for_tenant(parse_int64_field(&self.tenant_id, "tenant_id")?);
+        let mut query =
+            AgentListQuery::for_tenant(parse_int64_string_field(&self.tenant_id, "tenant_id")?);
         if let Some(organization_id) = self.organization_id {
-            query = query.for_organization(parse_int64_field(&organization_id, "organization_id")?);
+            query = query
+                .for_organization(parse_int64_string_field(&organization_id, "organization_id")?);
         }
         if let Some(owner_user_id) = self.owner_user_id {
-            query = query.for_owner(parse_int64_field(&owner_user_id, "owner_user_id")?);
+            query = query.for_owner(parse_int64_string_field(&owner_user_id, "owner_user_id")?);
         }
         if self.include_deleted {
             query = query.with_deleted();
@@ -60,9 +62,9 @@ impl CreateAgentRequestDto {
         validate_rfc3339_datetime(&self.requested_at, "requestedAt")?;
         Ok(CreateAgentCommand {
             agent_id: self.agent_id,
-            tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
-            organization_id: parse_int64_field(&self.organization_id, "organization_id")?,
-            owner_user_id: parse_int64_field(&self.owner_user_id, "owner_user_id")?,
+            tenant_id: parse_int64_string_field(&self.tenant_id, "tenant_id")?,
+            organization_id: parse_int64_string_field(&self.organization_id, "organization_id")?,
+            owner_user_id: parse_int64_string_field(&self.owner_user_id, "owner_user_id")?,
             code: self.code,
             display_name: self.display_name,
             description: self.description,
@@ -97,7 +99,7 @@ impl UpdateAgentRequestDto {
             .map(|value| parse_visibility(value))
             .transpose()?;
         Ok(UpdateAgentCommand {
-            tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
+            tenant_id: parse_int64_string_field(&self.tenant_id, "tenant_id")?,
             agent_id: self.agent_id,
             display_name: self.display_name,
             description: self.description,
@@ -122,7 +124,7 @@ impl UpdateAgentStatusRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<ChangeAgentStatusCommand> {
         validate_rfc3339_datetime(&self.requested_at, "requestedAt")?;
         Ok(ChangeAgentStatusCommand {
-            tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
+            tenant_id: parse_int64_string_field(&self.tenant_id, "tenant_id")?,
             agent_id: self.agent_id,
             target_status: parse_status(&self.target_status)?,
             requested_by,
@@ -142,7 +144,7 @@ impl DeleteAgentRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<DeleteAgentCommand> {
         validate_rfc3339_datetime(&self.requested_at, "requestedAt")?;
         Ok(DeleteAgentCommand {
-            tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
+            tenant_id: parse_int64_string_field(&self.tenant_id, "tenant_id")?,
             agent_id: self.agent_id,
             requested_by,
             requested_at: self.requested_at,
@@ -161,7 +163,7 @@ impl RestoreAgentRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<RestoreAgentCommand> {
         validate_rfc3339_datetime(&self.requested_at, "requestedAt")?;
         Ok(RestoreAgentCommand {
-            tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
+            tenant_id: parse_int64_string_field(&self.tenant_id, "tenant_id")?,
             agent_id: self.agent_id,
             requested_by,
             requested_at: self.requested_at,
@@ -178,7 +180,7 @@ pub struct GetAgentRequestDto {
 impl GetAgentRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<GetAgentCommand> {
         Ok(GetAgentCommand {
-            tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
+            tenant_id: parse_int64_string_field(&self.tenant_id, "tenant_id")?,
             agent_id: self.agent_id,
             requested_by,
         })
@@ -261,12 +263,6 @@ impl AgentListResponseDto {
             },
         }
     }
-}
-
-fn parse_int64_field(value: &str, field_name: &str) -> KernelResult<u64> {
-    value
-        .parse::<u64>()
-        .map_err(|_| KernelError::validation(format!("{field_name} must be int64 string")))
 }
 
 fn parse_visibility(value: &str) -> KernelResult<AgentVisibility> {

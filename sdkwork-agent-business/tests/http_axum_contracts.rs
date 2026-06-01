@@ -213,6 +213,20 @@ async fn delete_without_requested_at_should_return_bad_request() {
         .await
         .expect("request should return validation error");
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "validation_error");
 }
 
 #[tokio::test]
@@ -267,4 +281,41 @@ async fn backend_audit_events_should_return_recorded_items() {
         .expect("items should be array");
     assert!(!items.is_empty(), "audit list should not be empty");
     assert_eq!(body_json["data"]["pageInfo"]["totalItems"], "2");
+}
+
+#[tokio::test]
+async fn invalid_query_should_return_problem_detail() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/app/v3/api/ai/agents?tenant_id=1&page=oops")
+        .body(Body::empty())
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("request should return problem detail");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "validation_error");
 }

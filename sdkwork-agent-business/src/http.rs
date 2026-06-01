@@ -4,6 +4,7 @@ use crate::dto::{
     ListAgentsRequestDto, UpdateAgentRequestDto, UpdateAgentStatusRequestDto,
 };
 use crate::ports::{AgentAuditSink, AgentRepository};
+use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
 use axum::http::header::CONTENT_TYPE;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
@@ -381,6 +382,30 @@ impl ApiProblem {
             }
         }
     }
+
+    fn from_json_rejection(rejection: JsonRejection) -> Self {
+        Self::new(
+            rejection.status(),
+            "validation_error",
+            format!("invalid json request: {}", rejection.body_text()),
+        )
+    }
+
+    fn from_query_rejection(rejection: QueryRejection) -> Self {
+        Self::new(
+            rejection.status(),
+            "validation_error",
+            format!("invalid query request: {}", rejection.body_text()),
+        )
+    }
+
+    fn from_path_rejection(rejection: PathRejection) -> Self {
+        Self::new(
+            rejection.status(),
+            "validation_error",
+            format!("invalid path request: {}", rejection.body_text()),
+        )
+    }
 }
 
 impl IntoResponse for ApiProblem {
@@ -396,83 +421,102 @@ impl IntoResponse for ApiProblem {
 
 async fn app_list_agents(
     State(state): State<AgentHttpState>,
-    Query(query): Query<ListAgentsQueryParams>,
+    query: Result<Query<ListAgentsQueryParams>, QueryRejection>,
     headers: HeaderMap,
 ) -> Result<Json<AgentListResponse>, ApiProblem> {
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     execute_list(state, query, headers).await
 }
 
 async fn backend_list_agents(
     State(state): State<AgentHttpState>,
-    Query(query): Query<ListAgentsQueryParams>,
+    query: Result<Query<ListAgentsQueryParams>, QueryRejection>,
     headers: HeaderMap,
 ) -> Result<Json<AgentListResponse>, ApiProblem> {
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     execute_list(state, query, headers).await
 }
 
 async fn app_create_agent(
     State(state): State<AgentHttpState>,
-    Query(query): Query<TenantQueryParams>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
     headers: HeaderMap,
-    Json(body): Json<CreateAgentBody>,
+    body: Result<Json<CreateAgentBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<AgentResponse>), ApiProblem> {
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
     execute_create(state, query, headers, body).await
 }
 
 async fn backend_create_agent(
     State(state): State<AgentHttpState>,
-    Query(query): Query<TenantQueryParams>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
     headers: HeaderMap,
-    Json(body): Json<CreateAgentBody>,
+    body: Result<Json<CreateAgentBody>, JsonRejection>,
 ) -> Result<(StatusCode, Json<AgentResponse>), ApiProblem> {
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
     execute_create(state, query, headers, body).await
 }
 
 async fn app_get_agent(
     State(state): State<AgentHttpState>,
-    Path(agent_id): Path<String>,
-    Query(query): Query<TenantQueryParams>,
+    agent_id: Result<Path<String>, PathRejection>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
     headers: HeaderMap,
 ) -> Result<Json<AgentResponse>, ApiProblem> {
+    let Path(agent_id) = agent_id.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     execute_get(state, query, agent_id, headers).await
 }
 
 async fn backend_get_agent(
     State(state): State<AgentHttpState>,
-    Path(agent_id): Path<String>,
-    Query(query): Query<TenantQueryParams>,
+    agent_id: Result<Path<String>, PathRejection>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
     headers: HeaderMap,
 ) -> Result<Json<AgentResponse>, ApiProblem> {
+    let Path(agent_id) = agent_id.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     execute_get(state, query, agent_id, headers).await
 }
 
 async fn app_update_agent(
     State(state): State<AgentHttpState>,
-    Path(agent_id): Path<String>,
-    Query(query): Query<TenantQueryParams>,
+    agent_id: Result<Path<String>, PathRejection>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
     headers: HeaderMap,
-    Json(body): Json<UpdateAgentBody>,
+    body: Result<Json<UpdateAgentBody>, JsonRejection>,
 ) -> Result<Json<AgentResponse>, ApiProblem> {
+    let Path(agent_id) = agent_id.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
     execute_update(state, query, agent_id, headers, body).await
 }
 
 async fn backend_update_agent(
     State(state): State<AgentHttpState>,
-    Path(agent_id): Path<String>,
-    Query(query): Query<TenantQueryParams>,
+    agent_id: Result<Path<String>, PathRejection>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
     headers: HeaderMap,
-    Json(body): Json<UpdateAgentBody>,
+    body: Result<Json<UpdateAgentBody>, JsonRejection>,
 ) -> Result<Json<AgentResponse>, ApiProblem> {
+    let Path(agent_id) = agent_id.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
     execute_update(state, query, agent_id, headers, body).await
 }
 
 async fn app_delete_agent(
     State(state): State<AgentHttpState>,
-    Path(agent_id): Path<String>,
-    Query(query): Query<TenantQueryParams>,
+    agent_id: Result<Path<String>, PathRejection>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
     headers: HeaderMap,
-    Json(body): Json<DeleteAgentBody>,
+    body: Result<Json<DeleteAgentBody>, JsonRejection>,
 ) -> Result<Json<AgentResponse>, ApiProblem> {
+    let Path(agent_id) = agent_id.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
     let subject = extract_policy_subject(headers, query.tenant_id.as_str())?;
     let command = DeleteAgentRequestDto {
         tenant_id: query.tenant_id,
@@ -490,11 +534,14 @@ async fn app_delete_agent(
 
 async fn backend_update_agent_status(
     State(state): State<AgentHttpState>,
-    Path(agent_id): Path<String>,
-    Query(query): Query<TenantQueryParams>,
+    agent_id: Result<Path<String>, PathRejection>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
     headers: HeaderMap,
-    Json(body): Json<UpdateAgentStatusBody>,
+    body: Result<Json<UpdateAgentStatusBody>, JsonRejection>,
 ) -> Result<Json<AgentResponse>, ApiProblem> {
+    let Path(agent_id) = agent_id.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
     let subject = extract_policy_subject(headers, query.tenant_id.as_str())?;
     let command = UpdateAgentStatusRequestDto {
         tenant_id: query.tenant_id,
@@ -513,10 +560,12 @@ async fn backend_update_agent_status(
 
 async fn backend_list_agent_audit_events(
     State(state): State<AgentHttpState>,
-    Path(path): Path<TenantAgentPathParams>,
-    Query(query): Query<ListAgentsQueryParams>,
+    path: Result<Path<TenantAgentPathParams>, PathRejection>,
+    query: Result<Query<ListAgentsQueryParams>, QueryRejection>,
     headers: HeaderMap,
 ) -> Result<Json<AgentAuditEventsListResponse>, ApiProblem> {
+    let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let subject = extract_policy_subject(headers, query.tenant_id.as_str())?;
     let tenant_id = query
         .tenant_id

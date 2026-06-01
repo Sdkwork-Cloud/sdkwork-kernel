@@ -58,7 +58,7 @@ pub struct CreateAgentRequestDto {
 
 impl CreateAgentRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<CreateAgentCommand> {
-        let requested_at = parse_rfc3339_field(&self.requested_at, "requested_at")?;
+        let requested_at = parse_rfc3339_field(&self.requested_at, "requestedAt")?;
         Ok(CreateAgentCommand {
             agent_id: self.agent_id,
             tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
@@ -91,7 +91,7 @@ pub struct UpdateAgentRequestDto {
 
 impl UpdateAgentRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<UpdateAgentCommand> {
-        let requested_at = parse_rfc3339_field(&self.requested_at, "requested_at")?;
+        let requested_at = parse_rfc3339_field(&self.requested_at, "requestedAt")?;
         let visibility = self
             .visibility
             .as_ref()
@@ -121,7 +121,7 @@ pub struct UpdateAgentStatusRequestDto {
 
 impl UpdateAgentStatusRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<ChangeAgentStatusCommand> {
-        let requested_at = parse_rfc3339_field(&self.requested_at, "requested_at")?;
+        let requested_at = parse_rfc3339_field(&self.requested_at, "requestedAt")?;
         Ok(ChangeAgentStatusCommand {
             tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
             agent_id: self.agent_id,
@@ -141,7 +141,7 @@ pub struct DeleteAgentRequestDto {
 
 impl DeleteAgentRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<DeleteAgentCommand> {
-        let requested_at = parse_rfc3339_field(&self.requested_at, "requested_at")?;
+        let requested_at = parse_rfc3339_field(&self.requested_at, "requestedAt")?;
         Ok(DeleteAgentCommand {
             tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
             agent_id: self.agent_id,
@@ -160,7 +160,7 @@ pub struct RestoreAgentRequestDto {
 
 impl RestoreAgentRequestDto {
     pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<RestoreAgentCommand> {
-        let requested_at = parse_rfc3339_field(&self.requested_at, "requested_at")?;
+        let requested_at = parse_rfc3339_field(&self.requested_at, "requestedAt")?;
         Ok(RestoreAgentCommand {
             tenant_id: parse_int64_field(&self.tenant_id, "tenant_id")?,
             agent_id: self.agent_id,
@@ -398,10 +398,10 @@ mod tests {
             requested_at: "2026-06-01".to_string(),
         }
         .into_command(sample_subject())
-        .expect_err("invalid requested_at should fail");
+        .expect_err("invalid requestedAt should fail");
         match create_error {
             KernelError::Validation { message } => {
-                assert!(message.contains("requested_at"));
+                assert!(message.contains("requestedAt"));
             }
             _ => panic!("expected validation error"),
         }
@@ -412,10 +412,10 @@ mod tests {
             requested_at: "not-a-date".to_string(),
         }
         .into_command(sample_subject())
-        .expect_err("invalid requested_at should fail");
+        .expect_err("invalid requestedAt should fail");
         match restore_error {
             KernelError::Validation { message } => {
-                assert!(message.contains("requested_at"));
+                assert!(message.contains("requestedAt"));
             }
             _ => panic!("expected validation error"),
         }

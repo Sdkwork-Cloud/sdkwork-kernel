@@ -310,7 +310,7 @@ async fn create_with_invalid_requested_at_should_return_bad_request() {
         body_json["detail"]
             .as_str()
             .expect("detail should exist")
-            .contains("requested_at")
+            .contains("requestedAt")
     );
 }
 

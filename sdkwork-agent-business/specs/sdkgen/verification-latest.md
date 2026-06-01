@@ -57,3 +57,4 @@
 - `powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-ci.ps1`: pass
 - CI dry-run JSON report updated: `specs/sdkgen/verification-ci.json`
 - RFC3339 strict validation for mutation `requestedAt` covered by dto/http contract tests: pass
+- RFC3339 validation error detail now uses API field naming `requestedAt`: pass

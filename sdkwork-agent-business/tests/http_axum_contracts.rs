@@ -145,6 +145,45 @@ async fn list_should_apply_pagination_contract() {
 }
 
 #[tokio::test]
+async fn list_should_apply_search_query_filter() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.search.alpha", "Alpha Search").await;
+    create_agent(&app, "agent.search.beta", "Beta Search").await;
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/ai/agents?tenant_id=1&q=beta")
+        .body(Body::empty())
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("search list request should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+
+    let items = body_json["data"]["items"]
+        .as_array()
+        .expect("items should be array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["agentId"], "agent.search.beta");
+    assert_eq!(body_json["data"]["pageInfo"]["totalItems"], "1");
+}
+
+#[tokio::test]
 async fn missing_subject_header_should_return_problem_detail() {
     let state = AgentHttpState::new(
         InMemoryAgentRepository::new(),

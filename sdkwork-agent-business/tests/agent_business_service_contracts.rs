@@ -402,6 +402,68 @@ fn list_filters_by_owner_organization_and_deleted_flag() {
 }
 
 #[test]
+fn list_filters_by_search_query_across_code_name_and_description() {
+    let repository = InMemoryAgentRepository::new();
+    let (audit_sink, _events) = RecordingAuditSink::new();
+    let policy_provider = AllowAllPolicyProvider::allow("policy.memory");
+    let mut service = AgentBusinessService::new(repository, audit_sink, policy_provider);
+
+    service
+        .create_agent(create_agent_cmd(
+            "agent.search.alpha",
+            1,
+            10,
+            100,
+            "alpha-code",
+            "Alpha Worker",
+            "2026-06-01T06:00:00Z",
+        ))
+        .expect("create alpha should succeed");
+
+    service
+        .create_agent(CreateAgentCommand {
+            description: Some("handles retrieval workloads".to_string()),
+            ..create_agent_cmd(
+                "agent.search.beta",
+                1,
+                10,
+                101,
+                "beta-code",
+                "Beta Agent",
+                "2026-06-01T06:01:00Z",
+            )
+        })
+        .expect("create beta should succeed");
+
+    let by_code = service
+        .list_agents(ListAgentsCommand {
+            query: AgentListQuery::for_tenant(1).with_search("alpha-code"),
+            requested_by: sample_subject(),
+        })
+        .expect("list by code search should succeed");
+    assert_eq!(by_code.len(), 1);
+    assert_eq!(by_code[0].agent_id, "agent.search.alpha");
+
+    let by_name = service
+        .list_agents(ListAgentsCommand {
+            query: AgentListQuery::for_tenant(1).with_search("beta"),
+            requested_by: sample_subject(),
+        })
+        .expect("list by display name search should succeed");
+    assert_eq!(by_name.len(), 1);
+    assert_eq!(by_name[0].agent_id, "agent.search.beta");
+
+    let by_description = service
+        .list_agents(ListAgentsCommand {
+            query: AgentListQuery::for_tenant(1).with_search("retrieval"),
+            requested_by: sample_subject(),
+        })
+        .expect("list by description search should succeed");
+    assert_eq!(by_description.len(), 1);
+    assert_eq!(by_description[0].agent_id, "agent.search.beta");
+}
+
+#[test]
 fn audit_events_are_recorded_for_state_mutations() {
     let repository = InMemoryAgentRepository::new();
     let (audit_sink, events) = RecordingAuditSink::new();

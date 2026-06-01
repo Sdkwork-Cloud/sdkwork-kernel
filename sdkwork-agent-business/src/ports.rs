@@ -7,6 +7,7 @@ pub struct AgentListQuery {
     pub organization_id: Option<u64>,
     pub owner_user_id: Option<u64>,
     pub include_deleted: bool,
+    pub search_query: Option<String>,
 }
 
 impl AgentListQuery {
@@ -16,6 +17,7 @@ impl AgentListQuery {
             organization_id: None,
             owner_user_id: None,
             include_deleted: false,
+            search_query: None,
         }
     }
 
@@ -31,6 +33,16 @@ impl AgentListQuery {
 
     pub fn with_deleted(mut self) -> Self {
         self.include_deleted = true;
+        self
+    }
+
+    pub fn with_search(mut self, query: impl Into<String>) -> Self {
+        let query = query.into();
+        self.search_query = if query.trim().is_empty() {
+            None
+        } else {
+            Some(query)
+        };
         self
     }
 }

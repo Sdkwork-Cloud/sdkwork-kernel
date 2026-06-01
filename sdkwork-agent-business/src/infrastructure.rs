@@ -92,6 +92,26 @@ impl AgentRepository for InMemoryAgentRepository {
                 }
             })
             .filter(|record| query.include_deleted || !record.is_deleted())
+            .filter(|record| {
+                let Some(search_query) = query.search_query.as_ref() else {
+                    return true;
+                };
+                let normalized_query = search_query.trim().to_lowercase();
+                if normalized_query.is_empty() {
+                    return true;
+                }
+
+                let description = record.description.as_deref().unwrap_or("");
+                record.agent_id.to_lowercase().contains(normalized_query.as_str())
+                    || record.code.to_lowercase().contains(normalized_query.as_str())
+                    || record
+                        .display_name
+                        .to_lowercase()
+                        .contains(normalized_query.as_str())
+                    || description
+                        .to_lowercase()
+                        .contains(normalized_query.as_str())
+            })
             .cloned()
             .collect()
     }

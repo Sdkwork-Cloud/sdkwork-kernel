@@ -65,6 +65,8 @@ sdkwork-agent-business/
 - Backend audit endpoint `/backend/v3/api/ai/agents/{agentId}/audit_events`
   returns recorded audit events with `page/page_size` pagination and optional
   `action/from/to` filters; `from`/`to` must be RFC3339 and `from <= to`.
+- Agent list endpoint supports optional `q` fuzzy search over `agentId`, `code`,
+  `displayName`, and `description`.
 - Operation IDs follow dotted resource style, for example `agents.create`,
   `agents.status.update`, and `agents.auditEvents.list`.
 

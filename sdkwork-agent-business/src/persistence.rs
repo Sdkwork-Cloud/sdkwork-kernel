@@ -452,6 +452,26 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
                             && row.deleted_at.is_none()
                     }
                 })
+                .filter(|row| {
+                    let Some(search_query) = query.search_query.as_ref() else {
+                        return true;
+                    };
+                    let normalized_query = search_query.trim().to_lowercase();
+                    if normalized_query.is_empty() {
+                        return true;
+                    }
+
+                    let description = row.description.as_deref().unwrap_or("");
+                    row.agent_id.to_lowercase().contains(normalized_query.as_str())
+                        || row.code.to_lowercase().contains(normalized_query.as_str())
+                        || row
+                            .display_name
+                            .to_lowercase()
+                            .contains(normalized_query.as_str())
+                        || description
+                            .to_lowercase()
+                            .contains(normalized_query.as_str())
+                })
                 .collect()
         })
         .unwrap_or_default()

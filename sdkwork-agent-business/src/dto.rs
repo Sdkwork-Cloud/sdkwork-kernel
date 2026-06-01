@@ -13,6 +13,7 @@ pub struct ListAgentsRequestDto {
     pub organization_id: Option<String>,
     pub owner_user_id: Option<String>,
     pub include_deleted: bool,
+    pub search_query: Option<String>,
 }
 
 impl ListAgentsRequestDto {
@@ -26,6 +27,9 @@ impl ListAgentsRequestDto {
         }
         if self.include_deleted {
             query = query.with_deleted();
+        }
+        if let Some(search_query) = self.search_query {
+            query = query.with_search(search_query);
         }
         Ok(ListAgentsCommand {
             query,
@@ -327,6 +331,21 @@ mod tests {
         assert_eq!(command.organization_id, 10);
         assert_eq!(command.owner_user_id, 100);
         assert_eq!(command.visibility, AgentVisibility::Organization);
+    }
+
+    #[test]
+    fn list_request_maps_search_query() {
+        let command = ListAgentsRequestDto {
+            tenant_id: "1".to_string(),
+            organization_id: None,
+            owner_user_id: None,
+            include_deleted: false,
+            search_query: Some("beta".to_string()),
+        }
+        .into_command(sample_subject())
+        .expect("mapping should succeed");
+
+        assert_eq!(command.query.search_query.as_deref(), Some("beta"));
     }
 
     #[test]

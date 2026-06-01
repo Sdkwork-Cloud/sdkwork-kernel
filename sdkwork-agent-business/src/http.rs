@@ -178,6 +178,7 @@ struct ListAgentsQueryParams {
     organization_id: Option<String>,
     owner_user_id: Option<String>,
     include_deleted: Option<bool>,
+    q: Option<String>,
     page: Option<usize>,
     page_size: Option<usize>,
 }
@@ -651,6 +652,7 @@ async fn execute_list(
         organization_id: query.organization_id,
         owner_user_id: query.owner_user_id,
         include_deleted,
+        search_query: query.q,
     };
     let command = request_dto
         .into_command(subject)

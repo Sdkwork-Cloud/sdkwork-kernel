@@ -409,6 +409,20 @@ paths:
                 code: permission_required
                 errorCategory: permission
                 retryable: false
+        '400':
+          description: Invalid audit query parameters
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/validation_error
+                title: validation_error
+                status: 400
+                detail: page_size must be less than or equal to 200
+                code: validation_error
+                errorCategory: validation
+                retryable: false
         default:
           $ref: '#/components/responses/Problem'
 components:

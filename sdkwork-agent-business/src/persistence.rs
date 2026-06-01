@@ -25,7 +25,7 @@ pub const SQL_INSERT_AUDIT_EVENT: &str =
     "INSERT INTO ai_agent_business_audit_event (uuid, tenant_id, organization_id, agent_business_id, agent_id, action, subject_id, subject_tenant_id, request_id, trace_id, payload_json, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)";
 #[cfg(feature = "postgres-sync")]
 pub const SQL_LIST_AUDIT_EVENTS_BY_TENANT_AND_AGENT_ID: &str =
-    "SELECT id, uuid, tenant_id, organization_id, agent_business_id, agent_id, action, subject_id, subject_tenant_id, request_id, trace_id, payload_json, created_at::text AS created_at FROM ai_agent_business_audit_event WHERE tenant_id = $1 AND agent_id = $2 ORDER BY created_at DESC";
+    "SELECT id, uuid, tenant_id, organization_id, agent_business_id, agent_id, action, subject_id, subject_tenant_id, request_id, trace_id, payload_json, created_at::text AS created_at FROM ai_agent_business_audit_event WHERE tenant_id = $1 AND agent_id = $2 ORDER BY created_at DESC, id DESC";
 pub const SQL_NEXT_AGENT_BUSINESS_ID: &str =
     "SELECT nextval(pg_get_serial_sequence('ai_agent_business', 'id')) AS next_id";
 
@@ -894,6 +894,10 @@ mod tests {
         assert!(SQL_UPDATE_AGENT_BUSINESS.contains("WHERE tenant_id = $14 AND agent_id = $15 AND version = $16"));
         assert!(SQL_LIST_AGENT_BUSINESS.contains("ORDER BY updated_at DESC"));
         assert!(SQL_INSERT_AUDIT_EVENT.contains("$12"));
+        #[cfg(feature = "postgres-sync")]
+        assert!(SQL_LIST_AUDIT_EVENTS_BY_TENANT_AND_AGENT_ID.contains(
+            "ORDER BY created_at DESC, id DESC"
+        ));
     }
 
     #[test]

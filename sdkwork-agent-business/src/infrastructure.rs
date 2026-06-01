@@ -3,6 +3,9 @@ use crate::ports::{AgentAuditSink, AgentListQuery, AgentRepository};
 use sdkwork_agent_kernel::{
     KernelError, KernelEvent, KernelResult, PolicyDecision, PolicyProvider, PolicyRequest,
 };
+use std::cmp::Ordering;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct InMemoryAgentRepository {
@@ -154,9 +157,23 @@ impl AgentAuditSink for InMemoryAgentAuditSink {
             .cloned()
             .collect();
 
-        events.sort_by(|left, right| right.occurred_at.cmp(&left.occurred_at));
+        events.sort_by(compare_audit_events_desc);
         Ok(events)
     }
+}
+
+fn compare_audit_events_desc(left: &KernelEvent, right: &KernelEvent) -> Ordering {
+    let left_time = parse_occurred_at(left.occurred_at.as_deref());
+    let right_time = parse_occurred_at(right.occurred_at.as_deref());
+
+    right_time
+        .cmp(&left_time)
+        .then_with(|| right.event_id.cmp(&left.event_id))
+}
+
+fn parse_occurred_at(value: Option<&str>) -> Option<OffsetDateTime> {
+    let value = value?;
+    OffsetDateTime::parse(value, &Rfc3339).ok()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

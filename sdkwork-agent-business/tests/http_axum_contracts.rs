@@ -56,12 +56,21 @@ fn create_body(agent_id: &str, display_name: &str, requested_at: &str) -> Value 
 }
 
 async fn create_agent(app: &axum::Router, agent_id: &str, display_name: &str) {
+    create_agent_at(app, agent_id, display_name, "2026-06-01T00:00:00Z").await;
+}
+
+async fn create_agent_at(
+    app: &axum::Router,
+    agent_id: &str,
+    display_name: &str,
+    requested_at: &str,
+) {
     let request = Request::builder()
         .method("POST")
         .uri("/app/v3/api/ai/agents?tenant_id=1")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
-            create_body(agent_id, display_name, "2026-06-01T00:00:00Z").to_string(),
+            create_body(agent_id, display_name, requested_at).to_string(),
         ))
         .expect("request should be built");
 
@@ -950,6 +959,219 @@ async fn backend_audit_events_from_after_to_should_return_problem_detail() {
         .await
         .expect("request should return problem detail");
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn backend_audit_events_page_zero_should_return_problem_detail() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.audit.page.zero", "AuditPageZero").await;
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/ai/agents/agent.audit.page.zero/audit_events?tenant_id=1&page=0")
+        .body(Body::empty())
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("request should return problem detail");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "validation_error");
+    assert_eq!(body_json["errorCategory"], "validation");
+    assert_eq!(body_json["retryable"], false);
+}
+
+#[tokio::test]
+async fn backend_audit_events_page_size_above_max_should_return_problem_detail() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.audit.page.size", "AuditPageSize").await;
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/ai/agents/agent.audit.page.size/audit_events?tenant_id=1&page_size=201")
+        .body(Body::empty())
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("request should return problem detail");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "validation_error");
+    assert_eq!(body_json["errorCategory"], "validation");
+    assert_eq!(body_json["retryable"], false);
+}
+
+#[tokio::test]
+async fn backend_audit_events_should_support_combined_filters_with_pagination() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent_at(
+        &app,
+        "agent.audit.combo",
+        "AuditCombo",
+        "2026-06-01T00:10:00Z",
+    )
+    .await;
+
+    let status_active_request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.audit.combo/status?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "targetStatus": "active",
+                "requestedAt": "2026-06-01T00:20:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let status_active_response = app
+        .clone()
+        .oneshot(auth_headers(status_active_request))
+        .await
+        .expect("status request should succeed");
+    assert_eq!(status_active_response.status(), StatusCode::OK);
+
+    let status_disabled_request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.audit.combo/status?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "targetStatus": "disabled",
+                "requestedAt": "2026-06-01T00:30:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let status_disabled_response = app
+        .clone()
+        .oneshot(auth_headers(status_disabled_request))
+        .await
+        .expect("status request should succeed");
+    assert_eq!(status_disabled_response.status(), StatusCode::OK);
+
+    let list_request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/ai/agents/agent.audit.combo/audit_events?tenant_id=1&action=status_changed&from=2026-06-01T00:15:00Z&to=2026-06-01T00:35:00Z&page=1&page_size=1")
+        .body(Body::empty())
+        .expect("request should be built");
+    let list_response = app
+        .clone()
+        .oneshot(auth_headers(list_request))
+        .await
+        .expect("audit filter list should succeed");
+    assert_eq!(list_response.status(), StatusCode::OK);
+
+    let body_bytes = to_bytes(list_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    let items = body_json["data"]["items"]
+        .as_array()
+        .expect("items should be array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["eventType"], "agent.business.status_changed");
+    assert_eq!(items[0]["occurredAt"], "2026-06-01T00:30:00Z");
+    assert_eq!(body_json["data"]["pageInfo"]["page"], 1);
+    assert_eq!(body_json["data"]["pageInfo"]["pageSize"], 1);
+    assert_eq!(body_json["data"]["pageInfo"]["totalItems"], "2");
+    assert_eq!(body_json["data"]["pageInfo"]["totalPages"], 2);
+}
+
+#[tokio::test]
+async fn backend_audit_events_should_sort_by_instant_desc_across_timezones() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent_at(
+        &app,
+        "agent.audit.offset",
+        "AuditOffset",
+        "2026-06-01T09:00:00+08:00",
+    )
+    .await;
+
+    let status_request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.audit.offset/status?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "targetStatus": "active",
+                "requestedAt": "2026-06-01T01:00:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let status_response = app
+        .clone()
+        .oneshot(auth_headers(status_request))
+        .await
+        .expect("status request should succeed");
+    assert_eq!(status_response.status(), StatusCode::OK);
+
+    let list_request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/ai/agents/agent.audit.offset/audit_events?tenant_id=1")
+        .body(Body::empty())
+        .expect("request should be built");
+    let list_response = app
+        .clone()
+        .oneshot(auth_headers(list_request))
+        .await
+        .expect("audit list should succeed");
+    assert_eq!(list_response.status(), StatusCode::OK);
+
+    let body_bytes = to_bytes(list_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    let items = body_json["data"]["items"]
+        .as_array()
+        .expect("items should be array");
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["eventType"], "agent.business.status_changed");
+    assert_eq!(items[0]["occurredAt"], "2026-06-01T01:00:00Z");
+    assert_eq!(items[1]["eventType"], "agent.business.created");
+    assert_eq!(items[1]["occurredAt"], "2026-06-01T09:00:00+08:00");
 }
 
 #[tokio::test]

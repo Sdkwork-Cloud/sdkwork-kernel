@@ -725,7 +725,7 @@ async fn backend_list_agent_audit_events(
     })?;
     let events = filter_audit_events(events, &query)?;
 
-    let (page, page_size) = normalized_pagination(query.page, query.page_size);
+    let (page, page_size) = normalized_pagination(query.page, query.page_size)?;
     let total_items = events.len();
     let total_pages = if total_items == 0 {
         0
@@ -788,7 +788,7 @@ async fn execute_list(
         .map_err(ApiProblem::from_kernel_error)?;
 
     let records = with_service_mut(&state, |service| service.list_agents(command))?;
-    let (page, page_size) = normalized_pagination(query.page, query.page_size);
+    let (page, page_size) = normalized_pagination(query.page, query.page_size)?;
     let total_items = records.len();
     let paged = paginate(records, page, page_size);
 
@@ -1085,10 +1085,28 @@ fn optional_header(headers: &HeaderMap, key: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn normalized_pagination(page: Option<usize>, page_size: Option<usize>) -> (usize, usize) {
-    let page = page.unwrap_or(1).max(1);
-    let page_size = page_size.unwrap_or(DEFAULT_PAGE_SIZE).clamp(1, MAX_PAGE_SIZE);
-    (page, page_size)
+fn normalized_pagination(
+    page: Option<usize>,
+    page_size: Option<usize>,
+) -> Result<(usize, usize), ApiProblem> {
+    let page = page.unwrap_or(1);
+    if page == 0 {
+        return Err(ApiProblem::validation("page must be greater than or equal to 1"));
+    }
+
+    let page_size = page_size.unwrap_or(DEFAULT_PAGE_SIZE);
+    if page_size == 0 {
+        return Err(ApiProblem::validation(
+            "page_size must be greater than or equal to 1",
+        ));
+    }
+    if page_size > MAX_PAGE_SIZE {
+        return Err(ApiProblem::validation(format!(
+            "page_size must be less than or equal to {MAX_PAGE_SIZE}"
+        )));
+    }
+
+    Ok((page, page_size))
 }
 
 fn paginate<T: Clone>(items: Vec<T>, page: usize, page_size: usize) -> Vec<T> {

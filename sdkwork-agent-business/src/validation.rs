@@ -8,6 +8,22 @@ pub(crate) fn parse_int64_string_field(value: &str, field_name: &str) -> KernelR
         .map_err(|_| KernelError::validation(format!("{field_name} must be int64 string")))
 }
 
+pub(crate) fn parse_tenant_id(value: &str) -> KernelResult<u64> {
+    parse_int64_string_field(value, "tenant_id")
+}
+
+pub(crate) fn parse_organization_id(value: &str) -> KernelResult<u64> {
+    parse_int64_string_field(value, "organization_id")
+}
+
+pub(crate) fn parse_owner_user_id(value: &str) -> KernelResult<u64> {
+    parse_int64_string_field(value, "owner_user_id")
+}
+
+pub(crate) fn validate_requested_at(value: &str) -> KernelResult<()> {
+    validate_rfc3339_datetime(value, "requestedAt")
+}
+
 pub(crate) fn validate_rfc3339_datetime(value: &str, field_name: &str) -> KernelResult<()> {
     let _ = parse_rfc3339_datetime(value, field_name)?;
     Ok(())
@@ -71,6 +87,29 @@ mod tests {
             KernelError::Validation { message } => {
                 assert!(message.contains("tenant_id"));
                 assert!(message.contains("int64 string"));
+            }
+            _ => panic!("expected validation error"),
+        }
+    }
+
+    #[test]
+    fn parse_tenant_id_uses_tenant_specific_error() {
+        let error = parse_tenant_id("bad").expect_err("invalid tenant id should fail");
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("tenant_id"));
+            }
+            _ => panic!("expected validation error"),
+        }
+    }
+
+    #[test]
+    fn validate_requested_at_uses_api_field_name() {
+        let error = validate_requested_at("2026-06-01")
+            .expect_err("invalid requestedAt should fail");
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("requestedAt"));
             }
             _ => panic!("expected validation error"),
         }

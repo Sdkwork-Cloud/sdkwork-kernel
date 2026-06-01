@@ -61,3 +61,4 @@
 - RFC3339 parsing logic unified into shared `validation` module and reused by dto/http query filter: pass
 - Audit event `occurred_at` RFC3339 parsing now reuses shared `validation` parser while preserving `internal_error` mapping: pass
 - `tenant_id/int64 string` parsing unified into shared `validation` module for dto/http consistency: pass
+- Added semantic validation wrappers (`parse_tenant_id/organization_id/owner_user_id`, `validate_requested_at`) and migrated dto/http callers: pass

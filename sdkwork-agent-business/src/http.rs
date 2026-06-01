@@ -25,6 +25,13 @@ const HEADER_SUBJECT_TENANT_ID: &str = "x-subject-tenant-id";
 const HEADER_SUBJECT_ROLES: &str = "x-subject-roles";
 const MAX_PAGE_SIZE: usize = 200;
 const DEFAULT_PAGE_SIZE: usize = 20;
+const ALLOWED_AUDIT_ACTIONS: &[&str] = &[
+    "created",
+    "updated",
+    "deleted",
+    "restored",
+    "status_changed",
+];
 
 struct DynAgentRepository(Box<dyn AgentRepository + Send>);
 struct DynAgentAuditSink(Box<dyn AgentAuditSink + Send>);
@@ -182,6 +189,16 @@ struct TenantQueryParams {
 struct TenantAgentPathParams {
     #[serde(rename = "agentId")]
     agent_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct AuditEventsQueryParams {
+    tenant_id: String,
+    page: Option<usize>,
+    page_size: Option<usize>,
+    action: Option<String>,
+    from: Option<String>,
+    to: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -561,7 +578,7 @@ async fn backend_update_agent_status(
 async fn backend_list_agent_audit_events(
     State(state): State<AgentHttpState>,
     path: Result<Path<TenantAgentPathParams>, PathRejection>,
-    query: Result<Query<ListAgentsQueryParams>, QueryRejection>,
+    query: Result<Query<AuditEventsQueryParams>, QueryRejection>,
     headers: HeaderMap,
 ) -> Result<Json<AgentAuditEventsListResponse>, ApiProblem> {
     let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
@@ -574,6 +591,7 @@ async fn backend_list_agent_audit_events(
     let events = with_service_mut(&state, |service| {
         service.list_agent_audit_events(tenant_id, path.agent_id.as_str(), subject)
     })?;
+    let events = filter_audit_events(events, &query)?;
 
     let (page, page_size) = normalized_pagination(query.page, query.page_size);
     let total_items = events.len();
@@ -818,6 +836,50 @@ fn kernel_event_severity(severity: sdkwork_agent_kernel::KernelEventSeverity) ->
         sdkwork_agent_kernel::KernelEventSeverity::Warn => "warn",
         sdkwork_agent_kernel::KernelEventSeverity::Error => "error",
     }
+}
+
+fn filter_audit_events(
+    events: Vec<sdkwork_agent_kernel::KernelEvent>,
+    query: &AuditEventsQueryParams,
+) -> Result<Vec<sdkwork_agent_kernel::KernelEvent>, ApiProblem> {
+    if let Some(action) = query.action.as_ref() {
+        if !ALLOWED_AUDIT_ACTIONS.contains(&action.as_str()) {
+            return Err(ApiProblem::validation(format!(
+                "action must be one of {}",
+                ALLOWED_AUDIT_ACTIONS.join(", ")
+            )));
+        }
+    }
+
+    let filtered = events
+        .into_iter()
+        .filter(|event| {
+            let action_ok = query
+                .action
+                .as_ref()
+                .map(|action| action == audit_event_action(event.event_type.as_str()))
+                .unwrap_or(true);
+
+            let occurred_at = event.occurred_at.as_deref().unwrap_or("");
+            let from_ok = query
+                .from
+                .as_ref()
+                .map(|from| occurred_at >= from.as_str())
+                .unwrap_or(true);
+            let to_ok = query
+                .to
+                .as_ref()
+                .map(|to| occurred_at <= to.as_str())
+                .unwrap_or(true);
+
+            action_ok && from_ok && to_ok
+        })
+        .collect();
+    Ok(filtered)
+}
+
+fn audit_event_action(event_type: &str) -> &str {
+    event_type.rsplit('.').next().unwrap_or(event_type)
 }
 
 fn extract_policy_subject(headers: HeaderMap, tenant_id: &str) -> Result<PolicySubject, ApiProblem> {

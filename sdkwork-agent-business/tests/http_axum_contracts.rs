@@ -284,6 +284,92 @@ async fn backend_audit_events_should_return_recorded_items() {
 }
 
 #[tokio::test]
+async fn backend_audit_events_action_filter_should_work() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.audit.filter", "AuditFilter").await;
+
+    let status_request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.audit.filter/status?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "targetStatus": "active",
+                "requestedAt": "2026-06-01T02:00:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let status_response = app
+        .clone()
+        .oneshot(auth_headers(status_request))
+        .await
+        .expect("status request should succeed");
+    assert_eq!(status_response.status(), StatusCode::OK);
+
+    let list_request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/ai/agents/agent.audit.filter/audit_events?tenant_id=1&action=status_changed")
+        .body(Body::empty())
+        .expect("request should be built");
+    let list_response = app
+        .clone()
+        .oneshot(auth_headers(list_request))
+        .await
+        .expect("audit filter list should succeed");
+    assert_eq!(list_response.status(), StatusCode::OK);
+
+    let body_bytes = to_bytes(list_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    let items = body_json["data"]["items"]
+        .as_array()
+        .expect("items should be array");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["eventType"], "agent.business.status_changed");
+    assert_eq!(body_json["data"]["pageInfo"]["totalItems"], "1");
+}
+
+#[tokio::test]
+async fn backend_audit_events_invalid_action_should_return_problem_detail() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.audit.invalid", "AuditInvalid").await;
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/ai/agents/agent.audit.invalid/audit_events?tenant_id=1&action=oops")
+        .body(Body::empty())
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("request should return problem detail");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+}
+
+#[tokio::test]
 async fn invalid_query_should_return_problem_detail() {
     let state = AgentHttpState::new(
         InMemoryAgentRepository::new(),

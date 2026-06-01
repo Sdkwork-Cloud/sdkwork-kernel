@@ -172,6 +172,9 @@ paths:
         - $ref: '#/components/parameters/AgentIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/AuditAction'
+        - $ref: '#/components/parameters/AuditFrom'
+        - $ref: '#/components/parameters/AuditTo'
       responses:
         '200':
           description: Managed agent audit events response
@@ -251,6 +254,26 @@ components:
         type: string
         minLength: 1
         maxLength: 128
+    AuditAction:
+      name: action
+      in: query
+      required: false
+      schema:
+        $ref: '#/components/schemas/AuditAction'
+    AuditFrom:
+      name: from
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+    AuditTo:
+      name: to
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
   responses:
     Problem:
       description: RFC 9457 problem detail response
@@ -268,6 +291,9 @@ components:
     AgentVisibility:
       type: string
       enum: [private, organization, tenant, public]
+    AuditAction:
+      type: string
+      enum: [created, updated, deleted, restored, status_changed]
     PageInfo:
       type: object
       additionalProperties: false

@@ -364,6 +364,8 @@ struct ProblemDetailResponse {
     status: u16,
     detail: String,
     code: String,
+    error_category: String,
+    retryable: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -374,30 +376,60 @@ struct ApiProblem {
 
 impl ApiProblem {
     fn validation(detail: impl Into<String>) -> Self {
-        Self::new(StatusCode::BAD_REQUEST, "validation_error", detail)
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "validation_error",
+            "validation",
+            false,
+            detail,
+        )
     }
 
     fn permission(detail: impl Into<String>) -> Self {
-        Self::new(StatusCode::FORBIDDEN, "permission_required", detail)
+        Self::new(
+            StatusCode::FORBIDDEN,
+            "permission_required",
+            "permission",
+            false,
+            detail,
+        )
     }
 
     fn conflict(detail: impl Into<String>) -> Self {
-        Self::new(StatusCode::CONFLICT, "conflict", detail)
+        Self::new(StatusCode::CONFLICT, "conflict", "business", false, detail)
     }
 
     fn version_conflict(detail: impl Into<String>) -> Self {
-        Self::new(StatusCode::CONFLICT, "version_conflict", detail)
+        Self::new(
+            StatusCode::CONFLICT,
+            "version_conflict",
+            "concurrency",
+            true,
+            detail,
+        )
     }
 
     fn not_found(detail: impl Into<String>) -> Self {
-        Self::new(StatusCode::NOT_FOUND, "not_found", detail)
+        Self::new(StatusCode::NOT_FOUND, "not_found", "resource", false, detail)
     }
 
     fn internal(detail: impl Into<String>) -> Self {
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", detail)
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal_error",
+            "internal",
+            false,
+            detail,
+        )
     }
 
-    fn new(status: StatusCode, code: impl Into<String>, detail: impl Into<String>) -> Self {
+    fn new(
+        status: StatusCode,
+        code: impl Into<String>,
+        error_category: impl Into<String>,
+        retryable: bool,
+        detail: impl Into<String>,
+    ) -> Self {
         let code = code.into();
         Self {
             status,
@@ -407,6 +439,8 @@ impl ApiProblem {
                 status: status.as_u16(),
                 detail: detail.into(),
                 code,
+                error_category: error_category.into(),
+                retryable,
             },
         }
     }
@@ -439,6 +473,8 @@ impl ApiProblem {
         Self::new(
             rejection.status(),
             "validation_error",
+            "validation",
+            false,
             format!("invalid json request: {}", rejection.body_text()),
         )
     }
@@ -447,6 +483,8 @@ impl ApiProblem {
         Self::new(
             rejection.status(),
             "validation_error",
+            "validation",
+            false,
             format!("invalid query request: {}", rejection.body_text()),
         )
     }
@@ -455,6 +493,8 @@ impl ApiProblem {
         Self::new(
             rejection.status(),
             "validation_error",
+            "validation",
+            false,
             format!("invalid path request: {}", rejection.body_text()),
         )
     }

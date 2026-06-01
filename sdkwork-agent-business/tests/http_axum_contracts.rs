@@ -220,6 +220,8 @@ async fn missing_subject_header_should_return_problem_detail() {
     assert_eq!(body_json["title"], "validation_error");
     assert_eq!(body_json["status"], 400);
     assert_eq!(body_json["code"], "validation_error");
+    assert_eq!(body_json["errorCategory"], "validation");
+    assert_eq!(body_json["retryable"], false);
     assert!(
         body_json["detail"]
             .as_str()
@@ -359,6 +361,8 @@ async fn create_duplicate_agent_should_return_conflict() {
     let body_json: Value =
         serde_json::from_slice(&body_bytes).expect("response body should be valid json");
     assert_eq!(body_json["code"], "conflict");
+    assert_eq!(body_json["errorCategory"], "business");
+    assert_eq!(body_json["retryable"], false);
 }
 
 #[tokio::test]
@@ -630,6 +634,8 @@ async fn update_with_stale_expected_version_should_return_conflict() {
     let body_json: Value =
         serde_json::from_slice(&body_bytes).expect("response body should be valid json");
     assert_eq!(body_json["code"], "version_conflict");
+    assert_eq!(body_json["errorCategory"], "concurrency");
+    assert_eq!(body_json["retryable"], true);
     assert!(
         body_json["detail"]
             .as_str()

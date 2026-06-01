@@ -78,6 +78,8 @@ paths:
                 status: 409
                 detail: agent already exists
                 code: conflict
+                errorCategory: business
+                retryable: false
         default:
           $ref: '#/components/responses/Problem'
   /backend/v3/api/ai/agents/{agentId}:
@@ -145,6 +147,8 @@ paths:
                 status: 409
                 detail: "agent version mismatch: expected=2, actual=3"
                 code: version_conflict
+                errorCategory: concurrency
+                retryable: true
         default:
           $ref: '#/components/responses/Problem'
   /backend/v3/api/ai/agents/{agentId}/status:
@@ -188,6 +192,8 @@ paths:
                 status: 409
                 detail: "agent version mismatch: expected=2, actual=3"
                 code: version_conflict
+                errorCategory: concurrency
+                retryable: true
         default:
           $ref: '#/components/responses/Problem'
   /backend/v3/api/ai/agents/{agentId}/restore:
@@ -231,6 +237,8 @@ paths:
                 status: 409
                 detail: "agent version mismatch: expected=2, actual=3"
                 code: version_conflict
+                errorCategory: concurrency
+                retryable: true
         default:
           $ref: '#/components/responses/Problem'
   /backend/v3/api/ai/agents/{agentId}/audit_events:
@@ -372,6 +380,8 @@ components:
                 status: 400
                 detail: requestedAt must be RFC3339 date-time
                 code: validation_error
+                errorCategory: validation
+                retryable: false
             VersionConflict:
               summary: Optimistic concurrency conflict
               value:
@@ -380,6 +390,8 @@ components:
                 status: 409
                 detail: "agent version mismatch: expected=2, actual=3"
                 code: version_conflict
+                errorCategory: concurrency
+                retryable: true
   schemas:
     Int64String:
       type: string
@@ -683,6 +695,12 @@ components:
         code:
           type: string
           description: Error code, for example validation_error, permission_required, conflict, version_conflict, not_found, internal_error.
+        errorCategory:
+          type: string
+          description: Error category for client handling, for example validation, permission, business, concurrency, resource, internal.
+        retryable:
+          type: boolean
+          description: Whether the client may retry the same request without changing payload semantics.
         traceId:
           type: string
         errors:

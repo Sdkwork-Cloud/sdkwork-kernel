@@ -69,3 +69,4 @@
 - Create conflict semantics completed: app/backend `agents.create` now include operation-level `409 conflict` examples (duplicate `agent_id/code`), with HTTP contract test coverage for duplicate create: pass
 - `ProblemDetail` contract enriched with `errorCategory` and `retryable` in runtime response + app/backend OpenAPI schema/examples; HTTP contract tests assert validation/conflict/version_conflict category and retryability semantics: pass
 - `errorCategory` mapping refactored to a centralized internal enum (`ErrorCategory`) for deterministic classification and lower maintenance risk when adding new error codes: pass
+- Operation-level `403 permission_required` and `404 not_found` examples added for core create/retrieve/update/delete/restore/status operations, with HTTP contract tests for permission-denied and missing-resource responses (`errorCategory`/`retryable` validated): pass

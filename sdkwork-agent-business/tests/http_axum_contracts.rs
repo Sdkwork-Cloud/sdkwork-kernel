@@ -5,7 +5,7 @@ use axum::http::header::CONTENT_TYPE;
 use axum::http::{HeaderValue, Request, StatusCode};
 use sdkwork_agent_business::{
     build_combined_router, AgentHttpState, AllowAllPolicyProvider, InMemoryAgentAuditSink,
-    InMemoryAgentRepository,
+    InMemoryAgentRepository, PolicyMode,
 };
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -987,4 +987,85 @@ async fn invalid_query_should_return_problem_detail() {
     let body_json: Value =
         serde_json::from_slice(&body_bytes).expect("response body should be valid json");
     assert_eq!(body_json["code"], "validation_error");
+}
+
+#[tokio::test]
+async fn retrieve_missing_agent_should_return_not_found_problem_detail() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/ai/agents/agent.missing?tenant_id=1")
+        .body(Body::empty())
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("request should return problem detail");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "not_found");
+    assert_eq!(body_json["errorCategory"], "resource");
+    assert_eq!(body_json["retryable"], false);
+}
+
+#[tokio::test]
+async fn permission_denied_should_return_permission_problem_detail() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider {
+            provider_id: "policy.memory".to_string(),
+            mode: PolicyMode::Deny("agent.business.denied".to_string()),
+        },
+    );
+    let app = build_combined_router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/app/v3/api/ai/agents?tenant_id=1")
+        .body(Body::empty())
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("request should return problem detail");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "permission_required");
+    assert_eq!(body_json["errorCategory"], "permission");
+    assert_eq!(body_json["retryable"], false);
 }

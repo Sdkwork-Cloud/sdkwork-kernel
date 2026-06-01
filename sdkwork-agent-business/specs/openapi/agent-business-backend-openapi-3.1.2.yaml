@@ -66,6 +66,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentResponse'
+        '403':
+          description: Permission denied
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/permission_required
+                title: permission_required
+                status: 403
+                detail: agent management denied
+                code: permission_required
+                errorCategory: permission
+                retryable: false
         '409':
           description: Resource conflict (duplicate agent_id or code within tenant scope)
           content:
@@ -105,6 +119,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentResponse'
+        '403':
+          description: Permission denied
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/permission_required
+                title: permission_required
+                status: 403
+                detail: agent management denied
+                code: permission_required
+                errorCategory: permission
+                retryable: false
+        '404':
+          description: Agent not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/not_found
+                title: not_found
+                status: 404
+                detail: agent not found
+                code: not_found
+                errorCategory: resource
+                retryable: false
         default:
           $ref: '#/components/responses/Problem'
     patch:
@@ -135,6 +177,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentResponse'
+        '403':
+          description: Permission denied
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/permission_required
+                title: permission_required
+                status: 403
+                detail: agent management denied
+                code: permission_required
+                errorCategory: permission
+                retryable: false
+        '404':
+          description: Agent not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/not_found
+                title: not_found
+                status: 404
+                detail: agent not found
+                code: not_found
+                errorCategory: resource
+                retryable: false
         '409':
           description: Optimistic concurrency conflict (stale expectedVersion)
           content:
@@ -180,6 +250,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentResponse'
+        '403':
+          description: Permission denied
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/permission_required
+                title: permission_required
+                status: 403
+                detail: agent management denied
+                code: permission_required
+                errorCategory: permission
+                retryable: false
+        '404':
+          description: Agent not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/not_found
+                title: not_found
+                status: 404
+                detail: agent not found
+                code: not_found
+                errorCategory: resource
+                retryable: false
         '409':
           description: Optimistic concurrency conflict (stale expectedVersion)
           content:
@@ -225,6 +323,34 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentResponse'
+        '403':
+          description: Permission denied
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/permission_required
+                title: permission_required
+                status: 403
+                detail: agent management denied
+                code: permission_required
+                errorCategory: permission
+                retryable: false
+        '404':
+          description: Agent not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+              example:
+                type: https://sdkwork.dev/problems/not_found
+                title: not_found
+                status: 404
+                detail: agent not found
+                code: not_found
+                errorCategory: resource
+                retryable: false
         '409':
           description: Optimistic concurrency conflict (stale expectedVersion)
           content:
@@ -392,6 +518,26 @@ components:
                 code: version_conflict
                 errorCategory: concurrency
                 retryable: true
+            PermissionRequired:
+              summary: Permission denied
+              value:
+                type: https://sdkwork.dev/problems/permission_required
+                title: permission_required
+                status: 403
+                detail: agent management denied
+                code: permission_required
+                errorCategory: permission
+                retryable: false
+            NotFound:
+              summary: Resource not found
+              value:
+                type: https://sdkwork.dev/problems/not_found
+                title: not_found
+                status: 404
+                detail: agent not found
+                code: not_found
+                errorCategory: resource
+                retryable: false
   schemas:
     Int64String:
       type: string
@@ -698,6 +844,7 @@ components:
         errorCategory:
           type: string
           description: Error category for client handling, for example validation, permission, business, concurrency, resource, internal.
+          enum: [validation, permission, business, concurrency, resource, internal]
         retryable:
           type: boolean
           description: Whether the client may retry the same request without changing payload semantics.

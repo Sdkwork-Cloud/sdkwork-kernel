@@ -482,6 +482,9 @@ impl ApiProblem {
 
     fn from_kernel_error(error: KernelError) -> Self {
         let safe_message = error.safe_message();
+        if safe_message.contains("not found") {
+            return Self::not_found(safe_message);
+        }
         match error.kind() {
             KernelErrorKind::ValidationError => Self::validation(error.safe_message()),
             KernelErrorKind::Conflict => {
@@ -494,13 +497,7 @@ impl ApiProblem {
             KernelErrorKind::PermissionRequired | KernelErrorKind::PolicyDenied => {
                 Self::permission(error.safe_message())
             }
-            _ => {
-                if error.safe_message().contains("not found") {
-                    Self::not_found(error.safe_message())
-                } else {
-                    Self::internal(error.safe_message())
-                }
-            }
+            _ => Self::internal(error.safe_message()),
         }
     }
 

@@ -1,8 +1,8 @@
 use sdkwork_agent_kernel::{
-    Action, ActionKind, KernelResult, ModelDescriptor, ModelProvider, ModelRequest, ModelResponse,
-    ModelResponseFormat, Plan, PlanningProvider, PolicyCategory, PolicyDecision, PolicyProvider,
-    PolicyRequest, ProviderHealth, ProviderManifest, SideEffectLevel, ToolCall, ToolDescriptor,
-    ToolProvider, ToolResult,
+    Action, ActionKind, KernelResult, MemoryProvider, MemoryRecord, MemoryScope, ModelDescriptor,
+    ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, Plan, PlanningProvider,
+    PolicyCategory, PolicyDecision, PolicyProvider, PolicyRequest, ProviderHealth,
+    ProviderManifest, SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult,
 };
 
 use crate::{backend::RigBackend, ids};
@@ -102,6 +102,68 @@ impl ToolProvider for RigToolProvider {
 
     fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
         Ok(self.backend.invoke_tool(call))
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RigMemoryProvider {
+    records: Vec<MemoryRecord>,
+}
+
+impl RigMemoryProvider {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            ids::MEMORY_PROVIDER_ID,
+            "memory",
+            "rig-rust-memory",
+            "0.1.0",
+            vec![
+                "memory.query".to_string(),
+                "memory.write".to_string(),
+                "memory.delete".to_string(),
+                "memory.export".to_string(),
+            ],
+        )
+    }
+}
+
+impl MemoryProvider for RigMemoryProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        RigMemoryProvider::provider_manifest(self)
+    }
+
+    fn query(&self, scope: MemoryScope, owner_context: &str) -> KernelResult<Vec<MemoryRecord>> {
+        Ok(self
+            .records
+            .iter()
+            .filter(|record| record.scope == scope && record.owner_context == owner_context)
+            .cloned()
+            .collect())
+    }
+
+    fn write(&mut self, record: MemoryRecord) -> KernelResult<()> {
+        self.records
+            .retain(|existing| existing.memory_record_id != record.memory_record_id);
+        self.records.push(record);
+        Ok(())
+    }
+
+    fn delete(&mut self, memory_record_id: &str) -> KernelResult<()> {
+        self.records
+            .retain(|record| record.memory_record_id != memory_record_id);
+        Ok(())
+    }
+
+    fn export(&self, scope: MemoryScope, owner_context: &str) -> KernelResult<Vec<MemoryRecord>> {
+        self.query(scope, owner_context)
+    }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
     }
 }
 

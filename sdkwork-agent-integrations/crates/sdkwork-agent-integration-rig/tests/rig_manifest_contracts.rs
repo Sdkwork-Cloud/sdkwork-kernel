@@ -14,6 +14,7 @@ fn rig_uses_stable_standard_ids() {
     assert_eq!(ids::AGENT_ID, "agent.intelligence.rig-general");
     assert_eq!(ids::MODEL_PROVIDER_ID, "provider.model.rig-rust");
     assert_eq!(ids::TOOL_PROVIDER_ID, "provider.tool.rig-rust");
+    assert_eq!(ids::MEMORY_PROVIDER_ID, "provider.memory.rig-rust");
     assert_eq!(ids::PLANNING_PROVIDER_ID, "provider.planning.rig-rust");
     assert_eq!(
         ids::INSTALLER_PROVIDER_ID,
@@ -81,6 +82,24 @@ fn rig_agent_definition_declares_model_tool_policy_and_memory_strategy() {
     assert!(definition.tool_call_policy.policy_required);
     assert!(definition.tool_call_policy.allows_tool("tool.rig.retrieve"));
 
+    let memory = definition
+        .default_binding(AgentProviderFamily::Memory)
+        .expect("Rig memory binding is explicit");
+    assert_eq!(memory.provider_id, ids::MEMORY_PROVIDER_ID);
+    assert!(!memory.required);
+    assert!(memory.supports_capability("memory.query"));
+    assert!(memory.supports_capability("memory.write"));
+    assert_eq!(
+        definition.memory_strategy.default_provider_id.as_deref(),
+        Some(ids::MEMORY_PROVIDER_ID)
+    );
+    assert!(definition
+        .memory_strategy
+        .scope_enabled(sdkwork_agent_kernel::MemoryScope::Session));
+    assert!(definition
+        .memory_strategy
+        .scope_enabled(sdkwork_agent_kernel::MemoryScope::Agent));
+
     let policy = definition
         .default_binding(AgentProviderFamily::Policy)
         .expect("Rig policy binding is explicit");
@@ -95,8 +114,7 @@ fn rig_agent_definition_declares_model_tool_policy_and_memory_strategy() {
         definition.model_selection.default_model_id.as_deref(),
         Some("rig.default")
     );
-    assert!(definition.memory_strategy.default_provider_id.is_none());
-    assert!(definition.memory_strategy.enabled_scopes.is_empty());
+    assert!(definition.memory_strategy.write_policy_required);
 }
 
 #[test]
@@ -110,6 +128,13 @@ fn rig_provider_manifests_cover_model_tool_planning_and_lifecycle() {
     assert!(providers.iter().any(|provider| {
         provider.provider_id == ids::TOOL_PROVIDER_ID
             && provider.capabilities.contains(&"tool.invoke".to_string())
+    }));
+    assert!(providers.iter().any(|provider| {
+        provider.provider_id == ids::MEMORY_PROVIDER_ID
+            && provider.capabilities.contains(&"memory.query".to_string())
+            && provider.capabilities.contains(&"memory.write".to_string())
+            && provider.capabilities.contains(&"memory.delete".to_string())
+            && provider.capabilities.contains(&"memory.export".to_string())
     }));
     assert!(providers.iter().any(|provider| {
         provider.provider_id == ids::PLANNING_PROVIDER_ID
@@ -137,6 +162,32 @@ fn rig_plugin_assembles_runtime_with_typed_providers() {
         .any(
             |provider| provider.provider_id == ids::MODEL_PROVIDER_ID && provider.typed_registered
         ));
+    assert!(report
+        .runtime
+        .diagnostics()
+        .provider_diagnostics
+        .iter()
+        .any(
+            |provider| provider.provider_id == ids::MEMORY_PROVIDER_ID && provider.typed_registered
+        ));
+    let memory_diagnostic = report
+        .runtime
+        .diagnostics()
+        .provider(ids::MEMORY_PROVIDER_ID)
+        .expect("Rig memory diagnostics are present")
+        .clone();
+    assert!(memory_diagnostic
+        .capabilities
+        .contains(&"memory.query".to_string()));
+    assert!(memory_diagnostic
+        .capabilities
+        .contains(&"memory.write".to_string()));
+    assert!(memory_diagnostic
+        .capabilities
+        .contains(&"memory.delete".to_string()));
+    assert!(memory_diagnostic
+        .capabilities
+        .contains(&"memory.export".to_string()));
     assert!(plugin.conformance_profile().requires("runtime-local"));
     assert_eq!(
         plugin

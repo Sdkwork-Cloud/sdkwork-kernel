@@ -52,7 +52,7 @@ Rules:
 | Claude Code | code-agent CLI/runtime | Task lifecycle, permission flow, tool orchestration |
 | OpenCode | code-agent runtime/CLI | Provider abstraction, workspace, terminal |
 | Gemini CLI | code-agent CLI/runtime | Model/tool integration, command workflow |
-| Rig | Rust-native agent framework | Model, tool, planning, typed providers |
+| Rig | Rust-native agent framework | Model, tool, memory, planning, typed providers |
 
 ## 4. Mapping Requirements
 

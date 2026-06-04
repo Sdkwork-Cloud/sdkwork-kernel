@@ -1,4 +1,4 @@
-use crate::{KernelResult, ProviderHealth};
+use crate::{KernelResult, ProviderHealth, ProviderManifest};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrustLevel {
@@ -128,6 +128,21 @@ impl MemoryRecord {
 }
 
 pub trait MemoryProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            "provider.memory.unspecified",
+            "memory",
+            "memory-provider",
+            "0.0.0",
+            vec![
+                "memory.query".to_string(),
+                "memory.write".to_string(),
+                "memory.delete".to_string(),
+                "memory.export".to_string(),
+            ],
+        )
+    }
+
     fn query(&self, scope: MemoryScope, owner_context: &str) -> KernelResult<Vec<MemoryRecord>>;
 
     fn write(&mut self, record: MemoryRecord) -> KernelResult<()>;

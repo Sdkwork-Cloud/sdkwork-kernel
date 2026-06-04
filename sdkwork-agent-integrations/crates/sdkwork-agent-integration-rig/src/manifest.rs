@@ -13,7 +13,10 @@ use crate::{
     ids,
     installer::RigAgentInstaller,
     package::rig_package_manifest,
-    provider::{RigModelProvider, RigPlanningProvider, RigPolicyProvider, RigToolProvider},
+    provider::{
+        RigMemoryProvider, RigModelProvider, RigPlanningProvider, RigPolicyProvider,
+        RigToolProvider,
+    },
 };
 
 #[derive(Debug, Clone, Default)]
@@ -31,6 +34,7 @@ pub fn rig_plugin_manifest() -> IntegrationPluginManifest {
         .with_agent_id(ids::AGENT_ID)
         .with_provider_id(ids::MODEL_PROVIDER_ID)
         .with_provider_id(ids::TOOL_PROVIDER_ID)
+        .with_provider_id(ids::MEMORY_PROVIDER_ID)
         .with_provider_id(ids::PLANNING_PROVIDER_ID)
         .with_provider_id(ids::POLICY_PROVIDER_ID)
         .with_provider_id(ids::INSTALLER_PROVIDER_ID)
@@ -40,6 +44,7 @@ pub fn rig_plugin_manifest() -> IntegrationPluginManifest {
         .with_supported_profile("agent-installation")
         .with_supported_profile("provider-model")
         .with_supported_profile("provider-tool")
+        .with_supported_profile("provider-memory")
         .with_supported_profile("security-baseline")
 }
 
@@ -47,6 +52,7 @@ pub fn rig_provider_manifests() -> Vec<ProviderManifest> {
     vec![
         RigModelProvider::fail_closed().provider_manifest(),
         RigToolProvider::fail_closed().provider_manifest(),
+        RigMemoryProvider::new().provider_manifest(),
         RigPlanningProvider::new().provider_manifest(),
         ProviderManifest::new(
             ids::POLICY_PROVIDER_ID,
@@ -109,6 +115,7 @@ impl SdkworkAgentIntegrationPlugin for RigIntegrationPlugin {
                 "0.1.0",
                 RigToolProvider::fail_closed(),
             )
+            .register_memory_provider(ids::MEMORY_PROVIDER_ID, "0.1.0", RigMemoryProvider::new())
             .register_planning_provider(
                 ids::PLANNING_PROVIDER_ID,
                 "0.1.0",

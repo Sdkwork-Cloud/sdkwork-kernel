@@ -730,6 +730,7 @@ Rules:
 
 Required operations:
 
+- `provider_manifest`
 - `query`
 - `write`
 - `delete`

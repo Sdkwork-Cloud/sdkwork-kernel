@@ -19,4 +19,6 @@ pub use diagnostics::RigIntegrationDiagnostics;
 pub use installer::RigAgentInstaller;
 pub use manifest::{rig_plugin_manifest, rig_provider_manifests, RigIntegrationPlugin};
 pub use package::rig_package_manifest;
-pub use provider::{RigModelProvider, RigPlanningProvider, RigPolicyProvider, RigToolProvider};
+pub use provider::{
+    RigMemoryProvider, RigModelProvider, RigPlanningProvider, RigPolicyProvider, RigToolProvider,
+};

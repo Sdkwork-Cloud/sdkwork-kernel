@@ -109,6 +109,7 @@ Rules:
 
 Required operations:
 
+- `provider_manifest`
 - `query`
 - `write`
 - `delete`
@@ -117,6 +118,8 @@ Required operations:
 
 Rules:
 
+- Memory provider manifests `MUST` declare the exact `memory.*` capabilities
+  exposed by the typed provider.
 - Query results `MUST` preserve provenance and trust metadata.
 - Writes `MUST` record policy decision id.
 - Delete/export `MUST` be supported when provider stores personal or regulated

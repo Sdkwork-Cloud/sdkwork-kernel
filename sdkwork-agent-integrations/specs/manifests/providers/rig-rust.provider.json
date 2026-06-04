@@ -15,6 +15,10 @@
     "model.streaming",
     "model.tool_call",
     "tool.invoke",
+    "memory.query",
+    "memory.write",
+    "memory.delete",
+    "memory.export",
     "planning.create",
     "agent.install",
     "agent.configure"
@@ -24,6 +28,12 @@
     "describe_model",
     "chat",
     "stream",
+    "list_tools",
+    "invoke_tool",
+    "query_memory",
+    "write_memory",
+    "delete_memory",
+    "export_memory",
     "health"
   ],
   "configuration_schema": {
@@ -44,6 +54,8 @@
       "model.invoke",
       "model.send-sensitive-context",
       "tool.invoke",
+      "memory.write",
+      "memory.delete",
       "host.secrets.read"
     ],
     "secret_handling": {
@@ -64,7 +76,7 @@
   "extensions": {
     "sdkwork.external.source-path": "external/rig",
     "sdkwork.external.initial-registration-mode": "typed-local-provider",
-    "sdkwork.external.execution-status": "implemented-fail-closed",
+    "sdkwork.external.execution-status": "implemented-local-memory-model-tool-fail-closed",
     "sdkwork.external.implementation-crate": "sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig"
   }
 }

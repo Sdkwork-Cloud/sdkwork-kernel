@@ -12,6 +12,7 @@ Rig maps first to a complete SDKWork typed plugin:
 - `AgentDefinition` with explicit provider bindings
 - `ModelProvider`
 - `ToolProvider`
+- `MemoryProvider`
 - `PlanningProvider`
 - `PolicyProvider` for deterministic local conformance
 - `AgentInstaller`
@@ -29,13 +30,34 @@ kernel SPI contracts, not on `sdkwork-agent-kernel` depending on Rig.
 
 The Rig adapter exposes `rig_agent_definition()` as the executable standard
 definition. It binds `provider.model.rig-rust`,
-`provider.tool.rig-rust`, `provider.planning.rig-rust`,
-`provider.policy.rig-rust`, `provider.agent.installer.rig-rust`, and
-`provider.agent.configuration.rig-rust` by stable provider id. Its
-`model_selection` uses the Rig model provider as the non-fallback default, its
-`tool_call_policy` requires policy before tool execution, and its
-`memory_strategy` is explicitly disabled until a durable Rig-backed memory
-provider is implemented.
+`provider.tool.rig-rust`, `provider.memory.rig-rust`,
+`provider.planning.rig-rust`, `provider.policy.rig-rust`,
+`provider.agent.installer.rig-rust`, and
+`provider.agent.configuration.rig-rust` by stable provider id.
+
+Its `model_selection` uses the Rig model provider as the non-fallback default.
+Its `tool_call_policy` requires policy before tool execution and only claims
+`tool.invoke` until a live `ToolServer` bridge implements streaming or
+cancellation. Its `memory_strategy` uses `provider.memory.rig-rust` as an
+optional default for session and agent memory scopes.
+
+Rig source inspection shows native custom memory support through
+`ConversationMemory`, `InMemoryConversationMemory`, `AgentBuilder::memory(...)`,
+and optional `rig-memory` policy wrappers. SDKWork maps that surface to
+`MemoryProvider` records with scope, owner context, trust level, and redaction
+classification. The current typed provider is a SDKWork-owned local memory
+provider that preserves these records and provides the adapter point for a
+feature-gated live Rig `ConversationMemory` backend.
+
+Rig source inspection also shows first-class custom tool support through
+`Tool`, `ToolSet`, dynamic tools, and `ToolServer`. SDKWork maps that surface to
+`ToolProvider` and policy-aware `ToolDescriptor` values.
+
+Rig core does not expose an SDKWork-equivalent first-class Agent Skill SPI.
+Skill-like behavior in Rig-based systems should be modeled in SDKWork as a
+`provider_family: skill` only when an adapter can discover and invoke stable
+skills through tools, pipelines, workflows, or sub-agent compositions. The Rig
+adapter therefore does not claim `skill.discover` or `skill.invoke` today.
 
 ## Capability Mapping
 
@@ -43,10 +65,12 @@ provider is implemented.
 | --- | --- |
 | Model abstraction | `model.chat`, `model.streaming`, `model.tool_call` |
 | Tool composition | `tool.invoke` |
+| Conversation memory | `memory.query`, `memory.write`, `memory.delete`, `memory.export` |
 | Agent orchestration | `planning.*` |
 | Installation | `agent.install`, `agent.uninstall`, `agent.upgrade` |
 | Configuration | `agent.configure`, secret-ref validation |
-| Retrieval/context | `context.*`, `memory.*` when backed by durable state |
+| Retrieval/context | `context.*` when retrieval or context assembly is added |
+| Skill-like workflows | `skill.*` only through a future SDKWork skill adapter |
 
 ## Policy Boundaries
 
@@ -57,9 +81,9 @@ references resolved through host providers.
 
 ## Event Mapping
 
-Model, tool, planning, context, and policy activity should map to
-`agent.model.*`, `agent.tool.*`, `agent.step.*`, `agent.context.*`, and
-`agent.policy.*`.
+Model, tool, memory, planning, context, and policy activity should map to
+`agent.model.*`, `agent.tool.*`, `agent.memory.*`, `agent.step.*`,
+`agent.context.*`, and `agent.policy.*`.
 
 ## Error Mapping
 
@@ -68,12 +92,18 @@ Unknown model maps to `capability_missing`. Provider setup failure maps to
 
 ## Conformance
 
-Implemented target: local-runtime profile with typed model, tool, planning,
-policy, installer, and configuration providers. Live upstream Rig execution
-remains fail-closed until a feature-gated backend is deliberately configured.
+Implemented target: local-runtime profile with typed model, tool, memory,
+planning, policy, installer, and configuration providers. Live upstream Rig
+model and tool execution remains fail-closed until a feature-gated backend is
+deliberately configured. Memory is executable through SDKWork SPI today and is
+kept provider-neutral so it can be backed by Rig `ConversationMemory` without
+changing kernel contracts.
 
 ## Status
 
 Reference source is present. SDKWork adapter code is implemented as a
-fail-closed local plugin with manifests, package lifecycle, configuration,
-deployment snapshots, diagnostics, and conformance contract tests.
+local plugin with manifests, package lifecycle, configuration, memory SPI,
+deployment snapshots, diagnostics, and conformance contract tests. Model and
+tool execution are fail-closed without a configured live Rig backend; memory,
+planning, policy, installer, and configuration contracts are executable through
+SDKWork SPI.

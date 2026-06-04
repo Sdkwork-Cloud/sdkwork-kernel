@@ -1,10 +1,12 @@
 use sdkwork_agent_integration_core::SdkworkAgentIntegrationPlugin;
 use sdkwork_agent_integration_rig::{
-    ids, RigIntegrationPlugin, RigModelProvider, RigPlanningProvider, RigToolProvider,
+    ids, RigIntegrationPlugin, RigMemoryProvider, RigModelProvider, RigPlanningProvider,
+    RigToolProvider,
 };
 use sdkwork_agent_kernel::{
-    KernelErrorKind, ModelProvider, ModelRequest, ModelResponseFormat, PlanningProvider, ToolCall,
-    ToolProvider,
+    KernelErrorKind, MemoryProvider, MemoryRecord, MemoryScope, ModelProvider, ModelRequest,
+    ModelResponseFormat, PlanningProvider, RedactionClassification, ToolCall, ToolProvider,
+    TrustLevel,
 };
 
 #[test]
@@ -61,6 +63,66 @@ fn rig_tool_invocation_fails_closed_without_live_backend() {
 }
 
 #[test]
+fn rig_memory_provider_maps_sdkwork_memory_records() {
+    let mut provider = RigMemoryProvider::new();
+    let manifest = provider.provider_manifest();
+    assert_eq!(manifest.provider_id, ids::MEMORY_PROVIDER_ID);
+    assert!(manifest.capabilities.contains(&"memory.query".to_string()));
+    assert!(manifest.capabilities.contains(&"memory.write".to_string()));
+
+    provider
+        .write(MemoryRecord::new(
+            "memory.rig.session.1",
+            MemoryScope::Session,
+            "session.1",
+            "remember active session preference",
+            TrustLevel::AgentMessage,
+            RedactionClassification::Internal,
+        ))
+        .expect("Rig memory accepts SDKWork record writes");
+    provider
+        .write(MemoryRecord::new(
+            "memory.rig.agent.1",
+            MemoryScope::Agent,
+            ids::AGENT_ID,
+            "remember agent-level instruction",
+            TrustLevel::TrustedHost,
+            RedactionClassification::Internal,
+        ))
+        .expect("Rig memory supports agent scoped records");
+
+    let session_records = provider
+        .query(MemoryScope::Session, "session.1")
+        .expect("Rig memory supports scoped queries");
+    assert_eq!(session_records.len(), 1);
+    assert_eq!(session_records[0].memory_record_id, "memory.rig.session.1");
+    assert_eq!(
+        session_records[0].content,
+        "remember active session preference"
+    );
+
+    let exported = provider
+        .export(MemoryScope::Session, "session.1")
+        .expect("Rig memory export mirrors query scope");
+    assert_eq!(exported, session_records);
+
+    provider
+        .delete("memory.rig.session.1")
+        .expect("Rig memory supports deletes by record id");
+    assert!(provider
+        .query(MemoryScope::Session, "session.1")
+        .expect("query after delete succeeds")
+        .is_empty());
+    assert_eq!(
+        provider
+            .query(MemoryScope::Agent, ids::AGENT_ID)
+            .expect("other memory scopes are isolated")
+            .len(),
+        1
+    );
+}
+
+#[test]
 fn rig_planning_provider_creates_valid_policy_aware_plan() {
     let provider = RigPlanningProvider::new();
     let plan = provider.create_plan("task.1", "run.1", "summarize repository");
@@ -88,5 +150,30 @@ fn rig_plugin_model_provider_can_be_selected_by_provider_id() {
     assert_eq!(
         provider.provider_manifest().provider_id,
         ids::MODEL_PROVIDER_ID
+    );
+
+    let memory_provider = report
+        .runtime
+        .memory_provider_by_id(ids::MEMORY_PROVIDER_ID)
+        .expect("rig memory provider is registered by id");
+    let mut memory_provider = memory_provider
+        .lock()
+        .expect("memory provider lock is available");
+    memory_provider
+        .write(MemoryRecord::new(
+            "memory.runtime.1",
+            MemoryScope::Session,
+            "session.runtime",
+            "runtime memory",
+            TrustLevel::AgentMessage,
+            RedactionClassification::Internal,
+        ))
+        .expect("registered Rig memory provider is writable");
+    assert_eq!(
+        memory_provider
+            .query(MemoryScope::Session, "session.runtime")
+            .expect("registered Rig memory provider is queryable")
+            .len(),
+        1
     );
 }

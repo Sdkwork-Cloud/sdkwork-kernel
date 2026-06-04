@@ -936,12 +936,16 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        self.providers.push(core_provider_manifest(
-            provider_id.clone(),
-            "memory",
-            version,
-            vec!["memory.query"],
-        ));
+        let mut provider_manifest = provider.provider_manifest();
+        provider_manifest.provider_id = provider_id.clone();
+        provider_manifest.provider_family = "memory".to_string();
+        provider_manifest.version = version;
+        if provider_manifest.capabilities.is_empty() {
+            provider_manifest
+                .capabilities
+                .push("memory.query".to_string());
+        }
+        self.providers.push(provider_manifest);
         self.provider_registry
             .add_memory_provider(provider_id, Arc::new(Mutex::new(provider)));
         self

@@ -27,6 +27,10 @@ pub fn rig_agent_manifest() -> AgentManifest {
             "model.streaming".to_string(),
             "model.tool_call".to_string(),
             "tool.invoke".to_string(),
+            "memory.query".to_string(),
+            "memory.write".to_string(),
+            "memory.delete".to_string(),
+            "memory.export".to_string(),
             "planning.create".to_string(),
         ],
         required_capability_requirements: vec![
@@ -40,12 +44,17 @@ pub fn rig_agent_manifest() -> AgentManifest {
             CapabilityRequirement::new("model.streaming").with_min_version("0.1.0"),
             CapabilityRequirement::new("model.tool_call").with_min_version("0.1.0"),
             CapabilityRequirement::new("tool.invoke").with_min_version("0.1.0"),
+            CapabilityRequirement::new("memory.query").with_min_version("0.1.0"),
+            CapabilityRequirement::new("memory.write").with_min_version("0.1.0"),
+            CapabilityRequirement::new("memory.delete").with_min_version("0.1.0"),
+            CapabilityRequirement::new("memory.export").with_min_version("0.1.0"),
             CapabilityRequirement::new("planning.create").with_min_version("0.1.0"),
         ],
         event_families: vec![
             "agent.runtime.*".to_string(),
             "agent.model.*".to_string(),
             "agent.tool.*".to_string(),
+            "agent.memory.*".to_string(),
             "agent.policy.*".to_string(),
             "agent.install.*".to_string(),
             "agent.configure.*".to_string(),
@@ -84,9 +93,23 @@ pub fn rig_agent_definition() -> AgentDefinition {
             .as_default()
             .with_mode(AgentProviderBindingMode::TypedLocal)
             .with_min_version("0.1.0")
+            .with_capability("tool.invoke"),
+        )
+        .with_provider_binding(
+            AgentProviderBinding::new(
+                "binding.rig.memory",
+                AgentProviderFamily::Memory,
+                ids::MEMORY_PROVIDER_ID,
+                false,
+            )
+            .as_default()
+            .with_mode(AgentProviderBindingMode::TypedLocal)
+            .with_min_version("0.1.0")
             .with_capabilities(vec![
-                "tool.invoke".to_string(),
-                "tool.cancellation".to_string(),
+                "memory.query".to_string(),
+                "memory.write".to_string(),
+                "memory.delete".to_string(),
+                "memory.export".to_string(),
             ]),
         )
         .with_provider_binding(
@@ -154,7 +177,13 @@ pub fn rig_agent_definition() -> AgentDefinition {
                 .with_allowed_tool_id("tool.rig.execute")
                 .with_max_parallel_calls(4),
         )
-        .with_memory_strategy(MemoryStrategy::disabled())
+        .with_memory_strategy(
+            MemoryStrategy::default_provider(ids::MEMORY_PROVIDER_ID)
+                .with_scope(sdkwork_agent_kernel::MemoryScope::Session)
+                .with_scope(sdkwork_agent_kernel::MemoryScope::Agent)
+                .with_write_policy_required(true)
+                .with_read_policy_required_for_sensitive(true),
+        )
         .validate()
         .expect("Rig agent definition must satisfy SDKWork provider binding standards")
 }

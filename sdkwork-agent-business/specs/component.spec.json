@@ -122,7 +122,9 @@
       "agent.business.updated",
       "agent.business.deleted",
       "agent.business.restored",
-      "agent.business.status_changed"
+      "agent.business.status_changed",
+      "agent.business.provider_binding_changed",
+      "agent.business.deployment_created"
     ],
     "configKeys": []
   },

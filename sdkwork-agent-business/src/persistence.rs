@@ -1,12 +1,16 @@
-use crate::domain::{AgentBusinessRecord, AgentBusinessStatus, AgentVisibility};
+use crate::domain::{
+    AgentBusinessRecord, AgentBusinessStatus, AgentDeploymentRecord, AgentDeploymentStatus,
+    AgentImplementationKind, AgentProviderBindingRecord, AgentVisibility,
+};
 use crate::ports::{AgentAuditSink, AgentListQuery, AgentRepository};
+use crate::validation::{validate_capabilities, validate_standard_id};
+#[cfg(feature = "postgres-sync")]
+use postgres::{Client, NoTls, Row};
 use sdkwork_agent_kernel::{
     AgentManifest, KernelError, KernelEvent, KernelEventSeverity, KernelEventSource, KernelResult,
 };
 use sdkwork_code_kernel::CodeTaskIntent;
 use serde::{Deserialize, Serialize};
-#[cfg(feature = "postgres-sync")]
-use postgres::{Client, NoTls, Row};
 #[cfg(feature = "postgres-sync")]
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -14,13 +18,25 @@ use std::sync::{
 };
 
 pub const SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID: &str =
-    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, status, visibility, tags_json, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at, version FROM ai_agent_business WHERE tenant_id = $1 AND agent_id = $2 LIMIT 1";
+    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, implementation_provider_id, implementation_kind, status, visibility, tags_json, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at, version FROM ai_agent_business WHERE tenant_id = $1 AND agent_id = $2 LIMIT 1";
 pub const SQL_INSERT_AGENT_BUSINESS: &str =
-    "INSERT INTO ai_agent_business (id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, status, visibility, tags_json, created_at, updated_at, deleted_at, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)";
+    "INSERT INTO ai_agent_business (id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, implementation_provider_id, implementation_kind, status, visibility, tags_json, created_at, updated_at, deleted_at, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)";
 pub const SQL_UPDATE_AGENT_BUSINESS: &str =
-    "UPDATE ai_agent_business SET organization_id = $1, owner_user_id = $2, code = $3, display_name = $4, description = $5, manifest_json = $6, default_code_task_intent_json = $7, status = $8, visibility = $9, tags_json = $10, updated_at = $11, deleted_at = $12, version = $13 WHERE tenant_id = $14 AND agent_id = $15 AND version = $16";
+    "UPDATE ai_agent_business SET organization_id = $1, owner_user_id = $2, code = $3, display_name = $4, description = $5, manifest_json = $6, default_code_task_intent_json = $7, implementation_provider_id = $8, implementation_kind = $9, status = $10, visibility = $11, tags_json = $12, updated_at = $13, deleted_at = $14, version = $15 WHERE tenant_id = $16 AND agent_id = $17 AND version = $18";
 pub const SQL_LIST_AGENT_BUSINESS: &str =
-    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, status, visibility, tags_json, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at, version FROM ai_agent_business WHERE tenant_id = $1 ORDER BY updated_at DESC";
+    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, implementation_provider_id, implementation_kind, status, visibility, tags_json, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at, version FROM ai_agent_business WHERE tenant_id = $1 ORDER BY updated_at DESC";
+pub const SQL_INSERT_AGENT_PROVIDER_BINDING: &str =
+    "INSERT INTO ai_agent_provider_binding (uuid, tenant_id, agent_id, binding_id, provider_id, implementation_kind, configuration_profile_id, capabilities_json, active, version, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)";
+pub const SQL_UPDATE_AGENT_PROVIDER_BINDING: &str =
+    "UPDATE ai_agent_provider_binding SET provider_id = $1, implementation_kind = $2, configuration_profile_id = $3, capabilities_json = $4, active = $5, version = $6, updated_at = $7 WHERE tenant_id = $8 AND agent_id = $9 AND binding_id = $10 AND version = $11";
+pub const SQL_SELECT_AGENT_PROVIDER_BINDING: &str =
+    "SELECT id, uuid, tenant_id, agent_id, binding_id, provider_id, implementation_kind, configuration_profile_id, capabilities_json, active, version, created_at::text AS created_at, updated_at::text AS updated_at FROM ai_agent_provider_binding WHERE tenant_id = $1 AND agent_id = $2 AND binding_id = $3 LIMIT 1";
+pub const SQL_LIST_AGENT_PROVIDER_BINDINGS: &str =
+    "SELECT id, uuid, tenant_id, agent_id, binding_id, provider_id, implementation_kind, configuration_profile_id, capabilities_json, active, version, created_at::text AS created_at, updated_at::text AS updated_at FROM ai_agent_provider_binding WHERE tenant_id = $1 AND agent_id = $2 ORDER BY active DESC, updated_at DESC, binding_id ASC";
+pub const SQL_INSERT_AGENT_DEPLOYMENT: &str =
+    "INSERT INTO ai_agent_deployment (uuid, tenant_id, agent_id, deployment_id, binding_id, provider_id_snapshot, implementation_kind_snapshot, configuration_profile_id_snapshot, capabilities_snapshot_json, status, version, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)";
+pub const SQL_LIST_AGENT_DEPLOYMENTS: &str =
+    "SELECT id, uuid, tenant_id, agent_id, deployment_id, binding_id, provider_id_snapshot, implementation_kind_snapshot, configuration_profile_id_snapshot, capabilities_snapshot_json, status, version, created_at::text AS created_at, updated_at::text AS updated_at FROM ai_agent_deployment WHERE tenant_id = $1 AND agent_id = $2 ORDER BY created_at DESC, deployment_id ASC";
 pub const SQL_INSERT_AUDIT_EVENT: &str =
     "INSERT INTO ai_agent_business_audit_event (uuid, tenant_id, organization_id, agent_business_id, agent_id, action, subject_id, subject_tenant_id, request_id, trace_id, payload_json, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)";
 #[cfg(feature = "postgres-sync")]
@@ -42,6 +58,8 @@ pub struct AgentBusinessRow {
     pub description: Option<String>,
     pub manifest_json: String,
     pub default_code_task_intent_json: Option<String>,
+    pub implementation_provider_id: Option<String>,
+    pub implementation_kind: Option<String>,
     pub status: i16,
     pub visibility: i16,
     pub tags_json: String,
@@ -53,6 +71,7 @@ pub struct AgentBusinessRow {
 
 impl AgentBusinessRow {
     pub fn from_record(record: &AgentBusinessRecord) -> KernelResult<Self> {
+        validate_agent_business_storage_contract(record)?;
         Ok(Self {
             id: record.id,
             uuid: build_agent_business_uuid(record.tenant_id, &record.agent_id),
@@ -64,7 +83,13 @@ impl AgentBusinessRow {
             display_name: record.display_name.clone(),
             description: record.description.clone(),
             manifest_json: manifest_to_json(&record.manifest)?,
-            default_code_task_intent_json: intent_to_json(record.default_code_task_intent.as_ref())?,
+            default_code_task_intent_json: intent_to_json(
+                record.default_code_task_intent.as_ref(),
+            )?,
+            implementation_provider_id: record.implementation_provider_id.clone(),
+            implementation_kind: record
+                .implementation_kind
+                .map(|kind| kind.as_str().to_string()),
             status: record.status.as_db_code(),
             visibility: record.visibility.as_db_code(),
             tags_json: tags_to_json(&record.tags)?,
@@ -76,7 +101,7 @@ impl AgentBusinessRow {
     }
 
     pub fn into_record(self) -> KernelResult<AgentBusinessRecord> {
-        Ok(AgentBusinessRecord {
+        let record = AgentBusinessRecord {
             id: self.id,
             agent_id: self.agent_id,
             tenant_id: self.tenant_id,
@@ -86,7 +111,15 @@ impl AgentBusinessRow {
             display_name: self.display_name,
             description: self.description,
             manifest: manifest_from_json(&self.manifest_json)?,
-            default_code_task_intent: intent_from_json(self.default_code_task_intent_json.as_deref())?,
+            default_code_task_intent: intent_from_json(
+                self.default_code_task_intent_json.as_deref(),
+            )?,
+            implementation_provider_id: self.implementation_provider_id,
+            implementation_kind: self
+                .implementation_kind
+                .as_deref()
+                .map(parse_implementation_kind)
+                .transpose()?,
             status: AgentBusinessStatus::from_db_code(self.status).ok_or_else(|| {
                 KernelError::validation(format!("invalid db status code: {}", self.status))
             })?,
@@ -98,8 +131,191 @@ impl AgentBusinessRow {
             updated_at: self.updated_at,
             deleted_at: self.deleted_at,
             version: self.version,
+        };
+        validate_agent_business_storage_contract(&record)?;
+        Ok(record)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentProviderBindingRow {
+    pub id: u64,
+    pub uuid: String,
+    pub tenant_id: u64,
+    pub agent_id: String,
+    pub binding_id: String,
+    pub provider_id: String,
+    pub implementation_kind: String,
+    pub configuration_profile_id: String,
+    pub capabilities_json: String,
+    pub active: bool,
+    pub version: u64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl AgentProviderBindingRow {
+    pub fn from_record(record: &AgentProviderBindingRecord) -> KernelResult<Self> {
+        validate_provider_binding_storage_contract(record)?;
+        Ok(Self {
+            id: 0,
+            uuid: build_agent_provider_binding_uuid(
+                record.tenant_id,
+                &record.agent_id,
+                &record.binding_id,
+            ),
+            tenant_id: record.tenant_id,
+            agent_id: record.agent_id.clone(),
+            binding_id: record.binding_id.clone(),
+            provider_id: record.provider_id.clone(),
+            implementation_kind: record.implementation_kind.as_str().to_string(),
+            configuration_profile_id: record.configuration_profile_id.clone(),
+            capabilities_json: string_list_to_json(&record.capabilities, "capabilities")?,
+            active: record.active,
+            version: record.version,
+            created_at: record.created_at.clone(),
+            updated_at: record.updated_at.clone(),
         })
     }
+
+    pub fn into_record(self) -> KernelResult<AgentProviderBindingRecord> {
+        let capabilities = string_list_from_json(&self.capabilities_json, "capabilities")?;
+        let record = AgentProviderBindingRecord {
+            tenant_id: self.tenant_id,
+            agent_id: self.agent_id,
+            binding_id: self.binding_id,
+            provider_id: self.provider_id,
+            implementation_kind: parse_implementation_kind(&self.implementation_kind)?,
+            configuration_profile_id: self.configuration_profile_id,
+            capabilities,
+            active: self.active,
+            version: self.version,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        };
+        validate_provider_binding_storage_contract(&record)?;
+        Ok(record)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentDeploymentRow {
+    pub id: u64,
+    pub uuid: String,
+    pub tenant_id: u64,
+    pub agent_id: String,
+    pub deployment_id: String,
+    pub binding_id: String,
+    pub provider_id_snapshot: String,
+    pub implementation_kind_snapshot: String,
+    pub configuration_profile_id_snapshot: String,
+    pub capabilities_snapshot_json: String,
+    pub status: i16,
+    pub version: u64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl AgentDeploymentRow {
+    pub fn from_record(record: &AgentDeploymentRecord) -> KernelResult<Self> {
+        validate_deployment_storage_contract(record)?;
+        Ok(Self {
+            id: 0,
+            uuid: build_agent_deployment_uuid(
+                record.tenant_id,
+                &record.agent_id,
+                &record.deployment_id,
+            ),
+            tenant_id: record.tenant_id,
+            agent_id: record.agent_id.clone(),
+            deployment_id: record.deployment_id.clone(),
+            binding_id: record.binding_id.clone(),
+            provider_id_snapshot: record.provider_id_snapshot.clone(),
+            implementation_kind_snapshot: record.implementation_kind_snapshot.as_str().to_string(),
+            configuration_profile_id_snapshot: record.configuration_profile_id_snapshot.clone(),
+            capabilities_snapshot_json: string_list_to_json(
+                &record.capabilities_snapshot,
+                "capabilities_snapshot",
+            )?,
+            status: record.status.as_db_code(),
+            version: record.version,
+            created_at: record.created_at.clone(),
+            updated_at: record.updated_at.clone(),
+        })
+    }
+
+    pub fn into_record(self) -> KernelResult<AgentDeploymentRecord> {
+        let capabilities_snapshot =
+            string_list_from_json(&self.capabilities_snapshot_json, "capabilities_snapshot")?;
+        let record = AgentDeploymentRecord {
+            tenant_id: self.tenant_id,
+            agent_id: self.agent_id,
+            deployment_id: self.deployment_id,
+            binding_id: self.binding_id,
+            provider_id_snapshot: self.provider_id_snapshot,
+            implementation_kind_snapshot: parse_implementation_kind(
+                &self.implementation_kind_snapshot,
+            )?,
+            configuration_profile_id_snapshot: self.configuration_profile_id_snapshot,
+            capabilities_snapshot,
+            status: AgentDeploymentStatus::from_db_code(self.status).ok_or_else(|| {
+                KernelError::validation(format!("invalid deployment status code: {}", self.status))
+            })?,
+            version: self.version,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        };
+        validate_deployment_storage_contract(&record)?;
+        Ok(record)
+    }
+}
+
+fn parse_implementation_kind(input: &str) -> KernelResult<AgentImplementationKind> {
+    AgentImplementationKind::from_str(input)
+        .ok_or_else(|| KernelError::validation(format!("invalid implementation kind: {input}")))
+}
+
+fn validate_agent_business_storage_contract(record: &AgentBusinessRecord) -> KernelResult<()> {
+    if let Some(provider_id) = record.implementation_provider_id.as_deref() {
+        validate_standard_id(provider_id, "implementationProviderId", Some("provider."))?;
+    }
+    Ok(())
+}
+
+fn validate_provider_binding_storage_contract(
+    record: &AgentProviderBindingRecord,
+) -> KernelResult<()> {
+    validate_standard_id(record.binding_id.as_str(), "bindingId", Some("binding."))?;
+    validate_standard_id(record.provider_id.as_str(), "providerId", Some("provider."))?;
+    validate_standard_id(
+        record.configuration_profile_id.as_str(),
+        "configurationProfileId",
+        Some("profile."),
+    )?;
+    validate_capabilities(record.capabilities.as_slice(), "capabilities")
+}
+
+fn validate_deployment_storage_contract(record: &AgentDeploymentRecord) -> KernelResult<()> {
+    validate_standard_id(
+        record.deployment_id.as_str(),
+        "deploymentId",
+        Some("deployment."),
+    )?;
+    validate_standard_id(record.binding_id.as_str(), "bindingId", Some("binding."))?;
+    validate_standard_id(
+        record.provider_id_snapshot.as_str(),
+        "providerId",
+        Some("provider."),
+    )?;
+    validate_standard_id(
+        record.configuration_profile_id_snapshot.as_str(),
+        "configurationProfileId",
+        Some("profile."),
+    )?;
+    validate_capabilities(
+        record.capabilities_snapshot.as_slice(),
+        "capabilitiesSnapshot",
+    )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -151,7 +367,10 @@ impl AgentAuditEventRow {
                 .unwrap_or_else(|| "unknown".to_string()),
             subject_tenant_id: "unknown".to_string(),
             request_id: None,
-            trace_id: event.trace_context.as_ref().map(|trace| trace.trace_id.clone()),
+            trace_id: event
+                .trace_context
+                .as_ref()
+                .map(|trace| trace.trace_id.clone()),
             payload_json: serde_json::to_string(&AuditPayloadSnapshot {
                 event_id: event.event_id.clone(),
                 event_type: event.event_type.clone(),
@@ -159,33 +378,39 @@ impl AgentAuditEventRow {
                 source: source_as_str(event.source).to_string(),
                 payload: event.payload.clone(),
             })
-            .map_err(|error| KernelError::validation(format!("invalid audit payload json: {error}")))?,
+            .map_err(|error| {
+                KernelError::validation(format!("invalid audit payload json: {error}"))
+            })?,
             created_at: occurred_at,
         })
     }
 
     pub fn into_kernel_event(self) -> KernelResult<KernelEvent> {
         let payload: AuditPayloadSnapshot = serde_json::from_str(self.payload_json.as_str())
-            .map_err(|error| KernelError::validation(format!("invalid audit payload json: {error}")))?;
-        Ok(
-            KernelEvent::new(
-                payload.event_id,
-                payload.event_type,
-                severity_from_str(payload.severity.as_str())?,
-                payload.payload,
-            )
-            .from_source(source_from_str(payload.source.as_str())?)
-            .occurred_at(self.created_at),
+            .map_err(|error| {
+                KernelError::validation(format!("invalid audit payload json: {error}"))
+            })?;
+        Ok(KernelEvent::new(
+            payload.event_id,
+            payload.event_type,
+            severity_from_str(payload.severity.as_str())?,
+            payload.payload,
         )
+        .from_source(source_from_str(payload.source.as_str())?)
+        .occurred_at(self.created_at))
     }
 
     #[cfg(feature = "postgres-sync")]
     fn from_pg_row(row: &Row) -> KernelResult<Self> {
         Ok(Self {
-            id: int64_to_u64(row.try_get::<_, i64>("id").map_err(map_postgres_error)?, "id")?,
+            id: int64_to_u64(
+                row.try_get::<_, i64>("id").map_err(map_postgres_error)?,
+                "id",
+            )?,
             uuid: row.try_get("uuid").map_err(map_postgres_error)?,
             tenant_id: int64_to_u64(
-                row.try_get::<_, i64>("tenant_id").map_err(map_postgres_error)?,
+                row.try_get::<_, i64>("tenant_id")
+                    .map_err(map_postgres_error)?,
                 "tenant_id",
             )?,
             organization_id: int64_to_u64(
@@ -201,7 +426,9 @@ impl AgentAuditEventRow {
             agent_id: row.try_get("agent_id").map_err(map_postgres_error)?,
             action: row.try_get("action").map_err(map_postgres_error)?,
             subject_id: row.try_get("subject_id").map_err(map_postgres_error)?,
-            subject_tenant_id: row.try_get("subject_tenant_id").map_err(map_postgres_error)?,
+            subject_tenant_id: row
+                .try_get("subject_tenant_id")
+                .map_err(map_postgres_error)?,
             request_id: row.try_get("request_id").map_err(map_postgres_error)?,
             trace_id: row.try_get("trace_id").map_err(map_postgres_error)?,
             payload_json: row.try_get("payload_json").map_err(map_postgres_error)?,
@@ -216,6 +443,21 @@ pub trait PostgresAgentRepositoryAdapter {
     fn update_row(&mut self, row: AgentBusinessRow) -> KernelResult<()>;
     fn get_row(&self, tenant_id: u64, agent_id: &str) -> Option<AgentBusinessRow>;
     fn list_rows(&self, query: &AgentListQuery) -> Vec<AgentBusinessRow>;
+    fn insert_provider_binding_row(&mut self, row: AgentProviderBindingRow) -> KernelResult<()>;
+    fn update_provider_binding_row(&mut self, row: AgentProviderBindingRow) -> KernelResult<()>;
+    fn get_provider_binding_row(
+        &self,
+        tenant_id: u64,
+        agent_id: &str,
+        binding_id: &str,
+    ) -> Option<AgentProviderBindingRow>;
+    fn list_provider_binding_rows(
+        &self,
+        tenant_id: u64,
+        agent_id: &str,
+    ) -> Vec<AgentProviderBindingRow>;
+    fn insert_deployment_row(&mut self, row: AgentDeploymentRow) -> KernelResult<()>;
+    fn list_deployment_rows(&self, tenant_id: u64, agent_id: &str) -> Vec<AgentDeploymentRow>;
 }
 
 pub struct PostgresAgentRepository<A>
@@ -243,11 +485,13 @@ where
     }
 
     fn insert(&mut self, record: AgentBusinessRecord) -> KernelResult<()> {
-        self.adapter.insert_row(AgentBusinessRow::from_record(&record)?)
+        self.adapter
+            .insert_row(AgentBusinessRow::from_record(&record)?)
     }
 
     fn update(&mut self, record: AgentBusinessRecord) -> KernelResult<()> {
-        self.adapter.update_row(AgentBusinessRow::from_record(&record)?)
+        self.adapter
+            .update_row(AgentBusinessRow::from_record(&record)?)
     }
 
     fn get(&self, tenant_id: u64, agent_id: &str) -> Option<AgentBusinessRecord> {
@@ -263,11 +507,61 @@ where
             .filter_map(|row| row.into_record().ok())
             .collect()
     }
+
+    fn insert_provider_binding(&mut self, record: AgentProviderBindingRecord) -> KernelResult<()> {
+        self.adapter
+            .insert_provider_binding_row(AgentProviderBindingRow::from_record(&record)?)
+    }
+
+    fn update_provider_binding(&mut self, record: AgentProviderBindingRecord) -> KernelResult<()> {
+        self.adapter
+            .update_provider_binding_row(AgentProviderBindingRow::from_record(&record)?)
+    }
+
+    fn get_provider_binding(
+        &self,
+        tenant_id: u64,
+        agent_id: &str,
+        binding_id: &str,
+    ) -> Option<AgentProviderBindingRecord> {
+        self.adapter
+            .get_provider_binding_row(tenant_id, agent_id, binding_id)
+            .and_then(|row| row.into_record().ok())
+    }
+
+    fn list_provider_bindings(
+        &self,
+        tenant_id: u64,
+        agent_id: &str,
+    ) -> Vec<AgentProviderBindingRecord> {
+        self.adapter
+            .list_provider_binding_rows(tenant_id, agent_id)
+            .into_iter()
+            .filter_map(|row| row.into_record().ok())
+            .collect()
+    }
+
+    fn insert_deployment(&mut self, record: AgentDeploymentRecord) -> KernelResult<()> {
+        self.adapter
+            .insert_deployment_row(AgentDeploymentRow::from_record(&record)?)
+    }
+
+    fn list_deployments(&self, tenant_id: u64, agent_id: &str) -> Vec<AgentDeploymentRecord> {
+        self.adapter
+            .list_deployment_rows(tenant_id, agent_id)
+            .into_iter()
+            .filter_map(|row| row.into_record().ok())
+            .collect()
+    }
 }
 
 pub trait PostgresAuditAdapter {
     fn insert_audit_row(&mut self, row: AgentAuditEventRow) -> KernelResult<()>;
-    fn list_audit_rows(&self, tenant_id: u64, agent_id: &str) -> KernelResult<Vec<AgentAuditEventRow>> {
+    fn list_audit_rows(
+        &self,
+        tenant_id: u64,
+        agent_id: &str,
+    ) -> KernelResult<Vec<AgentAuditEventRow>> {
         let _ = (tenant_id, agent_id);
         Ok(Vec::new())
     }
@@ -300,10 +594,9 @@ impl SyncPostgresAdapter {
         &self,
         action: impl FnOnce(&mut Client) -> KernelResult<T>,
     ) -> KernelResult<T> {
-        let mut client = self
-            .client
-            .lock()
-            .map_err(|_| KernelError::provider_error("postgres_lock_error", "postgres mutex poisoned"))?;
+        let mut client = self.client.lock().map_err(|_| {
+            KernelError::provider_error("postgres_lock_error", "postgres mutex poisoned")
+        })?;
         action(&mut client)
     }
 }
@@ -348,6 +641,8 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
                         &row.description,
                         &row.manifest_json,
                         &row.default_code_task_intent_json,
+                        &row.implementation_provider_id,
+                        &row.implementation_kind,
                         &row.status,
                         &row.visibility,
                         &row.tags_json,
@@ -366,10 +661,8 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
         let owner_user_id = u64_to_i64(row.owner_user_id, "owner_user_id")?;
         let version = u64_to_i64(row.version, "version")?;
-        let previous_version = u64_to_i64(
-            expected_previous_version(row.version)?,
-            "previous_version",
-        )?;
+        let previous_version =
+            u64_to_i64(expected_previous_version(row.version)?, "previous_version")?;
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
 
         self.with_locked_client(|client| {
@@ -384,6 +677,8 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
                         &row.description,
                         &row.manifest_json,
                         &row.default_code_task_intent_json,
+                        &row.implementation_provider_id,
+                        &row.implementation_kind,
                         &row.status,
                         &row.visibility,
                         &row.tags_json,
@@ -418,7 +713,10 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
         self.with_locked_client(|client| {
             let row = client
-                .query_opt(SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID, &[&tenant_id, &agent_id])
+                .query_opt(
+                    SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID,
+                    &[&tenant_id, &agent_id],
+                )
                 .map_err(map_postgres_error)?;
             row.map(pg_row_to_agent_business_row).transpose()
         })
@@ -477,7 +775,9 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
                     }
 
                     let description = row.description.as_deref().unwrap_or("");
-                    row.agent_id.to_lowercase().contains(normalized_query.as_str())
+                    row.agent_id
+                        .to_lowercase()
+                        .contains(normalized_query.as_str())
                         || row.code.to_lowercase().contains(normalized_query.as_str())
                         || row
                             .display_name
@@ -488,6 +788,172 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
                             .contains(normalized_query.as_str())
                 })
                 .collect()
+        })
+        .unwrap_or_default()
+    }
+
+    fn insert_provider_binding_row(&mut self, row: AgentProviderBindingRow) -> KernelResult<()> {
+        let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
+        let version = u64_to_i64(row.version, "version")?;
+
+        self.with_locked_client(|client| {
+            client
+                .execute(
+                    SQL_INSERT_AGENT_PROVIDER_BINDING,
+                    &[
+                        &row.uuid,
+                        &tenant_id,
+                        &row.agent_id,
+                        &row.binding_id,
+                        &row.provider_id,
+                        &row.implementation_kind,
+                        &row.configuration_profile_id,
+                        &row.capabilities_json,
+                        &row.active,
+                        &version,
+                        &row.created_at,
+                        &row.updated_at,
+                    ],
+                )
+                .map_err(map_postgres_error)?;
+            Ok(())
+        })
+    }
+
+    fn update_provider_binding_row(&mut self, row: AgentProviderBindingRow) -> KernelResult<()> {
+        let version = u64_to_i64(row.version, "version")?;
+        let previous_version =
+            u64_to_i64(expected_previous_version(row.version)?, "previous_version")?;
+        let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
+
+        self.with_locked_client(|client| {
+            let updated_rows = client
+                .execute(
+                    SQL_UPDATE_AGENT_PROVIDER_BINDING,
+                    &[
+                        &row.provider_id,
+                        &row.implementation_kind,
+                        &row.configuration_profile_id,
+                        &row.capabilities_json,
+                        &row.active,
+                        &version,
+                        &row.updated_at,
+                        &tenant_id,
+                        &row.agent_id,
+                        &row.binding_id,
+                        &previous_version,
+                    ],
+                )
+                .map_err(map_postgres_error)?;
+
+            if updated_rows == 0 {
+                let exists = client
+                    .query_opt(
+                        SQL_SELECT_AGENT_PROVIDER_BINDING,
+                        &[&tenant_id, &row.agent_id, &row.binding_id],
+                    )
+                    .map_err(map_postgres_error)?
+                    .is_some();
+                if exists {
+                    return Err(KernelError::conflict(
+                        "agent provider binding version mismatch",
+                    ));
+                }
+                return Err(KernelError::validation("agent provider binding not found"));
+            }
+            Ok(())
+        })
+    }
+
+    fn get_provider_binding_row(
+        &self,
+        tenant_id: u64,
+        agent_id: &str,
+        binding_id: &str,
+    ) -> Option<AgentProviderBindingRow> {
+        let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
+        self.with_locked_client(|client| {
+            let row = client
+                .query_opt(
+                    SQL_SELECT_AGENT_PROVIDER_BINDING,
+                    &[&tenant_id, &agent_id, &binding_id],
+                )
+                .map_err(map_postgres_error)?;
+            row.map(pg_row_to_agent_provider_binding_row).transpose()
+        })
+        .ok()
+        .flatten()
+    }
+
+    fn list_provider_binding_rows(
+        &self,
+        tenant_id: u64,
+        agent_id: &str,
+    ) -> Vec<AgentProviderBindingRow> {
+        let tenant_id = match u64_to_i64(tenant_id, "tenant_id") {
+            Ok(value) => value,
+            Err(_) => return Vec::new(),
+        };
+
+        self.with_locked_client(|client| {
+            let rows = client
+                .query(SQL_LIST_AGENT_PROVIDER_BINDINGS, &[&tenant_id, &agent_id])
+                .map_err(map_postgres_error)?;
+
+            let mut mapped_rows = Vec::with_capacity(rows.len());
+            for row in rows {
+                mapped_rows.push(pg_row_to_agent_provider_binding_row(row)?);
+            }
+            Ok(mapped_rows)
+        })
+        .unwrap_or_default()
+    }
+
+    fn insert_deployment_row(&mut self, row: AgentDeploymentRow) -> KernelResult<()> {
+        let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
+        let version = u64_to_i64(row.version, "version")?;
+
+        self.with_locked_client(|client| {
+            client
+                .execute(
+                    SQL_INSERT_AGENT_DEPLOYMENT,
+                    &[
+                        &row.uuid,
+                        &tenant_id,
+                        &row.agent_id,
+                        &row.deployment_id,
+                        &row.binding_id,
+                        &row.provider_id_snapshot,
+                        &row.implementation_kind_snapshot,
+                        &row.configuration_profile_id_snapshot,
+                        &row.capabilities_snapshot_json,
+                        &row.status,
+                        &version,
+                        &row.created_at,
+                        &row.updated_at,
+                    ],
+                )
+                .map_err(map_postgres_error)?;
+            Ok(())
+        })
+    }
+
+    fn list_deployment_rows(&self, tenant_id: u64, agent_id: &str) -> Vec<AgentDeploymentRow> {
+        let tenant_id = match u64_to_i64(tenant_id, "tenant_id") {
+            Ok(value) => value,
+            Err(_) => return Vec::new(),
+        };
+
+        self.with_locked_client(|client| {
+            let rows = client
+                .query(SQL_LIST_AGENT_DEPLOYMENTS, &[&tenant_id, &agent_id])
+                .map_err(map_postgres_error)?;
+
+            let mut mapped_rows = Vec::with_capacity(rows.len());
+            for row in rows {
+                mapped_rows.push(pg_row_to_agent_deployment_row(row)?);
+            }
+            Ok(mapped_rows)
         })
         .unwrap_or_default()
     }
@@ -524,11 +990,18 @@ impl PostgresAuditAdapter for SyncPostgresAdapter {
         })
     }
 
-    fn list_audit_rows(&self, tenant_id: u64, agent_id: &str) -> KernelResult<Vec<AgentAuditEventRow>> {
+    fn list_audit_rows(
+        &self,
+        tenant_id: u64,
+        agent_id: &str,
+    ) -> KernelResult<Vec<AgentAuditEventRow>> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id")?;
         self.with_locked_client(|client| {
             let rows = client
-                .query(SQL_LIST_AUDIT_EVENTS_BY_TENANT_AND_AGENT_ID, &[&tenant_id, &agent_id])
+                .query(
+                    SQL_LIST_AUDIT_EVENTS_BY_TENANT_AND_AGENT_ID,
+                    &[&tenant_id, &agent_id],
+                )
                 .map_err(map_postgres_error)?;
             rows.iter().map(AgentAuditEventRow::from_pg_row).collect()
         })
@@ -595,6 +1068,20 @@ fn build_agent_business_uuid(tenant_id: u64, agent_id: &str) -> String {
     format!("agent_business_{}_{}", tenant_id, agent_id)
 }
 
+fn build_agent_provider_binding_uuid(tenant_id: u64, agent_id: &str, binding_id: &str) -> String {
+    format!(
+        "agent_provider_binding_{}_{}_{}",
+        tenant_id, agent_id, binding_id
+    )
+}
+
+fn build_agent_deployment_uuid(tenant_id: u64, agent_id: &str, deployment_id: &str) -> String {
+    format!(
+        "agent_deployment_{}_{}_{}",
+        tenant_id, agent_id, deployment_id
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct AgentManifestSnapshot {
     schema_version: String,
@@ -610,6 +1097,8 @@ struct AgentManifestSnapshot {
     event_families: Vec<String>,
     owner_name: String,
     status: String,
+    implementation_provider_id: Option<String>,
+    implementation_kind: Option<String>,
 }
 
 impl From<&AgentManifest> for AgentManifestSnapshot {
@@ -628,6 +1117,8 @@ impl From<&AgentManifest> for AgentManifestSnapshot {
             event_families: value.event_families.clone(),
             owner_name: value.owner_name.clone(),
             status: value.status.clone(),
+            implementation_provider_id: None,
+            implementation_kind: None,
         }
     }
 }
@@ -733,6 +1224,16 @@ fn tags_to_json(tags: &[String]) -> KernelResult<String> {
 fn tags_from_json(input: &str) -> KernelResult<Vec<String>> {
     serde_json::from_str(input)
         .map_err(|error| KernelError::validation(format!("invalid tags json: {error}")))
+}
+
+fn string_list_to_json(values: &[String], field_name: &str) -> KernelResult<String> {
+    serde_json::to_string(values)
+        .map_err(|error| KernelError::validation(format!("invalid {field_name} json: {error}")))
+}
+
+fn string_list_from_json(input: &str, field_name: &str) -> KernelResult<Vec<String>> {
+    serde_json::from_str(input)
+        .map_err(|error| KernelError::validation(format!("invalid {field_name} json: {error}")))
 }
 
 fn severity_as_str(value: KernelEventSeverity) -> &'static str {
@@ -847,6 +1348,12 @@ fn pg_row_to_agent_business_row(row: Row) -> KernelResult<AgentBusinessRow> {
         default_code_task_intent_json: row
             .try_get("default_code_task_intent_json")
             .map_err(map_postgres_error)?,
+        implementation_provider_id: row
+            .try_get("implementation_provider_id")
+            .map_err(map_postgres_error)?,
+        implementation_kind: row
+            .try_get("implementation_kind")
+            .map_err(map_postgres_error)?,
         status: row.try_get("status").map_err(map_postgres_error)?,
         visibility: row.try_get("visibility").map_err(map_postgres_error)?,
         tags_json: row.try_get("tags_json").map_err(map_postgres_error)?,
@@ -857,6 +1364,71 @@ fn pg_row_to_agent_business_row(row: Row) -> KernelResult<AgentBusinessRow> {
             row.try_get("version").map_err(map_postgres_error)?,
             "version",
         )?,
+    })
+}
+
+#[cfg(feature = "postgres-sync")]
+fn pg_row_to_agent_provider_binding_row(row: Row) -> KernelResult<AgentProviderBindingRow> {
+    Ok(AgentProviderBindingRow {
+        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        tenant_id: int64_to_u64(
+            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            "tenant_id",
+        )?,
+        agent_id: row.try_get("agent_id").map_err(map_postgres_error)?,
+        binding_id: row.try_get("binding_id").map_err(map_postgres_error)?,
+        provider_id: row.try_get("provider_id").map_err(map_postgres_error)?,
+        implementation_kind: row
+            .try_get("implementation_kind")
+            .map_err(map_postgres_error)?,
+        configuration_profile_id: row
+            .try_get("configuration_profile_id")
+            .map_err(map_postgres_error)?,
+        capabilities_json: row
+            .try_get("capabilities_json")
+            .map_err(map_postgres_error)?,
+        active: row.try_get("active").map_err(map_postgres_error)?,
+        version: int64_to_u64(
+            row.try_get("version").map_err(map_postgres_error)?,
+            "version",
+        )?,
+        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
+    })
+}
+
+#[cfg(feature = "postgres-sync")]
+fn pg_row_to_agent_deployment_row(row: Row) -> KernelResult<AgentDeploymentRow> {
+    Ok(AgentDeploymentRow {
+        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        tenant_id: int64_to_u64(
+            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            "tenant_id",
+        )?,
+        agent_id: row.try_get("agent_id").map_err(map_postgres_error)?,
+        deployment_id: row.try_get("deployment_id").map_err(map_postgres_error)?,
+        binding_id: row.try_get("binding_id").map_err(map_postgres_error)?,
+        provider_id_snapshot: row
+            .try_get("provider_id_snapshot")
+            .map_err(map_postgres_error)?,
+        implementation_kind_snapshot: row
+            .try_get("implementation_kind_snapshot")
+            .map_err(map_postgres_error)?,
+        configuration_profile_id_snapshot: row
+            .try_get("configuration_profile_id_snapshot")
+            .map_err(map_postgres_error)?,
+        capabilities_snapshot_json: row
+            .try_get("capabilities_snapshot_json")
+            .map_err(map_postgres_error)?,
+        status: row.try_get("status").map_err(map_postgres_error)?,
+        version: int64_to_u64(
+            row.try_get("version").map_err(map_postgres_error)?,
+            "version",
+        )?,
+        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
     })
 }
 
@@ -884,20 +1456,140 @@ mod tests {
         }
     }
 
+    fn sample_provider_binding_row() -> AgentProviderBindingRow {
+        AgentProviderBindingRow {
+            id: 1,
+            uuid: "agent_provider_binding_7_agent.alpha_binding.rig.default".to_string(),
+            tenant_id: 7,
+            agent_id: "agent.alpha".to_string(),
+            binding_id: "binding.rig.default".to_string(),
+            provider_id: "provider.model.rig-rust".to_string(),
+            implementation_kind: "typed-local-provider".to_string(),
+            configuration_profile_id: "profile.rig.local".to_string(),
+            capabilities_json: r#"["model.chat","tool.invoke"]"#.to_string(),
+            active: true,
+            version: 1,
+            created_at: "2026-06-01T00:00:00Z".to_string(),
+            updated_at: "2026-06-01T00:00:00Z".to_string(),
+        }
+    }
+
+    fn sample_deployment_row() -> AgentDeploymentRow {
+        AgentDeploymentRow {
+            id: 1,
+            uuid: "agent_deployment_7_agent.alpha_deployment.rig.local.001".to_string(),
+            tenant_id: 7,
+            agent_id: "agent.alpha".to_string(),
+            deployment_id: "deployment.rig.local.001".to_string(),
+            binding_id: "binding.rig.default".to_string(),
+            provider_id_snapshot: "provider.model.rig-rust".to_string(),
+            implementation_kind_snapshot: "typed-local-provider".to_string(),
+            configuration_profile_id_snapshot: "profile.rig.local".to_string(),
+            capabilities_snapshot_json: r#"["model.chat","planning.create"]"#.to_string(),
+            status: 0,
+            version: 1,
+            created_at: "2026-06-01T03:00:00Z".to_string(),
+            updated_at: "2026-06-01T03:00:00Z".to_string(),
+        }
+    }
+
+    fn sample_agent_business_row() -> AgentBusinessRow {
+        AgentBusinessRow {
+            id: 1,
+            uuid: "agent_business_7_agent.alpha".to_string(),
+            tenant_id: 7,
+            organization_id: 70,
+            owner_user_id: 700,
+            agent_id: "agent.alpha".to_string(),
+            code: "alpha".to_string(),
+            display_name: "Alpha".to_string(),
+            description: Some("desc".to_string()),
+            manifest_json: manifest_to_json(&sample_manifest("agent.alpha"))
+                .expect("manifest json should be valid"),
+            default_code_task_intent_json: None,
+            implementation_provider_id: Some("provider.model.rig-rust".to_string()),
+            implementation_kind: Some("typed-local-provider".to_string()),
+            status: 1,
+            visibility: 1,
+            tags_json: "[]".to_string(),
+            created_at: "2026-06-01T00:00:00Z".to_string(),
+            updated_at: "2026-06-01T00:00:00Z".to_string(),
+            deleted_at: None,
+            version: 1,
+        }
+    }
+
+    fn assert_validation_contains(error: KernelError, expected: &str) {
+        match error {
+            KernelError::Validation { message } => assert!(
+                message.contains(expected),
+                "expected validation message to contain {expected:?}, got {message:?}"
+            ),
+            _ => panic!("expected validation error"),
+        }
+    }
+
     #[test]
     fn sql_contracts_use_expected_placeholders_and_filters() {
+        let postgres_schema = include_str!("../specs/sql/agent_business_postgres.sql");
+
         assert!(SQL_NEXT_AGENT_BUSINESS_ID.contains("pg_get_serial_sequence"));
         assert!(SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID.contains("tenant_id = $1"));
         assert!(SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID.contains("agent_id = $2"));
         assert!(SQL_INSERT_AGENT_BUSINESS.contains("VALUES ($1"));
-        assert!(SQL_INSERT_AGENT_BUSINESS.contains("$18"));
-        assert!(SQL_UPDATE_AGENT_BUSINESS.contains("WHERE tenant_id = $14 AND agent_id = $15 AND version = $16"));
+        assert!(SQL_INSERT_AGENT_BUSINESS.contains("$20"));
+        assert!(SQL_INSERT_AGENT_BUSINESS.contains("implementation_provider_id"));
+        assert!(SQL_UPDATE_AGENT_BUSINESS
+            .contains("WHERE tenant_id = $16 AND agent_id = $17 AND version = $18"));
         assert!(SQL_LIST_AGENT_BUSINESS.contains("ORDER BY updated_at DESC"));
         assert!(SQL_INSERT_AUDIT_EVENT.contains("$12"));
         #[cfg(feature = "postgres-sync")]
-        assert!(SQL_LIST_AUDIT_EVENTS_BY_TENANT_AND_AGENT_ID.contains(
-            "ORDER BY created_at DESC, id DESC"
-        ));
+        assert!(SQL_LIST_AUDIT_EVENTS_BY_TENANT_AND_AGENT_ID
+            .contains("ORDER BY created_at DESC, id DESC"));
+        assert!(SQL_INSERT_AGENT_PROVIDER_BINDING.contains("INSERT INTO ai_agent_provider_binding"));
+        assert!(SQL_INSERT_AGENT_PROVIDER_BINDING.contains("$12"));
+        assert!(SQL_UPDATE_AGENT_PROVIDER_BINDING
+            .contains("WHERE tenant_id = $8 AND agent_id = $9 AND binding_id = $10"));
+        assert!(SQL_UPDATE_AGENT_PROVIDER_BINDING.contains("AND version = $11"));
+        assert!(SQL_SELECT_AGENT_PROVIDER_BINDING.contains("binding_id = $3"));
+        assert!(SQL_LIST_AGENT_PROVIDER_BINDINGS
+            .contains("ORDER BY active DESC, updated_at DESC, binding_id ASC"));
+        assert!(SQL_INSERT_AGENT_DEPLOYMENT.contains("INSERT INTO ai_agent_deployment"));
+        assert!(SQL_INSERT_AGENT_DEPLOYMENT.contains("$12"));
+        assert!(SQL_LIST_AGENT_DEPLOYMENTS.contains("ORDER BY created_at DESC, deployment_id ASC"));
+
+        for required in [
+            "ck_ai_agent_business_implementation_provider_id_standard",
+            "implementation_provider_id ~ '^provider\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
+            "ck_ai_agent_provider_binding_binding_id_standard",
+            "binding_id ~ '^binding\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
+            "ck_ai_agent_provider_binding_provider_id_standard",
+            "provider_id ~ '^provider\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
+            "ck_ai_agent_provider_binding_configuration_profile_id_standard",
+            "configuration_profile_id ~ '^profile\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
+            "ck_ai_agent_provider_binding_capabilities_standard",
+            "sdkwork_agent_business_capabilities_json_is_standard(capabilities_json)",
+            "ck_ai_agent_deployment_deployment_id_standard",
+            "deployment_id ~ '^deployment\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
+            "ck_ai_agent_deployment_binding_id_standard",
+            "binding_id ~ '^binding\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
+            "ck_ai_agent_deployment_provider_id_snapshot_standard",
+            "provider_id_snapshot ~ '^provider\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
+            "ck_ai_agent_deployment_configuration_profile_id_snapshot_standard",
+            "configuration_profile_id_snapshot ~ '^profile\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
+            "ck_ai_agent_deployment_capabilities_snapshot_standard",
+            "sdkwork_agent_business_capabilities_json_is_standard(capabilities_snapshot_json)",
+            "jsonb_typeof(capability_values.value) = 'string'",
+            "capability_values.value #>> '{}'",
+            "char_length(capability_values.value #>> '{}') <= 128",
+            "~ '^[a-z0-9_-]+(\\.[a-z0-9_-]+)+$'",
+            "COUNT(DISTINCT capability_values.value #>> '{}')",
+        ] {
+            assert!(
+                postgres_schema.contains(required),
+                "postgres schema must contain {required}"
+            );
+        }
     }
 
     #[test]
@@ -908,8 +1600,8 @@ mod tests {
 
     #[test]
     fn expected_previous_version_rejects_zero() {
-        let error =
-            expected_previous_version(0).expect_err("version=0 cannot be used for update precondition");
+        let error = expected_previous_version(0)
+            .expect_err("version=0 cannot be used for update precondition");
         match error {
             KernelError::Validation { message } => {
                 assert!(message.contains(">= 1"));
@@ -931,6 +1623,8 @@ mod tests {
             description: Some("desc".to_string()),
             manifest: sample_manifest("agent.alpha"),
             default_code_task_intent: Some(CodeTaskIntent::new("Refactor runtime")),
+            implementation_provider_id: Some("provider.model.rig-rust".to_string()),
+            implementation_kind: Some(AgentImplementationKind::TypedLocalProvider),
             status: AgentBusinessStatus::Active,
             visibility: AgentVisibility::Tenant,
             tags: vec!["starter".to_string()],
@@ -944,6 +1638,198 @@ mod tests {
         let rebuilt = row.into_record().expect("record mapping should succeed");
 
         assert_eq!(rebuilt, record);
+    }
+
+    #[test]
+    fn agent_business_row_rejects_non_standard_implementation_provider_id_from_storage() {
+        let mut row = sample_agent_business_row();
+        row.implementation_provider_id = Some("model.rig-rust".to_string());
+
+        let error = row
+            .into_record()
+            .expect_err("implementation provider id without provider prefix should fail");
+
+        assert_validation_contains(error, "implementationProviderId");
+    }
+
+    #[test]
+    fn provider_binding_row_roundtrip_preserves_standard_snapshots() {
+        let record = AgentProviderBindingRecord {
+            tenant_id: 7,
+            agent_id: "agent.alpha".to_string(),
+            binding_id: "binding.rig.default".to_string(),
+            provider_id: "provider.model.rig-rust".to_string(),
+            implementation_kind: AgentImplementationKind::TypedLocalProvider,
+            configuration_profile_id: "profile.rig.local".to_string(),
+            capabilities: vec!["model.chat".to_string(), "tool.invoke".to_string()],
+            active: true,
+            version: 2,
+            created_at: "2026-06-01T00:00:00Z".to_string(),
+            updated_at: "2026-06-01T02:00:00Z".to_string(),
+        };
+
+        let row = AgentProviderBindingRow::from_record(&record)
+            .expect("provider binding row mapping should succeed");
+
+        assert_eq!(
+            row.uuid,
+            "agent_provider_binding_7_agent.alpha_binding.rig.default"
+        );
+        assert_eq!(row.implementation_kind, "typed-local-provider");
+        assert!(row.active);
+        assert!(row.capabilities_json.contains("model.chat"));
+
+        let rebuilt = row.into_record().expect("record mapping should succeed");
+
+        assert_eq!(rebuilt, record);
+    }
+
+    #[test]
+    fn deployment_row_roundtrip_preserves_provider_binding_snapshot() {
+        let record = AgentDeploymentRecord {
+            tenant_id: 7,
+            agent_id: "agent.alpha".to_string(),
+            deployment_id: "deployment.rig.local.001".to_string(),
+            binding_id: "binding.rig.default".to_string(),
+            provider_id_snapshot: "provider.model.rig-rust".to_string(),
+            implementation_kind_snapshot: AgentImplementationKind::TypedLocalProvider,
+            configuration_profile_id_snapshot: "profile.rig.local".to_string(),
+            capabilities_snapshot: vec!["model.chat".to_string(), "planning.create".to_string()],
+            status: AgentDeploymentStatus::Created,
+            version: 1,
+            created_at: "2026-06-01T03:00:00Z".to_string(),
+            updated_at: "2026-06-01T03:00:00Z".to_string(),
+        };
+
+        let row = AgentDeploymentRow::from_record(&record)
+            .expect("deployment row mapping should succeed");
+
+        assert_eq!(
+            row.uuid,
+            "agent_deployment_7_agent.alpha_deployment.rig.local.001"
+        );
+        assert_eq!(row.status, 0);
+        assert_eq!(row.implementation_kind_snapshot, "typed-local-provider");
+        assert!(row.capabilities_snapshot_json.contains("planning.create"));
+
+        let rebuilt = row.into_record().expect("record mapping should succeed");
+
+        assert_eq!(rebuilt, record);
+    }
+
+    #[test]
+    fn provider_binding_row_rejects_non_standard_ids_from_storage() {
+        let mut row = sample_provider_binding_row();
+        row.binding_id = "rig.default".to_string();
+        let error = row
+            .into_record()
+            .expect_err("binding id without binding prefix should fail");
+        assert_validation_contains(error, "bindingId");
+
+        let mut row = sample_provider_binding_row();
+        row.provider_id = "model.rig-rust".to_string();
+        let error = row
+            .into_record()
+            .expect_err("provider id without provider prefix should fail");
+        assert_validation_contains(error, "providerId");
+
+        let mut row = sample_provider_binding_row();
+        row.configuration_profile_id = "config.rig.local".to_string();
+        let error = row
+            .into_record()
+            .expect_err("configuration profile id without profile prefix should fail");
+        assert_validation_contains(error, "configurationProfileId");
+    }
+
+    #[test]
+    fn provider_binding_row_rejects_non_standard_capabilities_from_storage() {
+        let mut row = sample_provider_binding_row();
+        row.capabilities_json = r#"["model.chat","model.chat"]"#.to_string();
+        let error = row
+            .into_record()
+            .expect_err("duplicate capability ids should fail");
+        assert_validation_contains(error, "capabilities");
+
+        let mut row = sample_provider_binding_row();
+        row.capabilities_json = r#"["Model.Chat"]"#.to_string();
+        let error = row
+            .into_record()
+            .expect_err("uppercase capability id should fail");
+        assert_validation_contains(error, "capabilities");
+
+        let mut row = sample_provider_binding_row();
+        row.capabilities_json = r#"["chat"]"#.to_string();
+        let error = row
+            .into_record()
+            .expect_err("unnamespaced capability id should fail");
+        assert_validation_contains(error, "capabilities");
+    }
+
+    #[test]
+    fn deployment_row_rejects_non_standard_snapshots_from_storage() {
+        let mut row = sample_deployment_row();
+        row.deployment_id = "rig.local.001".to_string();
+        let error = row
+            .into_record()
+            .expect_err("deployment id without deployment prefix should fail");
+        assert_validation_contains(error, "deploymentId");
+
+        let mut row = sample_deployment_row();
+        row.binding_id = "rig.default".to_string();
+        let error = row
+            .into_record()
+            .expect_err("binding id without binding prefix should fail");
+        assert_validation_contains(error, "bindingId");
+
+        let mut row = sample_deployment_row();
+        row.provider_id_snapshot = "model.rig-rust".to_string();
+        let error = row
+            .into_record()
+            .expect_err("provider snapshot without provider prefix should fail");
+        assert_validation_contains(error, "providerId");
+
+        let mut row = sample_deployment_row();
+        row.configuration_profile_id_snapshot = "config.rig.local".to_string();
+        let error = row
+            .into_record()
+            .expect_err("profile snapshot without profile prefix should fail");
+        assert_validation_contains(error, "configurationProfileId");
+
+        let mut row = sample_deployment_row();
+        row.capabilities_snapshot_json = r#"["planning.create","planning.create"]"#.to_string();
+        let error = row
+            .into_record()
+            .expect_err("duplicate capability snapshot ids should fail");
+        assert_validation_contains(error, "capabilitiesSnapshot");
+    }
+
+    #[test]
+    fn invalid_deployment_status_code_is_rejected() {
+        let row = AgentDeploymentRow {
+            id: 1,
+            uuid: "deployment.invalid".to_string(),
+            tenant_id: 7,
+            agent_id: "agent.alpha".to_string(),
+            deployment_id: "deployment.invalid".to_string(),
+            binding_id: "binding.rig.default".to_string(),
+            provider_id_snapshot: "provider.model.rig-rust".to_string(),
+            implementation_kind_snapshot: "typed-local-provider".to_string(),
+            configuration_profile_id_snapshot: "profile.rig.local".to_string(),
+            capabilities_snapshot_json: "[]".to_string(),
+            status: 99,
+            version: 1,
+            created_at: "2026-06-01T03:00:00Z".to_string(),
+            updated_at: "2026-06-01T03:00:00Z".to_string(),
+        };
+
+        let error = row
+            .into_record()
+            .expect_err("invalid deployment status should fail");
+
+        match error {
+            KernelError::Validation { message } => assert!(message.contains("deployment status")),
+            _ => panic!("expected validation error"),
+        }
     }
 
     #[test]
@@ -961,6 +1847,8 @@ mod tests {
             manifest_json: manifest_to_json(&sample_manifest("agent.alpha"))
                 .expect("manifest json should be valid"),
             default_code_task_intent_json: None,
+            implementation_provider_id: None,
+            implementation_kind: None,
             status: 9,
             visibility: 0,
             tags_json: "[]".to_string(),
@@ -970,7 +1858,9 @@ mod tests {
             version: 0,
         };
 
-        let error = row.into_record().expect_err("invalid db status should fail");
+        let error = row
+            .into_record()
+            .expect_err("invalid db status should fail");
         match error {
             KernelError::Validation { message } => assert!(message.contains("status")),
             _ => panic!("expected validation error"),

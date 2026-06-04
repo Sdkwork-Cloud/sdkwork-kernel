@@ -366,6 +366,184 @@ paths:
                 retryable: true
         default:
           $ref: '#/components/responses/Problem'
+  /app/v3/api/ai/agents/{agentId}/provider_bindings:
+    get:
+      tags: [ai]
+      summary: List provider bindings for one managed agent
+      operationId: agents.providerBindings.list
+      security:
+        - AuthToken: []
+          AccessToken: []
+      x-sdkwork-domain: ai
+      x-sdkwork-resource: agents.providerBindings
+      x-sdkwork-permission: agent.business.provider_binding.list
+      x-sdkwork-tenant-scope: tenant
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/AgentIdPath'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Managed agent provider binding list response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProviderBindingListResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    post:
+      tags: [ai]
+      summary: Create a provider binding for one managed agent
+      operationId: agents.providerBindings.create
+      security:
+        - AuthToken: []
+          AccessToken: []
+      x-sdkwork-domain: ai
+      x-sdkwork-resource: agents.providerBindings
+      x-sdkwork-permission: agent.business.provider_binding.add
+      x-sdkwork-tenant-scope: tenant
+      x-sdkwork-audit-event: agent.business.provider_binding_changed
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/AgentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentProviderBindingRequest'
+      responses:
+        '201':
+          description: Created managed agent provider binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProviderBindingResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /app/v3/api/ai/agents/{agentId}/provider_bindings/{bindingId}/activate:
+    post:
+      tags: [ai]
+      summary: Activate one managed agent provider binding
+      operationId: agents.providerBindings.activate
+      security:
+        - AuthToken: []
+          AccessToken: []
+      x-sdkwork-domain: ai
+      x-sdkwork-resource: agents.providerBindings
+      x-sdkwork-permission: agent.business.provider_binding.activate
+      x-sdkwork-tenant-scope: tenant
+      x-sdkwork-audit-event: agent.business.provider_binding_changed
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/AgentIdPath'
+        - $ref: '#/components/parameters/BindingIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActivateAgentProviderBindingRequest'
+      responses:
+        '200':
+          description: Activated managed agent provider binding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentProviderBindingResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+  /app/v3/api/ai/agents/{agentId}/deployments:
+    get:
+      tags: [ai]
+      summary: List deployments for one managed agent
+      operationId: agents.deployments.list
+      security:
+        - AuthToken: []
+          AccessToken: []
+      x-sdkwork-domain: ai
+      x-sdkwork-resource: agents.deployments
+      x-sdkwork-permission: agent.business.deployment.list
+      x-sdkwork-tenant-scope: tenant
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/AgentIdPath'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Managed agent deployment list response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentDeploymentListResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
+    post:
+      tags: [ai]
+      summary: Create a deployment snapshot for one managed agent provider binding
+      operationId: agents.deployments.create
+      security:
+        - AuthToken: []
+          AccessToken: []
+      x-sdkwork-domain: ai
+      x-sdkwork-resource: agents.deployments
+      x-sdkwork-permission: agent.business.deployment.create
+      x-sdkwork-tenant-scope: tenant
+      x-sdkwork-audit-event: agent.business.deployment_created
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - $ref: '#/components/parameters/AgentIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAgentDeploymentRequest'
+      responses:
+        '201':
+          description: Created managed agent deployment snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentDeploymentResponse'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '403':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+        default:
+          $ref: '#/components/responses/Problem'
 components:
   securitySchemes:
     AuthToken:
@@ -436,6 +614,14 @@ components:
         type: string
         minLength: 1
         maxLength: 128
+    BindingIdPath:
+      name: bindingId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
   responses:
     Problem:
       description: RFC 9457 problem detail response
@@ -494,6 +680,12 @@ components:
     AgentVisibility:
       type: string
       enum: [private, organization, tenant, public]
+    AgentImplementationKind:
+      type: string
+      enum: [manifest-only, typed-local-provider, process-adapter, protocol-adapter]
+    DeploymentStatus:
+      type: string
+      enum: [created, active, failed, archived]
     PageInfo:
       type: object
       additionalProperties: false
@@ -561,6 +753,15 @@ components:
         defaultCodeTaskIntent:
           type: [object, 'null']
           additionalProperties: true
+        implementationProviderId:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 128
+          pattern: '^provider\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        implementationKind:
+          oneOf:
+            - $ref: '#/components/schemas/AgentImplementationKind'
+            - type: 'null'
         status:
           $ref: '#/components/schemas/AgentStatus'
         visibility:
@@ -610,6 +811,178 @@ components:
               $ref: '#/components/schemas/PageInfo'
         requestId:
           type: string
+    AgentProviderBindingRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - tenantId
+        - agentId
+        - bindingId
+        - providerId
+        - implementationKind
+        - configurationProfileId
+        - capabilities
+        - active
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        tenantId:
+          $ref: '#/components/schemas/Int64String'
+        agentId:
+          type: string
+        bindingId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^binding\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        providerId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^provider\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        implementationKind:
+          $ref: '#/components/schemas/AgentImplementationKind'
+        configurationProfileId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^profile\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        capabilities:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[a-z0-9_-]+(\.[a-z0-9_-]+)+$'
+          maxItems: 128
+        active:
+          type: boolean
+        version:
+          $ref: '#/components/schemas/Int64String'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AgentProviderBindingResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AgentProviderBindingRecord'
+        requestId:
+          type: string
+    AgentProviderBindingListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [items, pageInfo]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AgentProviderBindingRecord'
+            pageInfo:
+              $ref: '#/components/schemas/PageInfo'
+        requestId:
+          type: string
+    AgentDeploymentRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - tenantId
+        - agentId
+        - deploymentId
+        - bindingId
+        - providerIdSnapshot
+        - implementationKindSnapshot
+        - configurationProfileIdSnapshot
+        - capabilitiesSnapshot
+        - status
+        - version
+        - createdAt
+        - updatedAt
+      properties:
+        tenantId:
+          $ref: '#/components/schemas/Int64String'
+        agentId:
+          type: string
+        deploymentId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^deployment\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        bindingId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^binding\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        providerIdSnapshot:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^provider\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        implementationKindSnapshot:
+          $ref: '#/components/schemas/AgentImplementationKind'
+        configurationProfileIdSnapshot:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^profile\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        capabilitiesSnapshot:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[a-z0-9_-]+(\.[a-z0-9_-]+)+$'
+          maxItems: 128
+        status:
+          $ref: '#/components/schemas/DeploymentStatus'
+        version:
+          $ref: '#/components/schemas/Int64String'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AgentDeploymentResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/AgentDeploymentRecord'
+        requestId:
+          type: string
+    AgentDeploymentListResponse:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: false
+          required: [items, pageInfo]
+          properties:
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/AgentDeploymentRecord'
+            pageInfo:
+              $ref: '#/components/schemas/PageInfo'
+        requestId:
+          type: string
     CreateAgentRequest:
       type: object
       additionalProperties: false
@@ -648,6 +1021,15 @@ components:
         defaultCodeTaskIntent:
           type: [object, 'null']
           additionalProperties: true
+        implementationProviderId:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 128
+          pattern: '^provider\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        implementationKind:
+          oneOf:
+            - $ref: '#/components/schemas/AgentImplementationKind'
+            - type: 'null'
         visibility:
           $ref: '#/components/schemas/AgentVisibility'
         tags:
@@ -657,6 +1039,78 @@ components:
             minLength: 1
             maxLength: 64
           maxItems: 64
+        requestedAt:
+          type: string
+          format: date-time
+    CreateAgentProviderBindingRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - bindingId
+        - providerId
+        - implementationKind
+        - configurationProfileId
+        - requestedAt
+      properties:
+        bindingId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^binding\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        providerId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^provider\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        implementationKind:
+          $ref: '#/components/schemas/AgentImplementationKind'
+        configurationProfileId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^profile\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        capabilities:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^[a-z0-9_-]+(\.[a-z0-9_-]+)+$'
+          maxItems: 128
+        makeDefault:
+          type: boolean
+          default: false
+        requestedAt:
+          type: string
+          format: date-time
+    ActivateAgentProviderBindingRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - requestedAt
+      properties:
+        requestedAt:
+          type: string
+          format: date-time
+    CreateAgentDeploymentRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - deploymentId
+        - bindingId
+        - requestedAt
+      properties:
+        deploymentId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^deployment\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        bindingId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^binding\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
         requestedAt:
           type: string
           format: date-time

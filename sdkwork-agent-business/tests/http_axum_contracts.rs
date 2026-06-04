@@ -116,6 +116,680 @@ async fn app_create_and_retrieve_agent_should_work() {
 }
 
 #[tokio::test]
+async fn provider_bindings_and_deployments_should_work_over_http() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.rig.http", "RigHttp").await;
+
+    let add_binding_request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents/agent.rig.http/provider_bindings?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "bindingId": "binding.rig.default",
+                "providerId": "provider.model.rig-rust",
+                "implementationKind": "typed-local-provider",
+                "configurationProfileId": "profile.rig.local",
+                "capabilities": ["model.chat", "tool.invoke"],
+                "makeDefault": true,
+                "requestedAt": "2026-06-01T00:10:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let add_binding_response = app
+        .clone()
+        .oneshot(auth_headers(add_binding_request))
+        .await
+        .expect("add binding request should succeed");
+    assert_eq!(add_binding_response.status(), StatusCode::CREATED);
+    let body_bytes = to_bytes(add_binding_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["bindingId"], "binding.rig.default");
+    assert_eq!(body_json["data"]["providerId"], "provider.model.rig-rust");
+    assert_eq!(
+        body_json["data"]["implementationKind"],
+        "typed-local-provider"
+    );
+    assert_eq!(body_json["data"]["active"], true);
+
+    let activate_request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.rig.http/provider_bindings/binding.rig.default/activate?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "requestedAt": "2026-06-01T00:11:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let activate_response = app
+        .clone()
+        .oneshot(auth_headers(activate_request))
+        .await
+        .expect("activate request should succeed");
+    assert_eq!(activate_response.status(), StatusCode::OK);
+
+    let create_deployment_request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.rig.http/deployments?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "deploymentId": "deployment.rig.http.1",
+                "bindingId": "binding.rig.default",
+                "requestedAt": "2026-06-01T00:12:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let create_deployment_response = app
+        .clone()
+        .oneshot(auth_headers(create_deployment_request))
+        .await
+        .expect("create deployment request should succeed");
+    assert_eq!(create_deployment_response.status(), StatusCode::CREATED);
+    let body_bytes = to_bytes(create_deployment_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["deploymentId"], "deployment.rig.http.1");
+    assert_eq!(body_json["data"]["bindingId"], "binding.rig.default");
+    assert_eq!(
+        body_json["data"]["providerIdSnapshot"],
+        "provider.model.rig-rust"
+    );
+    assert_eq!(
+        body_json["data"]["configurationProfileIdSnapshot"],
+        "profile.rig.local"
+    );
+
+    let list_bindings_request = Request::builder()
+        .method("GET")
+        .uri("/app/v3/api/ai/agents/agent.rig.http/provider_bindings?tenant_id=1")
+        .body(Body::empty())
+        .expect("request should be built");
+    let list_bindings_response = app
+        .clone()
+        .oneshot(auth_headers(list_bindings_request))
+        .await
+        .expect("list bindings request should succeed");
+    assert_eq!(list_bindings_response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(list_bindings_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(
+        body_json["data"]["items"]
+            .as_array()
+            .map(|items| items.len()),
+        Some(1)
+    );
+
+    let list_deployments_request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/ai/agents/agent.rig.http/deployments?tenant_id=1")
+        .body(Body::empty())
+        .expect("request should be built");
+    let list_deployments_response = app
+        .clone()
+        .oneshot(auth_headers(list_deployments_request))
+        .await
+        .expect("list deployments request should succeed");
+    assert_eq!(list_deployments_response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(list_deployments_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(
+        body_json["data"]["items"][0]["providerIdSnapshot"],
+        "provider.model.rig-rust"
+    );
+}
+
+#[tokio::test]
+async fn provider_bindings_and_deployments_should_apply_pagination_contract() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.rig.paged", "RigPaged").await;
+
+    for (binding_id, requested_at) in [
+        ("binding.rig.beta", "2026-06-01T00:11:00Z"),
+        ("binding.rig.alpha", "2026-06-01T00:11:00Z"),
+    ] {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/app/v3/api/ai/agents/agent.rig.paged/provider_bindings?tenant_id=1")
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                json!({
+                    "bindingId": binding_id,
+                    "providerId": "provider.model.rig-rust",
+                    "implementationKind": "typed-local-provider",
+                    "configurationProfileId": "profile.rig.local",
+                    "capabilities": ["model.chat"],
+                    "makeDefault": false,
+                    "requestedAt": requested_at
+                })
+                .to_string(),
+            ))
+            .expect("request should be built");
+        let response = app
+            .clone()
+            .oneshot(auth_headers(request))
+            .await
+            .expect("add binding request should succeed");
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    for (deployment_id, binding_id, requested_at) in [
+        (
+            "deployment.rig.paged.1",
+            "binding.rig.beta",
+            "2026-06-01T00:12:00Z",
+        ),
+        (
+            "deployment.rig.paged.2",
+            "binding.rig.alpha",
+            "2026-06-01T00:12:00Z",
+        ),
+    ] {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/backend/v3/api/ai/agents/agent.rig.paged/deployments?tenant_id=1")
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                json!({
+                    "deploymentId": deployment_id,
+                    "bindingId": binding_id,
+                    "requestedAt": requested_at
+                })
+                .to_string(),
+            ))
+            .expect("request should be built");
+        let response = app
+            .clone()
+            .oneshot(auth_headers(request))
+            .await
+            .expect("create deployment request should succeed");
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/app/v3/api/ai/agents/agent.rig.paged/provider_bindings?tenant_id=1&page=1&page_size=1")
+        .body(Body::empty())
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("list bindings request should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(
+        body_json["data"]["items"].as_array().map(|v| v.len()),
+        Some(1)
+    );
+    assert_eq!(
+        body_json["data"]["items"][0]["bindingId"],
+        "binding.rig.alpha"
+    );
+    assert_eq!(body_json["data"]["pageInfo"]["page"], 1);
+    assert_eq!(body_json["data"]["pageInfo"]["pageSize"], 1);
+    assert_eq!(body_json["data"]["pageInfo"]["totalItems"], "2");
+    assert_eq!(body_json["data"]["pageInfo"]["totalPages"], 2);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/ai/agents/agent.rig.paged/deployments?tenant_id=1&page=2&page_size=1")
+        .body(Body::empty())
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("list deployments request should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(
+        body_json["data"]["items"].as_array().map(|v| v.len()),
+        Some(1)
+    );
+    assert_eq!(
+        body_json["data"]["items"][0]["deploymentId"],
+        "deployment.rig.paged.2"
+    );
+    assert_eq!(body_json["data"]["pageInfo"]["page"], 2);
+    assert_eq!(body_json["data"]["pageInfo"]["pageSize"], 1);
+    assert_eq!(body_json["data"]["pageInfo"]["totalItems"], "2");
+    assert_eq!(body_json["data"]["pageInfo"]["totalPages"], 2);
+}
+
+#[tokio::test]
+async fn provider_binding_and_deployment_list_missing_agent_should_return_not_found() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    for uri in [
+        "/app/v3/api/ai/agents/agent.missing/provider_bindings?tenant_id=1",
+        "/backend/v3/api/ai/agents/agent.missing/deployments?tenant_id=1",
+    ] {
+        let request = Request::builder()
+            .method("GET")
+            .uri(uri)
+            .body(Body::empty())
+            .expect("request should be built");
+        let response = app
+            .clone()
+            .oneshot(auth_headers(request))
+            .await
+            .expect("list request should succeed");
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            response
+                .headers()
+                .get(CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok()),
+            Some("application/problem+json")
+        );
+        let body_bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should be readable");
+        let body_json: Value =
+            serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+        assert_eq!(body_json["code"], "not_found");
+        assert_eq!(body_json["errorCategory"], "resource");
+        assert_eq!(body_json["detail"], "agent not found");
+    }
+}
+
+#[tokio::test]
+async fn provider_binding_activation_missing_agent_should_return_not_found() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.missing/provider_bindings/binding.rig.default/activate?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "requestedAt": "2026-06-01T00:11:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("activate request should return problem detail");
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("application/problem+json")
+    );
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "not_found");
+    assert_eq!(body_json["errorCategory"], "resource");
+    assert_eq!(body_json["detail"], "agent not found");
+}
+
+#[tokio::test]
+async fn provider_binding_and_deployment_conflicts_should_return_problem_detail() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.rig.conflict", "RigConflict").await;
+
+    let binding_body = json!({
+        "bindingId": "binding.rig.default",
+        "providerId": "provider.model.rig-rust",
+        "implementationKind": "typed-local-provider",
+        "configurationProfileId": "profile.rig.local",
+        "capabilities": ["model.chat"],
+        "makeDefault": true,
+        "requestedAt": "2026-06-01T00:10:00Z"
+    });
+    for expected_status in [StatusCode::CREATED, StatusCode::CONFLICT] {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/app/v3/api/ai/agents/agent.rig.conflict/provider_bindings?tenant_id=1")
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(binding_body.to_string()))
+            .expect("request should be built");
+        let response = app
+            .clone()
+            .oneshot(auth_headers(request))
+            .await
+            .expect("binding request should return response");
+        assert_eq!(response.status(), expected_status);
+        if expected_status == StatusCode::CONFLICT {
+            assert_eq!(
+                response
+                    .headers()
+                    .get(CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok()),
+                Some("application/problem+json")
+            );
+            let body_bytes = to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("response body should be readable");
+            let body_json: Value =
+                serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+            assert_eq!(body_json["code"], "conflict");
+            assert_eq!(body_json["errorCategory"], "business");
+            assert_eq!(body_json["detail"], "agent provider binding already exists");
+        }
+    }
+
+    let deployment_body = json!({
+        "deploymentId": "deployment.rig.conflict.1",
+        "bindingId": "binding.rig.default",
+        "requestedAt": "2026-06-01T00:12:00Z"
+    });
+    for expected_status in [StatusCode::CREATED, StatusCode::CONFLICT] {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/backend/v3/api/ai/agents/agent.rig.conflict/deployments?tenant_id=1")
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(deployment_body.to_string()))
+            .expect("request should be built");
+        let response = app
+            .clone()
+            .oneshot(auth_headers(request))
+            .await
+            .expect("deployment request should return response");
+        assert_eq!(response.status(), expected_status);
+        if expected_status == StatusCode::CONFLICT {
+            assert_eq!(
+                response
+                    .headers()
+                    .get(CONTENT_TYPE)
+                    .and_then(|v| v.to_str().ok()),
+                Some("application/problem+json")
+            );
+            let body_bytes = to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("response body should be readable");
+            let body_json: Value =
+                serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+            assert_eq!(body_json["code"], "conflict");
+            assert_eq!(body_json["errorCategory"], "business");
+            assert_eq!(body_json["detail"], "agent deployment already exists");
+        }
+    }
+}
+
+#[tokio::test]
+async fn deployment_missing_binding_should_return_not_found_problem_detail() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.rig.missing.binding", "RigMissingBinding").await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.rig.missing.binding/deployments?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "deploymentId": "deployment.rig.missing.binding.1",
+                "bindingId": "binding.rig.missing",
+                "requestedAt": "2026-06-01T00:12:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("deployment request should return problem detail");
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("application/problem+json")
+    );
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "not_found");
+    assert_eq!(body_json["errorCategory"], "resource");
+    assert_eq!(body_json["detail"], "agent provider binding not found");
+}
+
+#[tokio::test]
+async fn provider_binding_invalid_standard_ids_should_return_bad_request() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.rig.invalid.ids", "RigInvalidIds").await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents/agent.rig.invalid.ids/provider_bindings?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "bindingId": " binding.rig.default ",
+                "providerId": "provider.model.rig-rust",
+                "implementationKind": "typed-local-provider",
+                "configurationProfileId": "profile.rig.local",
+                "capabilities": ["model.chat"],
+                "makeDefault": true,
+                "requestedAt": "2026-06-01T00:10:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("binding request should return problem detail");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("application/problem+json")
+    );
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "validation_error");
+    assert_eq!(body_json["errorCategory"], "validation");
+    assert_eq!(
+        body_json["detail"],
+        "bindingId must not contain leading or trailing whitespace"
+    );
+}
+
+#[tokio::test]
+async fn provider_binding_invalid_capabilities_should_return_bad_request() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(
+        &app,
+        "agent.rig.invalid.capabilities",
+        "RigInvalidCapabilities",
+    )
+    .await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents/agent.rig.invalid.capabilities/provider_bindings?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "bindingId": "binding.rig.default",
+                "providerId": "provider.model.rig-rust",
+                "implementationKind": "typed-local-provider",
+                "configurationProfileId": "profile.rig.local",
+                "capabilities": ["model.chat", "model.chat"],
+                "makeDefault": true,
+                "requestedAt": "2026-06-01T00:10:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("binding request should return problem detail");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "validation_error");
+    assert_eq!(
+        body_json["detail"],
+        "capabilities must not contain duplicate capability id: model.chat"
+    );
+}
+
+#[tokio::test]
+async fn deployment_invalid_standard_ids_should_return_bad_request() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.rig.invalid.deployment", "RigInvalidDeployment").await;
+    let binding_request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents/agent.rig.invalid.deployment/provider_bindings?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "bindingId": "binding.rig.default",
+                "providerId": "provider.model.rig-rust",
+                "implementationKind": "typed-local-provider",
+                "configurationProfileId": "profile.rig.local",
+                "capabilities": ["model.chat"],
+                "makeDefault": true,
+                "requestedAt": "2026-06-01T00:10:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let binding_response = app
+        .clone()
+        .oneshot(auth_headers(binding_request))
+        .await
+        .expect("binding request should succeed");
+    assert_eq!(binding_response.status(), StatusCode::CREATED);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.rig.invalid.deployment/deployments?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "deploymentId": "deploy.rig.invalid",
+                "bindingId": "binding.rig.default",
+                "requestedAt": "2026-06-01T00:12:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("deployment request should return problem detail");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "validation_error");
+    assert_eq!(
+        body_json["detail"],
+        "deploymentId must start with deployment."
+    );
+}
+
+#[tokio::test]
 async fn list_should_apply_pagination_contract() {
     let state = AgentHttpState::new(
         InMemoryAgentRepository::new(),
@@ -146,7 +820,10 @@ async fn list_should_apply_pagination_contract() {
     let body_json: Value =
         serde_json::from_slice(&body_bytes).expect("response body should be valid json");
 
-    assert_eq!(body_json["data"]["items"].as_array().map(|v| v.len()), Some(1));
+    assert_eq!(
+        body_json["data"]["items"].as_array().map(|v| v.len()),
+        Some(1)
+    );
     assert_eq!(body_json["data"]["pageInfo"]["page"], 1);
     assert_eq!(body_json["data"]["pageInfo"]["pageSize"], 1);
     assert_eq!(body_json["data"]["pageInfo"]["totalItems"], "2");
@@ -231,12 +908,10 @@ async fn missing_subject_header_should_return_problem_detail() {
     assert_eq!(body_json["code"], "validation_error");
     assert_eq!(body_json["errorCategory"], "validation");
     assert_eq!(body_json["retryable"], false);
-    assert!(
-        body_json["detail"]
-            .as_str()
-            .expect("detail should exist")
-            .contains("x-subject-id")
-    );
+    assert!(body_json["detail"]
+        .as_str()
+        .expect("detail should exist")
+        .contains("x-subject-id"));
 }
 
 #[tokio::test]
@@ -317,11 +992,61 @@ async fn create_with_invalid_requested_at_should_return_bad_request() {
     let body_json: Value =
         serde_json::from_slice(&body_bytes).expect("response body should be valid json");
     assert_eq!(body_json["code"], "validation_error");
-    assert!(
-        body_json["detail"]
-            .as_str()
-            .expect("detail should exist")
-            .contains("requestedAt")
+    assert!(body_json["detail"]
+        .as_str()
+        .expect("detail should exist")
+        .contains("requestedAt"));
+}
+
+#[tokio::test]
+async fn create_with_invalid_implementation_provider_id_should_return_bad_request() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let mut body = create_body(
+        "agent.invalid.implementation-provider",
+        "InvalidImplementationProvider",
+        "2026-06-01T03:00:00Z",
+    );
+    body["implementationProviderId"] = json!("model.rig-rust");
+    body["implementationKind"] = json!("typed-local-provider");
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("create should return problem detail");
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "validation_error");
+    assert_eq!(body_json["errorCategory"], "validation");
+    assert_eq!(
+        body_json["detail"],
+        "implementationProviderId must start with provider."
     );
 }
 
@@ -341,12 +1066,7 @@ async fn create_duplicate_agent_should_return_conflict() {
         .uri("/app/v3/api/ai/agents?tenant_id=1")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
-            create_body(
-                "agent.dup.conflict",
-                "DupConflict",
-                "2026-06-01T03:00:00Z",
-            )
-            .to_string(),
+            create_body("agent.dup.conflict", "DupConflict", "2026-06-01T03:00:00Z").to_string(),
         ))
         .expect("request should be built");
 
@@ -645,12 +1365,10 @@ async fn update_with_stale_expected_version_should_return_conflict() {
     assert_eq!(body_json["code"], "version_conflict");
     assert_eq!(body_json["errorCategory"], "concurrency");
     assert_eq!(body_json["retryable"], true);
-    assert!(
-        body_json["detail"]
-            .as_str()
-            .expect("detail should exist")
-            .contains("version mismatch")
-    );
+    assert!(body_json["detail"]
+        .as_str()
+        .expect("detail should exist")
+        .contains("version mismatch"));
 }
 
 #[tokio::test]
@@ -826,6 +1544,109 @@ async fn backend_audit_events_action_filter_should_work() {
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["eventType"], "agent.business.status_changed");
     assert_eq!(body_json["data"]["pageInfo"]["totalItems"], "1");
+}
+
+#[tokio::test]
+async fn backend_audit_events_should_filter_provider_binding_and_deployment_actions() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.audit.rig", "AuditRig").await;
+
+    let binding_request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents/agent.audit.rig/provider_bindings?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "bindingId": "binding.rig.audit",
+                "providerId": "provider.model.rig-rust",
+                "implementationKind": "typed-local-provider",
+                "configurationProfileId": "profile.rig.local",
+                "capabilities": ["model.chat"],
+                "makeDefault": true,
+                "requestedAt": "2026-06-01T02:10:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let binding_response = app
+        .clone()
+        .oneshot(auth_headers(binding_request))
+        .await
+        .expect("binding request should succeed");
+    assert_eq!(binding_response.status(), StatusCode::CREATED);
+
+    let deployment_request = Request::builder()
+        .method("POST")
+        .uri("/backend/v3/api/ai/agents/agent.audit.rig/deployments?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "deploymentId": "deployment.rig.audit.1",
+                "bindingId": "binding.rig.audit",
+                "requestedAt": "2026-06-01T02:20:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let deployment_response = app
+        .clone()
+        .oneshot(auth_headers(deployment_request))
+        .await
+        .expect("deployment request should succeed");
+    assert_eq!(deployment_response.status(), StatusCode::CREATED);
+
+    for (action, event_type, payload_fragment) in [
+        (
+            "provider_binding_changed",
+            "agent.business.provider_binding_changed",
+            "binding_id=binding.rig.audit",
+        ),
+        (
+            "deployment_created",
+            "agent.business.deployment_created",
+            "deployment_id=deployment.rig.audit.1",
+        ),
+    ] {
+        let list_request = Request::builder()
+            .method("GET")
+            .uri(format!(
+                "/backend/v3/api/ai/agents/agent.audit.rig/audit_events?tenant_id=1&action={action}"
+            ))
+            .body(Body::empty())
+            .expect("request should be built");
+        let list_response = app
+            .clone()
+            .oneshot(auth_headers(list_request))
+            .await
+            .expect("audit filter list should succeed");
+        assert_eq!(list_response.status(), StatusCode::OK);
+
+        let body_bytes = to_bytes(list_response.into_body(), usize::MAX)
+            .await
+            .expect("response body should be readable");
+        let body_json: Value =
+            serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+        let items = body_json["data"]["items"]
+            .as_array()
+            .expect("items should be array");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["eventType"], event_type);
+        assert!(
+            items[0]["payload"]
+                .as_str()
+                .expect("payload should be string")
+                .contains(payload_fragment),
+            "payload should include {payload_fragment}: {}",
+            items[0]["payload"]
+        );
+        assert_eq!(body_json["data"]["pageInfo"]["totalItems"], "1");
+    }
 }
 
 #[tokio::test]

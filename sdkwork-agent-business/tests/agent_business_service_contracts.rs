@@ -2,10 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use sdkwork_agent_business::{
     AgentAuditSink, AgentBusinessService, AgentBusinessStatus, AgentListQuery, AgentVisibility,
-    AllowAllPolicyProvider, ChangeAgentStatusCommand, CreateAgentCommand,
-    DEFAULT_AGENT_MANAGEMENT_POLICY_CATEGORY, DeleteAgentCommand, GetAgentCommand,
-    InMemoryAgentRepository, ListAgentsCommand, PolicyMode, RestoreAgentCommand,
-    UpdateAgentCommand,
+    AllowAllPolicyProvider, ChangeAgentStatusCommand, CreateAgentCommand, DeleteAgentCommand,
+    GetAgentCommand, InMemoryAgentRepository, ListAgentsCommand, PolicyMode, RestoreAgentCommand,
+    UpdateAgentCommand, DEFAULT_AGENT_MANAGEMENT_POLICY_CATEGORY,
 };
 use sdkwork_agent_kernel::{AgentManifest, KernelError, KernelEvent, KernelResult, PolicySubject};
 use sdkwork_code_kernel::CodeTaskIntent;
@@ -100,6 +99,8 @@ fn create_agent_cmd(
         visibility: AgentVisibility::Organization,
         tags: vec!["starter".to_string()],
         default_code_task_intent: Some(CodeTaskIntent::new("Refactor runtime")),
+        implementation_provider_id: None,
+        implementation_kind: None,
         requested_by: sample_subject(),
         requested_at: requested_at.to_string(),
     }
@@ -459,7 +460,10 @@ fn list_filters_by_owner_organization_and_deleted_flag() {
         })
         .expect("list by owner with deleted should succeed");
     assert_eq!(by_owner_with_deleted.len(), 1);
-    assert_eq!(by_owner_with_deleted[0].status, AgentBusinessStatus::Deleted);
+    assert_eq!(
+        by_owner_with_deleted[0].status,
+        AgentBusinessStatus::Deleted
+    );
 }
 
 #[test]
@@ -587,7 +591,10 @@ fn audit_events_are_recorded_for_state_mutations() {
 
     let captured = events.lock().expect("events mutex poisoned");
     assert_eq!(captured.len(), 5);
-    let event_types: Vec<&str> = captured.iter().map(|event| event.event_type.as_str()).collect();
+    let event_types: Vec<&str> = captured
+        .iter()
+        .map(|event| event.event_type.as_str())
+        .collect();
     assert_eq!(
         event_types,
         vec![

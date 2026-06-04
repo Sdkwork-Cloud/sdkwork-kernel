@@ -111,6 +111,8 @@ pub enum AgentAuditAction {
     Delete,
     Restore,
     ChangeStatus,
+    ProviderBindingChanged,
+    DeploymentCreated,
 }
 
 impl AgentAuditAction {
@@ -121,6 +123,8 @@ impl AgentAuditAction {
             Self::Delete => "agent.business.deleted",
             Self::Restore => "agent.business.restored",
             Self::ChangeStatus => "agent.business.status_changed",
+            Self::ProviderBindingChanged => "agent.business.provider_binding_changed",
+            Self::DeploymentCreated => "agent.business.deployment_created",
         }
     }
 
@@ -131,6 +135,37 @@ impl AgentAuditAction {
             Self::Delete => "deleted",
             Self::Restore => "restored",
             Self::ChangeStatus => "status_changed",
+            Self::ProviderBindingChanged => "provider_binding_changed",
+            Self::DeploymentCreated => "deployment_created",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentImplementationKind {
+    ManifestOnly,
+    TypedLocalProvider,
+    ProcessAdapter,
+    ProtocolAdapter,
+}
+
+impl AgentImplementationKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::ManifestOnly => "manifest-only",
+            Self::TypedLocalProvider => "typed-local-provider",
+            Self::ProcessAdapter => "process-adapter",
+            Self::ProtocolAdapter => "protocol-adapter",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "manifest-only" => Some(Self::ManifestOnly),
+            "typed-local-provider" => Some(Self::TypedLocalProvider),
+            "process-adapter" => Some(Self::ProcessAdapter),
+            "protocol-adapter" => Some(Self::ProtocolAdapter),
+            _ => None,
         }
     }
 }
@@ -147,6 +182,8 @@ pub struct AgentBusinessRecord {
     pub description: Option<String>,
     pub manifest: AgentManifest,
     pub default_code_task_intent: Option<CodeTaskIntent>,
+    pub implementation_provider_id: Option<String>,
+    pub implementation_kind: Option<AgentImplementationKind>,
     pub status: AgentBusinessStatus,
     pub visibility: AgentVisibility,
     pub tags: Vec<String>,
@@ -154,6 +191,82 @@ pub struct AgentBusinessRecord {
     pub created_at: String,
     pub updated_at: String,
     pub deleted_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentProviderBindingRecord {
+    pub tenant_id: u64,
+    pub agent_id: String,
+    pub binding_id: String,
+    pub provider_id: String,
+    pub implementation_kind: AgentImplementationKind,
+    pub configuration_profile_id: String,
+    pub capabilities: Vec<String>,
+    pub active: bool,
+    pub version: u64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl AgentProviderBindingRecord {
+    pub fn mark_updated(&mut self, updated_at: impl Into<String>) {
+        self.updated_at = updated_at.into();
+        self.version = self.version.saturating_add(1);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentDeploymentStatus {
+    Created,
+    Active,
+    Failed,
+    Archived,
+}
+
+impl AgentDeploymentStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Created => "created",
+            Self::Active => "active",
+            Self::Failed => "failed",
+            Self::Archived => "archived",
+        }
+    }
+
+    pub fn as_db_code(&self) -> i16 {
+        match self {
+            Self::Created => 0,
+            Self::Active => 1,
+            Self::Failed => 2,
+            Self::Archived => 3,
+        }
+    }
+
+    pub fn from_db_code(value: i16) -> Option<Self> {
+        match value {
+            0 => Some(Self::Created),
+            1 => Some(Self::Active),
+            2 => Some(Self::Failed),
+            3 => Some(Self::Archived),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentDeploymentRecord {
+    pub tenant_id: u64,
+    pub agent_id: String,
+    pub deployment_id: String,
+    pub binding_id: String,
+    pub provider_id_snapshot: String,
+    pub implementation_kind_snapshot: AgentImplementationKind,
+    pub configuration_profile_id_snapshot: String,
+    pub capabilities_snapshot: Vec<String>,
+    pub status: AgentDeploymentStatus,
+    pub version: u64,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 impl AgentBusinessRecord {

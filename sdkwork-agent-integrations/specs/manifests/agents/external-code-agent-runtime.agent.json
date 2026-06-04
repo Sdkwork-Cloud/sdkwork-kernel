@@ -1,0 +1,132 @@
+{
+  "schema_version": "0.1.0",
+  "manifest_type": "agent",
+  "agent_id": "agent.intelligence.external-code-agent-runtime",
+  "name": "external-code-agent-runtime",
+  "display_name": "External Code Agent Runtime",
+  "description": "Experimental SDKWork manifest for CLI-backed code-agent runtimes such as Codex, Claude Code, OpenCode, and Gemini CLI.",
+  "version": "0.1.0",
+  "domain": "intelligence",
+  "kernel_compatibility": {
+    "agent_kernel": ">=0.1.0 <0.2.0"
+  },
+  "required_capabilities": [
+    {
+      "capability_id": "policy.evaluate",
+      "min_version": "0.1.0",
+      "required": true
+    },
+    {
+      "capability_id": "host.process.execute",
+      "min_version": "0.1.0",
+      "required": true
+    }
+  ],
+  "optional_capabilities": [
+    {
+      "capability_id": "code.workspace.read",
+      "min_version": "0.1.0",
+      "required": false
+    },
+    {
+      "capability_id": "code.workspace.write",
+      "min_version": "0.1.0",
+      "required": false
+    },
+    {
+      "capability_id": "code.patch.apply",
+      "min_version": "0.1.0",
+      "required": false
+    },
+    {
+      "capability_id": "code.terminal.run",
+      "min_version": "0.1.0",
+      "required": false
+    },
+    {
+      "capability_id": "code.verification.run",
+      "min_version": "0.1.0",
+      "required": false
+    },
+    {
+      "capability_id": "code.review.produce",
+      "min_version": "0.1.0",
+      "required": false
+    }
+  ],
+  "provider_requirements": [
+    {
+      "family": "policy",
+      "required": true,
+      "capabilities": [
+        "policy.evaluate"
+      ]
+    },
+    {
+      "family": "host",
+      "required": true,
+      "capabilities": [
+        "host.process.execute"
+      ]
+    },
+    {
+      "family": "protocol_adapter",
+      "required": false,
+      "capabilities": [
+        "protocol.process"
+      ]
+    }
+  ],
+  "protocol_adapters": [
+    {
+      "adapter_id": "adapter.ipc.external-process",
+      "required": false
+    }
+  ],
+  "security_profile": {
+    "fail_closed": true,
+    "required_policy_categories": [
+      "host.process.execute",
+      "host.filesystem.write",
+      "host.network.connect",
+      "host.secrets.read",
+      "tool.invoke"
+    ],
+    "redaction_required": true
+  },
+  "runtime_profile": {
+    "modes": [
+      "local",
+      "desktop",
+      "cli",
+      "server"
+    ]
+  },
+  "event_families": [
+    "agent.runtime.*",
+    "agent.task.*",
+    "agent.step.*",
+    "agent.policy.*",
+    "agent.tool.*"
+  ],
+  "owner": {
+    "name": "sdkwork-platform"
+  },
+  "status": "experimental",
+  "tags": [
+    "external",
+    "code-agent",
+    "process-adapter"
+  ],
+  "license": "SDKWork manifest only; upstream licenses remain owned by each external project",
+  "extensions": {
+    "sdkwork.external.initial-registration-mode": "process-adapter",
+    "sdkwork.external.reference-paths": [
+      "external/codex",
+      "external/claude-code",
+      "external/opencode",
+      "external/gemini-cli"
+    ],
+    "sdkwork.external.execution-status": "not-implemented"
+  }
+}

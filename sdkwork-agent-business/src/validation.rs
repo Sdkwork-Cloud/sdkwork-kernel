@@ -1,4 +1,5 @@
 use sdkwork_agent_kernel::{KernelError, KernelResult};
+use std::collections::HashSet;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
@@ -28,6 +29,71 @@ pub(crate) fn validate_requested_at(value: &str) -> KernelResult<()> {
     validate_rfc3339_datetime(value, "requestedAt")
 }
 
+pub(crate) fn validate_standard_id(
+    value: &str,
+    field_name: &str,
+    required_prefix: Option<&str>,
+) -> KernelResult<()> {
+    if value.trim().is_empty() {
+        return Err(KernelError::validation(format!("{field_name} is required")));
+    }
+    if value.trim() != value {
+        return Err(KernelError::validation(format!(
+            "{field_name} must not contain leading or trailing whitespace"
+        )));
+    }
+    if value.chars().count() > 128 {
+        return Err(KernelError::validation(format!(
+            "{field_name} must be at most 128 characters"
+        )));
+    }
+    if !value.chars().all(is_standard_id_character) {
+        return Err(KernelError::validation(format!(
+            "{field_name} must use lowercase standard id characters"
+        )));
+    }
+    if !has_non_empty_dot_segments(value) {
+        return Err(KernelError::validation(format!(
+            "{field_name} must use non-empty dot-delimited segments"
+        )));
+    }
+    if let Some(prefix) = required_prefix {
+        if !value.starts_with(prefix) {
+            return Err(KernelError::validation(format!(
+                "{field_name} must start with {prefix}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_capabilities(capabilities: &[String], field_name: &str) -> KernelResult<()> {
+    let mut seen = HashSet::new();
+    for capability in capabilities {
+        if capability.trim().is_empty() {
+            return Err(KernelError::validation(format!(
+                "{field_name} must not contain empty capability ids"
+            )));
+        }
+        if capability.chars().count() > 128 {
+            return Err(KernelError::validation(format!(
+                "{field_name} capability ids must be at most 128 characters"
+            )));
+        }
+        if capability.trim() != capability || !is_valid_capability_id(capability.as_str()) {
+            return Err(KernelError::validation(format!(
+                "{field_name} must use lowercase namespaced capability ids"
+            )));
+        }
+        if !seen.insert(capability.as_str()) {
+            return Err(KernelError::validation(format!(
+                "{field_name} must not contain duplicate capability id: {capability}"
+            )));
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn validate_rfc3339_datetime(value: &str, field_name: &str) -> KernelResult<()> {
     let _ = parse_rfc3339_datetime(value, field_name)?;
     Ok(())
@@ -37,8 +103,9 @@ pub(crate) fn parse_rfc3339_datetime(
     value: &str,
     field_name: &str,
 ) -> KernelResult<OffsetDateTime> {
-    OffsetDateTime::parse(value, &Rfc3339)
-        .map_err(|error| KernelError::validation(format!("{field_name} must be RFC3339 date-time: {error}")))
+    OffsetDateTime::parse(value, &Rfc3339).map_err(|error| {
+        KernelError::validation(format!("{field_name} must be RFC3339 date-time: {error}"))
+    })
 }
 
 #[cfg(feature = "http-axum")]
@@ -50,6 +117,26 @@ pub(crate) fn parse_optional_rfc3339_datetime(
         return Ok(None);
     };
     parse_rfc3339_datetime(value, field_name).map(Some)
+}
+
+fn is_valid_capability_id(capability_id: &str) -> bool {
+    capability_id.chars().all(is_standard_id_character) && has_non_empty_dot_segments(capability_id)
+}
+
+fn is_standard_id_character(ch: char) -> bool {
+    ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '.' | '_' | '-')
+}
+
+fn has_non_empty_dot_segments(value: &str) -> bool {
+    let mut segments = value.split('.');
+    let mut segment_count = 0;
+    for segment in &mut segments {
+        segment_count += 1;
+        if segment.is_empty() {
+            return false;
+        }
+    }
+    segment_count >= 2
 }
 
 #[cfg(test)]
@@ -109,8 +196,8 @@ mod tests {
 
     #[test]
     fn validate_requested_at_uses_api_field_name() {
-        let error = validate_requested_at("2026-06-01")
-            .expect_err("invalid requestedAt should fail");
+        let error =
+            validate_requested_at("2026-06-01").expect_err("invalid requestedAt should fail");
         match error {
             KernelError::Validation { message } => {
                 assert!(message.contains("requestedAt"));
@@ -120,9 +207,98 @@ mod tests {
     }
 
     #[test]
+    fn validate_standard_id_rejects_non_standard_values() {
+        let error = validate_standard_id("Provider.Model", "providerId", Some("provider."))
+            .expect_err("uppercase standard id should fail");
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("providerId"));
+                assert!(message.contains("lowercase standard id characters"));
+            }
+            _ => panic!("expected validation error"),
+        }
+
+        let error = validate_standard_id("provider.", "providerId", Some("provider."))
+            .expect_err("prefix-only standard id should fail");
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("providerId"));
+                assert!(message.contains("dot-delimited"));
+            }
+            _ => panic!("expected validation error"),
+        }
+
+        let error = validate_standard_id("provider..rig", "providerId", Some("provider."))
+            .expect_err("empty standard id segment should fail");
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("providerId"));
+                assert!(message.contains("dot-delimited"));
+            }
+            _ => panic!("expected validation error"),
+        }
+
+        let error = validate_standard_id("model.rig", "providerId", Some("provider."))
+            .expect_err("missing standard prefix should fail");
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("providerId"));
+                assert!(message.contains("provider."));
+            }
+            _ => panic!("expected validation error"),
+        }
+    }
+
+    #[test]
+    fn validate_capabilities_rejects_non_standard_values() {
+        let capabilities = vec!["model.chat".to_string(), "model.chat".to_string()];
+        let error = validate_capabilities(&capabilities, "capabilities")
+            .expect_err("duplicate capability should fail");
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("capabilities"));
+                assert!(message.contains("duplicate"));
+            }
+            _ => panic!("expected validation error"),
+        }
+
+        let capabilities = vec!["chat".to_string()];
+        let error = validate_capabilities(&capabilities, "capabilities")
+            .expect_err("unnamespaced capability should fail");
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("capabilities"));
+                assert!(message.contains("namespaced"));
+            }
+            _ => panic!("expected validation error"),
+        }
+
+        let capabilities = vec!["model.".to_string()];
+        let error = validate_capabilities(&capabilities, "capabilities")
+            .expect_err("capability with empty segment should fail");
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("capabilities"));
+                assert!(message.contains("namespaced"));
+            }
+            _ => panic!("expected validation error"),
+        }
+
+        let capabilities = vec![format!("model.{}", "a".repeat(123))];
+        let error = validate_capabilities(&capabilities, "capabilities")
+            .expect_err("capability over 128 characters should fail");
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("capabilities"));
+                assert!(message.contains("at most 128"));
+            }
+            _ => panic!("expected validation error"),
+        }
+    }
+
+    #[test]
     fn parse_expected_version_uses_api_field_name() {
-        let error = parse_expected_version("1x")
-            .expect_err("invalid expectedVersion should fail");
+        let error = parse_expected_version("1x").expect_err("invalid expectedVersion should fail");
         match error {
             KernelError::Validation { message } => {
                 assert!(message.contains("expectedVersion"));

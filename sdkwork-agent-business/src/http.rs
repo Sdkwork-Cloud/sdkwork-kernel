@@ -1,13 +1,14 @@
 use crate::application::AgentBusinessService;
+use crate::domain::{AgentDeploymentRecord, AgentProviderBindingRecord};
 use crate::dto::{
-    AgentRecordDto, CreateAgentRequestDto, DeleteAgentRequestDto, GetAgentRequestDto,
-    ListAgentsRequestDto, RestoreAgentRequestDto, UpdateAgentRequestDto,
-    UpdateAgentStatusRequestDto,
+    ActivateAgentProviderBindingRequestDto, AgentDeploymentRecordDto,
+    AgentProviderBindingRecordDto, AgentProviderBindingRequestDto,
+    AgentProviderDeploymentRequestDto, AgentRecordDto, CreateAgentRequestDto,
+    DeleteAgentRequestDto, GetAgentRequestDto, ListAgentsRequestDto, RestoreAgentRequestDto,
+    UpdateAgentRequestDto, UpdateAgentStatusRequestDto,
 };
 use crate::ports::{AgentAuditSink, AgentRepository};
-use crate::validation::{
-    parse_optional_rfc3339_datetime, parse_rfc3339_datetime, parse_tenant_id,
-};
+use crate::validation::{parse_optional_rfc3339_datetime, parse_rfc3339_datetime, parse_tenant_id};
 use axum::extract::rejection::{JsonRejection, PathRejection, QueryRejection};
 use axum::extract::{Path, Query, State};
 use axum::http::header::CONTENT_TYPE;
@@ -36,6 +37,8 @@ const ALLOWED_AUDIT_ACTIONS: &[&str] = &[
     "deleted",
     "restored",
     "status_changed",
+    "provider_binding_changed",
+    "deployment_created",
 ];
 
 struct DynAgentRepository(Box<dyn AgentRepository + Send>);
@@ -86,8 +89,44 @@ impl AgentRepository for DynAgentRepository {
         self.0.get(tenant_id, agent_id)
     }
 
-    fn list(&self, query: &crate::ports::AgentListQuery) -> Vec<crate::domain::AgentBusinessRecord> {
+    fn list(
+        &self,
+        query: &crate::ports::AgentListQuery,
+    ) -> Vec<crate::domain::AgentBusinessRecord> {
         self.0.list(query)
+    }
+
+    fn insert_provider_binding(&mut self, record: AgentProviderBindingRecord) -> KernelResult<()> {
+        self.0.insert_provider_binding(record)
+    }
+
+    fn update_provider_binding(&mut self, record: AgentProviderBindingRecord) -> KernelResult<()> {
+        self.0.update_provider_binding(record)
+    }
+
+    fn get_provider_binding(
+        &self,
+        tenant_id: u64,
+        agent_id: &str,
+        binding_id: &str,
+    ) -> Option<AgentProviderBindingRecord> {
+        self.0.get_provider_binding(tenant_id, agent_id, binding_id)
+    }
+
+    fn list_provider_bindings(
+        &self,
+        tenant_id: u64,
+        agent_id: &str,
+    ) -> Vec<AgentProviderBindingRecord> {
+        self.0.list_provider_bindings(tenant_id, agent_id)
+    }
+
+    fn insert_deployment(&mut self, record: AgentDeploymentRecord) -> KernelResult<()> {
+        self.0.insert_deployment(record)
+    }
+
+    fn list_deployments(&self, tenant_id: u64, agent_id: &str) -> Vec<AgentDeploymentRecord> {
+        self.0.list_deployments(tenant_id, agent_id)
     }
 }
 
@@ -142,14 +181,31 @@ impl AgentHttpState {
 
 pub fn build_app_router() -> Router<AgentHttpState> {
     Router::new()
-        .route("/app/v3/api/ai/agents", get(app_list_agents).post(app_create_agent))
+        .route(
+            "/app/v3/api/ai/agents",
+            get(app_list_agents).post(app_create_agent),
+        )
         .route(
             "/app/v3/api/ai/agents/{agentId}",
-            get(app_get_agent).patch(app_update_agent).delete(app_delete_agent),
+            get(app_get_agent)
+                .patch(app_update_agent)
+                .delete(app_delete_agent),
         )
         .route(
             "/app/v3/api/ai/agents/{agentId}/restore",
             post(app_restore_agent),
+        )
+        .route(
+            "/app/v3/api/ai/agents/{agentId}/provider_bindings",
+            get(app_list_provider_bindings).post(app_add_provider_binding),
+        )
+        .route(
+            "/app/v3/api/ai/agents/{agentId}/provider_bindings/{bindingId}/activate",
+            post(app_activate_provider_binding),
+        )
+        .route(
+            "/app/v3/api/ai/agents/{agentId}/deployments",
+            get(app_list_deployments).post(app_create_deployment),
         )
 }
 
@@ -174,6 +230,18 @@ pub fn build_backend_router() -> Router<AgentHttpState> {
         .route(
             "/backend/v3/api/ai/agents/{agentId}/audit_events",
             get(backend_list_agent_audit_events),
+        )
+        .route(
+            "/backend/v3/api/ai/agents/{agentId}/provider_bindings",
+            get(backend_list_provider_bindings).post(backend_add_provider_binding),
+        )
+        .route(
+            "/backend/v3/api/ai/agents/{agentId}/provider_bindings/{bindingId}/activate",
+            post(backend_activate_provider_binding),
+        )
+        .route(
+            "/backend/v3/api/ai/agents/{agentId}/deployments",
+            get(backend_list_deployments).post(backend_create_deployment),
         )
 }
 
@@ -200,9 +268,24 @@ struct TenantQueryParams {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct TenantListQueryParams {
+    tenant_id: String,
+    page: Option<usize>,
+    page_size: Option<usize>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct TenantAgentPathParams {
     #[serde(rename = "agentId")]
     agent_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TenantAgentBindingPathParams {
+    #[serde(rename = "agentId")]
+    agent_id: String,
+    #[serde(rename = "bindingId")]
+    binding_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -226,8 +309,36 @@ struct CreateAgentBody {
     description: Option<String>,
     manifest: Value,
     default_code_task_intent: Option<CodeTaskIntentBody>,
+    implementation_provider_id: Option<String>,
+    implementation_kind: Option<String>,
     visibility: String,
     tags: Option<Vec<String>>,
+    requested_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentProviderBindingBody {
+    binding_id: String,
+    provider_id: String,
+    implementation_kind: String,
+    configuration_profile_id: String,
+    capabilities: Option<Vec<String>>,
+    make_default: Option<bool>,
+    requested_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ActivateProviderBindingBody {
+    requested_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentDeploymentBody {
+    deployment_id: String,
+    binding_id: String,
     requested_at: String,
 }
 
@@ -295,6 +406,77 @@ struct AgentResponse {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct AgentProviderBindingResponse {
+    data: AgentProviderBindingRecordResponse,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentProviderBindingListResponse {
+    data: AgentProviderBindingListDataResponse,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentProviderBindingListDataResponse {
+    items: Vec<AgentProviderBindingRecordResponse>,
+    page_info: PageInfoResponse,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentProviderBindingRecordResponse {
+    tenant_id: String,
+    agent_id: String,
+    binding_id: String,
+    provider_id: String,
+    implementation_kind: String,
+    configuration_profile_id: String,
+    capabilities: Vec<String>,
+    active: bool,
+    version: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentDeploymentResponse {
+    data: AgentDeploymentRecordResponse,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentDeploymentListResponse {
+    data: AgentDeploymentListDataResponse,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentDeploymentListDataResponse {
+    items: Vec<AgentDeploymentRecordResponse>,
+    page_info: PageInfoResponse,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentDeploymentRecordResponse {
+    tenant_id: String,
+    agent_id: String,
+    deployment_id: String,
+    binding_id: String,
+    provider_id_snapshot: String,
+    implementation_kind_snapshot: String,
+    configuration_profile_id_snapshot: String,
+    capabilities_snapshot: Vec<String>,
+    status: String,
+    version: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct AgentRecordResponse {
     id: String,
     agent_id: String,
@@ -306,6 +488,8 @@ struct AgentRecordResponse {
     description: Option<String>,
     manifest: Value,
     default_code_task_intent: Option<Value>,
+    implementation_provider_id: Option<String>,
+    implementation_kind: Option<String>,
     status: String,
     visibility: String,
     tags: Vec<String>,
@@ -719,7 +903,8 @@ async fn backend_list_agent_audit_events(
     let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let subject = extract_policy_subject(headers, query.tenant_id.as_str())?;
-    let tenant_id = parse_tenant_id(query.tenant_id.as_str()).map_err(ApiProblem::from_kernel_error)?;
+    let tenant_id =
+        parse_tenant_id(query.tenant_id.as_str()).map_err(ApiProblem::from_kernel_error)?;
     let events = with_service_mut(&state, |service| {
         service.list_agent_audit_events(tenant_id, path.agent_id.as_str(), subject)
     })?;
@@ -756,6 +941,128 @@ async fn backend_list_agent_audit_events(
             },
         },
     }))
+}
+
+async fn app_list_provider_bindings(
+    State(state): State<AgentHttpState>,
+    path: Result<Path<TenantAgentPathParams>, PathRejection>,
+    query: Result<Query<TenantListQueryParams>, QueryRejection>,
+    headers: HeaderMap,
+) -> Result<Json<AgentProviderBindingListResponse>, ApiProblem> {
+    let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    execute_list_provider_bindings(state, query, path.agent_id, headers).await
+}
+
+async fn backend_list_provider_bindings(
+    State(state): State<AgentHttpState>,
+    path: Result<Path<TenantAgentPathParams>, PathRejection>,
+    query: Result<Query<TenantListQueryParams>, QueryRejection>,
+    headers: HeaderMap,
+) -> Result<Json<AgentProviderBindingListResponse>, ApiProblem> {
+    let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    execute_list_provider_bindings(state, query, path.agent_id, headers).await
+}
+
+async fn app_add_provider_binding(
+    State(state): State<AgentHttpState>,
+    path: Result<Path<TenantAgentPathParams>, PathRejection>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
+    headers: HeaderMap,
+    body: Result<Json<AgentProviderBindingBody>, JsonRejection>,
+) -> Result<(StatusCode, Json<AgentProviderBindingResponse>), ApiProblem> {
+    let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
+    execute_add_provider_binding(state, query, path.agent_id, headers, body).await
+}
+
+async fn backend_add_provider_binding(
+    State(state): State<AgentHttpState>,
+    path: Result<Path<TenantAgentPathParams>, PathRejection>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
+    headers: HeaderMap,
+    body: Result<Json<AgentProviderBindingBody>, JsonRejection>,
+) -> Result<(StatusCode, Json<AgentProviderBindingResponse>), ApiProblem> {
+    let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
+    execute_add_provider_binding(state, query, path.agent_id, headers, body).await
+}
+
+async fn app_activate_provider_binding(
+    State(state): State<AgentHttpState>,
+    path: Result<Path<TenantAgentBindingPathParams>, PathRejection>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
+    headers: HeaderMap,
+    body: Result<Json<ActivateProviderBindingBody>, JsonRejection>,
+) -> Result<Json<AgentProviderBindingResponse>, ApiProblem> {
+    let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
+    execute_activate_provider_binding(state, query, path, headers, body).await
+}
+
+async fn backend_activate_provider_binding(
+    State(state): State<AgentHttpState>,
+    path: Result<Path<TenantAgentBindingPathParams>, PathRejection>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
+    headers: HeaderMap,
+    body: Result<Json<ActivateProviderBindingBody>, JsonRejection>,
+) -> Result<Json<AgentProviderBindingResponse>, ApiProblem> {
+    let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
+    execute_activate_provider_binding(state, query, path, headers, body).await
+}
+
+async fn app_list_deployments(
+    State(state): State<AgentHttpState>,
+    path: Result<Path<TenantAgentPathParams>, PathRejection>,
+    query: Result<Query<TenantListQueryParams>, QueryRejection>,
+    headers: HeaderMap,
+) -> Result<Json<AgentDeploymentListResponse>, ApiProblem> {
+    let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    execute_list_deployments(state, query, path.agent_id, headers).await
+}
+
+async fn backend_list_deployments(
+    State(state): State<AgentHttpState>,
+    path: Result<Path<TenantAgentPathParams>, PathRejection>,
+    query: Result<Query<TenantListQueryParams>, QueryRejection>,
+    headers: HeaderMap,
+) -> Result<Json<AgentDeploymentListResponse>, ApiProblem> {
+    let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    execute_list_deployments(state, query, path.agent_id, headers).await
+}
+
+async fn app_create_deployment(
+    State(state): State<AgentHttpState>,
+    path: Result<Path<TenantAgentPathParams>, PathRejection>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
+    headers: HeaderMap,
+    body: Result<Json<AgentDeploymentBody>, JsonRejection>,
+) -> Result<(StatusCode, Json<AgentDeploymentResponse>), ApiProblem> {
+    let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
+    execute_create_deployment(state, query, path.agent_id, headers, body).await
+}
+
+async fn backend_create_deployment(
+    State(state): State<AgentHttpState>,
+    path: Result<Path<TenantAgentPathParams>, PathRejection>,
+    query: Result<Query<TenantQueryParams>, QueryRejection>,
+    headers: HeaderMap,
+    body: Result<Json<AgentDeploymentBody>, JsonRejection>,
+) -> Result<(StatusCode, Json<AgentDeploymentResponse>), ApiProblem> {
+    let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
+    let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
+    let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
+    execute_create_deployment(state, query, path.agent_id, headers, body).await
 }
 
 fn with_service_mut<T>(
@@ -837,6 +1144,8 @@ async fn execute_create(
         visibility: body.visibility,
         tags: body.tags.unwrap_or_default(),
         default_code_task_intent: body.default_code_task_intent.map(Into::into),
+        implementation_provider_id: body.implementation_provider_id,
+        implementation_kind: body.implementation_kind,
         requested_at: body.requested_at,
     }
     .into_command(subject)
@@ -922,6 +1231,169 @@ async fn execute_restore(
     }))
 }
 
+async fn execute_list_provider_bindings(
+    state: AgentHttpState,
+    query: TenantListQueryParams,
+    agent_id: String,
+    headers: HeaderMap,
+) -> Result<Json<AgentProviderBindingListResponse>, ApiProblem> {
+    let subject = extract_policy_subject(headers, query.tenant_id.as_str())?;
+    let tenant_id =
+        parse_tenant_id(query.tenant_id.as_str()).map_err(ApiProblem::from_kernel_error)?;
+
+    let records = with_service_mut(&state, |service| {
+        service.list_provider_bindings(tenant_id, agent_id.as_str(), subject)
+    })?;
+    let (page, page_size) = normalized_pagination(query.page, query.page_size)?;
+    let total_items = records.len();
+    let paged = paginate(records, page, page_size);
+
+    let items = paged
+        .iter()
+        .map(|record| {
+            map_provider_binding_record(&AgentProviderBindingRecordDto::from_record(record))
+        })
+        .collect();
+    let total_pages = if total_items == 0 {
+        0
+    } else {
+        total_items.div_ceil(page_size)
+    };
+
+    Ok(Json(AgentProviderBindingListResponse {
+        data: AgentProviderBindingListDataResponse {
+            items,
+            page_info: PageInfoResponse {
+                page,
+                page_size,
+                total_items: total_items.to_string(),
+                total_pages,
+            },
+        },
+    }))
+}
+
+async fn execute_add_provider_binding(
+    state: AgentHttpState,
+    query: TenantQueryParams,
+    agent_id: String,
+    headers: HeaderMap,
+    body: AgentProviderBindingBody,
+) -> Result<(StatusCode, Json<AgentProviderBindingResponse>), ApiProblem> {
+    let subject = extract_policy_subject(headers, query.tenant_id.as_str())?;
+    let command = AgentProviderBindingRequestDto {
+        tenant_id: query.tenant_id,
+        agent_id,
+        binding_id: body.binding_id,
+        provider_id: body.provider_id,
+        implementation_kind: body.implementation_kind,
+        configuration_profile_id: body.configuration_profile_id,
+        capabilities: body.capabilities.unwrap_or_default(),
+        make_default: body.make_default.unwrap_or(false),
+        requested_at: body.requested_at,
+    }
+    .into_command(subject)
+    .map_err(ApiProblem::from_kernel_error)?;
+
+    let record = with_service_mut(&state, |service| service.add_provider_binding(command))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(AgentProviderBindingResponse {
+            data: map_provider_binding_record(&AgentProviderBindingRecordDto::from_record(&record)),
+        }),
+    ))
+}
+
+async fn execute_activate_provider_binding(
+    state: AgentHttpState,
+    query: TenantQueryParams,
+    path: TenantAgentBindingPathParams,
+    headers: HeaderMap,
+    body: ActivateProviderBindingBody,
+) -> Result<Json<AgentProviderBindingResponse>, ApiProblem> {
+    let subject = extract_policy_subject(headers, query.tenant_id.as_str())?;
+    let command = ActivateAgentProviderBindingRequestDto {
+        tenant_id: query.tenant_id,
+        agent_id: path.agent_id,
+        binding_id: path.binding_id,
+        requested_at: body.requested_at,
+    }
+    .into_command(subject)
+    .map_err(ApiProblem::from_kernel_error)?;
+
+    let record = with_service_mut(&state, |service| service.activate_provider_binding(command))?;
+    Ok(Json(AgentProviderBindingResponse {
+        data: map_provider_binding_record(&AgentProviderBindingRecordDto::from_record(&record)),
+    }))
+}
+
+async fn execute_list_deployments(
+    state: AgentHttpState,
+    query: TenantListQueryParams,
+    agent_id: String,
+    headers: HeaderMap,
+) -> Result<Json<AgentDeploymentListResponse>, ApiProblem> {
+    let subject = extract_policy_subject(headers, query.tenant_id.as_str())?;
+    let tenant_id =
+        parse_tenant_id(query.tenant_id.as_str()).map_err(ApiProblem::from_kernel_error)?;
+
+    let records = with_service_mut(&state, |service| {
+        service.list_deployments(tenant_id, agent_id.as_str(), subject)
+    })?;
+    let (page, page_size) = normalized_pagination(query.page, query.page_size)?;
+    let total_items = records.len();
+    let paged = paginate(records, page, page_size);
+
+    let items = paged
+        .iter()
+        .map(|record| map_deployment_record(&AgentDeploymentRecordDto::from_record(record)))
+        .collect();
+    let total_pages = if total_items == 0 {
+        0
+    } else {
+        total_items.div_ceil(page_size)
+    };
+
+    Ok(Json(AgentDeploymentListResponse {
+        data: AgentDeploymentListDataResponse {
+            items,
+            page_info: PageInfoResponse {
+                page,
+                page_size,
+                total_items: total_items.to_string(),
+                total_pages,
+            },
+        },
+    }))
+}
+
+async fn execute_create_deployment(
+    state: AgentHttpState,
+    query: TenantQueryParams,
+    agent_id: String,
+    headers: HeaderMap,
+    body: AgentDeploymentBody,
+) -> Result<(StatusCode, Json<AgentDeploymentResponse>), ApiProblem> {
+    let subject = extract_policy_subject(headers, query.tenant_id.as_str())?;
+    let command = AgentProviderDeploymentRequestDto {
+        tenant_id: query.tenant_id,
+        agent_id,
+        deployment_id: body.deployment_id,
+        binding_id: body.binding_id,
+        requested_at: body.requested_at,
+    }
+    .into_command(subject)
+    .map_err(ApiProblem::from_kernel_error)?;
+
+    let record = with_service_mut(&state, |service| service.create_deployment(command))?;
+    Ok((
+        StatusCode::CREATED,
+        Json(AgentDeploymentResponse {
+            data: map_deployment_record(&AgentDeploymentRecordDto::from_record(&record)),
+        }),
+    ))
+}
+
 fn parse_manifest(value: Value) -> Result<AgentManifest, ApiProblem> {
     let json_string = serde_json::to_string(&value)
         .map_err(|error| ApiProblem::validation(format!("manifest json encode failed: {error}")))?;
@@ -946,6 +1418,8 @@ fn map_agent_record(record: &AgentRecordDto) -> Result<AgentRecordResponse, ApiP
         description: record.description.clone(),
         manifest: manifest_value,
         default_code_task_intent,
+        implementation_provider_id: record.implementation_provider_id.clone(),
+        implementation_kind: record.implementation_kind.clone(),
         status: record.status.clone(),
         visibility: record.visibility.clone(),
         tags: record.tags.clone(),
@@ -954,6 +1428,41 @@ fn map_agent_record(record: &AgentRecordDto) -> Result<AgentRecordResponse, ApiP
         updated_at: record.updated_at.clone(),
         deleted_at: record.deleted_at.clone(),
     })
+}
+
+fn map_provider_binding_record(
+    record: &AgentProviderBindingRecordDto,
+) -> AgentProviderBindingRecordResponse {
+    AgentProviderBindingRecordResponse {
+        tenant_id: record.tenant_id.clone(),
+        agent_id: record.agent_id.clone(),
+        binding_id: record.binding_id.clone(),
+        provider_id: record.provider_id.clone(),
+        implementation_kind: record.implementation_kind.clone(),
+        configuration_profile_id: record.configuration_profile_id.clone(),
+        capabilities: record.capabilities.clone(),
+        active: record.active,
+        version: record.version.clone(),
+        created_at: record.created_at.clone(),
+        updated_at: record.updated_at.clone(),
+    }
+}
+
+fn map_deployment_record(record: &AgentDeploymentRecordDto) -> AgentDeploymentRecordResponse {
+    AgentDeploymentRecordResponse {
+        tenant_id: record.tenant_id.clone(),
+        agent_id: record.agent_id.clone(),
+        deployment_id: record.deployment_id.clone(),
+        binding_id: record.binding_id.clone(),
+        provider_id_snapshot: record.provider_id_snapshot.clone(),
+        implementation_kind_snapshot: record.implementation_kind_snapshot.clone(),
+        configuration_profile_id_snapshot: record.configuration_profile_id_snapshot.clone(),
+        capabilities_snapshot: record.capabilities_snapshot.clone(),
+        status: record.status.clone(),
+        version: record.version.clone(),
+        created_at: record.created_at.clone(),
+        updated_at: record.updated_at.clone(),
+    }
 }
 
 fn manifest_to_value(manifest: &AgentManifest) -> Result<Value, ApiProblem> {
@@ -1012,7 +1521,9 @@ fn filter_audit_events(
     let to = parse_optional_query_datetime("to", query.to.as_deref())?;
     if let (Some(from_value), Some(to_value)) = (from.as_ref(), to.as_ref()) {
         if from_value > to_value {
-            return Err(ApiProblem::validation("from must be less than or equal to to"));
+            return Err(ApiProblem::validation(
+                "from must be less than or equal to to",
+            ));
         }
     }
 
@@ -1060,13 +1571,20 @@ fn parse_optional_query_datetime(
     parse_optional_rfc3339_datetime(value, field_name).map_err(ApiProblem::from_kernel_error)
 }
 
-fn extract_policy_subject(headers: HeaderMap, tenant_id: &str) -> Result<PolicySubject, ApiProblem> {
+fn extract_policy_subject(
+    headers: HeaderMap,
+    tenant_id: &str,
+) -> Result<PolicySubject, ApiProblem> {
     let subject_id = required_header(&headers, HEADER_SUBJECT_ID)?;
     let subject_tenant_id = optional_header(&headers, HEADER_SUBJECT_TENANT_ID)
         .unwrap_or_else(|| tenant_id.to_string());
     let mut subject = PolicySubject::new(subject_id, subject_tenant_id);
     if let Some(roles) = optional_header(&headers, HEADER_SUBJECT_ROLES) {
-        for role in roles.split(',').map(str::trim).filter(|role| !role.is_empty()) {
+        for role in roles
+            .split(',')
+            .map(str::trim)
+            .filter(|role| !role.is_empty())
+        {
             subject = subject.with_role(role.to_string());
         }
     }
@@ -1091,7 +1609,9 @@ fn normalized_pagination(
 ) -> Result<(usize, usize), ApiProblem> {
     let page = page.unwrap_or(1);
     if page == 0 {
-        return Err(ApiProblem::validation("page must be greater than or equal to 1"));
+        return Err(ApiProblem::validation(
+            "page must be greater than or equal to 1",
+        ));
     }
 
     let page_size = page_size.unwrap_or(DEFAULT_PAGE_SIZE);
@@ -1117,7 +1637,9 @@ fn paginate<T: Clone>(items: Vec<T>, page: usize, page_size: usize) -> Vec<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::infrastructure::{AllowAllPolicyProvider, InMemoryAgentAuditSink, InMemoryAgentRepository};
+    use crate::infrastructure::{
+        AllowAllPolicyProvider, InMemoryAgentAuditSink, InMemoryAgentRepository,
+    };
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;

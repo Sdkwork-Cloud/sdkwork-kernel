@@ -1,0 +1,70 @@
+{
+  "schema_version": "0.1.0",
+  "manifest_type": "provider",
+  "provider_id": "provider.model.rig-rust",
+  "provider_family": "model",
+  "name": "rig-rust",
+  "display_name": "Rig Rust Provider Candidate",
+  "version": "0.1.0",
+  "kernel_compatibility": {
+    "agent_kernel": ">=0.1.0 <0.2.0"
+  },
+  "capabilities": [
+    "model.catalog",
+    "model.chat",
+    "model.streaming",
+    "model.tool_call",
+    "tool.invoke",
+    "planning.create",
+    "agent.install",
+    "agent.configure"
+  ],
+  "operations": [
+    "list_models",
+    "describe_model",
+    "chat",
+    "stream",
+    "health"
+  ],
+  "configuration_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "model_provider_id": {
+        "type": "string"
+      },
+      "secret_ref": {
+        "type": "string"
+      }
+    }
+  },
+  "security_requirements": {
+    "fail_closed": true,
+    "required_policy_categories": [
+      "model.invoke",
+      "model.send-sensitive-context",
+      "tool.invoke",
+      "host.secrets.read"
+    ],
+    "secret_handling": {
+      "raw_secrets_in_manifest": false
+    }
+  },
+  "health_model": {
+    "states": [
+      "available",
+      "degraded",
+      "unavailable"
+    ]
+  },
+  "owner": {
+    "name": "sdkwork-platform"
+  },
+  "status": "experimental",
+  "extensions": {
+    "sdkwork.external.source-path": "external/rig",
+    "sdkwork.external.initial-registration-mode": "typed-local-provider",
+    "sdkwork.external.execution-status": "implemented-fail-closed",
+    "sdkwork.external.implementation-crate": "sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig"
+  }
+}

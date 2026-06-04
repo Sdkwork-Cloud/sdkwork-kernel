@@ -1,0 +1,62 @@
+{
+  "schema_version": "0.1.0",
+  "manifest_type": "provider",
+  "provider_id": "provider.protocol_adapter.external-process",
+  "provider_family": "protocol_adapter",
+  "name": "external-process",
+  "display_name": "External Process Protocol Adapter",
+  "version": "0.1.0",
+  "kernel_compatibility": {
+    "agent_kernel": ">=0.1.0 <0.2.0"
+  },
+  "capabilities": [
+    "protocol.process",
+    "protocol.stream",
+    "protocol.cancel"
+  ],
+  "operations": [
+    "describe",
+    "launch",
+    "stream",
+    "cancel",
+    "health"
+  ],
+  "configuration_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "adapter_mode": {
+        "enum": [
+          "stdio",
+          "ipc",
+          "websocket"
+        ]
+      }
+    }
+  },
+  "security_requirements": {
+    "fail_closed": true,
+    "required_policy_categories": [
+      "host.process.execute",
+      "protocol.send"
+    ],
+    "secret_handling": {
+      "raw_secrets_in_manifest": false
+    }
+  },
+  "health_model": {
+    "states": [
+      "available",
+      "degraded",
+      "unavailable"
+    ]
+  },
+  "owner": {
+    "name": "sdkwork-platform"
+  },
+  "status": "experimental",
+  "extensions": {
+    "sdkwork.external.initial-registration-mode": "process-adapter",
+    "sdkwork.external.execution-status": "not-implemented"
+  }
+}

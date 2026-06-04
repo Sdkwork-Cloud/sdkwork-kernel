@@ -1,0 +1,21 @@
+[submodule "external/hermes-agent"]
+	path = external/hermes-agent
+	url = https://github.com/NousResearch/hermes-agent.git
+[submodule "external/openclaw"]
+	path = external/openclaw
+	url = https://github.com/openclaw/openclaw.git
+[submodule "external/codex"]
+	path = external/codex
+	url = https://github.com/openai/codex.git
+[submodule "external/claude-code"]
+	path = external/claude-code
+	url = https://github.com/anthropics/claude-code.git
+[submodule "external/opencode"]
+	path = external/opencode
+	url = https://github.com/opencode-ai/opencode.git
+[submodule "external/gemini-cli"]
+	path = external/gemini-cli
+	url = https://github.com/google-gemini/gemini-cli.git
+[submodule "external/rig"]
+	path = external/rig
+	url = https://github.com/0xPlaygrounds/rig.git

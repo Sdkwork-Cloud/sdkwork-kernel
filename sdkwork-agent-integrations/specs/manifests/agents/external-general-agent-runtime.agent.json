@@ -1,0 +1,142 @@
+{
+  "schema_version": "0.1.0",
+  "manifest_type": "agent",
+  "agent_id": "agent.intelligence.external-general-agent-runtime",
+  "name": "external-general-agent-runtime",
+  "display_name": "External General Agent Runtime",
+  "description": "Experimental SDKWork manifest for general external agent runtimes and frameworks such as Hermes Agent, OpenClaw, and Rig.",
+  "version": "0.1.0",
+  "domain": "intelligence",
+  "kernel_compatibility": {
+    "agent_kernel": ">=0.1.0 <0.2.0"
+  },
+  "required_capabilities": [
+    {
+      "capability_id": "policy.evaluate",
+      "min_version": "0.1.0",
+      "required": true
+    }
+  ],
+  "optional_capabilities": [
+    {
+      "capability_id": "model.chat",
+      "min_version": "0.1.0",
+      "required": false
+    },
+    {
+      "capability_id": "tool.invoke",
+      "min_version": "0.1.0",
+      "required": false
+    },
+    {
+      "capability_id": "context.retrieve",
+      "min_version": "0.1.0",
+      "required": false
+    },
+    {
+      "capability_id": "memory.query",
+      "min_version": "0.1.0",
+      "required": false
+    },
+    {
+      "capability_id": "skill.invoke",
+      "min_version": "0.1.0",
+      "required": false
+    },
+    {
+      "capability_id": "agent.delegate",
+      "min_version": "0.1.0",
+      "required": false
+    }
+  ],
+  "provider_requirements": [
+    {
+      "family": "policy",
+      "required": true,
+      "capabilities": [
+        "policy.evaluate"
+      ]
+    },
+    {
+      "family": "model",
+      "required": false,
+      "capabilities": [
+        "model.chat"
+      ]
+    },
+    {
+      "family": "tool",
+      "required": false,
+      "capabilities": [
+        "tool.invoke"
+      ]
+    },
+    {
+      "family": "skill",
+      "required": false,
+      "capabilities": [
+        "skill.invoke"
+      ]
+    },
+    {
+      "family": "collaboration",
+      "required": false,
+      "capabilities": [
+        "agent.delegate"
+      ]
+    }
+  ],
+  "protocol_adapters": [
+    {
+      "adapter_id": "adapter.ipc.external-process",
+      "required": false
+    }
+  ],
+  "security_profile": {
+    "fail_closed": true,
+    "required_policy_categories": [
+      "model.invoke",
+      "tool.invoke",
+      "memory.write",
+      "host.network.connect",
+      "host.secrets.read"
+    ],
+    "redaction_required": true
+  },
+  "runtime_profile": {
+    "modes": [
+      "local",
+      "private",
+      "cli",
+      "server",
+      "embedded"
+    ]
+  },
+  "event_families": [
+    "agent.runtime.*",
+    "agent.session.*",
+    "agent.task.*",
+    "agent.model.*",
+    "agent.tool.*",
+    "agent.policy.*"
+  ],
+  "owner": {
+    "name": "sdkwork-platform"
+  },
+  "status": "experimental",
+  "tags": [
+    "external",
+    "agent-runtime",
+    "typed-provider-candidate"
+  ],
+  "license": "SDKWork manifest only; upstream licenses remain owned by each external project",
+  "extensions": {
+    "sdkwork.external.initial-registration-mode": "manifest-only",
+    "sdkwork.external.reference-paths": [
+      "external/hermes-agent",
+      "external/openclaw",
+      "external/rig"
+    ],
+    "sdkwork.external.execution-status": "not-implemented"
+  }
+}

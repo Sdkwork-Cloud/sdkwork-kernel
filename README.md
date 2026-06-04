@@ -83,12 +83,49 @@ contracts must remain versioned, explicit, and testable.
 ```text
 kernel/
 |-- README.md
+|-- external/
 |-- specs/
+|-- sdkwork-agent-integrations/
 |-- sdkwork-agent-kernel/
 |-- sdkwork-agent-business/
 |-- sdkwork-code-kernel/
 `-- sdkwork-kernel-ui/
 ```
+
+### `external`
+
+Git submodule boundary for third-party agent and agent-framework source
+references.
+
+This directory is for source inspection, capability mapping, implementation
+comparison, and standard conformance work. It must not become a direct
+dependency of `sdkwork-agent-kernel` or `sdkwork-code-kernel`.
+
+Current reference projects:
+
+- Hermes Agent
+- OpenClaw
+- Codex
+- Claude Code
+- OpenCode
+- Gemini CLI
+- Rig
+
+### `sdkwork-agent-integrations`
+
+SDKWork-owned standard asset and future adapter boundary for external agent
+and code-agent integrations.
+
+This layer owns:
+
+- External source mapping documents.
+- Experimental agent and provider manifests.
+- Manifest-only, local-runtime, and process-adapter conformance profiles.
+- Future process adapters and typed provider crates.
+
+This layer must depend on SDKWork kernel SPI, manifests, policy, host,
+protocol, event, and conformance contracts. Kernel core crates must not depend
+on this layer or on `external/` source trees.
 
 ### `sdkwork-agent-kernel`
 

@@ -1,8 +1,13 @@
 use crate::application::{
-    ChangeAgentStatusCommand, CreateAgentCommand, DeleteAgentCommand, GetAgentCommand,
-    ListAgentsCommand, RestoreAgentCommand, UpdateAgentCommand,
+    ActivateAgentProviderBindingCommand, AgentProviderBindingCommand,
+    AgentProviderDeploymentCommand, ChangeAgentStatusCommand, CreateAgentCommand,
+    DeleteAgentCommand, GetAgentCommand, ListAgentsCommand, RestoreAgentCommand,
+    UpdateAgentCommand,
 };
-use crate::domain::{AgentBusinessRecord, AgentBusinessStatus, AgentVisibility};
+use crate::domain::{
+    AgentBusinessRecord, AgentBusinessStatus, AgentDeploymentRecord, AgentImplementationKind,
+    AgentProviderBindingRecord, AgentVisibility,
+};
 use crate::ports::AgentListQuery;
 use crate::validation::{
     parse_expected_version, parse_organization_id, parse_owner_user_id, parse_tenant_id,
@@ -55,6 +60,8 @@ pub struct CreateAgentRequestDto {
     pub visibility: String,
     pub tags: Vec<String>,
     pub default_code_task_intent: Option<CodeTaskIntent>,
+    pub implementation_provider_id: Option<String>,
+    pub implementation_kind: Option<String>,
     pub requested_at: String,
 }
 
@@ -73,6 +80,96 @@ impl CreateAgentRequestDto {
             visibility: parse_visibility(&self.visibility)?,
             tags: self.tags,
             default_code_task_intent: self.default_code_task_intent,
+            implementation_provider_id: self.implementation_provider_id,
+            implementation_kind: self
+                .implementation_kind
+                .as_deref()
+                .map(parse_implementation_kind)
+                .transpose()?,
+            requested_by,
+            requested_at: self.requested_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentProviderBindingRequestDto {
+    pub tenant_id: String,
+    pub agent_id: String,
+    pub binding_id: String,
+    pub provider_id: String,
+    pub implementation_kind: String,
+    pub configuration_profile_id: String,
+    pub capabilities: Vec<String>,
+    pub make_default: bool,
+    pub requested_at: String,
+}
+
+impl AgentProviderBindingRequestDto {
+    pub fn into_command(
+        self,
+        requested_by: PolicySubject,
+    ) -> KernelResult<AgentProviderBindingCommand> {
+        validate_requested_at(&self.requested_at)?;
+        Ok(AgentProviderBindingCommand {
+            tenant_id: parse_tenant_id(&self.tenant_id)?,
+            agent_id: self.agent_id,
+            binding_id: self.binding_id,
+            provider_id: self.provider_id,
+            implementation_kind: parse_implementation_kind(&self.implementation_kind)?,
+            configuration_profile_id: self.configuration_profile_id,
+            capabilities: self.capabilities,
+            make_default: self.make_default,
+            requested_by,
+            requested_at: self.requested_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActivateAgentProviderBindingRequestDto {
+    pub tenant_id: String,
+    pub agent_id: String,
+    pub binding_id: String,
+    pub requested_at: String,
+}
+
+impl ActivateAgentProviderBindingRequestDto {
+    pub fn into_command(
+        self,
+        requested_by: PolicySubject,
+    ) -> KernelResult<ActivateAgentProviderBindingCommand> {
+        validate_requested_at(&self.requested_at)?;
+        Ok(ActivateAgentProviderBindingCommand {
+            tenant_id: parse_tenant_id(&self.tenant_id)?,
+            agent_id: self.agent_id,
+            binding_id: self.binding_id,
+            requested_by,
+            requested_at: self.requested_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentProviderDeploymentRequestDto {
+    pub tenant_id: String,
+    pub agent_id: String,
+    pub deployment_id: String,
+    pub binding_id: String,
+    pub requested_at: String,
+}
+
+impl AgentProviderDeploymentRequestDto {
+    pub fn into_command(
+        self,
+        requested_by: PolicySubject,
+    ) -> KernelResult<AgentProviderDeploymentCommand> {
+        validate_requested_at(&self.requested_at)?;
+        Ok(AgentProviderDeploymentCommand {
+            tenant_id: parse_tenant_id(&self.tenant_id)?,
+            agent_id: self.agent_id,
+            deployment_id: self.deployment_id,
+            binding_id: self.binding_id,
             requested_by,
             requested_at: self.requested_at,
         })
@@ -130,7 +227,10 @@ pub struct UpdateAgentStatusRequestDto {
 }
 
 impl UpdateAgentStatusRequestDto {
-    pub fn into_command(self, requested_by: PolicySubject) -> KernelResult<ChangeAgentStatusCommand> {
+    pub fn into_command(
+        self,
+        requested_by: PolicySubject,
+    ) -> KernelResult<ChangeAgentStatusCommand> {
         validate_requested_at(&self.requested_at)?;
         let expected_version = self
             .expected_version
@@ -228,6 +328,8 @@ pub struct AgentRecordDto {
     pub description: Option<String>,
     pub manifest: AgentManifest,
     pub default_code_task_intent: Option<CodeTaskIntent>,
+    pub implementation_provider_id: Option<String>,
+    pub implementation_kind: Option<String>,
     pub status: String,
     pub visibility: String,
     pub tags: Vec<String>,
@@ -250,6 +352,10 @@ impl AgentRecordDto {
             description: record.description.clone(),
             manifest: record.manifest.clone(),
             default_code_task_intent: record.default_code_task_intent.clone(),
+            implementation_provider_id: record.implementation_provider_id.clone(),
+            implementation_kind: record
+                .implementation_kind
+                .map(|kind| kind.as_str().to_string()),
             status: record.status.as_str().to_string(),
             visibility: record.visibility.as_str().to_string(),
             tags: record.tags.clone(),
@@ -257,6 +363,146 @@ impl AgentRecordDto {
             created_at: record.created_at.clone(),
             updated_at: record.updated_at.clone(),
             deleted_at: record.deleted_at.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentProviderBindingRecordDto {
+    pub tenant_id: String,
+    pub agent_id: String,
+    pub binding_id: String,
+    pub provider_id: String,
+    pub implementation_kind: String,
+    pub configuration_profile_id: String,
+    pub capabilities: Vec<String>,
+    pub active: bool,
+    pub version: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl AgentProviderBindingRecordDto {
+    pub fn from_record(record: &AgentProviderBindingRecord) -> Self {
+        Self {
+            tenant_id: record.tenant_id.to_string(),
+            agent_id: record.agent_id.clone(),
+            binding_id: record.binding_id.clone(),
+            provider_id: record.provider_id.clone(),
+            implementation_kind: record.implementation_kind.as_str().to_string(),
+            configuration_profile_id: record.configuration_profile_id.clone(),
+            capabilities: record.capabilities.clone(),
+            active: record.active,
+            version: record.version.to_string(),
+            created_at: record.created_at.clone(),
+            updated_at: record.updated_at.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentProviderBindingResponseDto {
+    pub data: AgentProviderBindingRecordDto,
+}
+
+impl AgentProviderBindingResponseDto {
+    pub fn from_record(record: &AgentProviderBindingRecord) -> Self {
+        Self {
+            data: AgentProviderBindingRecordDto::from_record(record),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentProviderBindingListDataDto {
+    pub items: Vec<AgentProviderBindingRecordDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentProviderBindingListResponseDto {
+    pub data: AgentProviderBindingListDataDto,
+}
+
+impl AgentProviderBindingListResponseDto {
+    pub fn from_records(records: &[AgentProviderBindingRecord]) -> Self {
+        Self {
+            data: AgentProviderBindingListDataDto {
+                items: records
+                    .iter()
+                    .map(AgentProviderBindingRecordDto::from_record)
+                    .collect(),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentDeploymentRecordDto {
+    pub tenant_id: String,
+    pub agent_id: String,
+    pub deployment_id: String,
+    pub binding_id: String,
+    pub provider_id_snapshot: String,
+    pub implementation_kind_snapshot: String,
+    pub configuration_profile_id_snapshot: String,
+    pub capabilities_snapshot: Vec<String>,
+    pub status: String,
+    pub version: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl AgentDeploymentRecordDto {
+    pub fn from_record(record: &AgentDeploymentRecord) -> Self {
+        Self {
+            tenant_id: record.tenant_id.to_string(),
+            agent_id: record.agent_id.clone(),
+            deployment_id: record.deployment_id.clone(),
+            binding_id: record.binding_id.clone(),
+            provider_id_snapshot: record.provider_id_snapshot.clone(),
+            implementation_kind_snapshot: record.implementation_kind_snapshot.as_str().to_string(),
+            configuration_profile_id_snapshot: record.configuration_profile_id_snapshot.clone(),
+            capabilities_snapshot: record.capabilities_snapshot.clone(),
+            status: record.status.as_str().to_string(),
+            version: record.version.to_string(),
+            created_at: record.created_at.clone(),
+            updated_at: record.updated_at.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentDeploymentResponseDto {
+    pub data: AgentDeploymentRecordDto,
+}
+
+impl AgentDeploymentResponseDto {
+    pub fn from_record(record: &AgentDeploymentRecord) -> Self {
+        Self {
+            data: AgentDeploymentRecordDto::from_record(record),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentDeploymentListDataDto {
+    pub items: Vec<AgentDeploymentRecordDto>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentDeploymentListResponseDto {
+    pub data: AgentDeploymentListDataDto,
+}
+
+impl AgentDeploymentListResponseDto {
+    pub fn from_records(records: &[AgentDeploymentRecord]) -> Self {
+        Self {
+            data: AgentDeploymentListDataDto {
+                items: records
+                    .iter()
+                    .map(AgentDeploymentRecordDto::from_record)
+                    .collect(),
+            },
         }
     }
 }
@@ -310,9 +556,18 @@ fn parse_status(value: &str) -> KernelResult<AgentBusinessStatus> {
     })
 }
 
+fn parse_implementation_kind(value: &str) -> KernelResult<AgentImplementationKind> {
+    AgentImplementationKind::from_str(value).ok_or_else(|| {
+        KernelError::validation(format!(
+            "implementation_kind must be one of manifest-only, typed-local-provider, process-adapter, protocol-adapter: {value}"
+        ))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::{AgentDeploymentRecord, AgentDeploymentStatus, AgentProviderBindingRecord};
     use sdkwork_agent_kernel::PolicySubject;
 
     fn sample_manifest(agent_id: &str) -> AgentManifest {
@@ -353,6 +608,8 @@ mod tests {
             visibility: "organization".to_string(),
             tags: vec!["starter".to_string()],
             default_code_task_intent: Some(CodeTaskIntent::new("Refactor runtime")),
+            implementation_provider_id: None,
+            implementation_kind: None,
             requested_at: "2026-06-01T00:00:00Z".to_string(),
         }
         .into_command(sample_subject())
@@ -413,6 +670,8 @@ mod tests {
             visibility: "organization".to_string(),
             tags: vec!["starter".to_string()],
             default_code_task_intent: Some(CodeTaskIntent::new("Refactor runtime")),
+            implementation_provider_id: None,
+            implementation_kind: None,
             requested_at: "2026-06-01".to_string(),
         }
         .into_command(sample_subject())
@@ -477,6 +736,8 @@ mod tests {
             description: None,
             manifest: sample_manifest("agent.alpha"),
             default_code_task_intent: None,
+            implementation_provider_id: None,
+            implementation_kind: None,
             status: AgentBusinessStatus::Draft,
             visibility: AgentVisibility::Private,
             tags: vec!["starter".to_string()],
@@ -494,5 +755,80 @@ mod tests {
         assert_eq!(dto.version, "2");
         assert_eq!(dto.status, "draft");
         assert_eq!(dto.visibility, "private");
+    }
+
+    #[test]
+    fn provider_binding_request_maps_to_command_with_implementation_kind() {
+        let command = AgentProviderBindingRequestDto {
+            tenant_id: "1".to_string(),
+            agent_id: "agent.alpha".to_string(),
+            binding_id: "binding.rig.default".to_string(),
+            provider_id: "provider.model.rig-rust".to_string(),
+            implementation_kind: "typed-local-provider".to_string(),
+            configuration_profile_id: "profile.rig.local".to_string(),
+            capabilities: vec!["model.chat".to_string()],
+            make_default: true,
+            requested_at: "2026-06-01T00:00:00Z".to_string(),
+        }
+        .into_command(sample_subject())
+        .expect("binding command should map");
+
+        assert_eq!(command.tenant_id, 1);
+        assert_eq!(
+            command.implementation_kind,
+            crate::domain::AgentImplementationKind::TypedLocalProvider
+        );
+        assert!(command.make_default);
+    }
+
+    #[test]
+    fn provider_binding_and_deployment_records_map_to_standard_dtos() {
+        let binding = AgentProviderBindingRecord {
+            tenant_id: 1,
+            agent_id: "agent.alpha".to_string(),
+            binding_id: "binding.rig.default".to_string(),
+            provider_id: "provider.model.rig-rust".to_string(),
+            implementation_kind: crate::domain::AgentImplementationKind::TypedLocalProvider,
+            configuration_profile_id: "profile.rig.local".to_string(),
+            capabilities: vec!["model.chat".to_string(), "tool.invoke".to_string()],
+            active: true,
+            version: 1,
+            created_at: "2026-06-01T00:00:00Z".to_string(),
+            updated_at: "2026-06-01T00:00:00Z".to_string(),
+        };
+        let binding_dto = AgentProviderBindingRecordDto::from_record(&binding);
+
+        assert_eq!(binding_dto.tenant_id, "1");
+        assert_eq!(binding_dto.binding_id, "binding.rig.default");
+        assert_eq!(binding_dto.implementation_kind, "typed-local-provider");
+        assert!(binding_dto.active);
+
+        let deployment = AgentDeploymentRecord {
+            tenant_id: 1,
+            agent_id: "agent.alpha".to_string(),
+            deployment_id: "deployment.rig.1".to_string(),
+            binding_id: "binding.rig.default".to_string(),
+            provider_id_snapshot: "provider.model.rig-rust".to_string(),
+            implementation_kind_snapshot:
+                crate::domain::AgentImplementationKind::TypedLocalProvider,
+            configuration_profile_id_snapshot: "profile.rig.local".to_string(),
+            capabilities_snapshot: vec!["model.chat".to_string()],
+            status: AgentDeploymentStatus::Created,
+            version: 1,
+            created_at: "2026-06-01T00:01:00Z".to_string(),
+            updated_at: "2026-06-01T00:01:00Z".to_string(),
+        };
+        let deployment_dto = AgentDeploymentRecordDto::from_record(&deployment);
+
+        assert_eq!(deployment_dto.deployment_id, "deployment.rig.1");
+        assert_eq!(
+            deployment_dto.provider_id_snapshot,
+            "provider.model.rig-rust"
+        );
+        assert_eq!(
+            deployment_dto.implementation_kind_snapshot,
+            "typed-local-provider"
+        );
+        assert_eq!(deployment_dto.status, "created");
     }
 }

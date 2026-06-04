@@ -1,5 +1,5 @@
-use crate::domain::AgentBusinessRecord;
-use sdkwork_agent_kernel::{KernelEvent, KernelResult};
+use crate::domain::{AgentBusinessRecord, AgentDeploymentRecord, AgentProviderBindingRecord};
+use sdkwork_agent_kernel::{KernelError, KernelEvent, KernelResult};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentListQuery {
@@ -57,6 +57,45 @@ pub trait AgentRepository {
     fn get(&self, tenant_id: u64, agent_id: &str) -> Option<AgentBusinessRecord>;
 
     fn list(&self, query: &AgentListQuery) -> Vec<AgentBusinessRecord>;
+
+    fn insert_provider_binding(&mut self, _record: AgentProviderBindingRecord) -> KernelResult<()> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "agent.business.provider_binding".to_string(),
+        })
+    }
+
+    fn update_provider_binding(&mut self, _record: AgentProviderBindingRecord) -> KernelResult<()> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "agent.business.provider_binding".to_string(),
+        })
+    }
+
+    fn get_provider_binding(
+        &self,
+        _tenant_id: u64,
+        _agent_id: &str,
+        _binding_id: &str,
+    ) -> Option<AgentProviderBindingRecord> {
+        None
+    }
+
+    fn list_provider_bindings(
+        &self,
+        _tenant_id: u64,
+        _agent_id: &str,
+    ) -> Vec<AgentProviderBindingRecord> {
+        Vec::new()
+    }
+
+    fn insert_deployment(&mut self, _record: AgentDeploymentRecord) -> KernelResult<()> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "agent.business.deployment".to_string(),
+        })
+    }
+
+    fn list_deployments(&self, _tenant_id: u64, _agent_id: &str) -> Vec<AgentDeploymentRecord> {
+        Vec::new()
+    }
 }
 
 pub trait AgentAuditSink {

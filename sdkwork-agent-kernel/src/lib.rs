@@ -2,6 +2,7 @@ mod collaboration;
 mod configuration;
 mod conformance;
 mod context_memory;
+mod definition;
 mod error;
 mod event;
 mod host;
@@ -40,6 +41,10 @@ pub use conformance::{
 pub use context_memory::{
     ContextFrame, ContextProvider, MemoryProvider, MemoryRecord, MemoryScope,
     RedactionClassification, TrustLevel,
+};
+pub use definition::{
+    AgentDefinition, AgentProviderBinding, AgentProviderBindingMode, AgentProviderFamily,
+    MemoryStrategy, ModelSelectionPolicy, ToolCallPolicy,
 };
 pub use error::{KernelError, KernelErrorInfo, KernelErrorKind, KernelErrorSource, KernelResult};
 pub use event::{
@@ -116,6 +121,8 @@ pub const AGENT_KERNEL_SPEC_VERSION: &str = "0.1.0";
 
 pub const AGENT_MANIFEST_SCHEMA: &str =
     include_str!("../../specs/schemas/agent-manifest.schema.json");
+pub const AGENT_DEFINITION_SCHEMA: &str =
+    include_str!("../../specs/schemas/agent-definition.schema.json");
 pub const AGENT_CARD_SCHEMA: &str = include_str!("../../specs/schemas/agent-card.schema.json");
 pub const PROVIDER_MANIFEST_SCHEMA: &str =
     include_str!("../../specs/schemas/provider-manifest.schema.json");

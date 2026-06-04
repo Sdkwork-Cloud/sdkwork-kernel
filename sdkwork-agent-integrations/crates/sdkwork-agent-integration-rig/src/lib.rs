@@ -10,7 +10,7 @@ mod manifest;
 mod package;
 mod provider;
 
-pub use agent_definition::rig_agent_manifest;
+pub use agent_definition::{rig_agent_definition, rig_agent_manifest};
 pub use backend::{RigBackend, RigBackendMode};
 pub use configuration::RigConfigurationProvider;
 pub use conformance::rig_conformance_profile;

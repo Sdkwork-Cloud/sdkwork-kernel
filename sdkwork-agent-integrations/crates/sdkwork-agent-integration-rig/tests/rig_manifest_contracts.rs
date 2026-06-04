@@ -1,8 +1,12 @@
 use sdkwork_agent_integration_core::SdkworkAgentIntegrationPlugin;
 use sdkwork_agent_integration_rig::{
-    ids, rig_agent_manifest, rig_package_manifest, rig_provider_manifests, RigIntegrationPlugin,
+    ids, rig_agent_definition, rig_agent_manifest, rig_package_manifest, rig_provider_manifests,
+    RigIntegrationPlugin,
 };
-use sdkwork_agent_kernel::{AgentConfigSectionKind, RuntimeBuilder, RuntimeState};
+use sdkwork_agent_kernel::{
+    AgentConfigSectionKind, AgentProviderBindingMode, AgentProviderFamily, RuntimeBuilder,
+    RuntimeState,
+};
 
 #[test]
 fn rig_uses_stable_standard_ids() {
@@ -51,6 +55,51 @@ fn rig_agent_and_package_manifests_declare_installable_standard_surface() {
 }
 
 #[test]
+fn rig_agent_definition_declares_model_tool_policy_and_memory_strategy() {
+    let definition = rig_agent_definition();
+
+    assert_eq!(
+        definition.definition_id,
+        "definition.intelligence.rig-general"
+    );
+    assert_eq!(definition.manifest.agent_id, ids::AGENT_ID);
+
+    let model = definition
+        .default_binding(AgentProviderFamily::Model)
+        .expect("Rig model binding is explicit");
+    assert_eq!(model.provider_id, ids::MODEL_PROVIDER_ID);
+    assert_eq!(model.mode, AgentProviderBindingMode::TypedLocal);
+    assert!(model.required);
+    assert!(model.supports_capability("model.chat"));
+    assert!(model.supports_capability("model.tool_call"));
+
+    let tool = definition
+        .default_binding(AgentProviderFamily::Tool)
+        .expect("Rig tool binding is explicit");
+    assert_eq!(tool.provider_id, ids::TOOL_PROVIDER_ID);
+    assert!(tool.supports_capability("tool.invoke"));
+    assert!(definition.tool_call_policy.policy_required);
+    assert!(definition.tool_call_policy.allows_tool("tool.rig.retrieve"));
+
+    let policy = definition
+        .default_binding(AgentProviderFamily::Policy)
+        .expect("Rig policy binding is explicit");
+    assert_eq!(policy.provider_id, ids::POLICY_PROVIDER_ID);
+    assert!(policy.required);
+
+    assert_eq!(
+        definition.model_selection.default_provider_id.as_deref(),
+        Some(ids::MODEL_PROVIDER_ID)
+    );
+    assert_eq!(
+        definition.model_selection.default_model_id.as_deref(),
+        Some("rig.default")
+    );
+    assert!(definition.memory_strategy.default_provider_id.is_none());
+    assert!(definition.memory_strategy.enabled_scopes.is_empty());
+}
+
+#[test]
 fn rig_provider_manifests_cover_model_tool_planning_and_lifecycle() {
     let providers = rig_provider_manifests();
     assert!(providers.iter().any(|provider| {
@@ -89,4 +138,11 @@ fn rig_plugin_assembles_runtime_with_typed_providers() {
             |provider| provider.provider_id == ids::MODEL_PROVIDER_ID && provider.typed_registered
         ));
     assert!(plugin.conformance_profile().requires("runtime-local"));
+    assert_eq!(
+        plugin
+            .agent_definition()
+            .model_selection
+            .default_provider_id,
+        Some(ids::MODEL_PROVIDER_ID.to_string())
+    );
 }

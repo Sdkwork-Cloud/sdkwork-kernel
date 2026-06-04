@@ -1,0 +1,180 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdkwork.example.invalid/kernel/schemas/agent-definition.schema.json",
+  "title": "SDKWork Agent Definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_type",
+    "definition_id",
+    "agent",
+    "provider_bindings",
+    "model_selection",
+    "tool_call_policy",
+    "memory_strategy"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "#/$defs/semver" },
+    "manifest_type": { "const": "agent_definition" },
+    "definition_id": {
+      "type": "string",
+      "pattern": "^definition\\.[a-z0-9.-]+\\.[a-z0-9.-]+$"
+    },
+    "agent": { "$ref": "agent-manifest.schema.json" },
+    "provider_bindings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/providerBinding" },
+      "minItems": 1
+    },
+    "model_selection": { "$ref": "#/$defs/modelSelection" },
+    "tool_call_policy": { "$ref": "#/$defs/toolCallPolicy" },
+    "memory_strategy": { "$ref": "#/$defs/memoryStrategy" },
+    "extensions": { "$ref": "#/$defs/extensions" }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "providerFamily": {
+      "enum": [
+        "model",
+        "tool",
+        "context",
+        "memory",
+        "planning",
+        "policy",
+        "telemetry",
+        "host",
+        "protocol_adapter",
+        "mcp",
+        "skill",
+        "collaboration",
+        "agent_installer",
+        "agent_configuration"
+      ]
+    },
+    "providerBindingMode": {
+      "enum": ["manifest_only", "typed_local", "remote", "manifest_or_typed"]
+    },
+    "providerBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_id",
+        "family",
+        "provider_id",
+        "required",
+        "default",
+        "mode",
+        "capabilities"
+      ],
+      "properties": {
+        "binding_id": {
+          "type": "string",
+          "pattern": "^binding\\.[a-z0-9.-]+\\.[a-z0-9.-]+$"
+        },
+        "family": { "$ref": "#/$defs/providerFamily" },
+        "provider_id": {
+          "type": "string",
+          "pattern": "^(provider|adapter)\\.[a-z0-9_.-]+\\.[a-z0-9.-]+$"
+        },
+        "required": { "type": "boolean" },
+        "default": { "type": "boolean" },
+        "mode": { "$ref": "#/$defs/providerBindingMode" },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9_.-]+$" },
+          "uniqueItems": true
+        },
+        "min_version": { "$ref": "#/$defs/semver" },
+        "configuration_profile_id": {
+          "type": "string",
+          "pattern": "^profile\\.[a-z0-9.-]+\\.[a-z0-9.-]+$"
+        }
+      }
+    },
+    "modelSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_capabilities", "allow_provider_fallback"],
+      "properties": {
+        "default_provider_id": {
+          "type": "string",
+          "pattern": "^provider\\.model\\.[a-z0-9.-]+$"
+        },
+        "default_model_id": { "type": "string", "minLength": 1 },
+        "required_capabilities": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^model\\.[a-z0-9_.-]+$" },
+          "uniqueItems": true
+        },
+        "allow_provider_fallback": { "type": "boolean" }
+      }
+    },
+    "toolCallPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_required", "allowed_tool_ids", "denied_tool_ids"],
+      "properties": {
+        "default_provider_id": {
+          "type": "string",
+          "pattern": "^provider\\.tool\\.[a-z0-9.-]+$"
+        },
+        "policy_required": { "type": "boolean" },
+        "allowed_tool_ids": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^tool\\.[a-z0-9_.-]+$" },
+          "uniqueItems": true
+        },
+        "denied_tool_ids": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^tool\\.[a-z0-9_.-]+$" },
+          "uniqueItems": true
+        },
+        "max_parallel_calls": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "memoryStrategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled_scopes",
+        "write_policy_required",
+        "read_policy_required_for_sensitive",
+        "retention_required"
+      ],
+      "properties": {
+        "default_provider_id": {
+          "type": "string",
+          "pattern": "^provider\\.memory\\.[a-z0-9.-]+$"
+        },
+        "enabled_scopes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "session",
+              "user",
+              "tenant",
+              "organization",
+              "agent",
+              "application"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "write_policy_required": { "type": "boolean" },
+        "read_policy_required_for_sensitive": { "type": "boolean" },
+        "retention_required": { "type": "boolean" }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(sdkwork|[a-z0-9-]+\\.[a-z0-9.-]+)\\.[a-z0-9.-]+$"
+      },
+      "additionalProperties": true
+    }
+  }
+}

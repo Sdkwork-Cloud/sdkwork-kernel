@@ -22,6 +22,9 @@ pub struct AgentManifest {
 impl AgentManifest {
     pub fn from_json(input: &str) -> KernelResult<Self> {
         let manifest_type = extract_string(input, "manifest_type")?;
+        if manifest_type == "agent_definition" {
+            return Self::from_json(&extract_object_body(input, "agent")?);
+        }
         if manifest_type != "agent" {
             return Err(KernelError::validation("manifest_type must be agent"));
         }
@@ -278,4 +281,34 @@ fn extract_array_body(input: &str, key: &str) -> KernelResult<String> {
 
     let end = end.ok_or_else(|| KernelError::validation(format!("unterminated array: {key}")))?;
     Ok(after_key[bracket_start + 1..end].to_string())
+}
+
+fn extract_object_body(input: &str, key: &str) -> KernelResult<String> {
+    let pattern = format!("\"{key}\"");
+    let key_start = input
+        .find(&pattern)
+        .ok_or_else(|| KernelError::validation(format!("missing object field: {key}")))?;
+    let after_key = &input[key_start + pattern.len()..];
+    let object_start = after_key
+        .find('{')
+        .ok_or_else(|| KernelError::validation(format!("field is not an object: {key}")))?;
+    let mut depth = 0usize;
+    let mut end = None;
+
+    for (index, ch) in after_key[object_start..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(object_start + index);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let end = end.ok_or_else(|| KernelError::validation(format!("unterminated object: {key}")))?;
+    Ok(after_key[object_start..=end].to_string())
 }

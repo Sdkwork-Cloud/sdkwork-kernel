@@ -3,7 +3,8 @@ use sdkwork_agent_integration_core::{
     IntegrationProviderBinding, SdkworkAgentIntegrationPlugin, StandardIntegrationIds,
 };
 use sdkwork_agent_kernel::{
-    AgentManifest, AgentPackageLifecycle, AgentPackageManifest, ProviderManifest, RuntimeBuilder,
+    AgentManifest, AgentPackageLifecycle, AgentPackageManifest, AgentProviderFamily,
+    ProviderManifest, RuntimeBuilder,
 };
 
 #[test]
@@ -209,9 +210,17 @@ fn plugin_trait_exposes_agent_package_provider_and_runtime_assembly_contracts() 
         "agent.intelligence.static"
     );
     assert_eq!(
+        plugin.agent_definition().manifest.agent_id,
+        "agent.intelligence.static"
+    );
+    assert_eq!(
         plugin.package_manifest().agent_id,
         "agent.intelligence.static"
     );
+    assert!(plugin
+        .agent_definition()
+        .default_binding(AgentProviderFamily::Model)
+        .is_none());
     assert_eq!(
         plugin.provider_manifests()[0].provider_id,
         "provider.model.static"

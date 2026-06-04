@@ -9,6 +9,7 @@
 
 Rig maps first to a complete SDKWork typed plugin:
 
+- `AgentDefinition` with explicit provider bindings
 - `ModelProvider`
 - `ToolProvider`
 - `PlanningProvider`
@@ -25,6 +26,16 @@ Rig is Rust-native, so it is the first direct SDKWork Rust SPI adapter. The
 SDKWork-owned implementation lives in
 `sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig` and depends on
 kernel SPI contracts, not on `sdkwork-agent-kernel` depending on Rig.
+
+The Rig adapter exposes `rig_agent_definition()` as the executable standard
+definition. It binds `provider.model.rig-rust`,
+`provider.tool.rig-rust`, `provider.planning.rig-rust`,
+`provider.policy.rig-rust`, `provider.agent.installer.rig-rust`, and
+`provider.agent.configuration.rig-rust` by stable provider id. Its
+`model_selection` uses the Rig model provider as the non-fallback default, its
+`tool_call_policy` requires policy before tool execution, and its
+`memory_strategy` is explicitly disabled until a durable Rig-backed memory
+provider is implemented.
 
 ## Capability Mapping
 

@@ -69,6 +69,9 @@ The agent kernel owns the generic mechanisms that every SDKWork-compatible
 agent needs:
 
 - Agent identity, metadata, manifest, capability negotiation, and lifecycle.
+- Agent definition contracts that bind executable agents to model, tool,
+  memory, policy, MCP, skill, collaboration, lifecycle, and configuration SPI
+  providers by stable provider id.
 - Agent card, capability manifest, provider manifest, discovery, and manifest
   conformance rules.
 - Agent package installation, uninstall, upgrade, configuration declaration,
@@ -129,6 +132,7 @@ The agent kernel standard is centered on these stable objects:
 | Object | Responsibility |
 | --- | --- |
 | `AgentManifest` | Static identity, ownership, version, supported protocol adapters, and required kernel compatibility |
+| `AgentDefinition` | Executable provider-aware agent definition that embeds an `AgentManifest`, binds SPI provider families, and declares default LLM selection, tool-call policy, and memory strategy |
 | `AgentCard` | Public discovery profile for other agents and applications |
 | `CapabilityManifest` | Runtime capabilities, feature gates, provider ids, security requirements, and compatibility ranges |
 | `ProviderManifest` | Model/tool/memory/runtime/provider metadata and declared operations |
@@ -300,7 +304,9 @@ provider-neutral.
 Implemented SPI groups:
 
 - Manifest and capability contracts: `AgentManifest`, `ProviderManifest`,
-  `CapabilityRequirement`, `CapabilityManifest`, and schema constants.
+  `AgentDefinition`, `AgentProviderBinding`, `ModelSelectionPolicy`,
+  `ToolCallPolicy`, `MemoryStrategy`, `CapabilityRequirement`,
+  `CapabilityManifest`, and schema constants.
 - Installation and configuration SPI: `AgentInstaller`,
   `AgentPackageManifest`, `AgentPackageLifecycle`,
   `AgentPackageProviderBinding`, `AgentPackageVersionCompatibility`,

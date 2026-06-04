@@ -1,7 +1,7 @@
 use sdkwork_agent_kernel::{
-    AgentRuntime, CapabilityManifest, KernelResult, PolicyDecision, PolicyProvider, PolicyRequest,
-    ProviderHealth, RuntimeState, SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider,
-    ToolResult,
+    AgentManifest, AgentRuntime, CapabilityManifest, KernelResult, PolicyDecision, PolicyProvider,
+    PolicyRequest, ProviderHealth, ProviderManifest, RuntimeBuilder, RuntimeState, SideEffectLevel,
+    ToolCall, ToolDescriptor, ToolProvider, ToolResult,
 };
 
 #[test]
@@ -74,10 +74,104 @@ fn policy_provider_trait_returns_decision_for_request() {
 #[test]
 fn schema_constants_expose_machine_readable_manifest_contracts() {
     assert!(sdkwork_agent_kernel::AGENT_MANIFEST_SCHEMA.contains("SDKWork Agent Manifest"));
+    assert!(sdkwork_agent_kernel::AGENT_DEFINITION_SCHEMA.contains("SDKWork Agent Definition"));
     assert!(sdkwork_agent_kernel::PROVIDER_MANIFEST_SCHEMA.contains("SDKWork Provider Manifest"));
     assert!(
         sdkwork_agent_kernel::CAPABILITY_MANIFEST_SCHEMA.contains("SDKWork Capability Manifest")
     );
+}
+
+#[test]
+fn capability_manifest_metadata_defines_tool_and_memory_spi_operations() {
+    let manifest = AgentManifest::from_json(
+        r#"
+{
+  "schema_version": "0.1.0",
+  "manifest_type": "agent",
+  "agent_id": "agent.intelligence.spi-metadata",
+  "name": "spi-metadata",
+  "display_name": "SPI Metadata",
+  "description": "Agent used to prove capability metadata.",
+  "version": "0.1.0",
+  "domain": "intelligence",
+  "required_capabilities": [
+    { "capability_id": "tool.invoke", "min_version": "0.1.0" },
+    { "capability_id": "memory.write", "min_version": "0.1.0" },
+    { "capability_id": "memory.delete", "min_version": "0.1.0" },
+    { "capability_id": "memory.export", "min_version": "0.1.0" }
+  ],
+  "optional_capabilities": [],
+  "event_families": ["agent.tool.*", "agent.memory.*"],
+  "owner": { "name": "sdkwork-platform" },
+  "status": "candidate"
+}
+"#,
+    )
+    .expect("agent manifest parses");
+
+    let report = RuntimeBuilder::new("runtime.spi-metadata", manifest)
+        .register_provider(ProviderManifest::new(
+            "provider.tool.standard",
+            "tool",
+            "standard-tool",
+            "0.1.0",
+            vec!["tool.invoke".to_string()],
+        ))
+        .register_provider(ProviderManifest::new(
+            "provider.memory.standard",
+            "memory",
+            "standard-memory",
+            "0.1.0",
+            vec![
+                "memory.write".to_string(),
+                "memory.delete".to_string(),
+                "memory.export".to_string(),
+            ],
+        ))
+        .bootstrap()
+        .expect("runtime bootstraps");
+
+    let capability = |capability_id: &str| {
+        report
+            .runtime
+            .capability_manifest()
+            .capabilities
+            .iter()
+            .find(|capability| capability.capability_id == capability_id)
+            .expect("capability exists")
+    };
+
+    let tool_invoke = capability("tool.invoke");
+    assert_eq!(tool_invoke.operations, ["invoke_tool"]);
+    assert_eq!(
+        tool_invoke.side_effect_level.as_deref(),
+        Some("side_effectful")
+    );
+    assert_eq!(tool_invoke.policy_categories, ["tool.invoke"]);
+
+    let memory_write = capability("memory.write");
+    assert_eq!(memory_write.operations, ["write", "health"]);
+    assert_eq!(
+        memory_write.side_effect_level.as_deref(),
+        Some("side_effectful")
+    );
+    assert_eq!(memory_write.policy_categories, ["memory.write"]);
+
+    let memory_delete = capability("memory.delete");
+    assert_eq!(memory_delete.operations, ["delete", "health"]);
+    assert_eq!(
+        memory_delete.side_effect_level.as_deref(),
+        Some("destructive")
+    );
+    assert_eq!(memory_delete.policy_categories, ["memory.delete"]);
+
+    let memory_export = capability("memory.export");
+    assert_eq!(memory_export.operations, ["export", "health"]);
+    assert_eq!(
+        memory_export.side_effect_level.as_deref(),
+        Some("read_only")
+    );
+    assert_eq!(memory_export.policy_categories, ["memory.read"]);
 }
 
 struct FakeToolProvider;

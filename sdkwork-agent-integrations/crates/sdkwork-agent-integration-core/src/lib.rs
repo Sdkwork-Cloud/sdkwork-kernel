@@ -1,4 +1,6 @@
-use sdkwork_agent_kernel::{AgentManifest, AgentPackageManifest, ProviderManifest, RuntimeBuilder};
+use sdkwork_agent_kernel::{
+    AgentDefinition, AgentManifest, AgentPackageManifest, ProviderManifest, RuntimeBuilder,
+};
 use std::collections::HashSet;
 
 pub type IntegrationResult<T> = Result<T, String>;
@@ -327,6 +329,15 @@ pub trait SdkworkAgentIntegrationPlugin {
     fn plugin_manifest(&self) -> IntegrationPluginManifest;
 
     fn agent_manifest(&self) -> AgentManifest;
+
+    fn agent_definition(&self) -> AgentDefinition {
+        let manifest = self.agent_manifest();
+        let definition_id = format!(
+            "definition.{}",
+            manifest.agent_id.trim_start_matches("agent.")
+        );
+        AgentDefinition::new(definition_id, manifest)
+    }
 
     fn package_manifest(&self) -> AgentPackageManifest;
 

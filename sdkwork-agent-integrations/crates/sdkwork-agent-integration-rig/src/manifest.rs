@@ -2,11 +2,12 @@ use sdkwork_agent_integration_core::{
     IntegrationConformanceProfile, IntegrationPluginManifest, SdkworkAgentIntegrationPlugin,
 };
 use sdkwork_agent_kernel::{
-    AgentManifest, AgentPackageManifest, ModelProvider, ProviderManifest, RuntimeBuilder,
+    AgentDefinition, AgentManifest, AgentPackageManifest, ModelProvider, ProviderManifest,
+    RuntimeBuilder,
 };
 
 use crate::{
-    agent_definition::rig_agent_manifest,
+    agent_definition::{rig_agent_definition, rig_agent_manifest},
     configuration::RigConfigurationProvider,
     conformance::rig_conformance_profile,
     ids,
@@ -82,6 +83,10 @@ impl SdkworkAgentIntegrationPlugin for RigIntegrationPlugin {
 
     fn agent_manifest(&self) -> AgentManifest {
         rig_agent_manifest()
+    }
+
+    fn agent_definition(&self) -> AgentDefinition {
+        rig_agent_definition()
     }
 
     fn package_manifest(&self) -> AgentPackageManifest {

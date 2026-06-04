@@ -27,11 +27,12 @@ meaning as `AGENT_KERNEL_SPEC.md`.
 
 ## 1. Manifest Family
 
-The Agent Kernel uses four manifest types.
+The Agent Kernel uses five manifest and definition types.
 
 | Manifest | Audience | Purpose |
 | --- | --- | --- |
 | `AgentManifest` | Runtime, host, product integrator | Static package identity, ownership, required kernel compatibility, required providers, and security profile |
+| `AgentDefinition` | Runtime, host, plugin integrator, conformance suite | Executable agent definition that embeds an `AgentManifest` and binds concrete SPI provider families, default LLM provider/model selection, tool-call policy, and memory strategy |
 | `AgentCard` | Other agents, registries, external clients, humans | Public discovery profile and interoperability hints |
 | `CapabilityManifest` | Runtime, UI, host, conformance suite | Runtime-negotiated capabilities after providers and adapters are registered |
 | `ProviderManifest` | Runtime, policy provider, conformance suite | Provider identity, operations, configuration schema, security requirements, and health model |
@@ -239,7 +240,186 @@ owner:
 status: candidate
 ```
 
-## 5. `AgentCard`
+## 5. `AgentDefinition`
+
+`AgentDefinition` is the executable, provider-aware definition of an agent. It
+embeds one `AgentManifest` and adds the concrete binding layer needed to run the
+agent without reading implementation code.
+
+`AgentManifest` answers "what is this agent and what capabilities does it
+require?" `AgentDefinition` answers "which SPI provider families may satisfy
+those requirements, which provider is the default, and what model/tool/memory
+policies apply?"
+
+Required fields:
+
+| Field | Type | Requirement |
+| --- | --- | --- |
+| `schema_version` | string | Definition schema version |
+| `manifest_type` | string | Must be `agent_definition` |
+| `definition_id` | string | Stable definition id |
+| `agent` | object | Embedded `AgentManifest` |
+| `provider_bindings` | array | Provider family bindings by provider id |
+| `model_selection` | object | Default LLM provider/model and fallback policy |
+| `tool_call_policy` | object | Default tool provider, policy gate, allow/deny lists, parallelism limits |
+| `memory_strategy` | object | Default memory provider, enabled scopes, read/write policy requirements, retention requirement |
+| `extensions` | object | Namespaced optional metadata |
+
+Provider binding fields:
+
+| Field | Type | Requirement |
+| --- | --- | --- |
+| `binding_id` | string | Stable binding id using `binding.<domain>.<name>` style |
+| `family` | enum | Provider family, for example `model`, `tool`, `memory`, `policy`, `mcp`, `skill`, or `collaboration` |
+| `provider_id` | string | Stable provider id or adapter id |
+| `required` | boolean | Whether runtime readiness requires this binding |
+| `default` | boolean | Whether this binding is the default for its provider family |
+| `mode` | enum | `manifest_only`, `typed_local`, `remote`, or `manifest_or_typed` |
+| `capabilities` | array | Capabilities this binding is allowed to satisfy |
+| `min_version` | string | Minimum provider version when required |
+| `configuration_profile_id` | string | Optional configuration profile binding |
+
+Rules:
+
+- An executable agent `MUST` have an `AgentDefinition`.
+- Provider bindings `MUST` be keyed by provider id and provider family.
+- A provider family `MUST NOT` have more than one default binding in the same
+  definition.
+- Required provider bindings `MUST` fail closed when the selected provider id
+  is unavailable or below `min_version`.
+- Optional provider bindings `MUST` degrade capability negotiation when missing
+  and `MUST NOT` be silently replaced by an incompatible provider.
+- `model_selection.default_provider_id` `MUST` reference a `model` provider
+  binding.
+- `model_selection.default_model_id` `MUST` select a model from that provider's
+  `ModelDescriptor` catalog when the provider exposes `model.catalog`.
+- Model provider fallback `MUST` be explicit through
+  `allow_provider_fallback`.
+- `tool_call_policy.default_provider_id` `MUST` reference a `tool` provider
+  binding.
+- Tool allow/deny lists `MUST` use stable `tool.*` ids. Deny entries take
+  precedence over allow entries.
+- Side-effectful tools `MUST` keep `policy_required` set to true unless a
+  stricter host policy blocks execution elsewhere.
+- `memory_strategy.default_provider_id` `MUST` reference a `memory` provider
+  binding when memory is enabled.
+- Memory scopes `MUST` be explicit. Supported scope values are `session`,
+  `user`, `tenant`, `organization`, `agent`, and `application`.
+- Sensitive memory reads and all memory writes `SHOULD` require policy. When
+  personal, tenant-sensitive, secret, or regulated memory can be stored,
+  `retention_required` `MUST` be true.
+- Definitions `MUST NOT` contain raw provider credentials, API keys, login
+  passwords, or tenant-specific secrets.
+- Product-specific routing metadata `MUST` live under `extensions`.
+
+Example:
+
+```yaml
+schema_version: 0.1.0
+manifest_type: agent_definition
+definition_id: definition.intelligence.general
+agent:
+  schema_version: 0.1.0
+  manifest_type: agent
+  agent_id: agent.intelligence.general
+  name: sdkwork-general-agent
+  display_name: SDKWork General Agent
+  description: Provider-neutral agent runtime for planning, tools, memory, and policy.
+  version: 0.1.0
+  domain: intelligence
+  kernel_compatibility:
+    agent_kernel: ">=0.1.0 <0.2.0"
+  required_capabilities:
+    - capability_id: model.chat
+      min_version: 0.1.0
+    - capability_id: tool.invoke
+      min_version: 0.1.0
+    - capability_id: policy.evaluate
+      min_version: 0.1.0
+  optional_capabilities:
+    - capability_id: memory.query
+      min_version: 0.1.0
+  provider_requirements: []
+  protocol_adapters: []
+  security_profile:
+    fail_closed: true
+    required_policy_categories:
+      - model.invoke
+      - tool.invoke
+    redaction_required: true
+  runtime_profile:
+    modes:
+      - local
+      - cli
+  event_families:
+    - agent.runtime.*
+    - agent.model.*
+    - agent.tool.*
+    - agent.memory.*
+  owner:
+    name: sdkwork-platform
+  status: candidate
+provider_bindings:
+  - binding_id: binding.model.primary
+    family: model
+    provider_id: provider.model.openai
+    required: true
+    default: true
+    mode: typed_local
+    capabilities:
+      - model.catalog
+      - model.chat
+      - model.streaming
+    min_version: 0.1.0
+  - binding_id: binding.tool.primary
+    family: tool
+    provider_id: provider.tool.mcp
+    required: true
+    default: true
+    mode: manifest_or_typed
+    capabilities:
+      - tool.invoke
+      - tool.cancellation
+    min_version: 0.1.0
+  - binding_id: binding.memory.primary
+    family: memory
+    provider_id: provider.memory.vector
+    required: false
+    default: true
+    mode: manifest_or_typed
+    capabilities:
+      - memory.query
+      - memory.write
+      - memory.delete
+      - memory.export
+    min_version: 0.1.0
+model_selection:
+  default_provider_id: provider.model.openai
+  default_model_id: gpt-4.1
+  required_capabilities:
+    - model.chat
+  allow_provider_fallback: true
+tool_call_policy:
+  default_provider_id: provider.tool.mcp
+  policy_required: true
+  allowed_tool_ids:
+    - tool.web.search
+    - tool.repo.read
+  denied_tool_ids:
+    - tool.shell.rm
+  max_parallel_calls: 4
+memory_strategy:
+  default_provider_id: provider.memory.vector
+  enabled_scopes:
+    - session
+    - user
+    - tenant
+  write_policy_required: true
+  read_policy_required_for_sensitive: true
+  retention_required: true
+```
+
+## 6. `AgentCard`
 
 `AgentCard` is the public discovery profile. It is inspired by A2A-style agent
 cards, but it remains a SDKWork contract and may be mapped to A2A by adapters.
@@ -310,7 +490,7 @@ auth_requirements:
 status: candidate
 ```
 
-## 6. `ProviderManifest`
+## 7. `ProviderManifest`
 
 `ProviderManifest` declares a provider implementation.
 
@@ -417,7 +597,7 @@ owner:
 status: candidate
 ```
 
-## 7. `CapabilityManifest`
+## 8. `CapabilityManifest`
 
 `CapabilityManifest` is produced after runtime/provider negotiation. It is the
 runtime truth for UI, hosts, conformance tests, and adapters.
@@ -466,7 +646,7 @@ operations:
   - invoke_tool
 ```
 
-## 8. Capability Negotiation
+## 9. Capability Negotiation
 
 Negotiation determines whether an agent can run with the available providers.
 
@@ -475,6 +655,8 @@ Negotiation phases:
 ```text
 load agent manifest
   -> validate manifest schema
+  -> load agent definition when executing an agent
+  -> validate provider bindings and default provider policies
   -> load provider manifests
   -> validate provider schemas
   -> match kernel compatibility
@@ -488,6 +670,10 @@ load agent manifest
 Rules:
 
 - Required provider families `MUST` be available before runtime enters `ready`.
+- Required provider bindings from `AgentDefinition` `MUST` be available before
+  runtime enters `ready`.
+- Default provider ids from `model_selection`, `tool_call_policy`, and
+  `memory_strategy` `MUST` resolve to matching provider bindings.
 - Required capabilities `MUST` be available before runtime enters `ready`.
 - Optional missing capabilities `SHOULD` move runtime to `degraded`, not
   `failed`.
@@ -507,7 +693,7 @@ Failure examples:
 | Policy provider unavailable for side-effectful tools | `failed` |
 | Telemetry exporter unavailable but audit sink available | `degraded` |
 
-## 9. Security Profile
+## 10. Security Profile
 
 Manifests declare the security posture required by agents and providers.
 
@@ -554,7 +740,7 @@ security_profile:
     network: policy_required
 ```
 
-## 10. Protocol Adapter Metadata
+## 11. Protocol Adapter Metadata
 
 Protocol adapter metadata describes how external protocols are exposed.
 
@@ -590,7 +776,7 @@ Rules:
 - UI client adapters `MUST` expose event stream support and permission response
   support when available.
 
-## 11. Schema Validation
+## 12. Schema Validation
 
 Manifest validation must be deterministic.
 
@@ -611,6 +797,7 @@ Recommended schema file layout:
 ```text
 kernel/specs/schemas/
 |-- agent-manifest.schema.json
+|-- agent-definition.schema.json
 |-- agent-card.schema.json
 |-- provider-manifest.schema.json
 `-- capability-manifest.schema.json
@@ -619,11 +806,12 @@ kernel/specs/schemas/
 Schema artifacts:
 
 - [`schemas/agent-manifest.schema.json`](./schemas/agent-manifest.schema.json)
+- [`schemas/agent-definition.schema.json`](./schemas/agent-definition.schema.json)
 - [`schemas/agent-card.schema.json`](./schemas/agent-card.schema.json)
 - [`schemas/provider-manifest.schema.json`](./schemas/provider-manifest.schema.json)
 - [`schemas/capability-manifest.schema.json`](./schemas/capability-manifest.schema.json)
 
-## 12. Registry And Distribution
+## 13. Registry And Distribution
 
 Manifests may be distributed in local files, package metadata, registries, or
 runtime APIs.
@@ -640,7 +828,7 @@ Rules:
 - Remote manifests `SHOULD` be integrity-checked when used for production
   registration.
 
-## 13. Compatibility
+## 14. Compatibility
 
 Compatibility is evaluated across four axes:
 
@@ -666,7 +854,7 @@ Compatibility result values:
 - `requires_shim`
 - `incompatible`
 
-## 14. Deprecation
+## 15. Deprecation
 
 Deprecation metadata is required for deprecated manifests, capabilities, fields,
 providers, and adapters.
@@ -685,13 +873,19 @@ Rules:
 - Deprecated fields `SHOULD` remain readable until the declared removal version.
 - Removed manifests `MUST NOT` be selected by default negotiation.
 
-## 15. Conformance
+## 16. Conformance
 
 Manifest conformance makes ecosystem integration testable.
 
 Required test groups:
 
 - Agent manifest schema validation.
+- Agent definition schema validation.
+- Provider binding validation for model, tool, memory, policy, MCP, skill, and
+  collaboration families.
+- Default LLM provider/model selection validation.
+- Tool-call policy validation.
+- Memory strategy scope and provider validation.
 - Agent card schema validation.
 - Provider manifest schema validation.
 - Capability manifest schema validation.
@@ -710,6 +904,7 @@ Minimum conformance cases:
 | Case | Expected result |
 | --- | --- |
 | Valid agent manifest and providers | Runtime can enter `ready` |
+| Valid agent definition with model/tool/memory bindings | Runtime can resolve defaults by provider id |
 | Missing required model provider | Runtime enters `failed` |
 | Missing optional memory provider | Runtime enters `degraded` |
 | Raw secret in provider manifest | Manifest validation fails |
@@ -718,12 +913,16 @@ Minimum conformance cases:
 | Unsupported kernel version range | Negotiation fails |
 | Side-effectful tool without policy provider | Runtime enters `failed` |
 
-## 16. Documentation Requirements
+## 17. Documentation Requirements
 
 Every agent or provider package must document:
 
 - Manifest file path.
+- Agent definition file path.
 - Manifest type and schema version.
+- Default LLM provider id and default model id.
+- Default tool provider id and tool-call policy.
+- Memory provider id, enabled scopes, retention, and policy requirements.
 - Public capabilities.
 - Required providers.
 - Optional providers.
@@ -733,11 +932,19 @@ Every agent or provider package must document:
 - Conformance command.
 - Owner and status.
 
-## 17. Acceptance Checklist
+## 18. Acceptance Checklist
 
 - [ ] Manifest family includes `AgentManifest`, `AgentCard`,
-      `CapabilityManifest`, and `ProviderManifest`.
+      `AgentDefinition`, `CapabilityManifest`, and `ProviderManifest`.
 - [ ] Manifest ids and provider ids use stable naming rules.
+- [ ] Executable agent definitions make model, tool, memory, and policy
+      provider bindings explicit.
+- [ ] LLM provider selection is explicit and can select provider id plus
+      model id.
+- [ ] Tool-call policy is explicit and separates provider selection, policy
+      requirements, allow lists, deny lists, and parallelism.
+- [ ] Memory strategy is explicit and separates provider selection, scopes,
+      retention, and read/write policy gates.
 - [ ] Required and optional capabilities are distinct.
 - [ ] Capability negotiation has ready/degraded/failed outcomes.
 - [ ] Security profile can fail closed.

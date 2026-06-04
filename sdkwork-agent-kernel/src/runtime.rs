@@ -2326,6 +2326,71 @@ fn capability_metadata(capability_id: &str) -> CapabilityMetadata {
             SideEffectLevel::SideEffectful,
             PolicyCategory::ModelInvoke,
         ),
+        "tool.invoke" => lifecycle_capability_metadata(
+            vec!["invoke_tool"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::ToolInvoke,
+        ),
+        "tool.discovery" => lifecycle_capability_metadata(
+            vec!["list_tools", "describe_tool", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ToolInvoke,
+        ),
+        "tool.streaming" => lifecycle_capability_metadata(
+            vec!["stream_tool_call", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::ToolInvoke,
+        ),
+        "tool.cancellation" => lifecycle_capability_metadata(
+            vec!["cancel_tool_call", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::ToolInvoke,
+        ),
+        "policy.evaluate" => lifecycle_capability_metadata(
+            vec!["evaluate", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProviderConfigure,
+        ),
+        "context.collect" => lifecycle_capability_metadata(
+            vec!["collect", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("context.collect".to_string()),
+        ),
+        "memory.query" => lifecycle_capability_metadata(
+            vec!["query", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::MemoryRead,
+        ),
+        "memory.write" => lifecycle_capability_metadata(
+            vec!["write", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::MemoryWrite,
+        ),
+        "memory.delete" => lifecycle_capability_metadata(
+            vec!["delete", "health"],
+            SideEffectLevel::Destructive,
+            PolicyCategory::MemoryDelete,
+        ),
+        "memory.export" => lifecycle_capability_metadata(
+            vec!["export", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::MemoryRead,
+        ),
+        "planning.create" => lifecycle_capability_metadata(
+            vec!["create_plan", "validate_plan", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("planning.create".to_string()),
+        ),
+        "telemetry.record" => lifecycle_capability_metadata(
+            vec!["record_event", "record_metric", "record_log", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::ProductSpecific("telemetry.record".to_string()),
+        ),
+        "protocol.map" => lifecycle_capability_metadata(
+            vec!["map_request", "map_response", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProtocolSend,
+        ),
         "mcp.tools" => lifecycle_capability_metadata(
             vec!["list_servers", "list_tools", "invoke_tool", "health"],
             SideEffectLevel::SideEffectful,

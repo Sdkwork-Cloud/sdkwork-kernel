@@ -39,6 +39,7 @@ intelligence, review, artifacts, and the code-agent runtime registry.
 | Schema | Manifest |
 | --- | --- |
 | [`schemas/agent-manifest.schema.json`](./schemas/agent-manifest.schema.json) | `AgentManifest` |
+| [`schemas/agent-definition.schema.json`](./schemas/agent-definition.schema.json) | `AgentDefinition` |
 | [`schemas/agent-package-manifest.schema.json`](./schemas/agent-package-manifest.schema.json) | `AgentPackageManifest` |
 | [`schemas/agent-configuration-spec.schema.json`](./schemas/agent-configuration-spec.schema.json) | `AgentConfigurationSpec` |
 | [`schemas/agent-configuration-profile.schema.json`](./schemas/agent-configuration-profile.schema.json) | `AgentConfigurationProfile` |
@@ -76,6 +77,9 @@ implementations mature.
 ## Standard Closure Checklist
 
 - [ ] Every provider has a manifest.
+- [ ] Every executable agent has an `AgentDefinition` that binds model, tool,
+      context, memory, policy, and other SPI provider families by provider id
+      when those families are required or selected by default.
 - [ ] Every code provider has a typed SPI registration path or is explicitly
       manifest-only.
 - [ ] Every installable agent has installer, uninstall, upgrade, and

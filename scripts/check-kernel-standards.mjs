@@ -28,6 +28,7 @@ const requiredSpecFiles = [
 ];
 
 const requiredSchemas = [
+  'agent-definition.schema.json',
   'agent-manifest.schema.json',
   'agent-package-manifest.schema.json',
   'agent-configuration-spec.schema.json',
@@ -109,12 +110,18 @@ for (const [crateDir, files] of requiredRustCrates) {
 }
 
 const agentKernelLib = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-kernel', 'src', 'lib.rs'));
+const agentDefinitionRust = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-kernel', 'src', 'definition.rs'));
 const agentModelRust = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-kernel', 'src', 'model.rs'));
 const agentRuntimeRust = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-kernel', 'src', 'runtime.rs'));
 const modelProviderSpec = readFileIfExists(path.join(kernelRoot, 'specs', 'AGENT_MODEL_PROVIDER_SPI_SPEC.md'));
 
 for (const [label, content, requiredText] of [
   ['agent lib exports ModelDescriptor', agentKernelLib, 'ModelDescriptor'],
+  ['agent lib exports AgentDefinition', agentKernelLib, 'AgentDefinition'],
+  ['agent definition defines provider binding', agentDefinitionRust, 'pub struct AgentProviderBinding'],
+  ['agent definition defines model selection policy', agentDefinitionRust, 'pub struct ModelSelectionPolicy'],
+  ['agent definition defines tool call policy', agentDefinitionRust, 'pub struct ToolCallPolicy'],
+  ['agent definition defines memory strategy', agentDefinitionRust, 'pub struct MemoryStrategy'],
   ['model SPI defines ModelDescriptor', agentModelRust, 'pub struct ModelDescriptor'],
   ['model request supports model_id', agentModelRust, 'pub model_id: Option<String>'],
   ['model provider exposes list_models', agentModelRust, 'fn list_models(&self) -> Vec<ModelDescriptor>'],

@@ -69,3 +69,45 @@ execution, kernel events, diagnostics, and conformance reports.
 node --test sdkwork-agent-integrations/tests/external_integration_structure.test.mjs
 node sdkwork-agent-integrations/scripts/check-external-integrations.mjs
 ```
+
+## SDKWork Documentation Contract
+
+Domain: intelligence
+Capability: external-agent-integrations
+Package type: node-package
+Status: standardizing
+
+### Public API
+
+Public exports are declared in `specs/component.spec.json` under `contracts.publicExports`.
+
+### Required SDK Surface
+
+- None declared in `specs/component.spec.json`.
+
+### Configuration
+
+Configuration keys and runtime entrypoints are declared in `specs/component.spec.json`.
+
+### SaaS/Private/Local Behavior
+
+This module follows the canonical standards linked from `specs/component.spec.json`, including deployment and runtime configuration rules where applicable.
+
+### Security
+
+Do not add secrets, live tokens, manual auth headers, or app-local credential handling to this module.
+
+### Extension Points
+
+Extension points are limited to declared public exports, runtime entrypoints, SDK clients, events, and config keys.
+
+### Verification
+
+- `node --test sdkwork-agent-integrations/tests/external_integration_structure.test.mjs`
+- `node sdkwork-agent-integrations/scripts/check-external-integrations.mjs`
+- `cargo test --manifest-path sdkwork-agent-integrations/crates/sdkwork-agent-integration-core/Cargo.toml`
+- `cargo test --manifest-path sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig/Cargo.toml`
+
+### Owner And Status
+
+Owner and lifecycle status are tracked in `specs/component.spec.json`.

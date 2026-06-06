@@ -12,7 +12,8 @@
     "capability": "permission",
     "status": "standardizing",
     "languages": [
-      "typescript"
+      "typescript",
+      "react"
     ],
     "generated": false,
     "private": true,
@@ -23,73 +24,103 @@
   "canonicalSpecs": [
     {
       "file": "COMPONENT_SPEC.md",
-      "path": "../../../../../../../specs/COMPONENT_SPEC.md",
+      "path": "../../../../sdkwork-specs/COMPONENT_SPEC.md",
       "purpose": "Local component specs directory and manifest rules."
     },
     {
       "file": "CONFIG_SPEC.md",
-      "path": "../../../../../../../specs/CONFIG_SPEC.md",
+      "path": "../../../../sdkwork-specs/CONFIG_SPEC.md",
       "purpose": "Runtime configuration, environment, SDK bootstrap, and feature flag rules."
     },
     {
       "file": "DOCUMENTATION_SPEC.md",
-      "path": "../../../../../../../specs/DOCUMENTATION_SPEC.md",
+      "path": "../../../../sdkwork-specs/DOCUMENTATION_SPEC.md",
       "purpose": "Module README, examples, ADR, changelog, and runbook rules."
     },
     {
       "file": "DOMAIN_SPEC.md",
-      "path": "../../../../../../../specs/DOMAIN_SPEC.md",
+      "path": "../../../../sdkwork-specs/DOMAIN_SPEC.md",
       "purpose": "Canonical domain ownership and naming."
     },
     {
       "file": "FRONTEND_SPEC.md",
-      "path": "../../../../../../../specs/FRONTEND_SPEC.md",
+      "path": "../../../../sdkwork-specs/FRONTEND_SPEC.md",
       "purpose": "UI, service, SDK, accessibility, and frontend runtime rules."
     },
     {
       "file": "GOVERNANCE_SPEC.md",
-      "path": "../../../../../../../specs/GOVERNANCE_SPEC.md",
+      "path": "../../../../sdkwork-specs/GOVERNANCE_SPEC.md",
       "purpose": "Standard ownership, exception, compatibility, and migration rules."
     },
     {
       "file": "I18N_SPEC.md",
-      "path": "../../../../../../../specs/I18N_SPEC.md",
+      "path": "../../../../sdkwork-specs/I18N_SPEC.md",
       "purpose": "User-facing language, locale, message catalog, and fallback rules."
     },
     {
       "file": "IAM_SPEC.md",
-      "path": "../../../../../../../specs/IAM_SPEC.md",
+      "path": "../../../../sdkwork-specs/IAM_SPEC.md",
       "purpose": "Auth, user, tenant, organization, role, and permission rules."
     },
     {
       "file": "MODULE_SPEC.md",
-      "path": "../../../../../../../specs/MODULE_SPEC.md",
+      "path": "../../../../sdkwork-specs/MODULE_SPEC.md",
       "purpose": "Reusable package contract and dependency direction."
     },
     {
       "file": "PRIVACY_SPEC.md",
-      "path": "../../../../../../../specs/PRIVACY_SPEC.md",
+      "path": "../../../../sdkwork-specs/PRIVACY_SPEC.md",
       "purpose": "Personal, tenant, sensitive, and regulated data rules."
     },
     {
       "file": "README.md",
-      "path": "../../../../../../../specs/README.md",
+      "path": "../../../../sdkwork-specs/README.md",
       "purpose": "SDKWork root standards entrypoint."
     },
     {
       "file": "SDK_SPEC.md",
-      "path": "../../../../../../../specs/SDK_SPEC.md",
+      "path": "../../../../sdkwork-specs/SDK_SPEC.md",
       "purpose": "SDK generation and SDK integration rules."
     },
     {
       "file": "SECURITY_SPEC.md",
-      "path": "../../../../../../../specs/SECURITY_SPEC.md",
+      "path": "../../../../sdkwork-specs/SECURITY_SPEC.md",
       "purpose": "Secure auth, token, secrets, CORS, validation, and logging rules."
     },
     {
       "file": "TEST_SPEC.md",
-      "path": "../../../../../../../specs/TEST_SPEC.md",
+      "path": "../../../../sdkwork-specs/TEST_SPEC.md",
       "purpose": "Contract, frontend, SDK, security, parity, and documentation verification rules."
+    },
+    {
+      "file": "CODE_STYLE_SPEC.md",
+      "path": "../../../../sdkwork-specs/CODE_STYLE_SPEC.md",
+      "purpose": "Authored source structure and generated code boundaries."
+    },
+    {
+      "file": "NAMING_SPEC.md",
+      "path": "../../../../sdkwork-specs/NAMING_SPEC.md",
+      "purpose": "Canonical SDKWork naming rules."
+    },
+    {
+      "file": "TYPESCRIPT_CODE_SPEC.md",
+      "path": "../../../../sdkwork-specs/TYPESCRIPT_CODE_SPEC.md",
+      "purpose": "TypeScript and Node package rules."
+    },
+    {
+      "file": "FRONTEND_CODE_SPEC.md",
+      "path": "../../../../sdkwork-specs/FRONTEND_CODE_SPEC.md",
+      "purpose": "Frontend authored source structure."
+    },
+    {
+      "file": "UI_ARCHITECTURE_SPEC.md",
+      "path": "../../../../sdkwork-specs/UI_ARCHITECTURE_SPEC.md",
+      "purpose": "UI architecture selection rules."
+    },
+    {
+      "file": "APP_PC_REACT_UI_SPEC.md",
+      "path": "../../../../sdkwork-specs/APP_PC_REACT_UI_SPEC.md",
+      "purpose": "PC React package rules."
     }
   ],
   "contracts": {
@@ -101,7 +132,8 @@
     ],
     "sdkClients": [],
     "events": [],
-    "configKeys": []
+    "configKeys": [],
+    "routeManifest": null
   },
   "integration": {
     "authority": "Root SDKWork specs remain authoritative. Local specs may extend but must not contradict them.",

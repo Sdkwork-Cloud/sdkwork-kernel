@@ -38,3 +38,45 @@ The generator command uses:
 
 User-facing clients should consume `@sdkwork/agent-app-sdk` or approved
 service facades built on it. They must not call `/backend/v3/api`.
+
+## SDKWork Documentation Contract
+
+Domain: intelligence
+Capability: agent-app-sdk
+Package type: sdk-family
+Status: standardized
+
+### Public API
+
+Public exports are declared in `specs/component.spec.json` under `contracts.publicExports`.
+
+### Required SDK Surface
+
+- `SdkworkAppClient`
+
+### Configuration
+
+Configuration keys and runtime entrypoints are declared in `specs/component.spec.json`.
+
+### SaaS/Private/Local Behavior
+
+This module follows the canonical standards linked from `specs/component.spec.json`, including deployment and runtime configuration rules where applicable.
+
+### Security
+
+Do not add secrets, live tokens, manual auth headers, or app-local credential handling to this module.
+
+### Extension Points
+
+Extension points are limited to declared public exports, runtime entrypoints, SDK clients, events, and config keys.
+
+### Verification
+
+- `node sdks/materialize-agent-v3-openapi-boundaries.mjs`
+- `node sdks/sdkwork-agent-app-sdk/bin/verify-sdk.mjs`
+- `node sdks/test/verify-agent-sdk-ownership-boundaries.test.mjs`
+- `node scripts/check-agent-sdk-workspace.mjs`
+
+### Owner And Status
+
+Owner and lifecycle status are tracked in `specs/component.spec.json`.

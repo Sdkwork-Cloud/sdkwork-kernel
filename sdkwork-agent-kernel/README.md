@@ -574,3 +574,42 @@ cargo fmt --manifest-path kernel/sdkwork-agent-kernel/Cargo.toml --check
 - [ ] Events are suitable for UI, observability, audit, and protocol streaming.
 - [ ] Code-agent behavior extends the agent kernel without polluting it.
 - [ ] Conformance requirements are explicit enough for third-party providers.
+
+## SDKWork Documentation Contract
+
+Domain: intelligence
+Capability: agent
+Package type: rust-crate
+Status: standardizing
+
+### Public API
+
+Public exports are declared in `specs/component.spec.json` under `contracts.publicExports`.
+
+### Required SDK Surface
+
+- None declared in `specs/component.spec.json`.
+
+### Configuration
+
+Configuration keys and runtime entrypoints are declared in `specs/component.spec.json`.
+
+### SaaS/Private/Local Behavior
+
+This module follows the canonical standards linked from `specs/component.spec.json`, including deployment and runtime configuration rules where applicable.
+
+### Security
+
+Do not add secrets, live tokens, manual auth headers, or app-local credential handling to this module.
+
+### Extension Points
+
+Extension points are limited to declared public exports, runtime entrypoints, SDK clients, events, and config keys.
+
+### Verification
+
+- `cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-kernel/Cargo.toml`
+
+### Owner And Status
+
+Owner and lifecycle status are tracked in `specs/component.spec.json`.

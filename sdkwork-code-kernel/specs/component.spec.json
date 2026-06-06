@@ -7,7 +7,7 @@
     "version": "0.1.0",
     "type": "rust-crate",
     "root": "sdkwork-birdcoder/kernel/sdkwork-code-kernel",
-    "domain": "platform",
+    "domain": "device",
     "declaredDomain": null,
     "capability": "component",
     "status": "standardizing",
@@ -23,58 +23,73 @@
   "canonicalSpecs": [
     {
       "file": "COMPONENT_SPEC.md",
-      "path": "../../../../../specs/COMPONENT_SPEC.md",
+      "path": "../../sdkwork-specs/COMPONENT_SPEC.md",
       "purpose": "Local component specs directory and manifest rules."
     },
     {
       "file": "CONFIG_SPEC.md",
-      "path": "../../../../../specs/CONFIG_SPEC.md",
+      "path": "../../sdkwork-specs/CONFIG_SPEC.md",
       "purpose": "Runtime configuration, environment, SDK bootstrap, and feature flag rules."
     },
     {
       "file": "DEPLOYMENT_SPEC.md",
-      "path": "../../../../../specs/DEPLOYMENT_SPEC.md",
+      "path": "../../sdkwork-specs/DEPLOYMENT_SPEC.md",
       "purpose": "SaaS/private/local runtime parity and deployment rules."
     },
     {
       "file": "DOCUMENTATION_SPEC.md",
-      "path": "../../../../../specs/DOCUMENTATION_SPEC.md",
+      "path": "../../sdkwork-specs/DOCUMENTATION_SPEC.md",
       "purpose": "Module README, examples, ADR, changelog, and runbook rules."
     },
     {
       "file": "DOMAIN_SPEC.md",
-      "path": "../../../../../specs/DOMAIN_SPEC.md",
+      "path": "../../sdkwork-specs/DOMAIN_SPEC.md",
       "purpose": "Canonical domain ownership and naming."
     },
     {
       "file": "GOVERNANCE_SPEC.md",
-      "path": "../../../../../specs/GOVERNANCE_SPEC.md",
+      "path": "../../sdkwork-specs/GOVERNANCE_SPEC.md",
       "purpose": "Standard ownership, exception, compatibility, and migration rules."
     },
     {
       "file": "MODULE_SPEC.md",
-      "path": "../../../../../specs/MODULE_SPEC.md",
+      "path": "../../sdkwork-specs/MODULE_SPEC.md",
       "purpose": "Reusable package contract and dependency direction."
     },
     {
       "file": "OBSERVABILITY_SPEC.md",
-      "path": "../../../../../specs/OBSERVABILITY_SPEC.md",
+      "path": "../../sdkwork-specs/OBSERVABILITY_SPEC.md",
       "purpose": "Log, metric, trace, audit, and diagnostic rules."
     },
     {
       "file": "PERFORMANCE_SPEC.md",
-      "path": "../../../../../specs/PERFORMANCE_SPEC.md",
+      "path": "../../sdkwork-specs/PERFORMANCE_SPEC.md",
       "purpose": "Latency, pagination, bundle, scalability, and retry budget rules."
     },
     {
       "file": "README.md",
-      "path": "../../../../../specs/README.md",
+      "path": "../../sdkwork-specs/README.md",
       "purpose": "SDKWork root standards entrypoint."
     },
     {
       "file": "TEST_SPEC.md",
-      "path": "../../../../../specs/TEST_SPEC.md",
+      "path": "../../sdkwork-specs/TEST_SPEC.md",
       "purpose": "Contract, frontend, SDK, security, parity, and documentation verification rules."
+    },
+    {
+      "file": "CODE_STYLE_SPEC.md",
+      "path": "../../sdkwork-specs/CODE_STYLE_SPEC.md",
+      "purpose": "Authored source structure and generated code boundaries."
+    },
+    {
+      "file": "NAMING_SPEC.md",
+      "path": "../../sdkwork-specs/NAMING_SPEC.md",
+      "purpose": "Canonical SDKWork naming rules."
+    },
+    {
+      "file": "RUST_CODE_SPEC.md",
+      "path": "../../sdkwork-specs/RUST_CODE_SPEC.md",
+      "purpose": "Rust crate and module rules."
     }
   ],
   "contracts": {
@@ -84,7 +99,8 @@
     ],
     "sdkClients": [],
     "events": [],
-    "configKeys": []
+    "configKeys": [],
+    "routeManifest": null
   },
   "integration": {
     "authority": "Root SDKWork specs remain authoritative. Local specs may extend but must not contradict them.",

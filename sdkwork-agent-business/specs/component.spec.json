@@ -23,83 +23,98 @@
   "canonicalSpecs": [
     {
       "file": "API_SPEC.md",
-      "path": "../../../../../specs/API_SPEC.md",
+      "path": "../../sdkwork-specs/API_SPEC.md",
       "purpose": "OpenAPI 3.1.2 profile, path prefix, operationId, and response contracts."
     },
     {
       "file": "COMPONENT_SPEC.md",
-      "path": "../../../../../specs/COMPONENT_SPEC.md",
+      "path": "../../sdkwork-specs/COMPONENT_SPEC.md",
       "purpose": "Local component specs directory and manifest rules."
     },
     {
       "file": "CONFIG_SPEC.md",
-      "path": "../../../../../specs/CONFIG_SPEC.md",
+      "path": "../../sdkwork-specs/CONFIG_SPEC.md",
       "purpose": "Runtime configuration, environment, SDK bootstrap, and feature flag rules."
     },
     {
       "file": "DATABASE_SPEC.md",
-      "path": "../../../../../specs/DATABASE_SPEC.md",
+      "path": "../../sdkwork-specs/DATABASE_SPEC.md",
       "purpose": "Table naming, logical types, schema evolution, and tenant isolation rules."
     },
     {
       "file": "DEPLOYMENT_SPEC.md",
-      "path": "../../../../../specs/DEPLOYMENT_SPEC.md",
+      "path": "../../sdkwork-specs/DEPLOYMENT_SPEC.md",
       "purpose": "SaaS/private/local runtime parity and deployment rules."
     },
     {
       "file": "DOCUMENTATION_SPEC.md",
-      "path": "../../../../../specs/DOCUMENTATION_SPEC.md",
+      "path": "../../sdkwork-specs/DOCUMENTATION_SPEC.md",
       "purpose": "Module README, examples, ADR, changelog, and runbook rules."
     },
     {
       "file": "DOMAIN_SPEC.md",
-      "path": "../../../../../specs/DOMAIN_SPEC.md",
+      "path": "../../sdkwork-specs/DOMAIN_SPEC.md",
       "purpose": "Canonical domain ownership and naming."
     },
     {
       "file": "GOVERNANCE_SPEC.md",
-      "path": "../../../../../specs/GOVERNANCE_SPEC.md",
+      "path": "../../sdkwork-specs/GOVERNANCE_SPEC.md",
       "purpose": "Standard ownership, exception, compatibility, and migration rules."
     },
     {
       "file": "IAM_SPEC.md",
-      "path": "../../../../../specs/IAM_SPEC.md",
+      "path": "../../sdkwork-specs/IAM_SPEC.md",
       "purpose": "Tenant, organization, and authorization context contracts."
     },
     {
       "file": "MODULE_SPEC.md",
-      "path": "../../../../../specs/MODULE_SPEC.md",
+      "path": "../../sdkwork-specs/MODULE_SPEC.md",
       "purpose": "Reusable package contract and dependency direction."
     },
     {
       "file": "OBSERVABILITY_SPEC.md",
-      "path": "../../../../../specs/OBSERVABILITY_SPEC.md",
+      "path": "../../sdkwork-specs/OBSERVABILITY_SPEC.md",
       "purpose": "Log, metric, trace, audit, and diagnostic rules."
     },
     {
       "file": "PERFORMANCE_SPEC.md",
-      "path": "../../../../../specs/PERFORMANCE_SPEC.md",
+      "path": "../../sdkwork-specs/PERFORMANCE_SPEC.md",
       "purpose": "Latency, pagination, scalability, and retry budget rules."
     },
     {
       "file": "README.md",
-      "path": "../../../../../specs/README.md",
+      "path": "../../sdkwork-specs/README.md",
       "purpose": "SDKWork root standards entrypoint."
     },
     {
       "file": "SDK_SPEC.md",
-      "path": "../../../../../specs/SDK_SPEC.md",
+      "path": "../../sdkwork-specs/SDK_SPEC.md",
       "purpose": "SDK generation and service integration contract rules."
     },
     {
       "file": "SECURITY_SPEC.md",
-      "path": "../../../../../specs/SECURITY_SPEC.md",
+      "path": "../../sdkwork-specs/SECURITY_SPEC.md",
       "purpose": "Dual-token, authz, secret redaction, and sensitive operation controls."
     },
     {
       "file": "TEST_SPEC.md",
-      "path": "../../../../../specs/TEST_SPEC.md",
+      "path": "../../sdkwork-specs/TEST_SPEC.md",
       "purpose": "Contract and conformance verification rules."
+    },
+    {
+      "file": "CODE_STYLE_SPEC.md",
+      "path": "../../sdkwork-specs/CODE_STYLE_SPEC.md",
+      "purpose": "Authored source structure and generated code boundaries."
+    },
+    {
+      "file": "NAMING_SPEC.md",
+      "path": "../../sdkwork-specs/NAMING_SPEC.md",
+      "purpose": "Canonical SDKWork naming rules."
+    },
+    {
+      "file": "RUST_CODE_SPEC.md",
+      "path": "../../sdkwork-specs/RUST_CODE_SPEC.md",
+      "purpose": "Rust crate and module rules."
     }
   ],
   "contracts": {
@@ -130,7 +145,8 @@
       "agent.business.provider_binding_changed",
       "agent.business.deployment_created"
     ],
-    "configKeys": []
+    "configKeys": [],
+    "routeManifest": null
   },
   "integration": {
     "authority": "Root SDKWork specs remain authoritative. Local specs may extend but must not contradict them.",

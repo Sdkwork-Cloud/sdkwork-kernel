@@ -122,3 +122,50 @@ node .\sdks\workspace-agent-sdkgen.mjs --mode dry-run
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\sdkwork-agent-business\scripts\verify-ci.ps1
 ```
+
+## SDKWork Documentation Contract
+
+Domain: intelligence
+Capability: agent-business
+Package type: rust-crate
+Status: standardizing
+
+### Public API
+
+Public exports are declared in `specs/component.spec.json` under `contracts.publicExports`.
+
+### Required SDK Surface
+
+- `sdkwork-agent-sdk: sdkwork-agent-open-api -> @sdkwork/agent-sdk`
+- `sdkwork-agent-app-sdk: sdkwork-agent-app-api -> @sdkwork/agent-app-sdk`
+- `sdkwork-agent-backend-sdk: sdkwork-agent-backend-api -> @sdkwork/agent-backend-sdk`
+
+### Configuration
+
+Configuration keys and runtime entrypoints are declared in `specs/component.spec.json`.
+
+### SaaS/Private/Local Behavior
+
+This module follows the canonical standards linked from `specs/component.spec.json`, including deployment and runtime configuration rules where applicable.
+
+### Security
+
+Do not add secrets, live tokens, manual auth headers, or app-local credential handling to this module.
+
+### Extension Points
+
+Extension points are limited to declared public exports, runtime entrypoints, SDK clients, events, and config keys.
+
+### Verification
+
+- `cargo test --manifest-path sdkwork-agent-business/Cargo.toml`
+- `cargo test --features http-axum --manifest-path sdkwork-agent-business/Cargo.toml`
+- `cargo test --features postgres-sync --manifest-path sdkwork-agent-business/Cargo.toml`
+- `node sdks/materialize-agent-v3-openapi-boundaries.mjs`
+- `node sdks/workspace-agent-sdkgen.mjs --mode dry-run`
+- `node scripts/check-agent-sdk-workspace.mjs`
+- `powershell -ExecutionPolicy Bypass -File sdkwork-agent-business/scripts/verify-ci.ps1`
+
+### Owner And Status
+
+Owner and lifecycle status are tracked in `specs/component.spec.json`.

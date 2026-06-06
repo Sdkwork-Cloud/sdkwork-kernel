@@ -1,9 +1,19 @@
 use crate::{
     KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelEventSource,
-    KernelResult, PolicyCategory, PolicyRequest, ProviderHealth, SideEffectLevel,
+    KernelResult, PolicyCategory, PolicyRequest, ProviderHealth, ProviderManifest, SideEffectLevel,
 };
 
 pub trait AgentConfigurationProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            "provider.agent.configuration.unspecified",
+            "agent_configuration",
+            "agent-configuration-provider",
+            "0.0.0",
+            vec!["agent.configure".to_string()],
+        )
+    }
+
     fn configuration_spec(&self, agent_id: &str) -> KernelResult<AgentConfigurationSpec>;
 
     fn validate_configuration(

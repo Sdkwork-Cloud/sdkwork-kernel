@@ -7,5 +7,6 @@ pub fn rig_conformance_profile() -> IntegrationConformanceProfile {
         .require_profile("agent-installation")
         .require_profile("provider-model")
         .require_profile("provider-tool")
+        .require_profile("provider-knowledge")
         .require_profile("security-baseline")
 }

@@ -7,6 +7,7 @@ mod error;
 mod event;
 mod host;
 mod installation;
+mod knowledge;
 mod lifecycle;
 mod manifest;
 mod mcp;
@@ -62,6 +63,10 @@ pub use installation::{
     AgentInstallStep, AgentInstallStepKind, AgentInstaller, AgentPackageSource,
     AgentUninstallReport, AgentUninstallRequest, AgentUpgradePlan, AgentUpgradeReport,
     AgentUpgradeRequest,
+};
+pub use knowledge::{
+    KnowledgeDocument, KnowledgeDocumentFilter, KnowledgeDocumentKind, KnowledgeProvider,
+    KnowledgeRetrievalMethod, KnowledgeSearchRequest, KnowledgeSearchResult,
 };
 pub use lifecycle::{
     AgentRun, AgentSession, AgentStep, AgentTask, RunState, SessionState, StepState, TaskState,

@@ -43,6 +43,7 @@
         "tool",
         "context",
         "memory",
+        "knowledge",
         "planning",
         "policy",
         "telemetry",

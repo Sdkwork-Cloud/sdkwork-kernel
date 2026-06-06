@@ -1,10 +1,12 @@
 use std::sync::{Arc, Mutex};
 
 use sdkwork_agent_business::{
-    AgentAuditSink, AgentBusinessService, AgentBusinessStatus, AgentListQuery, AgentVisibility,
-    AllowAllPolicyProvider, ChangeAgentStatusCommand, CreateAgentCommand, DeleteAgentCommand,
-    GetAgentCommand, InMemoryAgentRepository, ListAgentsCommand, PolicyMode, RestoreAgentCommand,
-    UpdateAgentCommand, DEFAULT_AGENT_MANAGEMENT_POLICY_CATEGORY,
+    ActivateAgentProviderBindingCommand, AgentAuditSink, AgentBusinessService, AgentBusinessStatus,
+    AgentImplementationKind, AgentListQuery, AgentPreviewResponseCommand,
+    AgentPromptOptimizationCommand, AgentProviderBindingCommand, AgentProviderDeploymentCommand,
+    AgentVisibility, AllowAllPolicyProvider, ChangeAgentStatusCommand, CreateAgentCommand,
+    DeleteAgentCommand, GetAgentCommand, InMemoryAgentRepository, ListAgentsCommand, PolicyMode,
+    RestoreAgentCommand, UpdateAgentCommand, DEFAULT_AGENT_MANAGEMENT_POLICY_CATEGORY,
 };
 use sdkwork_agent_kernel::{AgentManifest, KernelError, KernelEvent, KernelResult, PolicySubject};
 use sdkwork_code_kernel::CodeTaskIntent;
@@ -115,6 +117,24 @@ fn assert_structured_kind(error: KernelError, expected_kind: &str) {
     }
 }
 
+fn assert_agent_id_validation(error: KernelError) {
+    match error {
+        KernelError::Validation { message } => {
+            assert_eq!(message, "agentId must start with agent.");
+        }
+        KernelError::Structured { info } => {
+            panic!(
+                "expected agentId validation error, got structured {}",
+                info.kind.as_str()
+            )
+        }
+        KernelError::Internal { .. }
+        | KernelError::CapabilityMissing { .. }
+        | KernelError::ProviderUnavailable { .. }
+        | KernelError::PolicyDenied { .. } => panic!("expected agentId validation error"),
+    }
+}
+
 #[test]
 fn create_update_status_delete_restore_and_list_agents() {
     let repository = InMemoryAgentRepository::new();
@@ -135,7 +155,8 @@ fn create_update_status_delete_restore_and_list_agents() {
         .expect("create should succeed");
     assert_eq!(create.status, AgentBusinessStatus::Draft);
     assert_eq!(create.visibility, AgentVisibility::Organization);
-    assert_eq!(create.id, 1);
+    assert!(create.id > (1_u64 << 22));
+    assert!(create.id <= i64::MAX as u64);
 
     let updated = service
         .update_agent(UpdateAgentCommand {
@@ -144,6 +165,14 @@ fn create_update_status_delete_restore_and_list_agents() {
             expected_version: None,
             display_name: Some("Alpha v2".to_string()),
             description: Some("updated".to_string()),
+            manifest: Some(AgentManifest {
+                display_name: "Alpha Manifest v2".to_string(),
+                optional_capabilities: vec![
+                    "tool.invoke".to_string(),
+                    "memory.retrieve".to_string(),
+                ],
+                ..sample_manifest("agent.alpha")
+            }),
             visibility: Some(AgentVisibility::Tenant),
             tags: Some(vec!["starter".to_string(), "v2".to_string()]),
             default_code_task_intent: Some(CodeTaskIntent::new("Write tests first")),
@@ -152,6 +181,11 @@ fn create_update_status_delete_restore_and_list_agents() {
         })
         .expect("update should succeed");
     assert_eq!(updated.display_name, "Alpha v2");
+    assert_eq!(updated.manifest.display_name, "Alpha Manifest v2");
+    assert_eq!(
+        updated.manifest.optional_capabilities,
+        vec!["tool.invoke".to_string(), "memory.retrieve".to_string()]
+    );
     assert_eq!(updated.visibility, AgentVisibility::Tenant);
 
     let activated = service
@@ -257,6 +291,192 @@ fn duplicate_agent_id_and_code_are_rejected() {
 }
 
 #[test]
+fn create_agent_rejects_non_standard_agent_id() {
+    let repository = InMemoryAgentRepository::new();
+    let (audit_sink, _events) = RecordingAuditSink::new();
+    let policy_provider = AllowAllPolicyProvider::allow("policy.memory");
+    let mut service = AgentBusinessService::new(repository, audit_sink, policy_provider);
+
+    let error = service
+        .create_agent(create_agent_cmd(
+            "pc.agent.invalid",
+            1,
+            10,
+            100,
+            "invalid",
+            "Invalid",
+            "2026-06-01T01:30:00Z",
+        ))
+        .expect_err("non-standard agent_id must fail");
+
+    match error {
+        KernelError::Validation { message } => {
+            assert_eq!(message, "agentId must start with agent.");
+        }
+        _ => panic!("expected validation error"),
+    }
+}
+
+#[test]
+fn agent_resource_entry_points_validate_standard_agent_id_before_authorization() {
+    let repository = InMemoryAgentRepository::new();
+    let (audit_sink, _events) = RecordingAuditSink::new();
+    let policy_provider = AllowAllPolicyProvider {
+        provider_id: "policy.memory".to_string(),
+        mode: PolicyMode::Deny("agent.business.denied".to_string()),
+    };
+    let mut service = AgentBusinessService::new(repository, audit_sink, policy_provider);
+    let invalid_agent_id = "pc.agent.invalid";
+
+    assert_agent_id_validation(
+        service
+            .update_agent(UpdateAgentCommand {
+                tenant_id: 1,
+                agent_id: invalid_agent_id.to_string(),
+                expected_version: None,
+                display_name: Some("Invalid".to_string()),
+                description: None,
+                manifest: None,
+                visibility: None,
+                tags: None,
+                default_code_task_intent: None,
+                requested_by: sample_subject(),
+                requested_at: "2026-06-01T01:31:00Z".to_string(),
+            })
+            .expect_err("invalid agent_id must be rejected before update authorization"),
+    );
+    assert_agent_id_validation(
+        service
+            .change_status(ChangeAgentStatusCommand {
+                tenant_id: 1,
+                agent_id: invalid_agent_id.to_string(),
+                expected_version: None,
+                target_status: AgentBusinessStatus::Active,
+                requested_by: sample_subject(),
+                requested_at: "2026-06-01T01:32:00Z".to_string(),
+            })
+            .expect_err("invalid agent_id must be rejected before status authorization"),
+    );
+    assert_agent_id_validation(
+        service
+            .delete_agent(DeleteAgentCommand {
+                tenant_id: 1,
+                agent_id: invalid_agent_id.to_string(),
+                expected_version: None,
+                requested_by: sample_subject(),
+                requested_at: "2026-06-01T01:33:00Z".to_string(),
+            })
+            .expect_err("invalid agent_id must be rejected before delete authorization"),
+    );
+    assert_agent_id_validation(
+        service
+            .restore_agent(RestoreAgentCommand {
+                tenant_id: 1,
+                agent_id: invalid_agent_id.to_string(),
+                expected_version: None,
+                requested_by: sample_subject(),
+                requested_at: "2026-06-01T01:34:00Z".to_string(),
+            })
+            .expect_err("invalid agent_id must be rejected before restore authorization"),
+    );
+    assert_agent_id_validation(
+        service
+            .get_agent(GetAgentCommand {
+                tenant_id: 1,
+                agent_id: invalid_agent_id.to_string(),
+                requested_by: sample_subject(),
+            })
+            .expect_err("invalid agent_id must be rejected before retrieve authorization"),
+    );
+    assert_agent_id_validation(
+        service
+            .add_provider_binding(AgentProviderBindingCommand {
+                tenant_id: 1,
+                agent_id: invalid_agent_id.to_string(),
+                binding_id: "binding.invalid.default".to_string(),
+                provider_id: "provider.agent.manifest".to_string(),
+                implementation_kind: AgentImplementationKind::ManifestOnly,
+                configuration_profile_id: "profile.agent.manifest.default".to_string(),
+                capabilities: vec!["model.chat".to_string()],
+                make_default: true,
+                requested_by: sample_subject(),
+                requested_at: "2026-06-01T01:35:00Z".to_string(),
+            })
+            .expect_err("invalid agent_id must be rejected before binding authorization"),
+    );
+    assert_agent_id_validation(
+        service
+            .activate_provider_binding(ActivateAgentProviderBindingCommand {
+                tenant_id: 1,
+                agent_id: invalid_agent_id.to_string(),
+                binding_id: "binding.invalid.default".to_string(),
+                requested_by: sample_subject(),
+                requested_at: "2026-06-01T01:36:00Z".to_string(),
+            })
+            .expect_err(
+                "invalid agent_id must be rejected before binding activation authorization",
+            ),
+    );
+    assert_agent_id_validation(
+        service
+            .list_provider_bindings(1, invalid_agent_id, sample_subject())
+            .expect_err("invalid agent_id must be rejected before binding list authorization"),
+    );
+    assert_agent_id_validation(
+        service
+            .create_deployment(AgentProviderDeploymentCommand {
+                tenant_id: 1,
+                agent_id: invalid_agent_id.to_string(),
+                deployment_id: "deployment.invalid.default".to_string(),
+                binding_id: "binding.invalid.default".to_string(),
+                requested_by: sample_subject(),
+                requested_at: "2026-06-01T01:37:00Z".to_string(),
+            })
+            .expect_err("invalid agent_id must be rejected before deployment authorization"),
+    );
+    assert_agent_id_validation(
+        service
+            .list_deployments(1, invalid_agent_id, sample_subject())
+            .expect_err("invalid agent_id must be rejected before deployment list authorization"),
+    );
+    assert_agent_id_validation(
+        service
+            .create_preview_response(AgentPreviewResponseCommand {
+                tenant_id: 1,
+                agent_id: invalid_agent_id.to_string(),
+                execution_id: "execution.invalid.preview".to_string(),
+                content: "preview".to_string(),
+                debug_mode: false,
+                memory_enabled: false,
+                model: None,
+                temperature: None,
+                input_payload_json: "{}".to_string(),
+                requested_by: sample_subject(),
+                requested_at: "2026-06-01T01:38:00Z".to_string(),
+            })
+            .expect_err("invalid agent_id must be rejected before preview authorization"),
+    );
+    assert_agent_id_validation(
+        service
+            .create_prompt_optimization(AgentPromptOptimizationCommand {
+                tenant_id: 1,
+                agent_id: invalid_agent_id.to_string(),
+                execution_id: "execution.invalid.prompt".to_string(),
+                prompt: "answer".to_string(),
+                input_payload_json: "{}".to_string(),
+                requested_by: sample_subject(),
+                requested_at: "2026-06-01T01:39:00Z".to_string(),
+            })
+            .expect_err("invalid agent_id must be rejected before prompt authorization"),
+    );
+    assert_agent_id_validation(
+        service
+            .list_agent_audit_events(1, invalid_agent_id, sample_subject())
+            .expect_err("invalid agent_id must be rejected before audit authorization"),
+    );
+}
+
+#[test]
 fn stale_expected_version_is_rejected_for_update() {
     let repository = InMemoryAgentRepository::new();
     let (audit_sink, _events) = RecordingAuditSink::new();
@@ -282,6 +502,7 @@ fn stale_expected_version_is_rejected_for_update() {
             expected_version: Some(created.version),
             display_name: Some("Versioned v2".to_string()),
             description: None,
+            manifest: None,
             visibility: None,
             tags: None,
             default_code_task_intent: None,
@@ -298,6 +519,7 @@ fn stale_expected_version_is_rejected_for_update() {
             expected_version: Some(created.version),
             display_name: Some("Versioned v3".to_string()),
             description: None,
+            manifest: None,
             visibility: None,
             tags: None,
             default_code_task_intent: None,
@@ -344,6 +566,7 @@ fn deleted_agent_cannot_be_updated() {
         expected_version: None,
         display_name: Some("Delta v2".to_string()),
         description: None,
+        manifest: None,
         visibility: None,
         tags: None,
         default_code_task_intent: None,
@@ -553,6 +776,7 @@ fn audit_events_are_recorded_for_state_mutations() {
             expected_version: None,
             display_name: Some("Audit v2".to_string()),
             description: None,
+            manifest: None,
             visibility: None,
             tags: None,
             default_code_task_intent: None,

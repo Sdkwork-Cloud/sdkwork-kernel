@@ -1,0 +1,58 @@
+{
+  "workspace": "sdkwork-agent-app-sdk",
+  "title": "SDKWork Agent App API",
+  "apiVersion": "0.1.0",
+  "openapiVersion": "3.1.2",
+  "authoritySpec": "openapi/sdkwork-agent-app-api.openapi.yaml",
+  "generationInputSpec": "openapi/sdkwork-agent-app-api.sdkgen.yaml",
+  "derivedSpecs": {
+    "default": "openapi/sdkwork-agent-app-api.sdkgen.yaml"
+  },
+  "apiAuthority": "sdkwork-agent-app-api",
+  "discoverySurface": {
+    "sdkTarget": "app",
+    "apiPrefix": "/app/v3/api",
+    "schemaUrl": "/app/v3/openapi.json",
+    "generatedProtocols": [
+      "http-openapi"
+    ],
+    "manualTransports": []
+  },
+  "languages": [
+    {
+      "language": "typescript",
+      "workspace": "sdkwork-agent-app-sdk-typescript",
+      "generationState": "materialized",
+      "releaseState": "not_published",
+      "generatedPath": "sdkwork-agent-app-sdk-typescript/generated/server-openapi",
+      "manifestPath": "sdkwork-agent-app-sdk-typescript/generated/server-openapi/package.json",
+      "name": "@sdkwork/agent-app-sdk",
+      "version": "0.1.0",
+      "description": "Generator-owned TypeScript transport SDK for SDKWork Agent App API.",
+      "consumerSurface": {
+        "primaryClient": "SdkworkAppClient",
+        "apiPrefix": "/app/v3/api"
+      }
+    }
+  ],
+  "sdkOwner": "sdkwork-kernel",
+  "sdkDependencies": [
+    {
+      "workspace": "sdkwork-appbase-app-sdk",
+      "role": "appbase-identity-and-session-capability",
+      "required": true,
+      "dependencyMode": "consumer-sdk",
+      "apiPrefix": "/app/v3/api",
+      "apiAuthority": "sdkwork-appbase.app",
+      "generatedTransportImportPolicy": "forbidden",
+      "packageByLanguage": {
+        "typescript": "@sdkwork/appbase-app-sdk"
+      }
+    }
+  ],
+  "metadata": {
+    "managedBy": "sdks/_shared/agent-sdk-ownership.mjs",
+    "standardVersion": "2026-06-06",
+    "ownerOnlyOperationCount": 68
+  }
+}

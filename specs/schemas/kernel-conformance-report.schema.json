@@ -29,6 +29,7 @@
         "agent-installation",
         "provider-model",
         "provider-tool",
+        "provider-knowledge",
         "adapter-protocol",
         "security-baseline"
       ]

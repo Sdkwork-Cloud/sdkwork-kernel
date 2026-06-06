@@ -41,6 +41,7 @@ Required operations:
 
 | Operation | Responsibility |
 | --- | --- |
+| `provider_manifest` | Return provider family, id, version, and declared `tool.*` capabilities |
 | `list_tools` | List available tool descriptors for a session/runtime scope |
 | `describe_tool` | Return one complete tool descriptor |
 | `authorize_tool_call` | Produce or request policy evaluation for a call |
@@ -52,6 +53,8 @@ Required operations:
 Rules:
 
 - Providers `MUST` declare unsupported operations in their manifest.
+- Typed runtime registration `MUST` preserve provider-declared `tool.*`
+  capabilities instead of collapsing every tool provider to `tool.invoke`.
 - `invoke_tool` `MUST` validate input before execution.
 - `stream_tool_call` `MUST` use the same `tool_call_id` as the invocation.
 - `cancel_tool_call` `MUST` be idempotent.

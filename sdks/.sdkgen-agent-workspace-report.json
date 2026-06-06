@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "app": "agent",
+  "mode": "apply",
+  "standardProfile": "sdkwork-v3",
+  "sdkgenPath": "D:/javasource/spring-ai-plus/sdk/sdkwork-sdk-generator/bin/sdkgen.js",
+  "startedAt": "2026-06-06T00:11:32.413Z",
+  "families": [
+    {
+      "key": "open",
+      "familyDir": "sdkwork-agent-sdk",
+      "authority": "sdkwork-agent-open-api",
+      "input": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-sdk\\openapi\\sdkwork-agent-open-api.sdkgen.yaml",
+      "output": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-sdk\\sdkwork-agent-sdk-typescript\\generated\\server-openapi",
+      "sdkName": "sdkwork-agent-sdk",
+      "sdkType": "custom",
+      "sdkSurface": "open",
+      "packageName": "@sdkwork/agent-sdk",
+      "apiPrefix": "/agent/v3/api",
+      "generated": false,
+      "skipped": true,
+      "skipReason": "sdkwork-v3 standard profile currently supports app, backend, and im prefixes only.",
+      "derivedFrom": "sdkwork-agent-app-sdk",
+      "derivedGenerated": true,
+      "derivedHasChanges": false,
+      "derivationFileCount": 134
+    },
+    {
+      "key": "app",
+      "familyDir": "sdkwork-agent-app-sdk",
+      "authority": "sdkwork-agent-app-api",
+      "input": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\openapi\\sdkwork-agent-app-api.sdkgen.yaml",
+      "output": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
+      "sdkName": "sdkwork-agent-app-sdk",
+      "sdkType": "app",
+      "sdkOwner": "sdkwork-kernel",
+      "packageName": "@sdkwork/agent-app-sdk",
+      "apiPrefix": "/app/v3/api",
+      "sdkDependencies": [
+        {
+          "workspace": "sdkwork-appbase-app-sdk",
+          "role": "appbase-identity-and-session-capability",
+          "required": true,
+          "dependencyMode": "consumer-sdk",
+          "apiPrefix": "/app/v3/api",
+          "apiAuthority": "sdkwork-appbase.app",
+          "generatedTransportImportPolicy": "forbidden",
+          "packageByLanguage": {
+            "typescript": "@sdkwork/appbase-app-sdk"
+          }
+        }
+      ],
+      "version": "0.1.0",
+      "fingerprint": "1ad2f6374ccd4a2ec00e12e6331d6798532186da7340b7892bded83b55d3f28c",
+      "hasChanges": false,
+      "riskLevel": "low",
+      "generated": false
+    },
+    {
+      "key": "backend",
+      "familyDir": "sdkwork-agent-backend-sdk",
+      "authority": "sdkwork-agent-backend-api",
+      "input": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-backend-sdk\\openapi\\sdkwork-agent-backend-api.sdkgen.yaml",
+      "output": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-backend-sdk\\sdkwork-agent-backend-sdk-typescript\\generated\\server-openapi",
+      "sdkName": "sdkwork-agent-backend-sdk",
+      "sdkType": "backend",
+      "sdkOwner": "sdkwork-kernel",
+      "packageName": "@sdkwork/agent-backend-sdk",
+      "apiPrefix": "/backend/v3/api",
+      "sdkDependencies": [
+        {
+          "workspace": "sdkwork-appbase-backend-sdk",
+          "role": "appbase-backend-management-capability",
+          "required": true,
+          "dependencyMode": "consumer-sdk",
+          "apiPrefix": "/backend/v3/api",
+          "apiAuthority": "sdkwork-appbase.backend",
+          "generatedTransportImportPolicy": "forbidden",
+          "packageByLanguage": {
+            "typescript": "@sdkwork/appbase-backend-sdk"
+          }
+        }
+      ],
+      "version": "0.1.0",
+      "fingerprint": "101773718406c5555a573ff7ccba33282ce9cf46ae37eed59d7567a5180601e9",
+      "hasChanges": false,
+      "riskLevel": "low",
+      "generated": false
+    }
+  ],
+  "openSdkDerivation": {
+    "schemaVersion": 1,
+    "mode": "apply",
+    "sourceFamily": "sdkwork-agent-app-sdk",
+    "sourceAuthority": "sdkwork-agent-app-api",
+    "targetFamily": "sdkwork-agent-sdk",
+    "targetAuthority": "sdkwork-agent-open-api",
+    "packageName": "@sdkwork/agent-sdk",
+    "apiPrefix": "/agent/v3/api",
+    "sourceRoot": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
+    "targetRoot": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-sdk\\sdkwork-agent-sdk-typescript\\generated\\server-openapi",
+    "hasChanges": false,
+    "changes": {
+      "created": [],
+      "updated": [],
+      "deleted": []
+    },
+    "fileCount": 134,
+    "generated": true
+  },
+  "finishedAt": "2026-06-06T00:11:34.109Z"
+}

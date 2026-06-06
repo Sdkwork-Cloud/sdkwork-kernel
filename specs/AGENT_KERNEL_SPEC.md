@@ -16,6 +16,7 @@
   - [`AGENT_MODEL_PROVIDER_SPI_SPEC.md`](./AGENT_MODEL_PROVIDER_SPI_SPEC.md)
   - [`AGENT_TOOL_PROVIDER_SPI_SPEC.md`](./AGENT_TOOL_PROVIDER_SPI_SPEC.md)
   - [`AGENT_CONTEXT_MEMORY_SPEC.md`](./AGENT_CONTEXT_MEMORY_SPEC.md)
+  - [`AGENT_KNOWLEDGE_PROVIDER_SPI_SPEC.md`](./AGENT_KNOWLEDGE_PROVIDER_SPI_SPEC.md)
   - [`AGENT_PLANNING_EXECUTION_SPEC.md`](./AGENT_PLANNING_EXECUTION_SPEC.md)
   - [`AGENT_HOST_PROVIDER_SPI_SPEC.md`](./AGENT_HOST_PROVIDER_SPI_SPEC.md)
   - [`AGENT_PROTOCOL_ADAPTER_SPEC.md`](./AGENT_PROTOCOL_ADAPTER_SPEC.md)
@@ -90,8 +91,8 @@ product host / application
   -> protocol adapter or typed kernel client
   -> AgentRuntime
   -> session/task/run/step engine
-  -> provider SPI: model, tool, context, memory, planning, policy, telemetry,
-     host, protocol adapter, MCP, Agent Skill, collaboration
+  -> provider SPI: model, tool, context, memory, knowledge, planning, policy,
+     telemetry, host, protocol adapter, MCP, Agent Skill, collaboration
   -> core contracts and event model
 ```
 
@@ -135,6 +136,7 @@ agent-kernel -> direct filesystem/process/network/secrets side effects
 | `ToolResult` | stable | Tool invocation result |
 | `ContextFrame` | stable | Bounded context item used by a run |
 | `MemoryRecord` | stable | Durable or retrievable memory item |
+| `KnowledgeDocument` | stable | External or domain corpus item that can be searched, read, and converted into context |
 | `Plan` | stable | Proposed execution plan |
 | `Action` | stable | Executable planned action |
 | `Observation` | stable | Result observed after an action |
@@ -282,6 +284,7 @@ Required capability families:
 - `tool`
 - `context`
 - `memory`
+- `knowledge`
 - `planning`
 - `policy`
 - `telemetry`
@@ -338,19 +341,20 @@ Rules:
   runtime bootstrap `MUST` verify that the provider's `AgentConfigurationSpec`
   declares every section kind required by the package manifest.
 - Runtime implementations `MUST` keep a typed provider registry for local
-  provider instances, including model, tool, policy, context, memory, planning,
-  host, protocol adapter, MCP, Agent Skill, collaboration, telemetry, installer, and
-  configuration providers.
+  provider instances, including model, tool, policy, context, memory, knowledge,
+  planning, host, protocol adapter, MCP, Agent Skill, collaboration, telemetry,
+  installer, and configuration providers.
   Provider manifests are the negotiation and introspection surface; typed
   registry entries are the execution surface.
 - Runtime implementations `MUST` support multiple typed providers with
   provider-id selection for the provider families where composition is expected:
-  model, tool, policy, context, memory, planning, host, protocol adapter, MCP,
-  Agent Skill, collaboration, and telemetry. One agent can use different LLM
-  implementations, tool implementations, context assembly strategies, memory
-  stores, planners, host capability bridges, protocol bridges, MCP integrations,
-  skill packs, collaboration backends, and observability sinks without replacing
-  the kernel object model.
+  model, tool, policy, context, memory, knowledge, planning, host, protocol
+  adapter, MCP, Agent Skill, collaboration, and telemetry. One agent can use
+  different LLM implementations, tool implementations, context assembly
+  strategies, memory stores, knowledge retrieval backends, planners, host
+  capability bridges, protocol bridges, MCP integrations, skill packs,
+  collaboration backends, and observability sinks without replacing the kernel
+  object model.
 - Runtime implementations that claim MCP support `MUST` expose MCP as
   `provider_family: mcp` with `mcp.tools`, `mcp.resources`, and/or
   `mcp.prompts` capabilities. MCP remains an external protocol surface, not the
@@ -588,6 +592,8 @@ Provider-family details are split into focused specifications:
 - Model provider: `AGENT_MODEL_PROVIDER_SPI_SPEC.md`
 - Tool provider: `AGENT_TOOL_PROVIDER_SPI_SPEC.md`
 - Context and memory: `AGENT_CONTEXT_MEMORY_SPEC.md`
+- Knowledge provider and RAG retrieval boundary:
+  `AGENT_KNOWLEDGE_PROVIDER_SPI_SPEC.md`
 - Planning and execution: `AGENT_PLANNING_EXECUTION_SPEC.md`
 - Host provider: `AGENT_HOST_PROVIDER_SPI_SPEC.md`
 - Agent installation and configuration:
@@ -723,6 +729,11 @@ Rules:
 - Untrusted context `MUST` be marked.
 - Context trimming `SHOULD` be deterministic where possible.
 - Sensitive context `MUST` carry redaction metadata.
+- Context providers `MUST NOT` own the canonical knowledge retrieval contract.
+  Retrieval over domain corpora, wiki systems, search indexes, graph stores,
+  SQL stores, vector stores, or external knowledge APIs belongs to
+  `KnowledgeProvider`; context providers select, rank, trim, and explain the
+  frames passed to a run.
 
 ### 7.5 `MemoryProvider`
 
@@ -744,8 +755,51 @@ Rules:
 - Tenant/user/session scope `MUST` be explicit when the host is multi-tenant.
 - Memory providers `MUST` support deletion/export when required by privacy
   policy.
+- Memory providers `MUST NOT` be used as the standard RAG abstraction unless
+  the data is truly agent/user/session memory. Domain knowledge bases, product
+  documentation, wiki trees, search services, and retrieval APIs belong to
+  `KnowledgeProvider`.
 
-### 7.6 `PlanningProvider`
+### 7.6 `KnowledgeProvider`
+
+`KnowledgeProvider` abstracts provider-neutral knowledge retrieval and document
+access. It is the standard RAG retrieval boundary and is independent of vector
+stores. Vector retrieval, keyword search, wiki traversal, graph lookup,
+structured query, and external search services are implementation details behind
+the same SPI.
+
+Required operations:
+
+- `provider_manifest`
+- `search`
+- `read`
+- `list`
+- `health`
+
+Capability flags:
+
+- `knowledge.search`
+- `knowledge.read`
+- `knowledge.list`
+
+Rules:
+
+- Knowledge providers `MUST` declare exact `knowledge.*` capabilities.
+- Knowledge search requests `MUST` allow provider-neutral retrieval methods,
+  including exact, keyword, full-text, structured, graph, vector, hybrid,
+  LLM-rerank, and external retrieval.
+- Knowledge results `MUST` preserve provenance, trust level, redaction
+  classification, source URI when available, and retrieval method.
+- Knowledge documents `MUST` be convertible into `ContextFrame` without losing
+  provenance, trust, or redaction classification.
+- Knowledge providers `MUST NOT` imply model generation. RAG is composed as
+  `KnowledgeProvider -> context selection/assembly -> ModelProvider`.
+- Provider implementations such as Rig, Hermes Agent, OpenClaw, Codex, Claude
+  Code, OpenCode, Gemini, or custom in-house knowledge bases `MUST` remain
+  adapters behind this SPI and `MUST NOT` leak provider-specific document or
+  vector-store types into kernel-core contracts.
+
+### 7.7 `PlanningProvider`
 
 `PlanningProvider` may create or validate plans.
 
@@ -762,7 +816,7 @@ Rules:
 - Plan revision `MUST` preserve history.
 - Plan generation may be model-backed, rule-backed, or host-provided.
 
-### 7.7 `PolicyProvider`
+### 7.8 `PolicyProvider`
 
 `PolicyProvider` makes security, permission, and sandbox decisions.
 
@@ -779,6 +833,9 @@ Policy request categories:
 - `tool.invoke`
 - `memory.write`
 - `memory.read`
+- `knowledge.search`
+- `knowledge.read`
+- `knowledge.list`
 - `host.filesystem`
 - `host.process`
 - `host.network`
@@ -949,6 +1006,7 @@ Required event families:
 - `agent.tool.*`
 - `agent.context.*`
 - `agent.memory.*`
+- `agent.knowledge.*`
 - `agent.policy.*`
 - `agent.audit.*`
 - `agent.telemetry.*`

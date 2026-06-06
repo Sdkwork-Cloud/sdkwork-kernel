@@ -111,12 +111,16 @@
       "sdkwork_agent_business::ports::*",
       "sdkwork_agent_business::infrastructure::*",
       "sdkwork_agent_business::persistence::*",
-      "sdkwork_agent_business::{AgentHttpState,build_app_router,build_backend_router,build_combined_router} [feature=http-axum]"
+      "sdkwork_agent_business::{AgentHttpState,build_open_router,build_app_router,build_backend_router,build_combined_router} [feature=http-axum]"
     ],
     "runtimeEntrypoints": [
       "Cargo.toml"
     ],
-    "sdkClients": [],
+    "sdkClients": [
+      "sdkwork-agent-sdk: sdkwork-agent-open-api -> @sdkwork/agent-sdk",
+      "sdkwork-agent-app-sdk: sdkwork-agent-app-api -> @sdkwork/agent-app-sdk",
+      "sdkwork-agent-backend-sdk: sdkwork-agent-backend-api -> @sdkwork/agent-backend-sdk"
+    ],
     "events": [
       "agent.business.created",
       "agent.business.updated",
@@ -136,12 +140,13 @@
   },
   "verification": {
     "commands": [
-      "cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml",
-      "cargo test --features http-axum --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml",
-      "cargo test --features postgres-sync --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml",
-      "powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun",
-      "powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun -SkipBuild -JsonReportPath specs/sdkgen/verification-latest.json",
-      "powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-ci.ps1"
+      "cargo test --manifest-path sdkwork-agent-business/Cargo.toml",
+      "cargo test --features http-axum --manifest-path sdkwork-agent-business/Cargo.toml",
+      "cargo test --features postgres-sync --manifest-path sdkwork-agent-business/Cargo.toml",
+      "node sdks/materialize-agent-v3-openapi-boundaries.mjs",
+      "node sdks/workspace-agent-sdkgen.mjs --mode dry-run",
+      "node scripts/check-agent-sdk-workspace.mjs",
+      "powershell -ExecutionPolicy Bypass -File sdkwork-agent-business/scripts/verify-ci.ps1"
     ]
   },
   "metadata": {

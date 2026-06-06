@@ -1,12 +1,13 @@
 use sdkwork_agent_integration_core::SdkworkAgentIntegrationPlugin;
 use sdkwork_agent_integration_rig::{
-    ids, RigIntegrationPlugin, RigMemoryProvider, RigModelProvider, RigPlanningProvider,
-    RigToolProvider,
+    ids, RigIntegrationPlugin, RigKnowledgeProvider, RigMemoryProvider, RigModelProvider,
+    RigPlanningProvider, RigToolProvider,
 };
 use sdkwork_agent_kernel::{
-    KernelErrorKind, MemoryProvider, MemoryRecord, MemoryScope, ModelProvider, ModelRequest,
-    ModelResponseFormat, PlanningProvider, RedactionClassification, ToolCall, ToolProvider,
-    TrustLevel,
+    KernelErrorKind, KnowledgeDocumentFilter, KnowledgeDocumentKind, KnowledgeProvider,
+    KnowledgeRetrievalMethod, KnowledgeSearchRequest, MemoryProvider, MemoryRecord, MemoryScope,
+    ModelProvider, ModelRequest, ModelResponseFormat, PlanningProvider, RedactionClassification,
+    ToolCall, ToolProvider, TrustLevel,
 };
 
 #[test]
@@ -123,6 +124,84 @@ fn rig_memory_provider_maps_sdkwork_memory_records() {
 }
 
 #[test]
+fn rig_knowledge_provider_exposes_provider_neutral_retrieval() {
+    let provider = RigKnowledgeProvider::new();
+    let manifest = provider.provider_manifest();
+    assert_eq!(manifest.provider_id, ids::KNOWLEDGE_PROVIDER_ID);
+    assert_eq!(manifest.provider_family, "knowledge");
+    assert!(manifest
+        .capabilities
+        .contains(&"knowledge.search".to_string()));
+
+    let results = provider
+        .search(
+            KnowledgeSearchRequest::new("rig")
+                .with_namespace("sdkwork.rig")
+                .with_method(KnowledgeRetrievalMethod::Keyword)
+                .with_method(KnowledgeRetrievalMethod::Graph),
+        )
+        .expect("Rig knowledge searches through SDKWork SPI");
+    assert_eq!(results.len(), 1);
+    assert_eq!(
+        results[0].retrieval_method,
+        KnowledgeRetrievalMethod::Keyword
+    );
+    assert_eq!(results[0].source_uri.as_deref(), Some("external/rig"));
+    assert!(results[0]
+        .metadata
+        .iter()
+        .any(|(key, value)| key == "sdkwork.adapter" && value == "rig-core"));
+
+    let filtered_results = provider
+        .search(
+            KnowledgeSearchRequest::new("rig")
+                .with_namespace("sdkwork.rig")
+                .with_filter("tag", "knowledge")
+                .with_filter("retrieval_method", "keyword"),
+        )
+        .expect("Rig knowledge applies provider-neutral request filters");
+    assert_eq!(filtered_results.len(), 1);
+
+    let mismatched_results = provider
+        .search(
+            KnowledgeSearchRequest::new("rig")
+                .with_namespace("sdkwork.rig")
+                .with_filter("tag", "missing"),
+        )
+        .expect("Rig knowledge applies mismatched filters");
+    assert!(mismatched_results.is_empty());
+
+    let document = provider
+        .read(&results[0].document_id)
+        .expect("Rig knowledge reads by document id");
+    assert_eq!(document.namespace.as_deref(), Some("sdkwork.rig"));
+    assert!(document
+        .retrieval_methods
+        .contains(&KnowledgeRetrievalMethod::Vector));
+
+    let listed = provider
+        .list(
+            KnowledgeDocumentFilter::new()
+                .with_namespace("sdkwork.rig")
+                .with_kind(KnowledgeDocumentKind::WikiSection)
+                .with_tag("knowledge"),
+        )
+        .expect("Rig knowledge lists filtered documents");
+    assert_eq!(listed.len(), 1);
+}
+
+#[cfg(feature = "rig-core-adapter")]
+#[test]
+fn rig_core_adapter_wraps_vector_search_without_leaking_rig_types() {
+    let plan = sdkwork_agent_integration_rig::RigCoreKnowledgeAdapter::vector_search_plan(
+        &KnowledgeSearchRequest::new("rig adapter").with_top_k(3),
+    );
+
+    assert_eq!(plan.query, "rig adapter");
+    assert_eq!(plan.samples, 3);
+}
+
+#[test]
 fn rig_planning_provider_creates_valid_policy_aware_plan() {
     let provider = RigPlanningProvider::new();
     let plan = provider.create_plan("task.1", "run.1", "summarize repository");
@@ -176,4 +255,13 @@ fn rig_plugin_model_provider_can_be_selected_by_provider_id() {
             .len(),
         1
     );
+
+    let knowledge_provider = report
+        .runtime
+        .knowledge_provider_by_id(ids::KNOWLEDGE_PROVIDER_ID)
+        .expect("rig knowledge provider is registered by id");
+    let results = knowledge_provider
+        .search(KnowledgeSearchRequest::new("adapter").with_namespace("sdkwork.rig"))
+        .expect("registered Rig knowledge provider is searchable");
+    assert_eq!(results.len(), 1);
 }

@@ -248,3 +248,37 @@ fn agent_definition_rejects_policy_references_without_matching_bindings() {
         .to_string()
         .contains("model selection references unknown provider"));
 }
+
+#[test]
+fn agent_definition_accepts_explicit_knowledge_provider_binding() {
+    let manifest = AgentManifest::from_json(STANDARD_AGENT_DEFINITION_JSON)
+        .expect("nested agent manifest parses from agent definition");
+
+    let definition = AgentDefinition::new("definition.intelligence.knowledge", manifest)
+        .with_provider_binding(
+            AgentProviderBinding::new(
+                "binding.knowledge.primary",
+                AgentProviderFamily::Knowledge,
+                "provider.knowledge.wiki",
+                false,
+            )
+            .as_default()
+            .with_mode(AgentProviderBindingMode::TypedLocal)
+            .with_min_version("0.1.0")
+            .with_capabilities(vec![
+                "knowledge.search".to_string(),
+                "knowledge.read".to_string(),
+                "knowledge.list".to_string(),
+            ]),
+        )
+        .validate()
+        .expect("knowledge provider binding is standard");
+
+    let knowledge = definition
+        .default_binding(AgentProviderFamily::Knowledge)
+        .expect("default knowledge binding is explicit");
+    assert_eq!(knowledge.provider_id, "provider.knowledge.wiki");
+    assert!(knowledge.supports_capability("knowledge.search"));
+    assert!(knowledge.supports_capability("knowledge.read"));
+    assert!(!definition.requires_provider_family(AgentProviderFamily::Knowledge));
+}

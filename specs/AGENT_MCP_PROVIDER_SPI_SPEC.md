@@ -70,7 +70,13 @@ Rules:
   providers.
 - Resource reads that may expose private, proprietary, or user data `MUST`
   preserve trust and redaction metadata in downstream context.
+- Resource content `MUST` carry trust level, redaction classification, optional
+  namespaced metadata, and a deterministic mapping to `ContextFrame` so MCP can
+  participate in RAG/context pipelines without becoming the kernel object model.
 - Prompt loading `MUST NOT` bypass model, tool, or host policy.
+- Prompt messages `MUST` carry trust level, redaction classification, optional
+  namespaced metadata, and deterministic mapping to `ContextFrame` values before
+  they are used as model context.
 
 ## 3. Runtime Registration
 

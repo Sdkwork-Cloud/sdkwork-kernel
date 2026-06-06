@@ -9,6 +9,8 @@ mod installer;
 mod manifest;
 mod package;
 mod provider;
+#[cfg(feature = "rig-core-adapter")]
+mod rig_core_adapter;
 
 pub use agent_definition::{rig_agent_definition, rig_agent_manifest};
 pub use backend::{RigBackend, RigBackendMode};
@@ -20,5 +22,8 @@ pub use installer::RigAgentInstaller;
 pub use manifest::{rig_plugin_manifest, rig_provider_manifests, RigIntegrationPlugin};
 pub use package::rig_package_manifest;
 pub use provider::{
-    RigMemoryProvider, RigModelProvider, RigPlanningProvider, RigPolicyProvider, RigToolProvider,
+    RigKnowledgeProvider, RigMemoryProvider, RigModelProvider, RigPlanningProvider,
+    RigPolicyProvider, RigToolProvider,
 };
+#[cfg(feature = "rig-core-adapter")]
+pub use rig_core_adapter::{RigCoreKnowledgeAdapter, RigVectorSearchPlan};

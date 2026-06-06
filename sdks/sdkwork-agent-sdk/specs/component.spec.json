@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "kind": "sdkwork.component.spec",
+  "component": {
+    "name": "sdkwork-agent-sdk",
+    "displayName": "SDKWork Agent Open SDK",
+    "version": "0.1.0",
+    "type": "sdk-family",
+    "root": "sdks/sdkwork-agent-sdk",
+    "domain": "agent",
+    "capability": "agent-open-sdk",
+    "status": "standardized",
+    "languages": [
+      "typescript"
+    ],
+    "generated": true,
+    "private": false,
+    "manifests": [
+      ".sdkwork-assembly.json"
+    ]
+  },
+  "sdk": {
+    "family": "sdkwork-agent-sdk",
+    "authority": "sdkwork-agent-open-api",
+    "sdkOwner": "sdkwork-kernel",
+    "apiPrefix": "/agent/v3/api",
+    "packageName": "@sdkwork/agent-sdk",
+    "sdkName": "sdkwork-agent-sdk",
+    "sdkType": "custom",
+    "sdkSurface": "open",
+    "externalSdkgenProfileSupported": false,
+    "externalSdkgenProfileGap": "sdkwork-v3 standard profile currently supports app, backend, and im prefixes only.",
+    "generatedOutput": "sdkwork-agent-sdk-typescript/generated/server-openapi",
+    "standardProfile": "sdkwork-v3"
+  },
+  "contracts": {
+    "apiAuthority": {
+      "name": "sdkwork-agent-open-api",
+      "owner": "sdkwork-kernel",
+      "prefix": "/agent/v3/api",
+      "authorityOpenApi": "openapi/sdkwork-agent-open-api.openapi.yaml",
+      "derivedOpenApi": [
+        "openapi/sdkwork-agent-open-api.sdkgen.yaml"
+      ],
+      "standard": "../../specs/SDK_SPEC.md"
+    },
+    "publicExports": [],
+    "runtimeEntrypoints": [
+      ".sdkwork-assembly.json"
+    ],
+    "sdkDependencies": [],
+    "sdkClients": [
+      "SdkworkAgentClient"
+    ],
+    "events": [],
+    "configKeys": [
+      ".sdkwork-assembly.json"
+    ]
+  },
+  "verification": {
+    "commands": [
+      "node sdks/materialize-agent-v3-openapi-boundaries.mjs",
+      "node sdks/sdkwork-agent-sdk/bin/verify-sdk.mjs",
+      "node sdks/test/verify-agent-sdk-ownership-boundaries.test.mjs",
+      "node scripts/check-agent-sdk-workspace.mjs"
+    ]
+  },
+  "metadata": {
+    "managedBy": "sdks/_shared/agent-sdk-ownership.mjs",
+    "standardVersion": "2026-06-06"
+  }
+}

@@ -17,6 +17,18 @@ fn auth_headers(mut request: Request<Body>) -> Request<Body> {
     request
 }
 
+fn app_context_headers(mut request: Request<Body>) -> Request<Body> {
+    let headers = request.headers_mut();
+    headers.insert("x-sdkwork-tenant-id", HeaderValue::from_static("1"));
+    headers.insert("x-sdkwork-user-id", HeaderValue::from_static("u-1"));
+    headers.insert("x-sdkwork-actor-kind", HeaderValue::from_static("user"));
+    headers.insert(
+        "x-sdkwork-permission-scope",
+        HeaderValue::from_static("agent.write agent.read"),
+    );
+    request
+}
+
 fn test_manifest(agent_id: &str, display_name: &str) -> Value {
     json!({
         "schema_version": "1.0.0",
@@ -82,6 +94,36 @@ async fn create_agent_at(
     assert_eq!(response.status(), StatusCode::CREATED);
 }
 
+async fn post_json(
+    app: &axum::Router,
+    uri: &str,
+    body: Value,
+    expected_status: StatusCode,
+) -> Value {
+    let request = Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("request should succeed");
+    let status = response.status();
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    assert_eq!(
+        status,
+        expected_status,
+        "{uri}: {}",
+        String::from_utf8_lossy(&body_bytes)
+    );
+    serde_json::from_slice(&body_bytes).expect("response body should be valid json")
+}
+
 #[tokio::test]
 async fn app_create_and_retrieve_agent_should_work() {
     let state = AgentHttpState::new(
@@ -113,6 +155,90 @@ async fn app_create_and_retrieve_agent_should_work() {
         serde_json::from_slice(&body_bytes).expect("response body should be valid json");
     assert_eq!(body_json["data"]["agentId"], "agent.alpha");
     assert_eq!(body_json["data"]["displayName"], "Alpha");
+}
+
+#[tokio::test]
+async fn app_context_headers_should_work_for_generated_app_sdk_clients() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            create_body(
+                "agent.app.context",
+                "App Context Agent",
+                "2026-06-01T00:00:00Z",
+            )
+            .to_string(),
+        ))
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(app_context_headers(request))
+        .await
+        .expect("generated app sdk request should succeed");
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["agentId"], "agent.app.context");
+    assert_eq!(body_json["data"]["displayName"], "App Context Agent");
+}
+
+#[tokio::test]
+async fn app_update_agent_should_replace_manifest_when_manifest_is_present() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.update.manifest", "UpdateManifest").await;
+
+    let request = Request::builder()
+        .method("PATCH")
+        .uri("/app/v3/api/ai/agents/agent.update.manifest?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "displayName": "Update Manifest v2",
+                "manifest": test_manifest("agent.update.manifest", "Manifest v2"),
+                "requestedAt": "2026-06-01T00:30:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("update request should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["displayName"], "Update Manifest v2");
+    assert_eq!(body_json["data"]["manifest"]["display_name"], "Manifest v2");
+    assert_eq!(
+        body_json["data"]["manifest"]["agent_id"],
+        "agent.update.manifest"
+    );
 }
 
 #[tokio::test]
@@ -432,6 +558,168 @@ async fn provider_binding_and_deployment_list_missing_agent_should_return_not_fo
         assert_eq!(body_json["errorCategory"], "resource");
         assert_eq!(body_json["detail"], "agent not found");
     }
+}
+
+#[tokio::test]
+async fn app_agent_preview_response_should_use_agent_runtime_api_contract() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.preview.runtime", "Preview Runtime").await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents/agent.preview.runtime/preview_responses?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "executionId": "execution.preview.runtime.1",
+                "content": "hello",
+                "debugMode": true,
+                "memoryEnabled": false,
+                "model": "model.local",
+                "temperature": 0.2,
+                "inputPayload": {
+                    "agent": {
+                        "id": "agent.preview.runtime",
+                        "name": "Preview Runtime"
+                    },
+                    "content": "hello"
+                },
+                "requestedAt": "2026-06-01T00:20:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(app_context_headers(request))
+        .await
+        .expect("preview request should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(
+        body_json["data"]["executionId"],
+        "execution.preview.runtime.1"
+    );
+    assert_eq!(body_json["data"]["agentId"], "agent.preview.runtime");
+    assert_eq!(body_json["data"]["operation"], "preview_response");
+    assert_eq!(body_json["data"]["status"], "completed");
+    assert_eq!(body_json["data"]["outputPayload"]["content"], "hello");
+    assert_eq!(body_json["data"]["outputPayload"]["debugMode"], true);
+}
+
+#[tokio::test]
+async fn app_agent_prompt_optimization_should_use_agent_runtime_api_contract() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.prompt.runtime", "Prompt Runtime").await;
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents/agent.prompt.runtime/prompt_optimizations?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "executionId": "execution.prompt.runtime.1",
+                "prompt": "  answer the user clearly  ",
+                "inputPayload": {
+                    "agent": {
+                        "id": "agent.prompt.runtime",
+                        "name": "Prompt Runtime"
+                    },
+                    "prompt": "answer the user clearly"
+                },
+                "requestedAt": "2026-06-01T00:21:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(app_context_headers(request))
+        .await
+        .expect("prompt optimization request should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(
+        body_json["data"]["executionId"],
+        "execution.prompt.runtime.1"
+    );
+    assert_eq!(body_json["data"]["agentId"], "agent.prompt.runtime");
+    assert_eq!(body_json["data"]["operation"], "prompt_optimization");
+    assert_eq!(body_json["data"]["status"], "completed");
+    assert_eq!(
+        body_json["data"]["outputPayload"]["optimizedPrompt"],
+        "answer the user clearly"
+    );
+}
+
+#[tokio::test]
+async fn app_agent_runtime_execution_missing_agent_should_return_problem_detail() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents/agent.runtime.missing/preview_responses?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "executionId": "execution.preview.missing.1",
+                "content": "hello",
+                "requestedAt": "2026-06-01T00:22:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(app_context_headers(request))
+        .await
+        .expect("missing agent request should return problem detail");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("application/problem+json")
+    );
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "not_found");
+    assert_eq!(body_json["detail"], "agent not found");
 }
 
 #[tokio::test]
@@ -1092,6 +1380,48 @@ async fn create_duplicate_agent_should_return_conflict() {
     assert_eq!(body_json["code"], "conflict");
     assert_eq!(body_json["errorCategory"], "business");
     assert_eq!(body_json["retryable"], false);
+}
+
+#[tokio::test]
+async fn create_agent_with_non_standard_agent_id_should_return_bad_request() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            create_body("pc.agent.invalid", "InvalidAgent", "2026-06-01T03:30:00Z").to_string(),
+        ))
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("invalid agent id create should return problem detail");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "validation_error");
+    assert_eq!(body_json["errorCategory"], "validation");
+    assert_eq!(body_json["detail"], "agentId must start with agent.");
 }
 
 #[tokio::test]
@@ -2261,4 +2591,1528 @@ async fn backend_audit_events_permission_denied_should_return_forbidden_problem_
     assert_eq!(body_json["code"], "permission_required");
     assert_eq!(body_json["errorCategory"], "permission");
     assert_eq!(body_json["retryable"], false);
+}
+
+#[tokio::test]
+async fn app_knowledge_base_rag_lifecycle_should_work_over_http() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    create_agent(&app, "agent.knowledge.rag", "Knowledge RAG").await;
+
+    let create_base = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeBaseId": "knowledge.base.wiki",
+                "organizationId": "10",
+                "ownerUserId": "100",
+                "code": "knowledge-base-wiki",
+                "displayName": "Wiki Knowledge",
+                "description": "wiki style knowledge base",
+                "providerId": "provider.knowledge.local",
+                "baseKind": "wiki",
+                "retrievalModes": ["wiki", "keyword", "rule"],
+                "capabilityIds": ["knowledge.search", "knowledge.read"],
+                "configurationProfileId": "profile.knowledge.local",
+                "visibility": "organization",
+                "requestedAt": "2026-06-01T09:00:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let create_base_response = app
+        .clone()
+        .oneshot(auth_headers(create_base))
+        .await
+        .expect("create base request should succeed");
+    assert_eq!(create_base_response.status(), StatusCode::CREATED);
+    let body_bytes = to_bytes(create_base_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["knowledgeBaseId"], "knowledge.base.wiki");
+    assert_eq!(body_json["data"]["baseKind"], "wiki");
+    assert_eq!(body_json["data"]["retrievalModes"][0], "wiki");
+
+    let create_source = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/sources?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeSourceId": "knowledge.source.wiki.root",
+                "organizationId": "10",
+                "sourceKind": "wiki",
+                "sourceRef": "kb://wiki/root",
+                "sourceHash": "sha256-source-root",
+                "syncPolicy": { "mode": "manual" },
+                "metadata": { "space": "engineering" },
+                "requestedAt": "2026-06-01T09:01:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let create_source_response = app
+        .clone()
+        .oneshot(auth_headers(create_source))
+        .await
+        .expect("create source request should succeed");
+    assert_eq!(create_source_response.status(), StatusCode::CREATED);
+
+    let create_document = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/documents?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeDocumentId": "knowledge.document.rig.setup",
+                "organizationId": "10",
+                "knowledgeSourceId": "knowledge.source.wiki.root",
+                "documentKind": "wiki-page",
+                "title": "Rig setup",
+                "contentRef": "kb://wiki/rig/setup",
+                "contentHash": "sha256-document-rig-setup",
+                "summary": "Rig setup wiki page",
+                "metadata": { "revision": "1" },
+                "tags": ["rig", "setup"],
+                "categories": ["agent"],
+                "trustLevel": 4,
+                "redactionClassification": "internal",
+                "requestedAt": "2026-06-01T09:02:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let create_document_response = app
+        .clone()
+        .oneshot(auth_headers(create_document))
+        .await
+        .expect("create document request should succeed");
+    assert_eq!(create_document_response.status(), StatusCode::CREATED);
+
+    let create_chunk = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_documents/knowledge.document.rig.setup/chunks?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeChunkId": "knowledge.chunk.rig.setup.1",
+                "organizationId": "10",
+                "chunkOrdinal": 1,
+                "heading": "Install",
+                "contentRef": "kb://wiki/rig/setup#install",
+                "contentHash": "sha256-chunk-rig-setup-1",
+                "tokenEstimate": 128,
+                "summary": "Install section",
+                "metadata": { "section": "install" },
+                "requestedAt": "2026-06-01T09:03:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let create_chunk_response = app
+        .clone()
+        .oneshot(auth_headers(create_chunk))
+        .await
+        .expect("create chunk request should succeed");
+    assert_eq!(create_chunk_response.status(), StatusCode::CREATED);
+
+    let upsert_wiki_index = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_indexes?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeIndexId": "knowledge.index.rig.setup.wiki",
+                "knowledgeBaseId": "knowledge.base.wiki",
+                "knowledgeDocumentId": "knowledge.document.rig.setup",
+                "knowledgeChunkId": "knowledge.chunk.rig.setup.1",
+                "indexKind": "wiki",
+                "indexProviderId": "provider.knowledge.wiki",
+                "externalRef": "wiki://rig/setup#install",
+                "contentHash": "sha256-index-rig-setup-wiki",
+                "requestedAt": "2026-06-01T09:04:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let wiki_index_response = app
+        .clone()
+        .oneshot(auth_headers(upsert_wiki_index))
+        .await
+        .expect("upsert wiki index request should succeed");
+    assert_eq!(wiki_index_response.status(), StatusCode::CREATED);
+    let body_bytes = to_bytes(wiki_index_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["indexKind"], "wiki");
+    assert_eq!(body_json["data"]["embeddingModelId"], Value::Null);
+    assert_eq!(body_json["data"]["vectorDimension"], Value::Null);
+
+    let search_knowledge = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/search?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "query": "rig install",
+                "topK": 5,
+                "retrievalModes": ["wiki"],
+                "includeExternal": false
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let search_response = app
+        .clone()
+        .oneshot(auth_headers(search_knowledge))
+        .await
+        .expect("search request should succeed");
+    assert_eq!(search_response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(search_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(
+        body_json["data"]["items"][0]["knowledgeIndexId"],
+        "knowledge.index.rig.setup.wiki"
+    );
+    assert_eq!(body_json["data"]["items"][0]["retrievalMethod"], "wiki");
+    assert_eq!(
+        body_json["data"]["items"][0]["knowledgeDocumentId"],
+        "knowledge.document.rig.setup"
+    );
+    assert_eq!(
+        body_json["data"]["items"][0]["knowledgeChunkId"],
+        "knowledge.chunk.rig.setup.1"
+    );
+    assert_eq!(
+        body_json["data"]["items"][0]["contentRef"],
+        "kb://wiki/rig/setup#install"
+    );
+    assert_eq!(
+        body_json["data"]["items"][0]["externalRef"],
+        "wiki://rig/setup#install"
+    );
+    assert_eq!(
+        body_json["data"]["items"][0]["redactionClassification"],
+        "internal"
+    );
+
+    let create_binding = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/bindings?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeBindingId": "knowledge.binding.agent.rag",
+                "organizationId": "10",
+                "agentId": "agent.knowledge.rag",
+                "scopeKind": "agent",
+                "scopeRef": "agent.knowledge.rag",
+                "active": true,
+                "defaultBinding": true,
+                "requestedAt": "2026-06-01T09:05:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let create_binding_response = app
+        .clone()
+        .oneshot(auth_headers(create_binding))
+        .await
+        .expect("create binding request should succeed");
+    assert_eq!(create_binding_response.status(), StatusCode::CREATED);
+
+    let create_sync_job = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/sync_jobs?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "syncJobId": "knowledge.sync.rig.setup.import",
+                "organizationId": "10",
+                "knowledgeSourceId": "knowledge.source.wiki.root",
+                "jobKind": "import",
+                "inputRef": "kb://wiki/root",
+                "input": { "reason": "initial import" },
+                "requestedAt": "2026-06-01T09:06:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let create_sync_job_response = app
+        .clone()
+        .oneshot(auth_headers(create_sync_job))
+        .await
+        .expect("create sync job request should succeed");
+    assert_eq!(create_sync_job_response.status(), StatusCode::CREATED);
+
+    for (uri, expected_id_field, expected_id) in [
+        (
+            "/app/v3/api/ai/knowledge_bases?tenant_id=1",
+            "knowledgeBaseId",
+            "knowledge.base.wiki",
+        ),
+        (
+            "/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/sources?tenant_id=1",
+            "knowledgeSourceId",
+            "knowledge.source.wiki.root",
+        ),
+        (
+            "/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/documents?tenant_id=1",
+            "knowledgeDocumentId",
+            "knowledge.document.rig.setup",
+        ),
+        (
+            "/app/v3/api/ai/knowledge_documents/knowledge.document.rig.setup/chunks?tenant_id=1",
+            "knowledgeChunkId",
+            "knowledge.chunk.rig.setup.1",
+        ),
+        (
+            "/app/v3/api/ai/knowledge_documents/knowledge.document.rig.setup/indexes?tenant_id=1",
+            "knowledgeIndexId",
+            "knowledge.index.rig.setup.wiki",
+        ),
+        (
+            "/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/bindings?tenant_id=1",
+            "knowledgeBindingId",
+            "knowledge.binding.agent.rag",
+        ),
+        (
+            "/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/sync_jobs?tenant_id=1",
+            "syncJobId",
+            "knowledge.sync.rig.setup.import",
+        ),
+    ] {
+        let request = Request::builder()
+            .method("GET")
+            .uri(uri)
+            .body(Body::empty())
+            .expect("request should be built");
+        let response = app
+            .clone()
+            .oneshot(auth_headers(request))
+            .await
+            .expect("list request should succeed");
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        let body_bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should be readable");
+        let body_json: Value =
+            serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+        assert_eq!(
+            body_json["data"]["items"][0][expected_id_field],
+            expected_id
+        );
+        assert_eq!(body_json["data"]["pageInfo"]["totalItems"], "1");
+    }
+
+    for (uri, expected_id_field, expected_id) in [
+        (
+            "/app/v3/api/ai/knowledge_chunks/knowledge.chunk.rig.setup.1?tenant_id=1",
+            "knowledgeChunkId",
+            "knowledge.chunk.rig.setup.1",
+        ),
+        (
+            "/app/v3/api/ai/knowledge_indexes/knowledge.index.rig.setup.wiki?tenant_id=1",
+            "knowledgeIndexId",
+            "knowledge.index.rig.setup.wiki",
+        ),
+        (
+            "/app/v3/api/ai/knowledge_bindings/knowledge.binding.agent.rag?tenant_id=1",
+            "knowledgeBindingId",
+            "knowledge.binding.agent.rag",
+        ),
+        (
+            "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.rig.setup.import?tenant_id=1",
+            "syncJobId",
+            "knowledge.sync.rig.setup.import",
+        ),
+    ] {
+        let request = Request::builder()
+            .method("GET")
+            .uri(uri)
+            .body(Body::empty())
+            .expect("request should be built");
+        let response = app
+            .clone()
+            .oneshot(auth_headers(request))
+            .await
+            .expect("retrieve request should succeed");
+        assert_eq!(response.status(), StatusCode::OK, "{uri}");
+        let body_bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should be readable");
+        let body_json: Value =
+            serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+        assert_eq!(body_json["data"][expected_id_field], expected_id);
+    }
+}
+
+#[tokio::test]
+async fn app_knowledge_sync_jobs_support_runtime_transitions_over_http() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases?tenant_id=1",
+        json!({
+            "knowledgeBaseId": "knowledge.base.sync.http",
+            "organizationId": "10",
+            "ownerUserId": "100",
+            "code": "knowledge-base-sync-http",
+            "displayName": "HTTP Sync Knowledge",
+            "description": "runtime sync transitions",
+            "providerId": "provider.knowledge.local",
+            "baseKind": "wiki",
+            "retrievalModes": ["wiki", "keyword"],
+            "capabilityIds": ["knowledge.search", "knowledge.read"],
+            "configurationProfileId": "profile.knowledge.local",
+            "visibility": "organization",
+            "requestedAt": "2026-06-01T12:00:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases/knowledge.base.sync.http/sources?tenant_id=1",
+        json!({
+            "knowledgeSourceId": "knowledge.source.sync.http",
+            "organizationId": "10",
+            "sourceKind": "wiki",
+            "sourceRef": "kb://sync/http",
+            "sourceHash": "sha256-sync-http-source",
+            "syncPolicy": { "mode": "manual" },
+            "metadata": { "owner": "runtime" },
+            "requestedAt": "2026-06-01T12:01:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    for (sync_job_id, job_kind, requested_at) in [
+        (
+            "knowledge.sync.http.complete.1",
+            "reindex",
+            "2026-06-01T12:02:00Z",
+        ),
+        (
+            "knowledge.sync.http.fail.1",
+            "refresh",
+            "2026-06-01T12:05:00Z",
+        ),
+        (
+            "knowledge.sync.http.cancel.1",
+            "import",
+            "2026-06-01T12:08:00Z",
+        ),
+    ] {
+        post_json(
+            &app,
+            "/app/v3/api/ai/knowledge_bases/knowledge.base.sync.http/sync_jobs?tenant_id=1",
+            json!({
+                "syncJobId": sync_job_id,
+                "organizationId": "10",
+                "knowledgeSourceId": "knowledge.source.sync.http",
+                "jobKind": job_kind,
+                "inputRef": "kb://sync/http",
+                "input": { "reason": job_kind },
+                "requestedAt": requested_at
+            }),
+            StatusCode::CREATED,
+        )
+        .await;
+    }
+
+    let running = post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.complete.1/start?tenant_id=1",
+        json!({
+            "requestedAt": "2026-06-01T12:03:00Z"
+        }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(running["data"]["status"], "running");
+    assert_eq!(running["data"]["startedAt"], "2026-06-01T12:03:00Z");
+    assert_eq!(running["data"]["completedAt"], Value::Null);
+
+    let completed = post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.complete.1/complete?tenant_id=1",
+        json!({
+            "output": { "indexedDocuments": 1, "indexedChunks": 0 },
+            "requestedAt": "2026-06-01T12:04:00Z"
+        }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(completed["data"]["status"], "succeeded");
+    assert_eq!(completed["data"]["output"]["indexedDocuments"], 1);
+    assert_eq!(completed["data"]["completedAt"], "2026-06-01T12:04:00Z");
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.fail.1/start?tenant_id=1",
+        json!({
+            "requestedAt": "2026-06-01T12:06:00Z"
+        }),
+        StatusCode::OK,
+    )
+    .await;
+    let failed = post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.fail.1/fail?tenant_id=1",
+        json!({
+            "error": { "code": "source_unavailable" },
+            "requestedAt": "2026-06-01T12:07:00Z"
+        }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(failed["data"]["status"], "failed");
+    assert_eq!(failed["data"]["error"]["code"], "source_unavailable");
+    assert_eq!(failed["data"]["completedAt"], "2026-06-01T12:07:00Z");
+
+    let cancelled = post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.cancel.1/cancel?tenant_id=1",
+        json!({
+            "cancellation": { "reason": "operator_cancelled" },
+            "requestedAt": "2026-06-01T12:09:00Z"
+        }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(cancelled["data"]["status"], "cancelled");
+    assert_eq!(cancelled["data"]["error"]["reason"], "operator_cancelled");
+    assert_eq!(cancelled["data"]["startedAt"], Value::Null);
+    assert_eq!(cancelled["data"]["completedAt"], "2026-06-01T12:09:00Z");
+}
+
+#[tokio::test]
+async fn app_knowledge_base_marketplace_crud_should_work_over_http() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let create_base = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeBaseId": "knowledge.base.crud.http",
+                "organizationId": "10",
+                "ownerUserId": "100",
+                "code": "knowledge-base-crud-http",
+                "displayName": "HTTP CRUD Knowledge",
+                "description": "knowledge base management lifecycle",
+                "providerId": "provider.knowledge.local",
+                "baseKind": "wiki",
+                "retrievalModes": ["wiki", "keyword"],
+                "capabilityIds": ["knowledge.search", "knowledge.read"],
+                "configurationProfileId": "profile.knowledge.local",
+                "visibility": "organization",
+                "requestedAt": "2026-06-01T11:00:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let create_response = app
+        .clone()
+        .oneshot(auth_headers(create_base))
+        .await
+        .expect("create base request should succeed");
+    assert_eq!(create_response.status(), StatusCode::CREATED);
+
+    let get_base = Request::builder()
+        .method("GET")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http?tenant_id=1")
+        .body(Body::empty())
+        .expect("request should be built");
+    let get_response = app
+        .clone()
+        .oneshot(auth_headers(get_base))
+        .await
+        .expect("get base request should succeed");
+    assert_eq!(get_response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(get_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(
+        body_json["data"]["knowledgeBaseId"],
+        "knowledge.base.crud.http"
+    );
+    assert_eq!(body_json["data"]["version"], "1");
+
+    let update_base = Request::builder()
+        .method("PATCH")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "expectedVersion": "1",
+                "displayName": "HTTP CRUD Knowledge Updated",
+                "description": "updated knowledge base management lifecycle",
+                "providerId": "provider.knowledge.hybrid",
+                "baseKind": "document-repository",
+                "retrievalModes": ["keyword", "full_text", "hybrid"],
+                "capabilityIds": ["knowledge.search", "knowledge.read", "knowledge.list"],
+                "configurationProfileId": "profile.knowledge.http.updated",
+                "visibility": "tenant",
+                "requestedAt": "2026-06-01T11:01:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let update_response = app
+        .clone()
+        .oneshot(auth_headers(update_base))
+        .await
+        .expect("update base request should succeed");
+    assert_eq!(update_response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(update_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(
+        body_json["data"]["displayName"],
+        "HTTP CRUD Knowledge Updated"
+    );
+    assert_eq!(body_json["data"]["baseKind"], "document-repository");
+    assert_eq!(body_json["data"]["visibility"], "tenant");
+    assert_eq!(body_json["data"]["version"], "2");
+
+    let delete_base = Request::builder()
+        .method("DELETE")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http?tenant_id=1&expected_version=2&requested_at=2026-06-01T11%3A02%3A00Z")
+        .body(Body::empty())
+        .expect("request should be built");
+    let delete_response = app
+        .clone()
+        .oneshot(auth_headers(delete_base))
+        .await
+        .expect("delete base request should succeed");
+    assert_eq!(delete_response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(delete_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["status"], "deleted");
+    assert_eq!(body_json["data"]["version"], "3");
+
+    let blocked_source = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http/sources?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeSourceId": "knowledge.source.crud.http.blocked",
+                "organizationId": "10",
+                "sourceKind": "wiki",
+                "sourceRef": "kb://crud/http/blocked",
+                "sourceHash": "sha256-crud-http-blocked",
+                "syncPolicy": { "mode": "manual" },
+                "metadata": { "blocked": true },
+                "requestedAt": "2026-06-01T11:03:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let blocked_response = app
+        .clone()
+        .oneshot(auth_headers(blocked_source))
+        .await
+        .expect("blocked source request should return not found problem");
+    assert_eq!(blocked_response.status(), StatusCode::NOT_FOUND);
+
+    let restore_base = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http/restore?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "expectedVersion": "3",
+                "requestedAt": "2026-06-01T11:04:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let restore_response = app
+        .clone()
+        .oneshot(auth_headers(restore_base))
+        .await
+        .expect("restore base request should succeed");
+    assert_eq!(restore_response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(restore_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["status"], "active");
+    assert_eq!(body_json["data"]["version"], "4");
+
+    let allowed_source = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http/sources?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeSourceId": "knowledge.source.crud.http.allowed",
+                "organizationId": "10",
+                "sourceKind": "wiki",
+                "sourceRef": "kb://crud/http/allowed",
+                "sourceHash": "sha256-crud-http-allowed",
+                "syncPolicy": { "mode": "manual" },
+                "metadata": { "blocked": false },
+                "requestedAt": "2026-06-01T11:05:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let allowed_response = app
+        .clone()
+        .oneshot(auth_headers(allowed_source))
+        .await
+        .expect("allowed source request should succeed");
+    assert_eq!(allowed_response.status(), StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn app_knowledge_source_and_document_management_should_work_over_http() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let create_base = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeBaseId": "knowledge.base.source.document.http",
+                "organizationId": "10",
+                "ownerUserId": "100",
+                "code": "knowledge-base-source-document-http",
+                "displayName": "Source Document Knowledge",
+                "description": "source and document management lifecycle",
+                "providerId": "provider.knowledge.local",
+                "baseKind": "wiki",
+                "retrievalModes": ["wiki", "keyword"],
+                "capabilityIds": ["knowledge.search", "knowledge.read"],
+                "configurationProfileId": "profile.knowledge.local",
+                "visibility": "organization",
+                "requestedAt": "2026-06-01T12:00:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let create_base_response = app
+        .clone()
+        .oneshot(auth_headers(create_base))
+        .await
+        .expect("create base request should succeed");
+    assert_eq!(create_base_response.status(), StatusCode::CREATED);
+
+    let create_source = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.source.document.http/sources?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeSourceId": "knowledge.source.source.document.http",
+                "organizationId": "10",
+                "sourceKind": "wiki",
+                "sourceRef": "kb://source-document/root",
+                "sourceHash": "sha256-source-document-root",
+                "syncPolicy": { "mode": "manual" },
+                "metadata": { "version": 1 },
+                "requestedAt": "2026-06-01T12:01:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let create_source_response = app
+        .clone()
+        .oneshot(auth_headers(create_source))
+        .await
+        .expect("create source request should succeed");
+    assert_eq!(create_source_response.status(), StatusCode::CREATED);
+
+    let get_source = Request::builder()
+        .method("GET")
+        .uri("/app/v3/api/ai/knowledge_sources/knowledge.source.source.document.http?tenant_id=1")
+        .body(Body::empty())
+        .expect("request should be built");
+    let get_source_response = app
+        .clone()
+        .oneshot(auth_headers(get_source))
+        .await
+        .expect("get source request should succeed");
+    assert_eq!(get_source_response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(get_source_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(
+        body_json["data"]["knowledgeSourceId"],
+        "knowledge.source.source.document.http"
+    );
+    assert_eq!(body_json["data"]["version"], "1");
+
+    let update_source = Request::builder()
+        .method("PATCH")
+        .uri("/app/v3/api/ai/knowledge_sources/knowledge.source.source.document.http?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "expectedVersion": "1",
+                "sourceKind": "web",
+                "sourceRef": "https://docs.example.test/source-document",
+                "sourceHash": "sha256-source-document-root-v2",
+                "syncPolicy": { "mode": "incremental" },
+                "metadata": { "version": 2 },
+                "requestedAt": "2026-06-01T12:02:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let update_source_response = app
+        .clone()
+        .oneshot(auth_headers(update_source))
+        .await
+        .expect("update source request should succeed");
+    assert_eq!(update_source_response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(update_source_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["sourceKind"], "web");
+    assert_eq!(
+        body_json["data"]["sourceRef"],
+        "https://docs.example.test/source-document"
+    );
+    assert_eq!(body_json["data"]["syncPolicy"]["mode"], "incremental");
+    assert_eq!(body_json["data"]["metadata"]["version"], 2);
+    assert_eq!(body_json["data"]["version"], "2");
+
+    let delete_source = Request::builder()
+        .method("DELETE")
+        .uri("/app/v3/api/ai/knowledge_sources/knowledge.source.source.document.http?tenant_id=1&expected_version=2&requested_at=2026-06-01T12%3A03%3A00Z")
+        .body(Body::empty())
+        .expect("request should be built");
+    let delete_source_response = app
+        .clone()
+        .oneshot(auth_headers(delete_source))
+        .await
+        .expect("delete source request should succeed");
+    assert_eq!(delete_source_response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(delete_source_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["status"], "deleted");
+    assert_eq!(body_json["data"]["version"], "3");
+
+    let list_sources = Request::builder()
+        .method("GET")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.source.document.http/sources?tenant_id=1")
+        .body(Body::empty())
+        .expect("request should be built");
+    let list_sources_response = app
+        .clone()
+        .oneshot(auth_headers(list_sources))
+        .await
+        .expect("list source request should succeed");
+    assert_eq!(list_sources_response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(list_sources_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["pageInfo"]["totalItems"], "0");
+
+    let blocked_document = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.source.document.http/documents?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeDocumentId": "knowledge.document.source.document.blocked",
+                "organizationId": "10",
+                "knowledgeSourceId": "knowledge.source.source.document.http",
+                "documentKind": "article",
+                "title": "Blocked Source Document",
+                "contentRef": "kb://source-document/blocked",
+                "contentHash": "sha256-source-document-blocked",
+                "summary": "deleted sources should reject documents",
+                "metadata": { "blocked": true },
+                "tags": ["blocked"],
+                "categories": ["source"],
+                "trustLevel": 3,
+                "redactionClassification": "internal",
+                "requestedAt": "2026-06-01T12:04:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let blocked_document_response = app
+        .clone()
+        .oneshot(auth_headers(blocked_document))
+        .await
+        .expect("blocked document request should return problem");
+    assert_eq!(blocked_document_response.status(), StatusCode::NOT_FOUND);
+
+    let restore_source = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_sources/knowledge.source.source.document.http/restore?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "expectedVersion": "3",
+                "requestedAt": "2026-06-01T12:05:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let restore_source_response = app
+        .clone()
+        .oneshot(auth_headers(restore_source))
+        .await
+        .expect("restore source request should succeed");
+    assert_eq!(restore_source_response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(restore_source_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["status"], "active");
+    assert_eq!(body_json["data"]["version"], "4");
+
+    let create_document = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.source.document.http/documents?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeDocumentId": "knowledge.document.source.document.http",
+                "organizationId": "10",
+                "knowledgeSourceId": "knowledge.source.source.document.http",
+                "documentKind": "article",
+                "title": "Original Document",
+                "contentRef": "kb://source-document/original",
+                "contentHash": "sha256-source-document-original",
+                "summary": "original document",
+                "metadata": { "version": 1 },
+                "tags": ["original"],
+                "categories": ["source"],
+                "trustLevel": 3,
+                "redactionClassification": "internal",
+                "requestedAt": "2026-06-01T12:06:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let create_document_response = app
+        .clone()
+        .oneshot(auth_headers(create_document))
+        .await
+        .expect("create document request should succeed");
+    assert_eq!(create_document_response.status(), StatusCode::CREATED);
+
+    let update_document = Request::builder()
+        .method("PATCH")
+        .uri("/app/v3/api/ai/knowledge_documents/knowledge.document.source.document.http?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "expectedVersion": "1",
+                "knowledgeSourceId": "knowledge.source.source.document.http",
+                "documentKind": "spec",
+                "title": "Updated Document",
+                "contentRef": "kb://source-document/updated",
+                "contentHash": "sha256-source-document-updated",
+                "summary": "updated document",
+                "metadata": { "version": 2 },
+                "tags": ["updated", "standard"],
+                "categories": ["spec"],
+                "trustLevel": 5,
+                "redactionClassification": "confidential",
+                "requestedAt": "2026-06-01T12:07:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let update_document_response = app
+        .clone()
+        .oneshot(auth_headers(update_document))
+        .await
+        .expect("update document request should succeed");
+    assert_eq!(update_document_response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(update_document_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["documentKind"], "spec");
+    assert_eq!(body_json["data"]["title"], "Updated Document");
+    assert_eq!(body_json["data"]["metadata"]["version"], 2);
+    assert_eq!(body_json["data"]["tags"][1], "standard");
+    assert_eq!(body_json["data"]["trustLevel"], 5);
+    assert_eq!(body_json["data"]["redactionClassification"], "confidential");
+    assert_eq!(body_json["data"]["version"], "2");
+
+    let delete_document = Request::builder()
+        .method("DELETE")
+        .uri("/app/v3/api/ai/knowledge_documents/knowledge.document.source.document.http?tenant_id=1&expected_version=2&requested_at=2026-06-01T12%3A08%3A00Z")
+        .body(Body::empty())
+        .expect("request should be built");
+    let delete_document_response = app
+        .clone()
+        .oneshot(auth_headers(delete_document))
+        .await
+        .expect("delete document request should succeed");
+    assert_eq!(delete_document_response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(delete_document_response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["data"]["status"], "deleted");
+    assert_eq!(body_json["data"]["version"], "3");
+}
+
+#[tokio::test]
+async fn vector_knowledge_index_without_embedding_metadata_should_return_validation_problem() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let create_base = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeBaseId": "knowledge.base.vector",
+                "organizationId": "10",
+                "ownerUserId": "100",
+                "code": "knowledge-base-vector",
+                "displayName": "Vector Knowledge",
+                "providerId": "provider.knowledge.local",
+                "baseKind": "hybrid",
+                "retrievalModes": ["vector", "keyword"],
+                "capabilityIds": ["knowledge.search"],
+                "configurationProfileId": "profile.knowledge.local",
+                "visibility": "organization",
+                "requestedAt": "2026-06-01T10:00:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let create_base_response = app
+        .clone()
+        .oneshot(auth_headers(create_base))
+        .await
+        .expect("create base request should succeed");
+    assert_eq!(create_base_response.status(), StatusCode::CREATED);
+
+    let invalid_vector_index = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_indexes?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeIndexId": "knowledge.index.vector.missing.embedding",
+                "knowledgeBaseId": "knowledge.base.vector",
+                "indexKind": "vector",
+                "indexProviderId": "provider.knowledge.vector",
+                "externalRef": "vector://knowledge/base/vector",
+                "contentHash": "sha256-vector-index",
+                "requestedAt": "2026-06-01T10:01:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(invalid_vector_index))
+        .await
+        .expect("invalid vector index should return problem detail");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "validation_error");
+    assert_eq!(body_json["errorCategory"], "validation");
+    assert!(body_json["detail"]
+        .as_str()
+        .expect("detail should be present")
+        .contains("embeddingModelId"));
+}
+
+#[tokio::test]
+async fn app_knowledge_search_request_limits_should_return_validation_problem() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let create_base = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeBaseId": "knowledge.base.search.limits.http",
+                "organizationId": "10",
+                "ownerUserId": "100",
+                "code": "knowledge-base-search-limits-http",
+                "displayName": "Search Limits Knowledge",
+                "providerId": "provider.knowledge.local",
+                "baseKind": "wiki",
+                "retrievalModes": ["wiki", "keyword"],
+                "capabilityIds": ["knowledge.search"],
+                "configurationProfileId": "profile.knowledge.local",
+                "visibility": "organization",
+                "requestedAt": "2026-06-01T13:00:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let create_base_response = app
+        .clone()
+        .oneshot(auth_headers(create_base))
+        .await
+        .expect("create base request should succeed");
+    assert_eq!(create_base_response.status(), StatusCode::CREATED);
+
+    let response = post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases/knowledge.base.search.limits.http/search?tenant_id=1",
+        json!({
+            "query": "kernel",
+            "topK": 101,
+            "retrievalModes": ["wiki"],
+            "includeExternal": false
+        }),
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+    assert_eq!(response["code"], "validation_error");
+    assert_eq!(response["errorCategory"], "validation");
+    assert!(response["detail"]
+        .as_str()
+        .expect("detail should be present")
+        .contains("topK"));
+}
+
+#[tokio::test]
+async fn app_knowledge_storage_bounds_should_return_validation_problem() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases?tenant_id=1",
+        json!({
+            "knowledgeBaseId": "knowledge.base.storage.bounds.http",
+            "organizationId": "10",
+            "ownerUserId": "100",
+            "code": "knowledge-base-storage-bounds-http",
+            "displayName": "Storage Bounds Knowledge",
+            "providerId": "provider.knowledge.local",
+            "baseKind": "wiki",
+            "retrievalModes": ["wiki", "keyword"],
+            "capabilityIds": ["knowledge.search"],
+            "configurationProfileId": "profile.knowledge.local",
+            "visibility": "organization",
+            "requestedAt": "2026-06-01T14:00:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let oversized_hash = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.storage.bounds.http/documents?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeDocumentId": "knowledge.document.storage.bounds.hash",
+                "organizationId": "10",
+                "documentKind": "spec",
+                "title": "Storage Bounds Hash",
+                "contentRef": "kb://storage-bounds/hash",
+                "contentHash": "h".repeat(129),
+                "summary": "hash must respect SQL storage bounds",
+                "metadata": { "bounds": true },
+                "tags": ["bounds"],
+                "categories": ["standard"],
+                "trustLevel": 4,
+                "redactionClassification": "internal",
+                "requestedAt": "2026-06-01T14:01:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(oversized_hash))
+        .await
+        .expect("oversized hash request should return problem");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "validation_error");
+    assert_eq!(body_json["errorCategory"], "validation");
+    assert!(body_json["detail"]
+        .as_str()
+        .expect("detail should be present")
+        .contains("contentHash"));
+
+    let oversized_scope_ref = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.storage.bounds.http/bindings?tenant_id=1")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "knowledgeBindingId": "knowledge.binding.storage.bounds.scope",
+                "organizationId": "10",
+                "scopeKind": "agent",
+                "scopeRef": "s".repeat(129),
+                "active": true,
+                "defaultBinding": false,
+                "requestedAt": "2026-06-01T14:02:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(oversized_scope_ref))
+        .await
+        .expect("oversized scope ref request should return problem");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response
+            .headers()
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        Some("application/problem+json")
+    );
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["code"], "validation_error");
+    assert_eq!(body_json["errorCategory"], "validation");
+    assert!(body_json["detail"]
+        .as_str()
+        .expect("detail should be present")
+        .contains("scopeRef"));
+}
+
+#[tokio::test]
+async fn app_memory_stack_should_work_over_http_for_generated_sdk_contracts() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let store = post_json(
+        &app,
+        "/app/v3/api/ai/memory_stores?tenant_id=1",
+        json!({
+            "memoryStoreId": "memory.store.http.primary",
+            "organizationId": "10",
+            "ownerUserId": "100",
+            "code": "memory-store-http-primary",
+            "displayName": "HTTP Primary Memory",
+            "description": "HTTP memory store",
+            "providerId": "provider.memory.local",
+            "storeKind": "hybrid-store",
+            "retrievalModes": ["keyword", "graph", "wiki"],
+            "capabilityIds": ["memory.write", "memory.retrieve"],
+            "configurationProfileId": "profile.memory.local",
+            "visibility": "organization",
+            "requestedAt": "2026-06-01T15:00:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(store["data"]["memoryStoreId"], "memory.store.http.primary");
+    assert_eq!(store["data"]["retrievalModes"][2], "wiki");
+
+    let fetched_store = Request::builder()
+        .method("GET")
+        .uri("/app/v3/api/ai/memory_stores/memory.store.http.primary?tenant_id=1")
+        .body(Body::empty())
+        .expect("request should be built");
+    let fetched_store = app
+        .clone()
+        .oneshot(auth_headers(fetched_store))
+        .await
+        .expect("get memory store should succeed");
+    assert_eq!(fetched_store.status(), StatusCode::OK);
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/memory_stores/memory.store.http.primary/profiles?tenant_id=1",
+        json!({
+            "memoryProfileId": "memory.profile.http.default",
+            "organizationId": "10",
+            "ownerUserId": "100",
+            "code": "memory-profile-http-default",
+            "displayName": "HTTP Default Memory Profile",
+            "description": "HTTP memory policy",
+            "writePolicy": {"mode": "curated"},
+            "retrievalPolicy": {"topK": 8, "modes": ["keyword", "graph"]},
+            "compactionPolicy": {"summaryAfterTurns": 20},
+            "retentionPolicy": {"defaultTtlDays": 365},
+            "privacyPolicy": {"pii": "redact"},
+            "visibility": "organization",
+            "requestedAt": "2026-06-01T15:01:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let binding = post_json(
+        &app,
+        "/app/v3/api/ai/memory_profiles/memory.profile.http.default/bindings?tenant_id=1",
+        json!({
+            "memoryBindingId": "memory.binding.http.agent.default",
+            "organizationId": "10",
+            "agentId": "agent.memory.http",
+            "scopeKind": "agent",
+            "scopeRef": "agent.memory.http",
+            "active": true,
+            "defaultBinding": true,
+            "requestedAt": "2026-06-01T15:02:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(
+        binding["data"]["memoryProfileId"],
+        "memory.profile.http.default"
+    );
+    assert_eq!(binding["data"]["scopeRef"], "agent.memory.http");
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/memory_namespaces?tenant_id=1",
+        json!({
+            "memoryNamespaceId": "memory.namespace.http.agent.user",
+            "organizationId": "10",
+            "agentId": "agent.memory.http",
+            "userRef": "user.1",
+            "sessionRef": "session.1",
+            "threadRef": "thread.1",
+            "namespaceKind": "user",
+            "visibility": "private",
+            "requestedAt": "2026-06-01T15:03:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let record = post_json(
+        &app,
+        "/app/v3/api/ai/memory_namespaces/memory.namespace.http.agent.user/records?tenant_id=1",
+        json!({
+            "memoryId": "memory.record.http.preference.locale",
+            "organizationId": "10",
+            "agentId": "agent.memory.http",
+            "memoryKind": "preference",
+            "contentFormat": "application/json",
+            "content": {"preference": "answer-language", "value": "zh-CN"},
+            "summary": "User prefers Chinese answers",
+            "salienceScore": 0.9,
+            "confidenceScore": 0.95,
+            "freshnessScore": 1.0,
+            "sensitivityLevel": 1,
+            "effectiveAt": "2026-06-01T15:04:00Z",
+            "requestedAt": "2026-06-01T15:04:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+    assert_eq!(
+        record["data"]["memoryNamespaceId"],
+        "memory.namespace.http.agent.user"
+    );
+    assert_eq!(record["data"]["content"]["value"], "zh-CN");
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/sources?tenant_id=1",
+        json!({
+            "memorySourceId": "memory.source.http.preference.message",
+            "sourceKind": "conversation-message",
+            "sourceRef": "chat://thread/1/message/1",
+            "sourceHash": "sha256-memory-source-http",
+            "evidence": {"quote": "answer in Chinese"},
+            "capturedAt": "2026-06-01T15:05:00Z",
+            "requestedAt": "2026-06-01T15:05:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/relations?tenant_id=1",
+        json!({
+            "memoryRelationId": "memory.relation.http.preference.self",
+            "fromMemoryId": "memory.record.http.preference.locale",
+            "toMemoryId": "memory.record.http.preference.locale",
+            "relationKind": "duplicates",
+            "weight": 0.5,
+            "validFrom": "2026-06-01T15:06:00Z",
+            "requestedAt": "2026-06-01T15:06:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/memory_retrieval_indexes?tenant_id=1",
+        json!({
+            "memoryIndexId": "memory.index.http.preference.wiki",
+            "memoryId": "memory.record.http.preference.locale",
+            "indexKind": "wiki",
+            "indexProviderId": "provider.memory.wiki",
+            "externalRef": "wiki://memory/preference/locale",
+            "contentHash": "sha256-memory-index-http",
+            "requestedAt": "2026-06-01T15:07:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let list_records = Request::builder()
+        .method("GET")
+        .uri("/app/v3/api/ai/memory_namespaces/memory.namespace.http.agent.user/records?tenant_id=1&page=1&page_size=1")
+        .body(Body::empty())
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(list_records))
+        .await
+        .expect("list memory records should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(
+        body_json["data"]["items"][0]["memoryId"],
+        "memory.record.http.preference.locale"
+    );
+    assert_eq!(body_json["data"]["pageInfo"]["totalItems"], "1");
+
+    for (uri, field, expected) in [
+        (
+            "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/sources?tenant_id=1",
+            "memorySourceId",
+            "memory.source.http.preference.message",
+        ),
+        (
+            "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/relations?tenant_id=1",
+            "memoryRelationId",
+            "memory.relation.http.preference.self",
+        ),
+        (
+            "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/retrieval_indexes?tenant_id=1",
+            "memoryIndexId",
+            "memory.index.http.preference.wiki",
+        ),
+    ] {
+        let request = Request::builder()
+            .method("GET")
+            .uri(uri)
+            .body(Body::empty())
+            .expect("request should be built");
+        let response = app
+            .clone()
+            .oneshot(auth_headers(request))
+            .await
+            .expect("memory child list should succeed");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body_bytes = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("response body should be readable");
+        let body_json: Value =
+            serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+        assert_eq!(body_json["data"]["items"][0][field], expected);
+    }
 }

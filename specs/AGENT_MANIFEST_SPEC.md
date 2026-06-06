@@ -32,7 +32,7 @@ The Agent Kernel uses five manifest and definition types.
 | Manifest | Audience | Purpose |
 | --- | --- | --- |
 | `AgentManifest` | Runtime, host, product integrator | Static package identity, ownership, required kernel compatibility, required providers, and security profile |
-| `AgentDefinition` | Runtime, host, plugin integrator, conformance suite | Executable agent definition that embeds an `AgentManifest` and binds concrete SPI provider families, default LLM provider/model selection, tool-call policy, and memory strategy |
+| `AgentDefinition` | Runtime, host, plugin integrator, conformance suite | Executable agent definition that embeds an `AgentManifest` and binds concrete SPI provider families, default LLM provider/model selection, tool-call policy, memory strategy, and knowledge/RAG provider bindings |
 | `AgentCard` | Other agents, registries, external clients, humans | Public discovery profile and interoperability hints |
 | `CapabilityManifest` | Runtime, UI, host, conformance suite | Runtime-negotiated capabilities after providers and adapters are registered |
 | `ProviderManifest` | Runtime, policy provider, conformance suite | Provider identity, operations, configuration schema, security requirements, and health model |
@@ -100,7 +100,7 @@ Canonical id formats:
 | --- | --- | --- |
 | Agent | `agent.<domain>.<name>` | `agent.intelligence.research` |
 | Agent card | `agent_card.<domain>.<name>` | `agent_card.intelligence.research` |
-| Capability | `<family>.<capability>` | `model.chat`, `tool.invoke`, `memory.query` |
+| Capability | `<family>.<capability>` | `model.chat`, `tool.invoke`, `memory.query`, `knowledge.search` |
 | Provider | `provider.<family>.<name>` | `provider.model.openai`, `provider.tool.mcp` |
 | Protocol adapter | `adapter.<protocol>.<name>` | `adapter.mcp.default`, `adapter.a2a.public` |
 | Extension | reverse-domain or `sdkwork.*` | `sdkwork.code.workspace`, `com.example.case` |
@@ -248,8 +248,8 @@ agent without reading implementation code.
 
 `AgentManifest` answers "what is this agent and what capabilities does it
 require?" `AgentDefinition` answers "which SPI provider families may satisfy
-those requirements, which provider is the default, and what model/tool/memory
-policies apply?"
+those requirements, which provider is the default, and what model/tool/memory/
+knowledge policies apply?"
 
 Required fields:
 
@@ -270,7 +270,7 @@ Provider binding fields:
 | Field | Type | Requirement |
 | --- | --- | --- |
 | `binding_id` | string | Stable binding id using `binding.<domain>.<name>` style |
-| `family` | enum | Provider family, for example `model`, `tool`, `memory`, `policy`, `mcp`, `skill`, or `collaboration` |
+| `family` | enum | Provider family, for example `model`, `tool`, `memory`, `knowledge`, `policy`, `mcp`, `skill`, or `collaboration` |
 | `provider_id` | string | Stable provider id or adapter id |
 | `required` | boolean | Whether runtime readiness requires this binding |
 | `default` | boolean | Whether this binding is the default for its provider family |
@@ -308,6 +308,14 @@ Rules:
 - Sensitive memory reads and all memory writes `SHOULD` require policy. When
   personal, tenant-sensitive, secret, or regulated memory can be stored,
   `retention_required` `MUST` be true.
+- RAG or knowledge-base retrieval `MUST` be expressed through `knowledge`
+  provider bindings and `knowledge.*` capabilities. It `MUST NOT` be hidden
+  inside `memory_strategy` unless the retrieved data is agent/user/session
+  memory.
+- Knowledge provider bindings `SHOULD` declare `knowledge.search`,
+  `knowledge.read`, and `knowledge.list` when the provider supports retrieval,
+  document access, and corpus listing. The concrete retrieval method can be
+  vector, keyword, wiki, graph, structured query, hybrid, or external search.
 - Definitions `MUST NOT` contain raw provider credentials, API keys, login
   passwords, or tenant-specific secrets.
 - Product-specific routing metadata `MUST` live under `extensions`.
@@ -324,7 +332,7 @@ agent:
   agent_id: agent.intelligence.general
   name: sdkwork-general-agent
   display_name: SDKWork General Agent
-  description: Provider-neutral agent runtime for planning, tools, memory, and policy.
+  description: Provider-neutral agent runtime for planning, tools, memory, knowledge, and policy.
   version: 0.1.0
   domain: intelligence
   kernel_compatibility:
@@ -338,6 +346,8 @@ agent:
       min_version: 0.1.0
   optional_capabilities:
     - capability_id: memory.query
+      min_version: 0.1.0
+    - capability_id: knowledge.search
       min_version: 0.1.0
   provider_requirements: []
   protocol_adapters: []
@@ -356,6 +366,7 @@ agent:
     - agent.model.*
     - agent.tool.*
     - agent.memory.*
+    - agent.knowledge.*
   owner:
     name: sdkwork-platform
   status: candidate
@@ -392,6 +403,17 @@ provider_bindings:
       - memory.write
       - memory.delete
       - memory.export
+    min_version: 0.1.0
+  - binding_id: binding.knowledge.primary
+    family: knowledge
+    provider_id: provider.knowledge.docs
+    required: false
+    default: true
+    mode: manifest_or_typed
+    capabilities:
+      - knowledge.search
+      - knowledge.read
+      - knowledge.list
     min_version: 0.1.0
 model_selection:
   default_provider_id: provider.model.openai
@@ -500,6 +522,7 @@ Provider families:
 - `tool`
 - `context`
 - `memory`
+- `knowledge`
 - `planning`
 - `policy`
 - `telemetry`
@@ -550,6 +573,11 @@ Rules:
   `mcp.resources`, or `mcp.prompts`.
 - `skill` providers `MUST` declare `skill.discover` and `skill.invoke` when
   they implement the standard Agent Skill SPI.
+- `knowledge` providers `MUST` declare one or more exact `knowledge.*`
+  capabilities. Providers that support the standard RAG retrieval surface
+  `SHOULD` declare `knowledge.search`; providers that expose document access
+  `SHOULD` declare `knowledge.read`; providers that expose corpus discovery
+  `SHOULD` declare `knowledge.list`.
 
 Example:
 
@@ -672,8 +700,9 @@ Rules:
 - Required provider families `MUST` be available before runtime enters `ready`.
 - Required provider bindings from `AgentDefinition` `MUST` be available before
   runtime enters `ready`.
-- Default provider ids from `model_selection`, `tool_call_policy`, and
-  `memory_strategy` `MUST` resolve to matching provider bindings.
+- Default provider ids from `model_selection`, `tool_call_policy`,
+  `memory_strategy`, and any knowledge/RAG extension policy `MUST` resolve to
+  matching provider bindings.
 - Required capabilities `MUST` be available before runtime enters `ready`.
 - Optional missing capabilities `SHOULD` move runtime to `degraded`, not
   `failed`.
@@ -711,6 +740,10 @@ Rules:
 
 - `fail_closed` `MUST` be true when tools, memory writes, host operations, or
   protocol sends can have side effects.
+- Knowledge search, read, and list operations are read-only by default, but
+  retrieval over private, tenant-sensitive, regulated, or externally hosted
+  corpora `SHOULD` require the same-named `knowledge.search`,
+  `knowledge.read`, or `knowledge.list` policy categories.
 - Side-effectful providers `MUST` require policy evaluation.
 - Providers handling secrets `MUST` use host-managed secret references.
 - Manifests `MUST` identify whether untrusted context can enter prompts,
@@ -881,11 +914,12 @@ Required test groups:
 
 - Agent manifest schema validation.
 - Agent definition schema validation.
-- Provider binding validation for model, tool, memory, policy, MCP, skill, and
-  collaboration families.
+- Provider binding validation for model, tool, memory, knowledge, policy, MCP,
+  skill, and collaboration families.
 - Default LLM provider/model selection validation.
 - Tool-call policy validation.
 - Memory strategy scope and provider validation.
+- Knowledge provider capability and default binding validation.
 - Agent card schema validation.
 - Provider manifest schema validation.
 - Capability manifest schema validation.
@@ -904,9 +938,10 @@ Minimum conformance cases:
 | Case | Expected result |
 | --- | --- |
 | Valid agent manifest and providers | Runtime can enter `ready` |
-| Valid agent definition with model/tool/memory bindings | Runtime can resolve defaults by provider id |
+| Valid agent definition with model/tool/memory/knowledge bindings | Runtime can resolve defaults by provider id |
 | Missing required model provider | Runtime enters `failed` |
 | Missing optional memory provider | Runtime enters `degraded` |
+| Missing optional knowledge provider | Runtime enters `degraded` |
 | Raw secret in provider manifest | Manifest validation fails |
 | Adapter exposes unsupported capability | Manifest validation fails |
 | Deprecated provider with replacement | Validation passes with warning |
@@ -923,6 +958,8 @@ Every agent or provider package must document:
 - Default LLM provider id and default model id.
 - Default tool provider id and tool-call policy.
 - Memory provider id, enabled scopes, retention, and policy requirements.
+- Knowledge provider id, supported retrieval methods, corpus scope, and policy
+  requirements.
 - Public capabilities.
 - Required providers.
 - Optional providers.
@@ -937,7 +974,7 @@ Every agent or provider package must document:
 - [ ] Manifest family includes `AgentManifest`, `AgentCard`,
       `AgentDefinition`, `CapabilityManifest`, and `ProviderManifest`.
 - [ ] Manifest ids and provider ids use stable naming rules.
-- [ ] Executable agent definitions make model, tool, memory, and policy
+- [ ] Executable agent definitions make model, tool, memory, knowledge, and policy
       provider bindings explicit.
 - [ ] LLM provider selection is explicit and can select provider id plus
       model id.
@@ -945,6 +982,8 @@ Every agent or provider package must document:
       requirements, allow lists, deny lists, and parallelism.
 - [ ] Memory strategy is explicit and separates provider selection, scopes,
       retention, and read/write policy gates.
+- [ ] Knowledge/RAG retrieval is explicit through `knowledge` provider bindings
+      and is not conflated with memory or context assembly.
 - [ ] Required and optional capabilities are distinct.
 - [ ] Capability negotiation has ready/degraded/failed outcomes.
 - [ ] Security profile can fail closed.

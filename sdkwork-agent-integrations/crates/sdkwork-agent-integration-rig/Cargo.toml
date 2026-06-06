@@ -10,3 +10,8 @@ path = "src/lib.rs"
 [dependencies]
 sdkwork-agent-kernel = { path = "../../../sdkwork-agent-kernel" }
 sdkwork-agent-integration-core = { path = "../sdkwork-agent-integration-core" }
+rig-core = { path = "../../../external/rig/crates/rig-core", optional = true, default-features = false }
+
+[features]
+default = []
+rig-core-adapter = ["dep:rig-core"]

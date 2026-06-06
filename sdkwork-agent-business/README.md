@@ -77,54 +77,48 @@ sdkwork-agent-business/
 
 ## SDK Generation Contract
 
-Use the canonical SDK generator in the repository root:
+Use the repository root `sdks/` workspace as the canonical SDK generation
+boundary. The current application domain is `agent`.
 
-```bash
-node sdk/sdkwork-sdk-generator/bin/sdkgen.js generate \
-  -i apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/specs/openapi/agent-business-app-openapi-3.1.2.yaml \
-  -o spring-ai-plus-app-api/sdkwork-sdk-app/sdks/agent-business-app-sdk-typescript \
-  -n sdkwork-agent-business-app-sdk \
-  -t app \
-  -l typescript \
-  --base-url http://localhost:8080 \
-  --api-prefix /app/v3/api \
-  --standard-profile sdkwork-v3
+```powershell
+node .\sdks\materialize-agent-v3-openapi-boundaries.mjs
 ```
 
-```bash
-node sdk/sdkwork-sdk-generator/bin/sdkgen.js generate \
-  -i apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/specs/openapi/agent-business-backend-openapi-3.1.2.yaml \
-  -o spring-ai-plus-backend-api/sdkwork-sdk-backend/sdks/agent-business-backend-sdk-typescript \
-  -n sdkwork-agent-business-backend-sdk \
-  -t backend \
-  -l typescript \
-  --base-url http://localhost:8080 \
-  --api-prefix /backend/v3/api \
-  --standard-profile sdkwork-v3
+```powershell
+node .\sdks\workspace-agent-sdkgen.mjs --mode dry-run
+node .\sdks\workspace-agent-sdkgen.mjs --mode apply
 ```
+
+SDK families:
+
+- `sdkwork-agent-sdk`: `sdkwork-agent-open-api`, `/agent/v3/api`, `@sdkwork/agent-sdk`
+- `sdkwork-agent-app-sdk`: `sdkwork-agent-app-api`, `/app/v3/api`, `@sdkwork/agent-app-sdk`
+- `sdkwork-agent-backend-sdk`: `sdkwork-agent-backend-api`, `/backend/v3/api`, `@sdkwork/agent-backend-sdk`
+
+All SDK generator commands use `--standard-profile sdkwork-v3`.
 
 ## Verification
 
 ```bash
-cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml
+cargo test --manifest-path sdkwork-agent-business/Cargo.toml
 ```
 
 ```bash
-cargo test --features http-axum --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml
+cargo test --features http-axum --manifest-path sdkwork-agent-business/Cargo.toml
 ```
 
 ```bash
-cargo test --features postgres-sync --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml
+cargo test --features postgres-sync --manifest-path sdkwork-agent-business/Cargo.toml
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun
+node .\scripts\check-agent-sdk-workspace.mjs
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun -SkipBuild -JsonReportPath specs/sdkgen/verification-latest.json
+node .\sdks\workspace-agent-sdkgen.mjs --mode dry-run
 ```
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-ci.ps1
+powershell -ExecutionPolicy Bypass -File .\sdkwork-agent-business\scripts\verify-ci.ps1
 ```

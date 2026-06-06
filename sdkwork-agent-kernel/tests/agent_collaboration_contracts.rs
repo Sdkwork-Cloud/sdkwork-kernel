@@ -222,6 +222,15 @@ fn runtime_registry_supports_multiple_collaboration_providers() {
         .iter()
         .any(|provider| provider.provider_family == "collaboration"
             && provider.provider_id == "provider.collaboration.remote"));
+    assert_eq!(
+        manifest
+            .providers
+            .iter()
+            .find(|provider| provider.provider_id == "provider.collaboration.remote")
+            .expect("remote collaboration provider manifest exists")
+            .capabilities,
+        ["agent.discover"]
+    );
     assert!(manifest
         .capabilities
         .iter()
@@ -254,16 +263,22 @@ impl FakeCollaborationProvider {
 
 impl AgentCollaborationProvider for FakeCollaborationProvider {
     fn provider_manifest(&self) -> ProviderManifest {
+        let capabilities = if self.provider_id == "provider.collaboration.remote" {
+            vec!["agent.discover".to_string()]
+        } else {
+            vec![
+                "agent.discover".to_string(),
+                "agent.handoff".to_string(),
+                "agent.delegate".to_string(),
+            ]
+        };
+
         ProviderManifest::new(
             self.provider_id,
             "collaboration",
             self.provider_id,
             "0.1.0",
-            vec![
-                "agent.discover".to_string(),
-                "agent.handoff".to_string(),
-                "agent.delegate".to_string(),
-            ],
+            capabilities,
         )
     }
 

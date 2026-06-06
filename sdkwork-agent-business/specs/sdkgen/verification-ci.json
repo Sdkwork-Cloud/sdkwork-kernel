@@ -1,64 +1,82 @@
-﻿{
-    "schemaVersion":  1,
-    "module":  "sdkwork-agent-business",
-    "mode":  "DryRun",
-    "startedAt":  "2026-06-01T17:25:08.8528683+08:00",
-    "skipBuild":  true,
-    "cleanTmp":  false,
-    "sdkgenPath":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\sdk\\sdkwork-sdk-generator\\bin\\sdkgen.js",
-    "plans":  [
-                  {
-                      "name":  "app",
-                      "input":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\apps\\sdkwork-birdcoder\\kernel\\sdkwork-agent-business\\specs\\openapi\\agent-business-app-openapi-3.1.2.yaml",
-                      "output":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\apps\\sdkwork-birdcoder\\kernel\\sdkwork-agent-business\\.tmp\\agent-business-app-sdk-typescript",
-                      "sdkName":  "sdkwork-agent-business-app-sdk",
-                      "sdkType":  "app",
-                      "apiPrefix":  "/app/v3/api",
-                      "sdkVersion":  "1.0.35",
-                      "fingerprint":  "8715ff9eb36d765d6a9c6d3005c846604364fc2bd916a9a193994ba68399e375",
-                      "hasChanges":  true,
-                      "riskLevel":  "high",
-                      "hasDestructiveChanges":  false,
-                      "impactAreas":  [
-                                          "api-surface",
-                                          "models",
-                                          "runtime",
-                                          "build-metadata",
-                                          "publish-workflow",
-                                          "documentation",
-                                          "custom-scaffold",
-                                          "unknown"
-                                      ]
-                  },
-                  {
-                      "name":  "backend",
-                      "input":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\apps\\sdkwork-birdcoder\\kernel\\sdkwork-agent-business\\specs\\openapi\\agent-business-backend-openapi-3.1.2.yaml",
-                      "output":  "D:\\javasource\\spring-ai-plus\\spring-ai-plus-business\\apps\\sdkwork-birdcoder\\kernel\\sdkwork-agent-business\\.tmp\\agent-business-backend-sdk-typescript",
-                      "sdkName":  "sdkwork-agent-business-backend-sdk",
-                      "sdkType":  "backend",
-                      "apiPrefix":  "/backend/v3/api",
-                      "sdkVersion":  "1.0.11",
-                      "fingerprint":  "0be62e32cfa7e93e0484c51aa06c6ca34effcf7cb72c2e8a0b4ea1af3ad7060a",
-                      "hasChanges":  true,
-                      "riskLevel":  "high",
-                      "hasDestructiveChanges":  false,
-                      "impactAreas":  [
-                                          "api-surface",
-                                          "models",
-                                          "runtime",
-                                          "build-metadata",
-                                          "publish-workflow",
-                                          "documentation",
-                                          "custom-scaffold",
-                                          "unknown"
-                                      ]
-                  }
-              ],
-    "applyResults":  [
-
-                     ],
-    "finishedAt":  "2026-06-01T17:25:11.4196393+08:00",
-    "durationSeconds":  2.567,
-    "tmpRemoved":  false,
-    "tmpExistsAfterRun":  false
+{
+  "schemaVersion": 1,
+  "app": "agent",
+  "mode": "dry-run",
+  "standardProfile": "sdkwork-v3",
+  "sdkgenPath": "D:/javasource/spring-ai-plus/sdk/sdkwork-sdk-generator/bin/sdkgen.js",
+  "startedAt": "2026-06-05T08:33:44.663Z",
+  "families": [
+    {
+      "key": "open",
+      "familyDir": "sdkwork-agent-sdk",
+      "authority": "sdkwork-agent-open-api",
+      "input": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-sdk\\openapi\\sdkwork-agent-open-api.sdkgen.yaml",
+      "output": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-sdk\\sdkwork-agent-sdk-typescript\\generated\\server-openapi",
+      "sdkName": "sdkwork-agent-sdk",
+      "sdkType": "custom",
+      "sdkSurface": "open",
+      "packageName": "@sdkwork/agent-sdk",
+      "apiPrefix": "/agent/v3/api",
+      "generated": false,
+      "skipped": true,
+      "skipReason": "sdkwork-v3 standard profile currently supports app, backend, and im prefixes only.",
+      "derivedFrom": "sdkwork-agent-app-sdk",
+      "derivedGenerated": false,
+      "derivedHasChanges": false,
+      "derivationFileCount": 53
+    },
+    {
+      "key": "app",
+      "familyDir": "sdkwork-agent-app-sdk",
+      "authority": "sdkwork-agent-app-api",
+      "input": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\openapi\\sdkwork-agent-app-api.sdkgen.yaml",
+      "output": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
+      "sdkName": "sdkwork-agent-app-sdk",
+      "sdkType": "app",
+      "packageName": "@sdkwork/agent-app-sdk",
+      "apiPrefix": "/app/v3/api",
+      "version": "0.1.0",
+      "fingerprint": "e070d4f2176e1c46c3327b3861493236a9817dc243f42abd6127eeaeeae5d0d5",
+      "hasChanges": false,
+      "riskLevel": "low",
+      "generated": false
+    },
+    {
+      "key": "backend",
+      "familyDir": "sdkwork-agent-backend-sdk",
+      "authority": "sdkwork-agent-backend-api",
+      "input": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-backend-sdk\\openapi\\sdkwork-agent-backend-api.sdkgen.yaml",
+      "output": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-backend-sdk\\sdkwork-agent-backend-sdk-typescript\\generated\\server-openapi",
+      "sdkName": "sdkwork-agent-backend-sdk",
+      "sdkType": "backend",
+      "packageName": "@sdkwork/agent-backend-sdk",
+      "apiPrefix": "/backend/v3/api",
+      "version": "0.1.0",
+      "fingerprint": "732a1daa3d5e2b82ba7d76204557a2083b7c922a7af6d362946b70a143feba9f",
+      "hasChanges": false,
+      "riskLevel": "low",
+      "generated": false
+    }
+  ],
+  "openSdkDerivation": {
+    "schemaVersion": 1,
+    "mode": "dry-run",
+    "sourceFamily": "sdkwork-agent-app-sdk",
+    "sourceAuthority": "sdkwork-agent-app-api",
+    "targetFamily": "sdkwork-agent-sdk",
+    "targetAuthority": "sdkwork-agent-open-api",
+    "packageName": "@sdkwork/agent-sdk",
+    "apiPrefix": "/agent/v3/api",
+    "sourceRoot": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
+    "targetRoot": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-sdk\\sdkwork-agent-sdk-typescript\\generated\\server-openapi",
+    "hasChanges": false,
+    "changes": {
+      "created": [],
+      "updated": [],
+      "deleted": []
+    },
+    "fileCount": 53,
+    "generated": false
+  },
+  "finishedAt": "2026-06-05T08:33:45.089Z"
 }

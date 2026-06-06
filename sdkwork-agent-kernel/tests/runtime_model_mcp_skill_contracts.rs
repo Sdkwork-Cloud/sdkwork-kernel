@@ -218,21 +218,57 @@ fn runtime_registry_supports_multiple_llm_providers_mcp_and_agent_skills() {
         .iter()
         .any(|provider| provider.provider_family == "mcp"
             && provider.provider_id == "provider.mcp.github"));
+    assert_eq!(
+        capability_manifest
+            .providers
+            .iter()
+            .find(|provider| provider.provider_id == "provider.mcp.github")
+            .expect("mcp provider manifest exists")
+            .capabilities,
+        ["mcp.tools", "mcp.resources", "mcp.prompts"]
+    );
     assert!(capability_manifest
         .providers
         .iter()
         .any(|provider| provider.provider_family == "skill"
             && provider.provider_id == "provider.skill.claude"));
+    assert_eq!(
+        capability_manifest
+            .providers
+            .iter()
+            .find(|provider| provider.provider_id == "provider.skill.claude")
+            .expect("skill provider manifest exists")
+            .capabilities,
+        ["skill.discover", "skill.invoke"]
+    );
     assert!(capability_manifest
         .providers
         .iter()
         .any(|provider| provider.provider_family == "mcp"
             && provider.provider_id == "provider.mcp.gitlab"));
+    assert_eq!(
+        capability_manifest
+            .providers
+            .iter()
+            .find(|provider| provider.provider_id == "provider.mcp.gitlab")
+            .expect("selected mcp provider manifest exists")
+            .capabilities,
+        ["mcp.tools"]
+    );
     assert!(capability_manifest
         .providers
         .iter()
         .any(|provider| provider.provider_family == "skill"
             && provider.provider_id == "provider.skill.local"));
+    assert_eq!(
+        capability_manifest
+            .providers
+            .iter()
+            .find(|provider| provider.provider_id == "provider.skill.local")
+            .expect("selected skill provider manifest exists")
+            .capabilities,
+        ["skill.discover"]
+    );
     assert!(capability_manifest
         .capabilities
         .iter()
@@ -299,16 +335,22 @@ impl FakeMcpProvider {
 
 impl McpProvider for FakeMcpProvider {
     fn provider_manifest(&self) -> ProviderManifest {
+        let capabilities = if self.provider_id == "provider.mcp.gitlab" {
+            vec!["mcp.tools".to_string()]
+        } else {
+            vec![
+                "mcp.tools".to_string(),
+                "mcp.resources".to_string(),
+                "mcp.prompts".to_string(),
+            ]
+        };
+
         ProviderManifest::new(
             self.provider_id,
             "mcp",
             self.provider_id,
             "1.0.0",
-            vec![
-                "mcp.tools".to_string(),
-                "mcp.resources".to_string(),
-                "mcp.prompts".to_string(),
-            ],
+            capabilities,
         )
     }
 
@@ -405,12 +447,18 @@ impl FakeAgentSkillProvider {
 
 impl AgentSkillProvider for FakeAgentSkillProvider {
     fn provider_manifest(&self) -> ProviderManifest {
+        let capabilities = if self.provider_id == "provider.skill.local" {
+            vec!["skill.discover".to_string()]
+        } else {
+            vec!["skill.discover".to_string(), "skill.invoke".to_string()]
+        };
+
         ProviderManifest::new(
             self.provider_id,
             "skill",
             self.provider_id,
             "1.0.0",
-            vec!["skill.discover".to_string(), "skill.invoke".to_string()],
+            capabilities,
         )
     }
 
@@ -421,6 +469,7 @@ impl AgentSkillProvider for FakeAgentSkillProvider {
     fn list_skills(&self) -> Vec<AgentSkillDescriptor> {
         vec![AgentSkillDescriptor::new(
             self.skill_id,
+            self.provider_id,
             "Agent Skill",
             "Review code changes and return risks.",
             AgentSkillInvocationMode::ModelInvocable,

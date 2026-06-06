@@ -1,6 +1,6 @@
 use crate::{
-    KernelError, KernelResult, ProviderHealth, ProviderManifest, ToolCall, ToolDescriptor,
-    ToolResult,
+    ContextFrame, KernelError, KernelResult, ProviderHealth, ProviderManifest,
+    RedactionClassification, ToolCall, ToolDescriptor, ToolResult, TrustLevel,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +64,9 @@ pub struct McpResourceContent {
     pub uri: String,
     pub mime_type: String,
     pub content: String,
+    pub trust_level: TrustLevel,
+    pub redaction_classification: RedactionClassification,
+    pub metadata: Vec<(String, String)>,
 }
 
 impl McpResourceContent {
@@ -76,7 +79,54 @@ impl McpResourceContent {
             uri: uri.into(),
             mime_type: mime_type.into(),
             content: content.into(),
+            trust_level: TrustLevel::RetrievedExternal,
+            redaction_classification: RedactionClassification::Internal,
+            metadata: Vec::new(),
         }
+    }
+
+    pub fn with_trust_level(mut self, trust_level: TrustLevel) -> Self {
+        self.trust_level = trust_level;
+        self
+    }
+
+    pub fn with_redaction_classification(
+        mut self,
+        redaction_classification: RedactionClassification,
+    ) -> Self {
+        self.redaction_classification = redaction_classification;
+        self
+    }
+
+    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.push((key.into(), value.into()));
+        self
+    }
+
+    pub fn metadata_value(&self, key: &str) -> Option<&str> {
+        self.metadata
+            .iter()
+            .find(|(metadata_key, _)| metadata_key == key)
+            .map(|(_, value)| value.as_str())
+    }
+
+    pub fn to_context_frame(&self, session_id: impl Into<String>) -> ContextFrame {
+        let mut frame = ContextFrame::new(
+            format!("context.mcp.resource.{}", self.uri),
+            session_id,
+            "mcp.resource",
+            self.content.clone(),
+            self.trust_level,
+            self.redaction_classification,
+        )
+        .with_content_type(self.mime_type.clone())
+        .with_provenance(self.uri.clone());
+
+        for (key, value) in &self.metadata {
+            frame = frame.with_metadata(key.clone(), value.clone());
+        }
+
+        frame
     }
 }
 
@@ -113,6 +163,9 @@ impl McpPromptDescriptor {
 pub struct McpPromptMessage {
     pub prompt_id: String,
     pub messages: Vec<String>,
+    pub trust_level: TrustLevel,
+    pub redaction_classification: RedactionClassification,
+    pub metadata: Vec<(String, String)>,
 }
 
 impl McpPromptMessage {
@@ -120,7 +173,63 @@ impl McpPromptMessage {
         Self {
             prompt_id: prompt_id.into(),
             messages,
+            trust_level: TrustLevel::TrustedHost,
+            redaction_classification: RedactionClassification::Internal,
+            metadata: Vec::new(),
         }
+    }
+
+    pub fn with_trust_level(mut self, trust_level: TrustLevel) -> Self {
+        self.trust_level = trust_level;
+        self
+    }
+
+    pub fn with_redaction_classification(
+        mut self,
+        redaction_classification: RedactionClassification,
+    ) -> Self {
+        self.redaction_classification = redaction_classification;
+        self
+    }
+
+    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.push((key.into(), value.into()));
+        self
+    }
+
+    pub fn metadata_value(&self, key: &str) -> Option<&str> {
+        self.metadata
+            .iter()
+            .find(|(metadata_key, _)| metadata_key == key)
+            .map(|(_, value)| value.as_str())
+    }
+
+    pub fn to_context_frames(&self, session_id: impl Into<String>) -> Vec<ContextFrame> {
+        let session_id = session_id.into();
+        let provenance = format!("mcp.prompt:{}", self.prompt_id);
+
+        self.messages
+            .iter()
+            .enumerate()
+            .map(|(index, message)| {
+                let mut frame = ContextFrame::new(
+                    format!("context.mcp.prompt.{}.{}", self.prompt_id, index),
+                    session_id.clone(),
+                    "mcp.prompt",
+                    message.clone(),
+                    self.trust_level,
+                    self.redaction_classification,
+                )
+                .with_content_type("text/plain")
+                .with_provenance(provenance.clone());
+
+                for (key, value) in &self.metadata {
+                    frame = frame.with_metadata(key.clone(), value.clone());
+                }
+
+                frame
+            })
+            .collect()
     }
 }
 

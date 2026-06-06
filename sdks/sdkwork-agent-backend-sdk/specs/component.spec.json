@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "kind": "sdkwork.component.spec",
+  "component": {
+    "name": "sdkwork-agent-backend-sdk",
+    "displayName": "SDKWork Agent Backend SDK",
+    "version": "0.1.0",
+    "type": "sdk-family",
+    "root": "sdks/sdkwork-agent-backend-sdk",
+    "domain": "agent",
+    "capability": "agent-backend-sdk",
+    "status": "standardized",
+    "languages": [
+      "typescript"
+    ],
+    "generated": true,
+    "private": false,
+    "manifests": [
+      ".sdkwork-assembly.json"
+    ]
+  },
+  "sdk": {
+    "family": "sdkwork-agent-backend-sdk",
+    "authority": "sdkwork-agent-backend-api",
+    "sdkOwner": "sdkwork-kernel",
+    "apiPrefix": "/backend/v3/api",
+    "packageName": "@sdkwork/agent-backend-sdk",
+    "sdkName": "sdkwork-agent-backend-sdk",
+    "sdkType": "backend",
+    "sdkSurface": "backend",
+    "externalSdkgenProfileSupported": true,
+    "generatedOutput": "sdkwork-agent-backend-sdk-typescript/generated/server-openapi",
+    "standardProfile": "sdkwork-v3"
+  },
+  "contracts": {
+    "apiAuthority": {
+      "name": "sdkwork-agent-backend-api",
+      "owner": "sdkwork-kernel",
+      "prefix": "/backend/v3/api",
+      "authorityOpenApi": "openapi/sdkwork-agent-backend-api.openapi.yaml",
+      "derivedOpenApi": [
+        "openapi/sdkwork-agent-backend-api.sdkgen.yaml"
+      ],
+      "standard": "../../specs/SDK_SPEC.md"
+    },
+    "publicExports": [],
+    "runtimeEntrypoints": [
+      ".sdkwork-assembly.json"
+    ],
+    "sdkDependencies": [
+      {
+        "workspace": "sdkwork-appbase-backend-sdk",
+        "role": "appbase-backend-management-capability",
+        "required": true,
+        "dependencyMode": "consumer-sdk",
+        "apiPrefix": "/backend/v3/api",
+        "apiAuthority": "sdkwork-appbase.backend",
+        "generatedTransportImportPolicy": "forbidden",
+        "packageByLanguage": {
+          "typescript": "@sdkwork/appbase-backend-sdk"
+        }
+      }
+    ],
+    "sdkClients": [
+      "SdkworkBackendClient"
+    ],
+    "events": [],
+    "configKeys": [
+      ".sdkwork-assembly.json"
+    ]
+  },
+  "verification": {
+    "commands": [
+      "node sdks/materialize-agent-v3-openapi-boundaries.mjs",
+      "node sdks/sdkwork-agent-backend-sdk/bin/verify-sdk.mjs",
+      "node sdks/test/verify-agent-sdk-ownership-boundaries.test.mjs",
+      "node scripts/check-agent-sdk-workspace.mjs"
+    ]
+  },
+  "metadata": {
+    "managedBy": "sdks/_shared/agent-sdk-ownership.mjs",
+    "standardVersion": "2026-06-06"
+  }
+}

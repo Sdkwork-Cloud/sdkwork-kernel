@@ -10,6 +10,7 @@
   - `AGENT_KERNEL_SPEC.md`
   - `AGENT_MANIFEST_SPEC.md`
   - `AGENT_INSTALLATION_CONFIGURATION_SPEC.md`
+  - `AGENT_KNOWLEDGE_PROVIDER_SPI_SPEC.md`
   - `AGENT_TOOL_PROVIDER_SPI_SPEC.md`
   - `AGENT_PROTOCOL_ADAPTER_SPEC.md`
   - `AGENT_SECURITY_POLICY_SPEC.md`
@@ -33,6 +34,7 @@ can pass the relevant conformance profile.
 | `provider-skill` | Agent Skill provider | Skill discovery and invocation registration |
 | `provider-collaboration` | Collaboration provider | Agent discovery, handoff, and delegation |
 | `provider-memory` | Memory provider | Memory provider registration |
+| `provider-knowledge` | Knowledge provider | RAG retrieval and document access registration |
 | `provider-policy` | Policy provider | Protected operations |
 | `provider-host` | Host provider | Filesystem/process/network/secrets/storage host access |
 | `adapter-protocol` | Protocol adapter | MCP, A2A, HTTP/RPC, IPC, Tauri, WebSocket, UI client adapters |
@@ -83,6 +85,8 @@ Required cases:
 - Runtime can register multiple context providers and select them by provider
   id.
 - Runtime can register multiple memory providers and select them by provider
+  id.
+- Runtime can register multiple knowledge providers and select them by provider
   id.
 - Runtime can register multiple planning providers and select them by provider
   id.
@@ -205,13 +209,22 @@ Required cases:
 - Provider error maps to kernel error kind.
 - Tool output is marked untrusted by default.
 
-## 7. Memory And Context Conformance
+## 7. Memory, Context, And Knowledge Conformance
 
 Required cases:
 
 - Context frames preserve source provenance.
 - Untrusted context is marked.
 - Context trimming preserves classification metadata.
+- Knowledge provider manifests declare exact `knowledge.*` capabilities.
+- Knowledge search supports non-vector retrieval methods such as keyword,
+  structured, graph, wiki-style, external, or hybrid lookup.
+- Knowledge search results preserve source URI, retrieval method, trust level,
+  and redaction classification.
+- Knowledge documents can be read and converted into context frames without
+  losing provenance, trust, or redaction metadata.
+- Knowledge providers can be listed and selected by provider id without
+  requiring a vector store.
 - Memory write requires policy.
 - Memory query respects tenant/user/session scope.
 - Memory delete/export is supported when provider declares regulated or
@@ -324,7 +337,7 @@ Rust baseline:
 - [ ] Agent installation and configuration tests cover install, uninstall,
       upgrade, required fields, and secret references.
 - [ ] Runtime tests cover lifecycle and events.
-- [ ] Provider tests cover model/tool/memory/policy/host behavior.
+- [ ] Provider tests cover model/tool/memory/knowledge/policy/host behavior.
 - [ ] Security tests cover fail-closed and audit behavior.
 - [ ] Adapter tests prove mapping and isolation.
 - [ ] UI tests prove typed client boundary.

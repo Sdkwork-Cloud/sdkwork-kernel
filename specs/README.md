@@ -6,6 +6,12 @@ builds on that foundation with software-engineering-specific SPI for
 workspaces, VCS, patches, terminal execution, verification, language
 intelligence, review, artifacts, and the code-agent runtime registry.
 
+## Cross-Cutting Standard Set
+
+| Spec | Responsibility |
+| --- | --- |
+| [`SDK_SPEC.md`](./SDK_SPEC.md) | SDK generation source of truth, canonical `sdkwork-sdk-generator` location, generated output boundaries, regeneration contract, and conformance rules |
+
 ## Agent Kernel Standard Set
 
 | Spec | Responsibility |
@@ -18,6 +24,7 @@ intelligence, review, artifacts, and the code-agent runtime registry.
 | [`AGENT_MCP_PROVIDER_SPI_SPEC.md`](./AGENT_MCP_PROVIDER_SPI_SPEC.md) | MCP server descriptors, tools, resources, prompts, typed provider registration, policy, health, and conformance |
 | [`AGENT_SKILL_PROVIDER_SPI_SPEC.md`](./AGENT_SKILL_PROVIDER_SPI_SPEC.md) | Agent skill discovery, descriptors, invocation, cancellation, policy, health, and conformance |
 | [`AGENT_COLLABORATION_SPI_SPEC.md`](./AGENT_COLLABORATION_SPI_SPEC.md) | Agent discovery, handoff, delegation, and multi-agent collaboration SPI |
+| [`AGENT_KNOWLEDGE_PROVIDER_SPI_SPEC.md`](./AGENT_KNOWLEDGE_PROVIDER_SPI_SPEC.md) | Provider-neutral knowledge retrieval, non-vector RAG methods, document read/list, provenance, policy, runtime registration, and conformance |
 | [`AGENT_TOOL_PROVIDER_SPI_SPEC.md`](./AGENT_TOOL_PROVIDER_SPI_SPEC.md) | Tool discovery, descriptors, schema, authorization, invocation, streaming, cancellation, result normalization, MCP mapping, and conformance |
 | [`AGENT_CONTEXT_MEMORY_SPEC.md`](./AGENT_CONTEXT_MEMORY_SPEC.md) | Context frames, trust/provenance, memory records, scope, retention, redaction, delete/export, and privacy-sensitive behavior |
 | [`AGENT_PLANNING_EXECUTION_SPEC.md`](./AGENT_PLANNING_EXECUTION_SPEC.md) | Plans, actions, observations, execution loop, approval gates, retry, revision, pause/resume, and conformance |
@@ -97,6 +104,9 @@ implementations mature.
       `mcp.resources`, or `mcp.prompts` through the MCP provider SPI.
 - [ ] Every runtime that claims Agent Skills support exposes `skill.discover`
       and `skill.invoke` through the Agent Skill provider SPI.
+- [ ] Every runtime that claims RAG or knowledge retrieval support exposes
+      `knowledge.search`, `knowledge.read`, and/or `knowledge.list` through the
+      Knowledge provider SPI rather than binding directly to a vector store.
 - [ ] Every code runtime can produce diagnostics for typed providers,
       manifest-only providers, health, and missing standard families.
 - [ ] Every code runtime can produce deterministic manifest and local-runtime

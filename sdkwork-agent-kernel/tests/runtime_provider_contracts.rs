@@ -82,7 +82,7 @@ fn schema_constants_expose_machine_readable_manifest_contracts() {
 }
 
 #[test]
-fn capability_manifest_metadata_defines_tool_and_memory_spi_operations() {
+fn capability_manifest_metadata_defines_tool_memory_and_knowledge_spi_operations() {
     let manifest = AgentManifest::from_json(
         r#"
 {
@@ -98,10 +98,13 @@ fn capability_manifest_metadata_defines_tool_and_memory_spi_operations() {
     { "capability_id": "tool.invoke", "min_version": "0.1.0" },
     { "capability_id": "memory.write", "min_version": "0.1.0" },
     { "capability_id": "memory.delete", "min_version": "0.1.0" },
-    { "capability_id": "memory.export", "min_version": "0.1.0" }
+    { "capability_id": "memory.export", "min_version": "0.1.0" },
+    { "capability_id": "knowledge.search", "min_version": "0.1.0" },
+    { "capability_id": "knowledge.read", "min_version": "0.1.0" },
+    { "capability_id": "knowledge.list", "min_version": "0.1.0" }
   ],
   "optional_capabilities": [],
-  "event_families": ["agent.tool.*", "agent.memory.*"],
+  "event_families": ["agent.tool.*", "agent.memory.*", "agent.knowledge.*"],
   "owner": { "name": "sdkwork-platform" },
   "status": "candidate"
 }
@@ -126,6 +129,17 @@ fn capability_manifest_metadata_defines_tool_and_memory_spi_operations() {
                 "memory.write".to_string(),
                 "memory.delete".to_string(),
                 "memory.export".to_string(),
+            ],
+        ))
+        .register_provider(ProviderManifest::new(
+            "provider.knowledge.standard",
+            "knowledge",
+            "standard-knowledge",
+            "0.1.0",
+            vec![
+                "knowledge.search".to_string(),
+                "knowledge.read".to_string(),
+                "knowledge.list".to_string(),
             ],
         ))
         .bootstrap()
@@ -172,6 +186,30 @@ fn capability_manifest_metadata_defines_tool_and_memory_spi_operations() {
         Some("read_only")
     );
     assert_eq!(memory_export.policy_categories, ["memory.read"]);
+
+    let knowledge_search = capability("knowledge.search");
+    assert_eq!(knowledge_search.operations, ["search", "health"]);
+    assert_eq!(
+        knowledge_search.side_effect_level.as_deref(),
+        Some("read_only")
+    );
+    assert_eq!(knowledge_search.policy_categories, ["knowledge.search"]);
+
+    let knowledge_read = capability("knowledge.read");
+    assert_eq!(knowledge_read.operations, ["read", "health"]);
+    assert_eq!(
+        knowledge_read.side_effect_level.as_deref(),
+        Some("read_only")
+    );
+    assert_eq!(knowledge_read.policy_categories, ["knowledge.read"]);
+
+    let knowledge_list = capability("knowledge.list");
+    assert_eq!(knowledge_list.operations, ["list", "health"]);
+    assert_eq!(
+        knowledge_list.side_effect_level.as_deref(),
+        Some("read_only")
+    );
+    assert_eq!(knowledge_list.policy_categories, ["knowledge.list"]);
 }
 
 struct FakeToolProvider;

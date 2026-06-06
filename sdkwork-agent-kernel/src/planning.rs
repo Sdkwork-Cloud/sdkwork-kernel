@@ -1,4 +1,4 @@
-use crate::{KernelError, KernelResult, ProviderHealth, SideEffectLevel};
+use crate::{KernelError, KernelResult, ProviderHealth, ProviderManifest, SideEffectLevel};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActionKind {
@@ -184,6 +184,16 @@ impl Observation {
 }
 
 pub trait PlanningProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            "provider.planning.unspecified",
+            "planning",
+            "planning-provider",
+            "0.0.0",
+            vec!["planning.create".to_string()],
+        )
+    }
+
     fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> Plan;
 
     fn validate_plan(&self, plan: &Plan) -> KernelResult<()> {

@@ -12,6 +12,7 @@
   - `AGENT_MANIFEST_SPEC.md`
   - `AGENT_EVENT_TELEMETRY_SPEC.md`
   - `AGENT_SECURITY_POLICY_SPEC.md`
+  - `AGENT_KNOWLEDGE_PROVIDER_SPI_SPEC.md`
 
 The Agent Runtime is the kernel execution coordinator. It loads manifests,
 registers providers, negotiates capabilities, creates sessions, runs tasks,
@@ -95,8 +96,8 @@ Rules:
 - Runtime builders `MUST` distinguish manifest-only provider registration from
   typed local SPI provider registration.
 - Runtime builders `MUST` expose typed local registration paths for the core
-  driver families: `model`, `tool`, `policy`, `context`, `memory`, `planning`,
-  `host`, `protocol_adapter`, `mcp`, `skill`, `collaboration`, and
+  driver families: `model`, `tool`, `policy`, `context`, `memory`, `knowledge`,
+  `planning`, `host`, `protocol_adapter`, `mcp`, `skill`, `collaboration`, and
   `telemetry`.
 - Runtime builders `MUST` support multiple typed `model` providers in one
   runtime. The default model provider is the deterministic first registered
@@ -117,15 +118,19 @@ Rules:
   `MUST` select it by provider id.
 - Runtime builders `MUST` support multiple typed `context` providers in one
   runtime. The default context provider is the deterministic first registered
-  typed context provider; callers that need a specific retrieval, workspace,
-  memory-backed, or host-provided context implementation `MUST` select it by
-  provider id.
+  typed context provider; callers that need a specific workspace, memory-backed,
+  knowledge-backed, or host-provided context assembly implementation `MUST`
+  select it by provider id.
 - Runtime builders `MUST` support multiple typed `memory` providers in one
   runtime. The default memory provider is the deterministic first registered
-  typed memory provider; callers that need a specific durable, vector,
-  session-scoped, tenant-scoped, or external memory implementation `MUST` select
-  it by provider id. Stateful memory provider handles `SHOULD` remain
-  synchronized.
+  typed memory provider; callers that need a specific durable, session-scoped,
+  tenant-scoped, or external memory implementation `MUST` select it by provider
+  id. Stateful memory provider handles `SHOULD` remain synchronized.
+- Runtime builders `MUST` support multiple typed `knowledge` providers in one
+  runtime. The default knowledge provider is the deterministic first registered
+  typed knowledge provider; callers that need a specific wiki, keyword,
+  full-text, structured, graph, vector, hybrid, external search, or in-house
+  RAG implementation `MUST` select it by provider id.
 - Runtime builders `MUST` support multiple typed `planning` providers in one
   runtime. The default planning provider is the deterministic first registered
   typed planning provider; callers that need a specific model-backed,
@@ -186,6 +191,9 @@ Rules:
   descriptors.
 - Typed Agent Skill provider registration `MUST` expose skill discovery,
   description, invocation, and health through the skill provider SPI.
+- Typed knowledge provider registration `MUST` expose search, read, list, and
+  health through the knowledge provider SPI without forcing RAG into memory or
+  context provider contracts.
 - Typed collaboration provider registration `MUST` expose agent discovery,
   handoff, delegation, and health through the collaboration provider SPI.
 - Manifest-only providers `MUST` remain valid for negotiation and capability
@@ -239,6 +247,9 @@ Required runtime operations:
 - `get_memory_provider`
 - `list_memory_provider_ids`
 - `get_memory_provider_by_id`
+- `get_knowledge_provider`
+- `list_knowledge_provider_ids`
+- `get_knowledge_provider_by_id`
 - `get_planning_provider`
 - `list_planning_provider_ids`
 - `get_planning_provider_by_id`
@@ -450,6 +461,7 @@ Required cases:
 - Multiple policy providers can be registered and selected by provider id.
 - Multiple context providers can be registered and selected by provider id.
 - Multiple memory providers can be registered and selected by provider id.
+- Multiple knowledge providers can be registered and selected by provider id.
 - Multiple planning providers can be registered and selected by provider id.
 - Multiple host providers can be registered and selected by provider id.
 - Multiple protocol adapters can be registered and selected by provider id.

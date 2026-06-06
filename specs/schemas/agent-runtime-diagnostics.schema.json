@@ -96,6 +96,7 @@
             "policy",
             "context",
             "memory",
+            "knowledge",
             "planning",
             "host",
             "protocol_adapter",

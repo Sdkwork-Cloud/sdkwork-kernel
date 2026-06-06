@@ -1,0 +1,24 @@
+{
+  "name": "@sdkwork/agent-sdk",
+  "version": "0.1.0",
+  "description": "SDKWork agent developer Open API TypeScript SDK boundary.",
+  "type": "module",
+  "private": false,
+  "sdkwork": {
+    "sdkName": "sdkwork-agent-sdk",
+    "authority": "sdkwork-agent-open-api",
+    "apiPrefix": "/agent/v3/api",
+    "sdkType": "custom",
+    "sdkSurface": "open",
+    "externalSdkgenProfileSupported": false,
+    "generatedOutput": "generated/server-openapi",
+    "standardProfile": "sdkwork-v3",
+    "sdkOwner": "sdkwork-kernel",
+    "sdkDependencies": []
+  },
+  "scripts": {
+    "generate:dry-run": "node ../../workspace-agent-sdkgen.mjs --family open --mode dry-run",
+    "generate": "node ../../workspace-agent-sdkgen.mjs --family open --mode apply",
+    "verify": "node ../bin/verify-sdk.mjs"
+  }
+}

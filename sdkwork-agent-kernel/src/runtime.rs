@@ -3,9 +3,9 @@ use crate::{
     AgentManifest, AgentPackageManifest, AgentRuntimeConformanceProfile, AgentSkillProvider,
     Capability, CapabilityManifest, CapabilityRequirement, ContextProvider, HostProvider,
     KernelConformanceCase, KernelConformanceReport, KernelError, KernelEvent, KernelEventSeverity,
-    KernelResult, McpProvider, MemoryProvider, ModelProvider, PlanningProvider, PolicyCategory,
-    PolicyProvider, ProtocolAdapter, ProviderHealth, ProviderManifest, SideEffectLevel,
-    TelemetryProvider, ToolProvider, AGENT_KERNEL_SPEC_VERSION,
+    KernelResult, KnowledgeProvider, McpProvider, MemoryProvider, ModelProvider, PlanningProvider,
+    PolicyCategory, PolicyProvider, ProtocolAdapter, ProviderHealth, ProviderManifest,
+    SideEffectLevel, TelemetryProvider, ToolProvider, AGENT_KERNEL_SPEC_VERSION,
 };
 use std::sync::{Arc, Mutex};
 
@@ -266,6 +266,26 @@ impl AgentRuntime {
 
     pub fn memory_provider_ids(&self) -> Vec<String> {
         self.provider_registry.memory_provider_ids()
+    }
+
+    pub fn knowledge_provider(&self) -> KernelResult<&(dyn KnowledgeProvider + Send + Sync)> {
+        self.provider_registry
+            .knowledge_provider
+            .as_deref()
+            .ok_or_else(|| self.provider_error_for_family("knowledge", "knowledge.search"))
+    }
+
+    pub fn knowledge_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<&(dyn KnowledgeProvider + Send + Sync)> {
+        self.provider_registry
+            .knowledge_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "knowledge.search"))
+    }
+
+    pub fn knowledge_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.knowledge_provider_ids()
     }
 
     pub fn planning_provider(&self) -> KernelResult<&(dyn PlanningProvider + Send + Sync)> {
@@ -792,15 +812,13 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        let mut provider_manifest = provider.provider_manifest();
-        provider_manifest.provider_id = provider_id.clone();
-        provider_manifest.provider_family = "model".to_string();
-        provider_manifest.version = version;
-        if provider_manifest.capabilities.is_empty() {
-            provider_manifest
-                .capabilities
-                .push("model.chat".to_string());
-        }
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
+            provider_id.clone(),
+            "model",
+            version,
+            vec!["model.chat"],
+        );
         self.providers.push(provider_manifest);
         self.provider_registry
             .add_model_provider(provider_id, Arc::new(provider));
@@ -831,12 +849,14 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        self.providers.push(core_provider_manifest(
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
             provider_id.clone(),
             "tool",
             version,
             vec!["tool.invoke"],
-        ));
+        );
+        self.providers.push(provider_manifest);
         self.provider_registry
             .add_tool_provider(provider_id, Arc::new(provider));
         self
@@ -866,12 +886,14 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        self.providers.push(core_provider_manifest(
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
             provider_id.clone(),
             "policy",
             version,
             vec!["policy.evaluate"],
-        ));
+        );
+        self.providers.push(provider_manifest);
         self.provider_registry
             .add_policy_provider(provider_id, Arc::new(provider));
         self
@@ -901,12 +923,14 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        self.providers.push(core_provider_manifest(
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
             provider_id.clone(),
             "context",
             version,
             vec!["context.collect"],
-        ));
+        );
+        self.providers.push(provider_manifest);
         self.provider_registry
             .add_context_provider(provider_id, Arc::new(provider));
         self
@@ -936,18 +960,53 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        let mut provider_manifest = provider.provider_manifest();
-        provider_manifest.provider_id = provider_id.clone();
-        provider_manifest.provider_family = "memory".to_string();
-        provider_manifest.version = version;
-        if provider_manifest.capabilities.is_empty() {
-            provider_manifest
-                .capabilities
-                .push("memory.query".to_string());
-        }
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
+            provider_id.clone(),
+            "memory",
+            version,
+            vec!["memory.query"],
+        );
         self.providers.push(provider_manifest);
         self.provider_registry
             .add_memory_provider(provider_id, Arc::new(Mutex::new(provider)));
+        self
+    }
+
+    pub fn register_knowledge_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "knowledge",
+            version,
+            vec!["knowledge.search", "knowledge.read", "knowledge.list"],
+        ))
+    }
+
+    pub fn register_knowledge_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: KnowledgeProvider + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
+            provider_id.clone(),
+            "knowledge",
+            version,
+            vec!["knowledge.search"],
+        );
+        self.providers.push(provider_manifest);
+        self.provider_registry
+            .add_knowledge_provider(provider_id, Arc::new(provider));
         self
     }
 
@@ -975,12 +1034,14 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        self.providers.push(core_provider_manifest(
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
             provider_id.clone(),
             "planning",
             version,
             vec!["planning.create"],
-        ));
+        );
+        self.providers.push(provider_manifest);
         self.provider_registry
             .add_planning_provider(provider_id, Arc::new(provider));
         self
@@ -1015,7 +1076,8 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        self.providers.push(core_provider_manifest(
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
             provider_id.clone(),
             "host",
             version,
@@ -1025,7 +1087,8 @@ impl RuntimeBuilder {
                 "host.network",
                 "host.secrets",
             ],
-        ));
+        );
+        self.providers.push(provider_manifest);
         self.provider_registry
             .add_host_provider(provider_id, Arc::new(provider));
         self
@@ -1055,12 +1118,12 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        self.providers.push(core_provider_manifest(
+        let provider_manifest = protocol_adapter_provider_manifest(
+            provider.manifest(),
             provider_id.clone(),
-            "protocol_adapter",
             version,
-            vec!["protocol.map"],
-        ));
+        );
+        self.providers.push(provider_manifest);
         self.provider_registry
             .add_protocol_adapter(provider_id, Arc::new(provider));
         self
@@ -1090,12 +1153,14 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        self.providers.push(core_provider_manifest(
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
             provider_id.clone(),
             "mcp",
             version,
             vec!["mcp.tools", "mcp.resources", "mcp.prompts"],
-        ));
+        );
+        self.providers.push(provider_manifest);
         self.provider_registry
             .add_mcp_provider(provider_id, Arc::new(provider));
         self
@@ -1125,12 +1190,14 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        self.providers.push(core_provider_manifest(
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
             provider_id.clone(),
             "skill",
             version,
             vec!["skill.discover", "skill.invoke"],
-        ));
+        );
+        self.providers.push(provider_manifest);
         self.provider_registry
             .add_agent_skill_provider(provider_id, Arc::new(provider));
         self
@@ -1160,12 +1227,14 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        self.providers.push(core_provider_manifest(
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
             provider_id.clone(),
             "collaboration",
             version,
             vec!["agent.discover", "agent.handoff", "agent.delegate"],
-        ));
+        );
+        self.providers.push(provider_manifest);
         self.provider_registry
             .add_collaboration_provider(provider_id, Arc::new(provider));
         self
@@ -1195,12 +1264,14 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        self.providers.push(core_provider_manifest(
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
             provider_id.clone(),
             "telemetry",
             version,
             vec!["telemetry.record"],
-        ));
+        );
+        self.providers.push(provider_manifest);
         self.provider_registry
             .add_telemetry_provider(provider_id, Arc::new(Mutex::new(provider)));
         self
@@ -1225,8 +1296,14 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        self.providers
-            .push(agent_installer_provider(provider_id.clone(), version));
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
+            provider_id.clone(),
+            "agent_installer",
+            version,
+            vec!["agent.install", "agent.uninstall", "agent.upgrade"],
+        );
+        self.providers.push(provider_manifest);
         self.provider_registry.agent_installer_provider_id = Some(provider_id);
         self.provider_registry.agent_installer = Some(Arc::new(provider));
         self
@@ -1251,8 +1328,14 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        self.providers
-            .push(agent_configuration_provider(provider_id.clone(), version));
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
+            provider_id.clone(),
+            "agent_configuration",
+            version,
+            vec!["agent.configure"],
+        );
+        self.providers.push(provider_manifest);
         self.provider_registry.agent_configuration_provider_id = Some(provider_id);
         self.provider_registry.agent_configuration = Some(Arc::new(provider));
         self
@@ -1486,6 +1569,9 @@ pub struct RuntimeProviderRegistry {
     memory_provider_id: Option<String>,
     memory_provider: Option<Arc<Mutex<dyn MemoryProvider + Send>>>,
     memory_providers: Vec<(String, Arc<Mutex<dyn MemoryProvider + Send>>)>,
+    knowledge_provider_id: Option<String>,
+    knowledge_provider: Option<Arc<dyn KnowledgeProvider + Send + Sync>>,
+    knowledge_providers: Vec<(String, Arc<dyn KnowledgeProvider + Send + Sync>)>,
     planning_provider_id: Option<String>,
     planning_provider: Option<Arc<dyn PlanningProvider + Send + Sync>>,
     planning_providers: Vec<(String, Arc<dyn PlanningProvider + Send + Sync>)>,
@@ -1647,6 +1733,35 @@ impl RuntimeProviderRegistry {
 
     pub fn memory_provider_ids(&self) -> Vec<String> {
         self.memory_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
+    fn add_knowledge_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<dyn KnowledgeProvider + Send + Sync>,
+    ) {
+        if self.knowledge_provider.is_none() {
+            self.knowledge_provider_id = Some(provider_id.clone());
+            self.knowledge_provider = Some(provider.clone());
+        }
+        self.knowledge_providers.push((provider_id, provider));
+    }
+
+    fn knowledge_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<&(dyn KnowledgeProvider + Send + Sync)> {
+        self.knowledge_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.as_ref())
+    }
+
+    pub fn knowledge_provider_ids(&self) -> Vec<String> {
+        self.knowledge_providers
             .iter()
             .map(|(provider_id, _)| provider_id.clone())
             .collect()
@@ -1819,6 +1934,10 @@ impl RuntimeProviderRegistry {
         !self.memory_providers.is_empty()
     }
 
+    pub fn has_knowledge_provider(&self) -> bool {
+        !self.knowledge_providers.is_empty()
+    }
+
     pub fn has_planning_provider(&self) -> bool {
         !self.planning_providers.is_empty()
     }
@@ -1931,6 +2050,9 @@ impl RuntimeProviderRegistry {
             "memory" => self
                 .memory_provider_by_id(provider.provider_id.as_str())
                 .is_some(),
+            "knowledge" => self
+                .knowledge_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
             "planning" => self
                 .planning_provider_by_id(provider.provider_id.as_str())
                 .is_some(),
@@ -1999,6 +2121,11 @@ impl RuntimeProviderRegistry {
                 .iter()
                 .find(|(provider_id, _)| provider_id == &provider.provider_id)
                 .and_then(|(_, provider)| provider.lock().ok().map(|provider| provider.health())),
+            "knowledge" => self
+                .knowledge_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .map(|(_, provider)| provider.health()),
             "planning" => self
                 .planning_providers
                 .iter()
@@ -2071,6 +2198,9 @@ impl std::fmt::Debug for RuntimeProviderRegistry {
             .field("memory_provider_id", &self.memory_provider_id)
             .field("memory_provider_ids", &self.memory_provider_ids())
             .field("has_memory_provider", &self.has_memory_provider())
+            .field("knowledge_provider_id", &self.knowledge_provider_id)
+            .field("knowledge_provider_ids", &self.knowledge_provider_ids())
+            .field("has_knowledge_provider", &self.has_knowledge_provider())
             .field("planning_provider_id", &self.planning_provider_id)
             .field("planning_provider_ids", &self.planning_provider_ids())
             .field("has_planning_provider", &self.has_planning_provider())
@@ -2122,6 +2252,9 @@ impl PartialEq for RuntimeProviderRegistry {
             && self.memory_provider_id == other.memory_provider_id
             && self.memory_provider_ids() == other.memory_provider_ids()
             && self.has_memory_provider() == other.has_memory_provider()
+            && self.knowledge_provider_id == other.knowledge_provider_id
+            && self.knowledge_provider_ids() == other.knowledge_provider_ids()
+            && self.has_knowledge_provider() == other.has_knowledge_provider()
             && self.planning_provider_id == other.planning_provider_id
             && self.planning_provider_ids() == other.planning_provider_ids()
             && self.has_planning_provider() == other.has_planning_provider()
@@ -2212,6 +2345,44 @@ fn core_provider_manifest(
             .into_iter()
             .map(std::string::ToString::to_string)
             .collect(),
+    )
+}
+
+fn typed_provider_manifest(
+    mut provider_manifest: ProviderManifest,
+    provider_id: impl Into<String>,
+    provider_family: impl Into<String>,
+    version: impl Into<String>,
+    fallback_capabilities: Vec<&str>,
+) -> ProviderManifest {
+    provider_manifest.provider_id = provider_id.into();
+    provider_manifest.provider_family = provider_family.into();
+    provider_manifest.version = version.into();
+    if provider_manifest.capabilities.is_empty() {
+        provider_manifest.capabilities = fallback_capabilities
+            .into_iter()
+            .map(std::string::ToString::to_string)
+            .collect();
+    }
+    provider_manifest
+}
+
+fn protocol_adapter_provider_manifest(
+    adapter_manifest: crate::ProtocolAdapterManifest,
+    provider_id: impl Into<String>,
+    version: impl Into<String>,
+) -> ProviderManifest {
+    let mut capabilities = adapter_manifest.exposed_capabilities;
+    if capabilities.is_empty() {
+        capabilities.push("protocol.map".to_string());
+    }
+
+    ProviderManifest::new(
+        provider_id,
+        "protocol_adapter",
+        adapter_manifest.adapter_id,
+        version,
+        capabilities,
     )
 }
 
@@ -2380,6 +2551,21 @@ fn capability_metadata(capability_id: &str) -> CapabilityMetadata {
             SideEffectLevel::ReadOnly,
             PolicyCategory::MemoryRead,
         ),
+        "knowledge.search" => lifecycle_capability_metadata(
+            vec!["search", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::KnowledgeSearch,
+        ),
+        "knowledge.read" => lifecycle_capability_metadata(
+            vec!["read", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::KnowledgeRead,
+        ),
+        "knowledge.list" => lifecycle_capability_metadata(
+            vec!["list", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::KnowledgeList,
+        ),
         "planning.create" => lifecycle_capability_metadata(
             vec!["create_plan", "validate_plan", "health"],
             SideEffectLevel::ReadOnly,
@@ -2392,6 +2578,11 @@ fn capability_metadata(capability_id: &str) -> CapabilityMetadata {
         ),
         "protocol.map" => lifecycle_capability_metadata(
             vec!["map_request", "map_response", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProtocolSend,
+        ),
+        "protocol.stream" => lifecycle_capability_metadata(
+            vec!["map_event_to_stream_update", "health"],
             SideEffectLevel::ReadOnly,
             PolicyCategory::ProtocolSend,
         ),
@@ -2450,6 +2641,7 @@ fn standard_agent_provider_families() -> &'static [&'static str] {
         "policy",
         "context",
         "memory",
+        "knowledge",
         "planning",
         "host",
         "protocol_adapter",

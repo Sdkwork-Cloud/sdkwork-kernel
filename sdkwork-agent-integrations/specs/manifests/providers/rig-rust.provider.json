@@ -19,6 +19,9 @@
     "memory.write",
     "memory.delete",
     "memory.export",
+    "knowledge.search",
+    "knowledge.read",
+    "knowledge.list",
     "planning.create",
     "agent.install",
     "agent.configure"
@@ -34,6 +37,9 @@
     "write_memory",
     "delete_memory",
     "export_memory",
+    "search_knowledge",
+    "read_knowledge",
+    "list_knowledge",
     "health"
   ],
   "configuration_schema": {
@@ -56,6 +62,8 @@
       "tool.invoke",
       "memory.write",
       "memory.delete",
+      "knowledge.search",
+      "knowledge.read",
       "host.secrets.read"
     ],
     "secret_handling": {
@@ -76,7 +84,8 @@
   "extensions": {
     "sdkwork.external.source-path": "external/rig",
     "sdkwork.external.initial-registration-mode": "typed-local-provider",
-    "sdkwork.external.execution-status": "implemented-local-memory-model-tool-fail-closed",
+    "sdkwork.external.execution-status": "implemented-local-memory-knowledge-model-tool-fail-closed",
+    "sdkwork.external.manifest-shape": "legacy-aggregate-provider-candidate; runtime code registers separate typed model/tool/memory/knowledge/planning/policy providers",
     "sdkwork.external.implementation-crate": "sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig"
   }
 }

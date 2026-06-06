@@ -13,11 +13,20 @@ fn context_frame_preserves_source_trust_and_redaction_metadata() {
         TrustLevel::ToolOutput,
         RedactionClassification::Internal,
     )
-    .with_provenance("tool-call.1");
+    .for_task("task.1")
+    .with_content_type("text/plain")
+    .with_provenance("tool-call.1")
+    .created_at("2026-05-27T12:00:00Z")
+    .with_metadata("tool.call_id", "tool-call.1");
 
     assert_eq!(frame.context_frame_id, "context.1");
+    assert_eq!(frame.session_id, "session.1");
+    assert_eq!(frame.task_id.as_deref(), Some("task.1"));
+    assert_eq!(frame.content_type, "text/plain");
     assert_eq!(frame.trust_level, TrustLevel::ToolOutput);
     assert_eq!(frame.provenance.as_deref(), Some("tool-call.1"));
+    assert_eq!(frame.created_at.as_deref(), Some("2026-05-27T12:00:00Z"));
+    assert_eq!(frame.metadata_value("tool.call_id"), Some("tool-call.1"));
     assert!(frame.is_untrusted());
 }
 
@@ -30,10 +39,31 @@ fn memory_record_scope_and_classification_are_explicit() {
         "user prefers concise answers",
         TrustLevel::UserSupplied,
         RedactionClassification::PersonalData,
-    );
+    )
+    .with_content_type("text/plain")
+    .with_source("chat.user")
+    .with_retention_policy("delete_after_30_days")
+    .created_at("2026-05-27T12:00:00Z")
+    .updated_at("2026-05-27T12:00:01Z")
+    .with_policy_decision("policy-decision.1")
+    .with_metadata("memory.profile_id", "profile.user.preferences");
 
     assert_eq!(record.scope, MemoryScope::Session);
     assert_eq!(record.owner_context, "session.1");
+    assert_eq!(record.content_type, "text/plain");
+    assert_eq!(record.source.as_deref(), Some("chat.user"));
+    assert_eq!(
+        record.retention_policy.as_deref(),
+        Some("delete_after_30_days")
+    );
+    assert_eq!(
+        record.policy_decision_id.as_deref(),
+        Some("policy-decision.1")
+    );
+    assert_eq!(
+        record.metadata_value("memory.profile_id"),
+        Some("profile.user.preferences")
+    );
     assert!(record.requires_redaction());
 }
 

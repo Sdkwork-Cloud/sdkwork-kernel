@@ -31,6 +31,9 @@ pub fn rig_agent_manifest() -> AgentManifest {
             "memory.write".to_string(),
             "memory.delete".to_string(),
             "memory.export".to_string(),
+            "knowledge.search".to_string(),
+            "knowledge.read".to_string(),
+            "knowledge.list".to_string(),
             "planning.create".to_string(),
         ],
         required_capability_requirements: vec![
@@ -48,6 +51,9 @@ pub fn rig_agent_manifest() -> AgentManifest {
             CapabilityRequirement::new("memory.write").with_min_version("0.1.0"),
             CapabilityRequirement::new("memory.delete").with_min_version("0.1.0"),
             CapabilityRequirement::new("memory.export").with_min_version("0.1.0"),
+            CapabilityRequirement::new("knowledge.search").with_min_version("0.1.0"),
+            CapabilityRequirement::new("knowledge.read").with_min_version("0.1.0"),
+            CapabilityRequirement::new("knowledge.list").with_min_version("0.1.0"),
             CapabilityRequirement::new("planning.create").with_min_version("0.1.0"),
         ],
         event_families: vec![
@@ -55,6 +61,7 @@ pub fn rig_agent_manifest() -> AgentManifest {
             "agent.model.*".to_string(),
             "agent.tool.*".to_string(),
             "agent.memory.*".to_string(),
+            "agent.knowledge.*".to_string(),
             "agent.policy.*".to_string(),
             "agent.install.*".to_string(),
             "agent.configure.*".to_string(),
@@ -110,6 +117,22 @@ pub fn rig_agent_definition() -> AgentDefinition {
                 "memory.write".to_string(),
                 "memory.delete".to_string(),
                 "memory.export".to_string(),
+            ]),
+        )
+        .with_provider_binding(
+            AgentProviderBinding::new(
+                "binding.rig.knowledge",
+                AgentProviderFamily::Knowledge,
+                ids::KNOWLEDGE_PROVIDER_ID,
+                false,
+            )
+            .as_default()
+            .with_mode(AgentProviderBindingMode::TypedLocal)
+            .with_min_version("0.1.0")
+            .with_capabilities(vec![
+                "knowledge.search".to_string(),
+                "knowledge.read".to_string(),
+                "knowledge.list".to_string(),
             ]),
         )
         .with_provider_binding(

@@ -14,8 +14,8 @@ use crate::{
     installer::RigAgentInstaller,
     package::rig_package_manifest,
     provider::{
-        RigMemoryProvider, RigModelProvider, RigPlanningProvider, RigPolicyProvider,
-        RigToolProvider,
+        RigKnowledgeProvider, RigMemoryProvider, RigModelProvider, RigPlanningProvider,
+        RigPolicyProvider, RigToolProvider,
     },
 };
 
@@ -35,6 +35,7 @@ pub fn rig_plugin_manifest() -> IntegrationPluginManifest {
         .with_provider_id(ids::MODEL_PROVIDER_ID)
         .with_provider_id(ids::TOOL_PROVIDER_ID)
         .with_provider_id(ids::MEMORY_PROVIDER_ID)
+        .with_provider_id(ids::KNOWLEDGE_PROVIDER_ID)
         .with_provider_id(ids::PLANNING_PROVIDER_ID)
         .with_provider_id(ids::POLICY_PROVIDER_ID)
         .with_provider_id(ids::INSTALLER_PROVIDER_ID)
@@ -45,6 +46,7 @@ pub fn rig_plugin_manifest() -> IntegrationPluginManifest {
         .with_supported_profile("provider-model")
         .with_supported_profile("provider-tool")
         .with_supported_profile("provider-memory")
+        .with_supported_profile("provider-knowledge")
         .with_supported_profile("security-baseline")
 }
 
@@ -53,6 +55,7 @@ pub fn rig_provider_manifests() -> Vec<ProviderManifest> {
         RigModelProvider::fail_closed().provider_manifest(),
         RigToolProvider::fail_closed().provider_manifest(),
         RigMemoryProvider::new().provider_manifest(),
+        RigKnowledgeProvider::new().provider_manifest(),
         RigPlanningProvider::new().provider_manifest(),
         ProviderManifest::new(
             ids::POLICY_PROVIDER_ID,
@@ -116,6 +119,11 @@ impl SdkworkAgentIntegrationPlugin for RigIntegrationPlugin {
                 RigToolProvider::fail_closed(),
             )
             .register_memory_provider(ids::MEMORY_PROVIDER_ID, "0.1.0", RigMemoryProvider::new())
+            .register_knowledge_provider(
+                ids::KNOWLEDGE_PROVIDER_ID,
+                "0.1.0",
+                RigKnowledgeProvider::new(),
+            )
             .register_planning_provider(
                 ids::PLANNING_PROVIDER_ID,
                 "0.1.0",

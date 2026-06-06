@@ -30,8 +30,10 @@ Standard capabilities:
 Rules:
 
 - Skills `MUST` have stable ids.
-- Skill descriptors `MUST` declare invocation mode, side-effect level, policy
-  categories, optional model hints, and allowed tools where applicable.
+- Skill descriptors `MUST` declare provider id, invocation mode, input/output
+  schema, side-effect level, policy categories, optional model hints, allowed
+  tools, timeout policy, cancellation support, audit requirements, and
+  namespaced marketplace/runtime metadata where applicable.
 - Skill invocation `MUST` return normalized status and stable kernel errors.
 - Skill output `MUST` be treated as untrusted unless the provider declares and
   enforces a stronger trust model.
@@ -65,6 +67,12 @@ Rules:
 - Unsupported cancellation `MUST` return `capability_missing`.
 - Provider-specific skill arguments `MUST` be carried as typed or namespaced
   request metadata, not hidden global state.
+- Skill requests `MUST` carry runtime correlation context where available,
+  including session, task, run, step, trace context, policy decision id, timeout,
+  and namespaced metadata.
+- Skill results `MUST` preserve normalized status, timing, trace context,
+  redaction classification, audit references, diagnostics, and safe error
+  details.
 - Model hints are advisory. Runtime policy decides whether a hinted model may be
   used.
 

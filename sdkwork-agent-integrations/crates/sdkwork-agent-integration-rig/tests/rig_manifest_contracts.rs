@@ -15,6 +15,7 @@ fn rig_uses_stable_standard_ids() {
     assert_eq!(ids::MODEL_PROVIDER_ID, "provider.model.rig-rust");
     assert_eq!(ids::TOOL_PROVIDER_ID, "provider.tool.rig-rust");
     assert_eq!(ids::MEMORY_PROVIDER_ID, "provider.memory.rig-rust");
+    assert_eq!(ids::KNOWLEDGE_PROVIDER_ID, "provider.knowledge.rig-rust");
     assert_eq!(ids::PLANNING_PROVIDER_ID, "provider.planning.rig-rust");
     assert_eq!(
         ids::INSTALLER_PROVIDER_ID,
@@ -100,6 +101,14 @@ fn rig_agent_definition_declares_model_tool_policy_and_memory_strategy() {
         .memory_strategy
         .scope_enabled(sdkwork_agent_kernel::MemoryScope::Agent));
 
+    let knowledge = definition
+        .default_binding(AgentProviderFamily::Knowledge)
+        .expect("Rig knowledge binding is explicit");
+    assert_eq!(knowledge.provider_id, ids::KNOWLEDGE_PROVIDER_ID);
+    assert!(!knowledge.required);
+    assert!(knowledge.supports_capability("knowledge.search"));
+    assert!(knowledge.supports_capability("knowledge.read"));
+
     let policy = definition
         .default_binding(AgentProviderFamily::Policy)
         .expect("Rig policy binding is explicit");
@@ -137,6 +146,18 @@ fn rig_provider_manifests_cover_model_tool_planning_and_lifecycle() {
             && provider.capabilities.contains(&"memory.export".to_string())
     }));
     assert!(providers.iter().any(|provider| {
+        provider.provider_id == ids::KNOWLEDGE_PROVIDER_ID
+            && provider
+                .capabilities
+                .contains(&"knowledge.search".to_string())
+            && provider
+                .capabilities
+                .contains(&"knowledge.read".to_string())
+            && provider
+                .capabilities
+                .contains(&"knowledge.list".to_string())
+    }));
+    assert!(providers.iter().any(|provider| {
         provider.provider_id == ids::PLANNING_PROVIDER_ID
             && provider
                 .capabilities
@@ -170,6 +191,15 @@ fn rig_plugin_assembles_runtime_with_typed_providers() {
         .any(
             |provider| provider.provider_id == ids::MEMORY_PROVIDER_ID && provider.typed_registered
         ));
+    assert!(report
+        .runtime
+        .diagnostics()
+        .provider_diagnostics
+        .iter()
+        .any(
+            |provider| provider.provider_id == ids::KNOWLEDGE_PROVIDER_ID
+                && provider.typed_registered
+        ));
     let memory_diagnostic = report
         .runtime
         .diagnostics()
@@ -188,6 +218,15 @@ fn rig_plugin_assembles_runtime_with_typed_providers() {
     assert!(memory_diagnostic
         .capabilities
         .contains(&"memory.export".to_string()));
+    let knowledge_diagnostic = report
+        .runtime
+        .diagnostics()
+        .provider(ids::KNOWLEDGE_PROVIDER_ID)
+        .expect("Rig knowledge diagnostics are present")
+        .clone();
+    assert!(knowledge_diagnostic
+        .capabilities
+        .contains(&"knowledge.search".to_string()));
     assert!(plugin.conformance_profile().requires("runtime-local"));
     assert_eq!(
         plugin

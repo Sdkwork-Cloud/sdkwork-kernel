@@ -1,10 +1,24 @@
 use crate::{
     AgentConfiguration, AgentConfigurationSpec, KernelEvent, KernelEventRedaction,
     KernelEventSeverity, KernelEventSource, KernelResult, PolicyCategory, PolicyRequest,
-    ProviderHealth, SideEffectLevel,
+    ProviderHealth, ProviderManifest, SideEffectLevel,
 };
 
 pub trait AgentInstaller {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            "provider.agent.installer.unspecified",
+            "agent_installer",
+            "agent-installer",
+            "0.0.0",
+            vec![
+                "agent.install".to_string(),
+                "agent.uninstall".to_string(),
+                "agent.upgrade".to_string(),
+            ],
+        )
+    }
+
     fn configuration_spec(&self, agent_id: &str) -> KernelResult<AgentConfigurationSpec>;
 
     fn plan_install(&self, request: &AgentInstallRequest) -> KernelResult<AgentInstallPlan>;

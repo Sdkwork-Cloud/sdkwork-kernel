@@ -724,6 +724,7 @@ dependencies = [
  "postgres",
  "sdkwork-agent-kernel",
  "sdkwork-code-kernel",
+ "sdkwork_id",
  "serde",
  "serde_json",
  "time",
@@ -741,6 +742,10 @@ version = "0.1.0"
 dependencies = [
  "sdkwork-agent-kernel",
 ]
+
+[[package]]
+name = "sdkwork_id"
+version = "0.1.0"
 
 [[package]]
 name = "semver"

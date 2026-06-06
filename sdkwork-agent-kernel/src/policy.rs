@@ -1,6 +1,6 @@
 use crate::{
     KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelEventSource, KernelResult,
-    ProviderHealth, SideEffectLevel,
+    ProviderHealth, ProviderManifest, SideEffectLevel,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,6 +12,9 @@ pub enum PolicyCategory {
     MemoryRead,
     MemoryWrite,
     MemoryDelete,
+    KnowledgeSearch,
+    KnowledgeRead,
+    KnowledgeList,
     HostFilesystemRead,
     HostFilesystemWrite,
     HostProcessExecute,
@@ -39,6 +42,9 @@ impl PolicyCategory {
             Self::MemoryRead => "memory.read",
             Self::MemoryWrite => "memory.write",
             Self::MemoryDelete => "memory.delete",
+            Self::KnowledgeSearch => "knowledge.search",
+            Self::KnowledgeRead => "knowledge.read",
+            Self::KnowledgeList => "knowledge.list",
             Self::HostFilesystemRead => "host.filesystem.read",
             Self::HostFilesystemWrite => "host.filesystem.write",
             Self::HostProcessExecute => "host.process.execute",
@@ -173,6 +179,16 @@ impl PolicyRequest {
 }
 
 pub trait PolicyProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            "provider.policy.unspecified",
+            "policy",
+            "policy-provider",
+            "0.0.0",
+            vec!["policy.evaluate".to_string()],
+        )
+    }
+
     fn evaluate(&self, request: PolicyRequest) -> KernelResult<PolicyDecision>;
 
     fn health(&self) -> ProviderHealth {

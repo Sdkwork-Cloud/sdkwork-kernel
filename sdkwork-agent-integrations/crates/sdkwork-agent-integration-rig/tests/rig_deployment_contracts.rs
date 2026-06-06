@@ -52,13 +52,16 @@ fn rig_default_binding_capabilities_follow_standard_contract() {
         RigProviderBindingSpec::try_default_local("binding.rig.default", "profile.rig.local")
             .expect("standard Rig binding should be accepted");
 
-    assert_eq!(binding.capabilities.len(), 4);
+    assert_eq!(binding.capabilities.len(), 7);
     assert_eq!(
         binding.capabilities,
         [
             "model.catalog",
             "model.chat",
             "tool.invoke",
+            "knowledge.search",
+            "knowledge.read",
+            "knowledge.list",
             "planning.create"
         ]
     );
@@ -76,6 +79,9 @@ fn rig_plugin_manifest_lists_all_provider_ids() {
     assert!(manifest
         .provider_ids
         .contains(&ids::TOOL_PROVIDER_ID.to_string()));
+    assert!(manifest
+        .provider_ids
+        .contains(&ids::KNOWLEDGE_PROVIDER_ID.to_string()));
     assert!(manifest
         .provider_ids
         .contains(&ids::PLANNING_PROVIDER_ID.to_string()));

@@ -1,74 +1,87 @@
-# SDKGen Verification Report (Latest)
+# Latest SDK Verification Record
 
-- Module: `sdkwork-agent-business`
-- Date (local): `2026-06-01`
-- Scope: app/backend OpenAPI -> SDK generation -> package check/build
-- Command:
-  - `powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode Apply -CleanTmp -JsonReportPath specs/sdkgen/verification-latest.json`
-  - JSON report: `specs/sdkgen/verification-latest.json`
+- Date: 2026-06-05
+- Application domain: `agent`
+- SDK workspace: `sdks/`
+- Generator profile: `--standard-profile sdkwork-v3`
+- Generator entrypoint:
+  `D:/javasource/spring-ai-plus/sdk/sdkwork-sdk-generator/bin/sdkgen.js`
+
+## Commands
+
+```powershell
+node .\sdks\materialize-agent-v3-openapi-boundaries.mjs
+node .\sdks\workspace-agent-sdkgen.mjs --mode apply
+node .\scripts\check-agent-sdk-workspace.mjs
+node .\sdks\workspace-agent-sdkgen.mjs --mode dry-run
+```
+
+Generated package checks:
+
+```powershell
+node .\bin\publish-core.mjs --language typescript --project-dir . --action check
+node .\bin\publish-core.mjs --language typescript --project-dir . --action build
+```
+
+The package checks were run from:
+
+- `sdks/sdkwork-agent-app-sdk/sdkwork-agent-app-sdk-typescript/generated/server-openapi`
+- `sdks/sdkwork-agent-backend-sdk/sdkwork-agent-backend-sdk-typescript/generated/server-openapi`
+
+## Families
+
+- developer/open SDK (`sdkwork-agent-sdk`)
+  - authority: `sdkwork-agent-open-api`
+  - prefix: `/agent/v3/api`
+  - package: `@sdkwork/agent-sdk`
+  - output:
+    `sdks/sdkwork-agent-sdk/sdkwork-agent-sdk-typescript/generated/server-openapi`
+  - status: authority and derived sdkgen inputs materialized
+  - generation status: script-derived from the strict-profile app SDK source,
+    because the current `sdkwork-v3` standard profile supports `app`,
+    `backend`, and `im` prefixes only.
+  - check: pass
+  - build: pass
+
+- app SDK (`sdkwork-agent-app-sdk`)
+  - authority: `sdkwork-agent-app-api`
+  - prefix: `/app/v3/api`
+  - package: `@sdkwork/agent-app-sdk`
+  - output:
+    `sdks/sdkwork-agent-app-sdk/sdkwork-agent-app-sdk-typescript/generated/server-openapi`
+  - check: pass
+  - build: pass
+
+- backend SDK (`sdkwork-agent-backend-sdk`)
+  - authority: `sdkwork-agent-backend-api`
+  - prefix: `/backend/v3/api`
+  - package: `@sdkwork/agent-backend-sdk`
+  - output:
+    `sdks/sdkwork-agent-backend-sdk/sdkwork-agent-backend-sdk-typescript/generated/server-openapi`
+  - check: pass
+  - build: pass
 
 ## Dry-Run Summary
 
-- app
-  - resolved version: `1.0.35`
-  - change fingerprint: `18bfcb0c2705e66889bd89b823999045d6386b2d0e926522084b0f7f161c0275`
-  - risk: `high`
-  - has changes: `true`
-- backend
-  - resolved version: `1.0.11`
-  - change fingerprint: `8a71d744793e81d7f2422b12563385eafcd46e5b4b2982b5d700721d55b34efb`
-  - risk: `high`
-  - has changes: `true`
+The latest dry-run report is stored in:
 
-## Apply Result
+- `sdkwork-agent-business/specs/sdkgen/verification-latest.json`
+- `sdkwork-agent-business/specs/sdkgen/verification-ci.json`
+- `sdks/.sdkgen-agent-workspace-report.json`
 
-- app SDK (`sdkwork-agent-business-app-sdk`)
-  - fixed version: `1.0.35`
-  - output: `apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/.tmp/agent-business-app-sdk-typescript`
-  - generator result: success
-  - impact: `api-surface`, `models`, `runtime`, `build-metadata`, `publish-workflow`, `documentation`, `custom-scaffold`, `unknown`
-- backend SDK (`sdkwork-agent-business-backend-sdk`)
-  - fixed version: `1.0.11`
-  - output: `apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/.tmp/agent-business-backend-sdk-typescript`
-  - generator result: success
-  - impact: `api-surface`, `models`, `runtime`, `build-metadata`, `publish-workflow`, `documentation`, `custom-scaffold`, `unknown`
+Latest dry-run state:
 
-## Package Verification
+- `sdkwork-agent-sdk`: standard-profile generator skipped with recorded
+  support gap; open SDK derivation `hasChanges=false`.
+- `sdkwork-agent-app-sdk`: `hasChanges=false`, `riskLevel=low`.
+- `sdkwork-agent-backend-sdk`: `hasChanges=false`, `riskLevel=low`.
 
-- app generated package
-  - `publish-core --action check`: pass
-  - `publish-core --action build`: pass
-  - npm pack artifact: `sdkwork-app-sdk-1.0.35.tgz`
-- backend generated package
-  - `publish-core --action check`: pass
-  - `publish-core --action build`: pass
-  - npm pack artifact: `sdkwork-backend-sdk-1.0.11.tgz`
+## Contract Checks
 
-## Cleanup
-
-- `-CleanTmp` enabled.
-- temporary output directory `apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/.tmp` removed after verification.
-
-## Follow-up Verification (Current Commit Scope)
-
-- `cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml`: pass
-- `cargo test --features http-axum --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml`: pass
-- `cargo test --features postgres-sync --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml`: pass
-- `powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-ci.ps1`: pass
-- CI dry-run JSON report updated: `specs/sdkgen/verification-ci.json`
-- RFC3339 strict validation for mutation `requestedAt` covered by dto/http contract tests: pass
-- RFC3339 validation error detail now uses API field naming `requestedAt`: pass
-- RFC3339 parsing logic unified into shared `validation` module and reused by dto/http query filter: pass
-- Audit event `occurred_at` RFC3339 parsing now reuses shared `validation` parser while preserving `internal_error` mapping: pass
-- `tenant_id/int64 string` parsing unified into shared `validation` module for dto/http consistency: pass
-- Added semantic validation wrappers (`parse_tenant_id/organization_id/owner_user_id`, `validate_requested_at`) and migrated dto/http callers: pass
-- Added optional `expectedVersion` optimistic-concurrency validation for update/status/delete/restore across dto/http/service, and aligned app/backend OpenAPI contracts: pass
-- Repository-level optimistic locking hardened: in-memory adapter enforces monotonic `version`, and postgres update SQL now includes `WHERE ... AND version = previous_version` precondition with conflict mapping: pass
-- API conflict semantics refined: optimistic-concurrency conflicts now return `application/problem+json` code `version_conflict`, and app/backend OpenAPI `Problem` examples include `version_conflict` payload: pass
-- Operation-level OpenAPI responses now include explicit `409` `version_conflict` examples for update/delete/restore/status operations, and SDK apply verification completed (`verify-sdkgen.ps1 -Mode Apply -CleanTmp`): pass
-- Create conflict semantics completed: app/backend `agents.create` now include operation-level `409 conflict` examples (duplicate `agent_id/code`), with HTTP contract test coverage for duplicate create: pass
-- `ProblemDetail` contract enriched with `errorCategory` and `retryable` in runtime response + app/backend OpenAPI schema/examples; HTTP contract tests assert validation/conflict/version_conflict category and retryability semantics: pass
-- `errorCategory` mapping refactored to a centralized internal enum (`ErrorCategory`) for deterministic classification and lower maintenance risk when adding new error codes: pass
-- Operation-level `403 permission_required` and `404 not_found` examples added for core create/retrieve/update/delete/restore/status operations, with HTTP contract tests for permission-denied and missing-resource responses (`errorCategory`/`retryable` validated): pass
-- Backend `agents.auditEvents.list` now defines operation-level `403 permission_required` problem example, and HTTP contract tests now cover missing-resource `404 not_found` semantics for delete/status/restore plus audit-events permission-denied regression: pass
-- Audit-events contract hardening completed: pagination now rejects invalid bounds (`page < 1`, `page_size > 200`) with `400 validation_error`, backend OpenAPI now includes operation-level `400` example for audit query validation, and audit list ordering now sorts by RFC3339 parsed instant (cross-timezone-safe) with deterministic tie-breaking (`created_at desc, id desc`) across in-memory and postgres paths: pass
+- Authority OpenAPI and derived `*.sdkgen.yaml` are separated.
+- `*.sdkgen.yaml` inputs inline explicit RFC 9457
+  `application/problem+json` responses for generator strict profile.
+- `X-Request-Id` is not exposed.
+- Generated output stays under `generated/server-openapi`.
+- Runtime now exposes `/agent/v3/api`, `/app/v3/api`, and `/backend/v3/api`
+  route families.

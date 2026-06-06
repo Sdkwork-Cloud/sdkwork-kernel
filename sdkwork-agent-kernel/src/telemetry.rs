@@ -1,6 +1,6 @@
 use crate::{
     KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelEventSource, KernelResult,
-    PolicyDecision, PolicyRequest, ProviderHealth, TraceContext,
+    PolicyDecision, PolicyRequest, ProviderHealth, ProviderManifest, TraceContext,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -495,6 +495,16 @@ impl TelemetrySpan {
 }
 
 pub trait TelemetryProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            "provider.telemetry.unspecified",
+            "telemetry",
+            "telemetry-provider",
+            "0.0.0",
+            vec!["telemetry.record".to_string()],
+        )
+    }
+
     fn health(&self) -> ProviderHealth;
 
     fn record_event(&mut self, event: KernelEvent) -> KernelResult<()>;

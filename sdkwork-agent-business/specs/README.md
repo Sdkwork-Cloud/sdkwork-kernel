@@ -64,20 +64,21 @@ or document this component, but they must not contradict
 - `sdkwork_agent_business::persistence::*` PostgreSQL-oriented row mapping,
   SQL contracts, repository/audit adapters, and optional `postgres-sync`
   executable adapter.
-- `sdkwork_agent_business::{AgentHttpState, build_app_router, build_backend_router, build_combined_router}`
-  optional `http-axum` entrypoints for app-api/backend-api route integration.
+- `sdkwork_agent_business::{AgentHttpState, build_open_router, build_app_router, build_backend_router, build_combined_router}`
+  optional `http-axum` entrypoints for open-api/app-api/backend-api route integration.
 
 ## SDK Clients
 
-- No generated SDK client class is declared at this component boundary.
-- This component defines app-api/backend-api operation contracts for SDK
-  generation in higher-level API modules.
+- Generated SDK clients are owned by the repository root `sdks/` workspace.
+- This component defines open-api/app-api/backend-api operation contracts for SDK
+  generation.
 
 ## Verification
 
-- `cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml`
-- `cargo test --features http-axum --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml`
-- `cargo test --features postgres-sync --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/Cargo.toml`
-- `powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun`
-- `powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun -SkipBuild -JsonReportPath specs/sdkgen/verification-latest.json`
-- `powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-ci.ps1`
+- `cargo test --manifest-path sdkwork-agent-business/Cargo.toml`
+- `cargo test --features http-axum --manifest-path sdkwork-agent-business/Cargo.toml`
+- `cargo test --features postgres-sync --manifest-path sdkwork-agent-business/Cargo.toml`
+- `node sdks/materialize-agent-v3-openapi-boundaries.mjs`
+- `node sdks/workspace-agent-sdkgen.mjs --mode dry-run`
+- `node scripts/check-agent-sdk-workspace.mjs`
+- `powershell -ExecutionPolicy Bypass -File sdkwork-agent-business/scripts/verify-ci.ps1`

@@ -1,95 +1,127 @@
 # SDK Generator Commands
 
-This document defines canonical SDK generation commands for
-`sdkwork-agent-business`.
+This document records the canonical SDK generation flow for
+`sdkwork-agent-business` under the current application root.
 
-Use the repository root as the command working directory.
+The application domain is `agent`; SDK generation is owned by the root
+`sdks/` workspace.
 
-## App SDK (TypeScript)
+All SDKs are generated through the SDKWork SDK generator:
 
-```bash
-node sdk/sdkwork-sdk-generator/bin/sdkgen.js generate \
-  -i apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/specs/openapi/agent-business-app-openapi-3.1.2.yaml \
-  -o spring-ai-plus-app-api/sdkwork-sdk-app/sdks/agent-business-app-sdk-typescript \
-  -n sdkwork-agent-business-app-sdk \
-  -t app \
-  -l typescript \
-  --base-url http://localhost:8080 \
-  --api-prefix /app/v3/api \
-  --standard-profile sdkwork-v3
+```text
+D:\javasource\spring-ai-plus\sdk\sdkwork-sdk-generator
 ```
 
-## Backend SDK (TypeScript)
+The canonical CLI entrypoint is:
 
-```bash
-node sdk/sdkwork-sdk-generator/bin/sdkgen.js generate \
-  -i apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/specs/openapi/agent-business-backend-openapi-3.1.2.yaml \
-  -o spring-ai-plus-backend-api/sdkwork-sdk-backend/sdks/agent-business-backend-sdk-typescript \
-  -n sdkwork-agent-business-backend-sdk \
-  -t backend \
-  -l typescript \
-  --base-url http://localhost:8080 \
-  --api-prefix /backend/v3/api \
-  --standard-profile sdkwork-v3
+```text
+D:\javasource\spring-ai-plus\sdk\sdkwork-sdk-generator\bin\sdkgen.js
+```
+
+Do not use `sdkwork-code-generator` for SDK generation. Do not hand-edit
+generated SDK output; fix the API/OpenAPI/generator chain and regenerate.
+
+Run all commands from repository root.
+
+## Materialize OpenAPI Boundaries
+
+```powershell
+node .\sdks\materialize-agent-v3-openapi-boundaries.mjs
+```
+
+This creates or refreshes:
+
+- `sdks/sdkwork-agent-sdk/openapi/sdkwork-agent-open-api.openapi.yaml`
+- `sdks/sdkwork-agent-sdk/openapi/sdkwork-agent-open-api.sdkgen.yaml`
+- `sdks/sdkwork-agent-app-sdk/openapi/sdkwork-agent-app-api.openapi.yaml`
+- `sdks/sdkwork-agent-app-sdk/openapi/sdkwork-agent-app-api.sdkgen.yaml`
+- `sdks/sdkwork-agent-backend-sdk/openapi/sdkwork-agent-backend-api.openapi.yaml`
+- `sdks/sdkwork-agent-backend-sdk/openapi/sdkwork-agent-backend-api.sdkgen.yaml`
+
+It also materializes the module-local open API test fixture:
+
+- `sdkwork-agent-business/specs/openapi/agent-business-open-openapi-3.1.2.yaml`
+
+## Developer/Open SDK
+
+```powershell
+node .\sdks\workspace-agent-sdkgen.mjs --family open --mode dry-run
+node .\sdks\workspace-agent-sdkgen.mjs --family open --mode apply
+```
+
+Authority: `sdkwork-agent-open-api`
+
+Prefix: `/agent/v3/api`
+
+Package: `@sdkwork/agent-sdk`
+
+Output boundary:
+`sdks/sdkwork-agent-sdk/sdkwork-agent-sdk-typescript/generated/server-openapi`
+
+## App SDK
+
+```powershell
+node .\sdks\workspace-agent-sdkgen.mjs --family app --mode dry-run
+node .\sdks\workspace-agent-sdkgen.mjs --family app --mode apply
+```
+
+Authority: `sdkwork-agent-app-api`
+
+Prefix: `/app/v3/api`
+
+Package: `@sdkwork/agent-app-sdk`
+
+Output boundary:
+`sdks/sdkwork-agent-app-sdk/sdkwork-agent-app-sdk-typescript/generated/server-openapi`
+
+## Backend SDK
+
+```powershell
+node .\sdks\workspace-agent-sdkgen.mjs --family backend --mode dry-run
+node .\sdks\workspace-agent-sdkgen.mjs --family backend --mode apply
+```
+
+Authority: `sdkwork-agent-backend-api`
+
+Prefix: `/backend/v3/api`
+
+Package: `@sdkwork/agent-backend-sdk`
+
+Output boundary:
+`sdks/sdkwork-agent-backend-sdk/sdkwork-agent-backend-sdk-typescript/generated/server-openapi`
+
+## All Families
+
+```powershell
+node .\sdks\workspace-agent-sdkgen.mjs --mode dry-run
+node .\sdks\workspace-agent-sdkgen.mjs --mode apply
+```
+
+All generator commands use:
+
+```text
+--standard-profile sdkwork-v3
+```
+
+## Compatibility Wrapper
+
+The module-local PowerShell wrapper delegates to the root `sdks/` workspace:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\sdkwork-agent-business\scripts\verify-sdkgen.ps1 -Mode DryRun
+powershell -ExecutionPolicy Bypass -File .\sdkwork-agent-business\scripts\verify-sdkgen.ps1 -Mode DryRun -SkipBuild -JsonReportPath specs/sdkgen/verification-latest.json
 ```
 
 ## Verification Checklist
 
 - OpenAPI version is `3.1.2`.
+- Authority files and derived `*.sdkgen.yaml` files are separate.
 - Paths use canonical prefixes:
+  - `/agent/v3/api/...`
   - `/app/v3/api/...`
   - `/backend/v3/api/...`
-- Operation IDs use dotted lowerCamelCase resource style.
+- Operation IDs use dotted resource style.
 - Security uses dual token (`AuthToken` + `AccessToken`) for protected endpoints.
 - Problem responses use `application/problem+json` with RFC 9457 shape.
-
-## Module-Local SDK Verification
-
-Run inside repository root to validate both app/backend OpenAPI contracts
-against `sdkwork-sdk-generator` without touching external SDK repositories.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun
-```
-
-Generate structured dry-run evidence as JSON:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode DryRun -SkipBuild -JsonReportPath specs/sdkgen/verification-latest.json
-```
-
-Apply generation into `apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/.tmp`
-and run generated package check/build:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode Apply
-```
-
-Optional cleanup of temporary outputs after verification:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-sdkgen.ps1 -Mode Apply -CleanTmp
-```
-
-## Lightweight CI Verification
-
-Run unit tests and SDK dry-run verification in one command:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-ci.ps1
-```
-
-Skip either phase when diagnosing failures:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-ci.ps1 -SkipCargoTest
-```
-
-```powershell
-powershell -ExecutionPolicy Bypass -File apps/sdkwork-birdcoder/kernel/sdkwork-agent-business/scripts/verify-ci.ps1 -SkipSdkgenDryRun
-```
-
-## Latest Verification Record
-
-- `verification-latest.md` stores the latest apply/check/build evidence for
-  audit and release review.
+- Generated output stays under `generated/server-openapi`.
+- Generated output is not hand-edited.

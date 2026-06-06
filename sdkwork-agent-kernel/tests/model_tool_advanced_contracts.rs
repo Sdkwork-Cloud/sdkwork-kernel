@@ -1,9 +1,10 @@
 use sdkwork_agent_kernel::{
-    KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelResult,
-    ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus, ModelStreamChunk,
-    ModelUsage, PolicyCategory, ProviderHealth, ProviderManifest, SideEffectLevel, ToolCall,
-    ToolCallStatus, ToolDescriptor, ToolProvider, ToolResult, ToolSchema, ToolStreamChunk,
-    TraceContext,
+    AgentSkillDescriptor, AgentSkillInvocationMode, AgentSkillRequest, AgentSkillResult,
+    AgentSkillStatus, KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity,
+    KernelResult, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
+    ModelStreamChunk, ModelUsage, PolicyCategory, ProviderHealth, ProviderManifest,
+    SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider, ToolResult,
+    ToolSchema, ToolStreamChunk, TraceContext,
 };
 
 #[test]
@@ -261,6 +262,107 @@ fn tool_provider_default_authorize_stream_and_cancel_are_standardized() {
     assert_eq!(policy_request.resource, "tool.echo");
     assert!(stream_error.to_string().contains("tool.streaming"));
     assert!(cancel_error.to_string().contains("tool.cancellation"));
+}
+
+#[test]
+fn skill_request_and_result_preserve_runtime_governance_context() {
+    let request = AgentSkillRequest::new("skill-request.1", "skill.code-review")
+        .for_session("session.1")
+        .for_task("task.1")
+        .for_run("run.1")
+        .for_step("step.1")
+        .with_argument("scope", "diff")
+        .with_policy_context("policy-decision.1")
+        .with_trace_context(TraceContext::new("trace.1", "span.skill"))
+        .with_timeout_ms(45_000)
+        .with_metadata("skill.marketplace.package", "pkg.code-review");
+
+    assert_eq!(request.session_id.as_deref(), Some("session.1"));
+    assert_eq!(request.task_id.as_deref(), Some("task.1"));
+    assert_eq!(request.run_id.as_deref(), Some("run.1"));
+    assert_eq!(request.step_id.as_deref(), Some("step.1"));
+    assert_eq!(
+        request.policy_decision_id.as_deref(),
+        Some("policy-decision.1")
+    );
+    assert_eq!(request.trace_context.as_ref().unwrap().span_id, "span.skill");
+    assert_eq!(request.timeout_ms, Some(45_000));
+    assert_eq!(
+        request.metadata_value("skill.marketplace.package"),
+        Some("pkg.code-review")
+    );
+
+    let result = AgentSkillResult::succeeded(
+        request.skill_request_id,
+        request.skill_id,
+        "reviewed diff",
+    )
+    .with_status(AgentSkillStatus::Succeeded)
+    .started_at("2026-05-27T12:00:00Z")
+    .completed_at("2026-05-27T12:00:02Z")
+    .with_duration_ms(2_000)
+    .with_trace_context(TraceContext::new("trace.1", "span.skill"))
+    .with_redaction(KernelEventRedaction::Internal)
+    .with_audit_ref("audit.skill.1")
+    .with_diagnostic("provider=provider.skill.local");
+
+    assert_eq!(result.status, AgentSkillStatus::Succeeded);
+    assert_eq!(result.output, "reviewed diff");
+    assert_eq!(result.duration_ms, Some(2_000));
+    assert_eq!(result.trace_context.as_ref().unwrap().trace_id, "trace.1");
+    assert_eq!(
+        result.redaction_classification,
+        KernelEventRedaction::Internal
+    );
+    assert_eq!(result.audit_refs, ["audit.skill.1"]);
+    assert_eq!(result.diagnostics, ["provider=provider.skill.local"]);
+}
+
+#[test]
+fn skill_descriptor_declares_provider_schema_timeout_cancellation_audit_and_metadata() {
+    let descriptor = AgentSkillDescriptor::new(
+        "skill.code-review",
+        "provider.skill.local",
+        "Code Review",
+        "Review code changes and return actionable risks.",
+        AgentSkillInvocationMode::Workflow,
+    )
+    .with_version("0.2.0")
+    .with_model_hint("claude-sonnet")
+    .with_allowed_tool("tool.repo.read")
+    .with_input_schema(ToolSchema::json_schema(
+        "sdkwork.agent.skill.code_review.input.v1",
+    ))
+    .with_output_schema(ToolSchema::json_schema(
+        "sdkwork.agent.skill.code_review.output.v1",
+    ))
+    .with_timeout_ms(120_000)
+    .supports_cancellation(true)
+    .require_audit()
+    .with_side_effect_level(SideEffectLevel::ReadOnly)
+    .with_policy_category("repo.read")
+    .with_metadata("marketplace.category", "engineering");
+
+    assert_eq!(descriptor.provider_id, "provider.skill.local");
+    assert_eq!(descriptor.version.as_deref(), Some("0.2.0"));
+    assert_eq!(descriptor.model_hint.as_deref(), Some("claude-sonnet"));
+    assert_eq!(descriptor.allowed_tools, ["tool.repo.read"]);
+    assert_eq!(
+        descriptor.input_schema.as_ref().unwrap().schema_id,
+        "sdkwork.agent.skill.code_review.input.v1"
+    );
+    assert_eq!(
+        descriptor.output_schema.as_ref().unwrap().schema_id,
+        "sdkwork.agent.skill.code_review.output.v1"
+    );
+    assert_eq!(descriptor.timeout_ms, Some(120_000));
+    assert!(descriptor.cancellation_supported);
+    assert!(descriptor.audit_required);
+    assert!(descriptor.requires_policy());
+    assert_eq!(
+        descriptor.metadata_value("marketplace.category"),
+        Some("engineering")
+    );
 }
 
 struct BasicModelProvider;

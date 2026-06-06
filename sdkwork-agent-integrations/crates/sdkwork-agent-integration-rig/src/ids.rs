@@ -4,6 +4,7 @@ pub const AGENT_CARD_ID: &str = "agent_card.intelligence.rig-general";
 pub const MODEL_PROVIDER_ID: &str = "provider.model.rig-rust";
 pub const TOOL_PROVIDER_ID: &str = "provider.tool.rig-rust";
 pub const MEMORY_PROVIDER_ID: &str = "provider.memory.rig-rust";
+pub const KNOWLEDGE_PROVIDER_ID: &str = "provider.knowledge.rig-rust";
 pub const PLANNING_PROVIDER_ID: &str = "provider.planning.rig-rust";
 pub const POLICY_PROVIDER_ID: &str = "provider.policy.rig-standard";
 pub const INSTALLER_PROVIDER_ID: &str = "provider.agent.installer.rig-rust";

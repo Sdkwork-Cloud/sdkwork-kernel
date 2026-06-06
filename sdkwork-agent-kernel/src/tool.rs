@@ -1,6 +1,6 @@
 use crate::{
     KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelEventSource,
-    KernelResult, PolicyCategory, PolicyRequest, ProviderHealth, TraceContext,
+    KernelResult, PolicyCategory, PolicyRequest, ProviderHealth, ProviderManifest, TraceContext,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -409,6 +409,22 @@ impl ToolStreamChunk {
 }
 
 pub trait ToolProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        let provider_id = self
+            .list_tools()
+            .first()
+            .map(|descriptor| descriptor.provider_id.clone())
+            .unwrap_or_else(|| "provider.tool.unspecified".to_string());
+
+        ProviderManifest::new(
+            provider_id,
+            "tool",
+            "tool-provider",
+            "0.0.0",
+            vec!["tool.invoke".to_string()],
+        )
+    }
+
     fn list_tools(&self) -> Vec<ToolDescriptor>;
 
     fn health(&self) -> ProviderHealth;

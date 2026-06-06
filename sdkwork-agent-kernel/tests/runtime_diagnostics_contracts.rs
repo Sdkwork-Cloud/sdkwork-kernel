@@ -1,8 +1,10 @@
 use sdkwork_agent_kernel::{
-    AgentManifest, ContextFrame, ContextProvider, KernelResult, MemoryProvider, MemoryRecord,
-    MemoryScope, ModelProvider, ModelRequest, ModelResponse, Plan, PlanningProvider,
-    PolicyDecision, PolicyProvider, PolicyRequest, ProviderHealth, ProviderManifest,
-    RedactionClassification, RuntimeBuilder, TrustLevel, AGENT_RUNTIME_DIAGNOSTICS_SCHEMA,
+    AgentManifest, ContextFrame, ContextProvider, KernelResult, KnowledgeDocument,
+    KnowledgeDocumentFilter, KnowledgeDocumentKind, KnowledgeProvider, KnowledgeRetrievalMethod,
+    KnowledgeSearchRequest, KnowledgeSearchResult, MemoryProvider, MemoryRecord, MemoryScope,
+    ModelProvider, ModelRequest, ModelResponse, Plan, PlanningProvider, PolicyDecision,
+    PolicyProvider, PolicyRequest, ProviderHealth, ProviderManifest, RedactionClassification,
+    RuntimeBuilder, TrustLevel, AGENT_RUNTIME_DIAGNOSTICS_SCHEMA,
 };
 
 const DIAGNOSTICS_AGENT_MANIFEST_JSON: &str = r#"
@@ -60,6 +62,10 @@ const CORE_PROVIDER_HEALTH_AGENT_MANIFEST_JSON: &str = r#"
     },
     {
       "capability_id": "memory.query",
+      "min_version": "0.1.0"
+    },
+    {
+      "capability_id": "knowledge.search",
       "min_version": "0.1.0"
     },
     {
@@ -159,6 +165,7 @@ fn runtime_diagnostics_report_typed_manifest_only_health_and_missing_standard_fa
             "tool",
             "context",
             "memory",
+            "knowledge",
             "planning",
             "host",
             "protocol_adapter",
@@ -180,20 +187,26 @@ fn runtime_diagnostics_reads_health_from_policy_context_memory_and_planning_prov
         .register_policy_provider("provider.policy.typed", "0.1.0", DegradedPolicyProvider)
         .register_context_provider("provider.context.typed", "0.1.0", DegradedContextProvider)
         .register_memory_provider("provider.memory.typed", "0.1.0", DegradedMemoryProvider)
+        .register_knowledge_provider(
+            "provider.knowledge.typed",
+            "0.1.0",
+            DegradedKnowledgeProvider,
+        )
         .register_planning_provider("provider.planning.typed", "0.1.0", DegradedPlanningProvider)
         .bootstrap()
         .expect("runtime bootstraps");
 
     let diagnostics = report.runtime.diagnostics();
 
-    assert_eq!(diagnostics.provider_count, 4);
-    assert_eq!(diagnostics.typed_provider_count, 4);
+    assert_eq!(diagnostics.provider_count, 5);
+    assert_eq!(diagnostics.typed_provider_count, 5);
     assert_eq!(diagnostics.manifest_only_provider_count, 0);
 
     for provider_id in [
         "provider.policy.typed",
         "provider.context.typed",
         "provider.memory.typed",
+        "provider.knowledge.typed",
         "provider.planning.typed",
     ] {
         let provider = diagnostics
@@ -352,6 +365,43 @@ impl MemoryProvider for DegradedMemoryProvider {
 
     fn export(&self, scope: MemoryScope, owner_context: &str) -> KernelResult<Vec<MemoryRecord>> {
         self.query(scope, owner_context)
+    }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth {
+            status: "degraded".to_string(),
+        }
+    }
+}
+
+struct DegradedKnowledgeProvider;
+
+impl KnowledgeProvider for DegradedKnowledgeProvider {
+    fn search(&self, _request: KnowledgeSearchRequest) -> KernelResult<Vec<KnowledgeSearchResult>> {
+        Ok(vec![KnowledgeSearchResult::new(
+            "knowledge.diagnostics",
+            KnowledgeDocumentKind::WikiSection,
+            "diagnostics knowledge",
+            KnowledgeRetrievalMethod::Keyword,
+        )])
+    }
+
+    fn read(&self, document_id: &str) -> KernelResult<KnowledgeDocument> {
+        Ok(KnowledgeDocument::new(
+            document_id,
+            KnowledgeDocumentKind::WikiSection,
+            "diagnostics knowledge",
+            "knowledge",
+        ))
+    }
+
+    fn list(&self, _filter: KnowledgeDocumentFilter) -> KernelResult<Vec<KnowledgeDocument>> {
+        Ok(vec![KnowledgeDocument::new(
+            "knowledge.diagnostics",
+            KnowledgeDocumentKind::WikiSection,
+            "diagnostics knowledge",
+            "knowledge",
+        )])
     }
 
     fn health(&self) -> ProviderHealth {

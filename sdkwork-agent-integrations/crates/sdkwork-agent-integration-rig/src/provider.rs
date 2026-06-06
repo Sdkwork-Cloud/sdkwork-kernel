@@ -1,8 +1,11 @@
 use sdkwork_agent_kernel::{
-    Action, ActionKind, KernelResult, MemoryProvider, MemoryRecord, MemoryScope, ModelDescriptor,
+    Action, ActionKind, KernelResult, KnowledgeDocument, KnowledgeDocumentFilter,
+    KnowledgeDocumentKind, KnowledgeProvider, KnowledgeRetrievalMethod, KnowledgeSearchRequest,
+    KnowledgeSearchResult, MemoryProvider, MemoryRecord, MemoryScope, ModelDescriptor,
     ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, Plan, PlanningProvider,
     PolicyCategory, PolicyDecision, PolicyProvider, PolicyRequest, ProviderHealth,
-    ProviderManifest, SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult,
+    ProviderManifest, RedactionClassification, SideEffectLevel, ToolCall, ToolDescriptor,
+    ToolProvider, ToolResult, TrustLevel,
 };
 
 use crate::{backend::RigBackend, ids};
@@ -85,6 +88,10 @@ impl RigToolProvider {
 }
 
 impl ToolProvider for RigToolProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        RigToolProvider::provider_manifest(self)
+    }
+
     fn list_tools(&self) -> Vec<ToolDescriptor> {
         vec![ToolDescriptor::new(
             ids::DEFAULT_TOOL_ID,
@@ -165,6 +172,194 @@ impl MemoryProvider for RigMemoryProvider {
     fn health(&self) -> ProviderHealth {
         ProviderHealth::available()
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct RigKnowledgeProvider {
+    documents: Vec<KnowledgeDocument>,
+}
+
+impl RigKnowledgeProvider {
+    pub fn new() -> Self {
+        Self {
+            documents: vec![rig_knowledge_adapter_document()],
+        }
+    }
+
+    pub fn with_document(mut self, document: KnowledgeDocument) -> Self {
+        self.documents
+            .retain(|existing| existing.document_id != document.document_id);
+        self.documents.push(document);
+        self
+    }
+
+    pub fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            ids::KNOWLEDGE_PROVIDER_ID,
+            "knowledge",
+            "rig-rust-knowledge",
+            "0.1.0",
+            vec![
+                "knowledge.search".to_string(),
+                "knowledge.read".to_string(),
+                "knowledge.list".to_string(),
+            ],
+        )
+    }
+}
+
+impl Default for RigKnowledgeProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl KnowledgeProvider for RigKnowledgeProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        RigKnowledgeProvider::provider_manifest(self)
+    }
+
+    fn search(&self, request: KnowledgeSearchRequest) -> KernelResult<Vec<KnowledgeSearchResult>> {
+        let query = request.query.to_ascii_lowercase();
+        let methods = if request.methods.is_empty() {
+            vec![KnowledgeRetrievalMethod::Hybrid]
+        } else {
+            request.methods.clone()
+        };
+
+        let mut results: Vec<_> = self
+            .documents
+            .iter()
+            .filter(|document| {
+                request
+                    .namespace
+                    .as_deref()
+                    .is_none_or(|namespace| document.namespace.as_deref() == Some(namespace))
+            })
+            .filter(|document| {
+                request.include_external
+                    || document.kind != KnowledgeDocumentKind::ExternalReference
+            })
+            .filter(|document| {
+                request
+                    .filters
+                    .iter()
+                    .all(|(key, value)| knowledge_document_matches_filter(document, key, value))
+            })
+            .filter(|document| {
+                query.is_empty()
+                    || document.title.to_ascii_lowercase().contains(&query)
+                    || document.content.to_ascii_lowercase().contains(&query)
+                    || document
+                        .tags
+                        .iter()
+                        .any(|tag| tag.to_ascii_lowercase().contains(&query))
+            })
+            .map(|document| {
+                let method = document
+                    .retrieval_methods
+                    .iter()
+                    .copied()
+                    .find(|method| methods.contains(method))
+                    .unwrap_or(methods[0]);
+                KnowledgeSearchResult::new(
+                    document.document_id.clone(),
+                    document.kind,
+                    document.title.clone(),
+                    method,
+                )
+                .with_snippet(document.content.clone())
+                .with_score(1.0)
+                .with_optional_source_uri(document.source_uri.clone())
+                .with_trust_level(document.trust_level)
+                .with_redaction_classification(document.redaction_classification)
+                .with_document_metadata(document.metadata.clone())
+            })
+            .collect();
+
+        results.truncate(request.top_k);
+        Ok(results)
+    }
+
+    fn read(&self, document_id: &str) -> KernelResult<KnowledgeDocument> {
+        self.documents
+            .iter()
+            .find(|document| document.document_id == document_id)
+            .cloned()
+            .ok_or_else(|| sdkwork_agent_kernel::KernelError::CapabilityMissing {
+                capability_id: format!("knowledge.read.{document_id}"),
+            })
+    }
+
+    fn list(&self, filter: KnowledgeDocumentFilter) -> KernelResult<Vec<KnowledgeDocument>> {
+        Ok(self
+            .documents
+            .iter()
+            .filter(|document| filter.matches(document))
+            .cloned()
+            .collect())
+    }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
+    }
+}
+
+fn knowledge_document_matches_filter(document: &KnowledgeDocument, key: &str, value: &str) -> bool {
+    match key {
+        "document_id" => document.document_id == value,
+        "kind" | "doc.kind" | "document_kind" => document.kind.as_str() == value,
+        "namespace" => document.namespace.as_deref() == Some(value),
+        "tag" | "tags" => document.tags.iter().any(|tag| tag == value),
+        "retrieval_method" | "method" => document
+            .retrieval_methods
+            .iter()
+            .any(|method| method.as_str() == value),
+        "source_uri" => document.source_uri.as_deref() == Some(value),
+        _ => document
+            .metadata
+            .iter()
+            .any(|(metadata_key, metadata_value)| metadata_key == key && metadata_value == value),
+    }
+}
+
+trait KnowledgeSearchResultExt {
+    fn with_optional_source_uri(self, source_uri: Option<String>) -> Self;
+    fn with_document_metadata(self, metadata: Vec<(String, String)>) -> Self;
+}
+
+impl KnowledgeSearchResultExt for KnowledgeSearchResult {
+    fn with_optional_source_uri(self, source_uri: Option<String>) -> Self {
+        if let Some(source_uri) = source_uri {
+            self.with_source_uri(source_uri)
+        } else {
+            self
+        }
+    }
+
+    fn with_document_metadata(mut self, metadata: Vec<(String, String)>) -> Self {
+        self.metadata.extend(metadata);
+        self
+    }
+}
+
+fn rig_knowledge_adapter_document() -> KnowledgeDocument {
+    KnowledgeDocument::new(
+        "knowledge.rig.adapter",
+        KnowledgeDocumentKind::WikiSection,
+        "Rig Knowledge Adapter",
+        "Rig retrieval is exposed through SDKWork KnowledgeProvider; vector, keyword, graph, and wiki-style retrieval remain adapter details.",
+    )
+    .with_namespace("sdkwork.rig")
+    .with_source_uri("external/rig")
+    .with_tag("rig")
+    .with_tag("knowledge")
+    .with_retrieval_method(KnowledgeRetrievalMethod::Keyword)
+    .with_retrieval_method(KnowledgeRetrievalMethod::Hybrid)
+    .with_retrieval_method(KnowledgeRetrievalMethod::Vector)
+    .with_trust_level(TrustLevel::TrustedHost)
+    .with_redaction_classification(RedactionClassification::Internal)
+    .with_metadata("sdkwork.adapter", "rig-core")
 }
 
 #[derive(Debug, Clone, Default)]

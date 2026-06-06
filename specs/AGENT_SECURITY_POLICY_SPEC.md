@@ -38,6 +38,9 @@ Standard categories:
 - `memory.read`
 - `memory.write`
 - `memory.delete`
+- `knowledge.search`
+- `knowledge.read`
+- `knowledge.list`
 - `host.filesystem.read`
 - `host.filesystem.write`
 - `host.process.execute`

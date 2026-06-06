@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "name": "sdkwork-agent-sdk",
+  "version": "0.1.0",
+  "language": "typescript",
+  "sdkType": "custom",
+  "packageName": "@sdkwork/agent-sdk",
+  "generator": "@sdkwork/sdk-generator",
+  "capabilities": {
+    "supportsGeneratedTests": true,
+    "supportsReadme": true,
+    "supportsCustomScaffold": true,
+    "supportsPublishWorkflow": true,
+    "hasDistinctBuildStep": true
+  },
+  "generation": {
+    "readme": true,
+    "tests": false
+  },
+  "ownership": {
+    "generatedOwnership": "generated",
+    "scaffoldOwnership": "scaffold",
+    "scaffoldRoots": [
+      "custom/"
+    ],
+    "stateRoots": [
+      ".sdkwork/"
+    ]
+  },
+  "sdkSurface": "open",
+  "authority": "sdkwork-agent-open-api",
+  "apiPrefix": "/agent/v3/api",
+  "derivedFrom": {
+    "family": "sdkwork-agent-app-sdk",
+    "authority": "sdkwork-agent-app-api",
+    "reason": "sdkwork-v3 standard profile currently supports app, backend, and im prefixes only."
+  }
+}

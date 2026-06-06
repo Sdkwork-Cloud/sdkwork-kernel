@@ -4,14 +4,15 @@ use sdkwork_agent_kernel::{
     AgentInstallRequest, AgentInstallStep, AgentInstallStepKind, AgentInstaller,
     AgentPackageSource, AgentTask, AgentUninstallReport, AgentUninstallRequest, AgentUpgradePlan,
     AgentUpgradeReport, AgentUpgradeRequest, ContextFrame, ContextProvider, FilesystemRequest,
-    FilesystemResult, HostProvider, KernelErrorKind, KernelEvent, KernelResult, MemoryProvider,
-    MemoryRecord, MemoryScope, ModelProvider, ModelRequest, ModelResponse, Plan, PlanningProvider,
-    PolicyCategory, PolicyDecision, PolicyProvider, PolicyRequest, ProtocolAdapter,
-    ProtocolAdapterAuthMode, ProtocolAdapterManifest, ProtocolAdapterRequest,
-    ProtocolAdapterResponse, ProtocolFamily, ProtocolStreamUpdate, ProtocolTransport,
-    ProviderHealth, ProviderManifest, RedactionClassification, RuntimeBuilder, RuntimeState,
-    SecretRef, SecretValue, TelemetryProvider, ToolCall, ToolDescriptor, ToolProvider, ToolResult,
-    TrustLevel,
+    FilesystemResult, HostProvider, KernelErrorKind, KernelEvent, KernelResult, KnowledgeDocument,
+    KnowledgeDocumentFilter, KnowledgeDocumentKind, KnowledgeProvider, KnowledgeRetrievalMethod,
+    KnowledgeSearchRequest, KnowledgeSearchResult, MemoryProvider, MemoryRecord, MemoryScope,
+    ModelProvider, ModelRequest, ModelResponse, Plan, PlanningProvider, PolicyCategory,
+    PolicyDecision, PolicyProvider, PolicyRequest, ProtocolAdapter, ProtocolAdapterAuthMode,
+    ProtocolAdapterManifest, ProtocolAdapterRequest, ProtocolAdapterResponse, ProtocolFamily,
+    ProtocolStreamUpdate, ProtocolTransport, ProviderHealth, ProviderManifest,
+    RedactionClassification, RuntimeBuilder, RuntimeState, SecretRef, SecretValue,
+    TelemetryProvider, ToolCall, ToolDescriptor, ToolProvider, ToolResult, TrustLevel,
 };
 use std::sync::{Arc, Mutex};
 
@@ -82,6 +83,10 @@ const CORE_SPI_AGENT_MANIFEST_JSON: &str = r#"
     },
     {
       "capability_id": "memory.query",
+      "min_version": "0.1.0"
+    },
+    {
+      "capability_id": "knowledge.search",
       "min_version": "0.1.0"
     },
     {
@@ -174,6 +179,33 @@ fn runtime_registry_invokes_typed_agent_installer_and_configuration_provider() {
         .validate_configuration(&valid_configuration())
         .expect("typed configuration provider validates");
     assert!(validation.is_valid());
+
+    let capability_manifest = report.runtime.capability_manifest();
+    let installer_manifest = capability_manifest
+        .providers
+        .iter()
+        .find(|provider| provider.provider_id == "provider.agent.installer.typed")
+        .expect("installer provider manifest is registered");
+    assert_eq!(installer_manifest.provider_family, "agent_installer");
+    assert_eq!(installer_manifest.name, "typed-agent-installer");
+    assert_eq!(installer_manifest.version, "0.1.0");
+    assert_eq!(
+        installer_manifest.capabilities,
+        ["agent.install", "agent.uninstall", "agent.upgrade"]
+    );
+
+    let configuration_manifest = capability_manifest
+        .providers
+        .iter()
+        .find(|provider| provider.provider_id == "provider.agent.configuration.typed")
+        .expect("configuration provider manifest is registered");
+    assert_eq!(
+        configuration_manifest.provider_family,
+        "agent_configuration"
+    );
+    assert_eq!(configuration_manifest.name, "typed-agent-configuration");
+    assert_eq!(configuration_manifest.version, "0.1.0");
+    assert_eq!(configuration_manifest.capabilities, ["agent.configure"]);
 }
 
 #[test]
@@ -232,6 +264,7 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
         )
         .register_context_provider("provider.context.typed", "0.1.0", FakeContextProvider)
         .register_memory_provider("provider.memory.typed", "0.1.0", FakeMemoryProvider)
+        .register_knowledge_provider("provider.knowledge.typed", "0.1.0", FakeKnowledgeProvider)
         .register_planning_provider("provider.planning.typed", "0.1.0", FakePlanningProvider)
         .register_host_provider("provider.host.typed", "0.1.0", FakeHostProvider)
         .register_protocol_adapter(
@@ -264,6 +297,19 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
         .invoke_tool(ToolCall::new("tool.1", "tool.echo", "{}"))
         .expect("tool provider invokes");
     assert_eq!(tool_result.tool_call_id, "tool.1");
+    let tool_manifest = report
+        .runtime
+        .capability_manifest()
+        .providers
+        .iter()
+        .find(|provider| provider.provider_id == "provider.tool.typed")
+        .expect("tool provider manifest is registered");
+    assert_eq!(tool_manifest.provider_family, "tool");
+    assert_eq!(tool_manifest.version, "0.1.0");
+    assert_eq!(
+        tool_manifest.capabilities,
+        ["tool.invoke", "tool.streaming", "tool.cancellation"]
+    );
 
     let decision = report
         .runtime
@@ -272,6 +318,17 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
         .evaluate(PolicyRequest::new("policy.1", "tool.invoke", "tool.echo"))
         .expect("policy provider evaluates");
     assert!(decision.is_allow());
+    let policy_manifest = report
+        .runtime
+        .capability_manifest()
+        .providers
+        .iter()
+        .find(|provider| provider.provider_id == "provider.policy.typed")
+        .expect("policy provider manifest is registered");
+    assert_eq!(policy_manifest.provider_family, "policy");
+    assert_eq!(policy_manifest.name, "typed-policy-provider");
+    assert_eq!(policy_manifest.version, "0.1.0");
+    assert_eq!(policy_manifest.capabilities, ["policy.evaluate"]);
 
     let context = report
         .runtime
@@ -280,6 +337,17 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
         .collect("session.1")
         .expect("context provider collects");
     assert_eq!(context[0].context_frame_id, "context.1");
+    let context_manifest = report
+        .runtime
+        .capability_manifest()
+        .providers
+        .iter()
+        .find(|provider| provider.provider_id == "provider.context.typed")
+        .expect("context provider manifest is registered");
+    assert_eq!(context_manifest.provider_family, "context");
+    assert_eq!(context_manifest.name, "typed-context-provider");
+    assert_eq!(context_manifest.version, "0.1.0");
+    assert_eq!(context_manifest.capabilities, ["context.collect"]);
 
     let memory_provider = report
         .runtime
@@ -292,12 +360,37 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
         .expect("memory provider queries");
     assert_eq!(memory[0].memory_record_id, "memory.1");
 
+    let knowledge = report
+        .runtime
+        .knowledge_provider()
+        .expect("knowledge provider is registered")
+        .search(
+            KnowledgeSearchRequest::new("agent spi").with_method(KnowledgeRetrievalMethod::Keyword),
+        )
+        .expect("knowledge provider searches");
+    assert_eq!(knowledge[0].document_id, "knowledge.1");
+    assert_eq!(
+        report.runtime.knowledge_provider_ids(),
+        ["provider.knowledge.typed"]
+    );
+
     let plan = report
         .runtime
         .planning_provider()
         .expect("planning provider is registered")
         .create_plan("task.1", "run.1", "plan");
     assert_eq!(plan.plan_id, "plan.core");
+    let planning_manifest = report
+        .runtime
+        .capability_manifest()
+        .providers
+        .iter()
+        .find(|provider| provider.provider_id == "provider.planning.typed")
+        .expect("planning provider manifest is registered");
+    assert_eq!(planning_manifest.provider_family, "planning");
+    assert_eq!(planning_manifest.name, "typed-planning-provider");
+    assert_eq!(planning_manifest.version, "0.1.0");
+    assert_eq!(planning_manifest.capabilities, ["planning.create"]);
 
     let file = report
         .runtime
@@ -306,6 +399,16 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
         .filesystem(FilesystemRequest::read("fs.1", "workspace/README.md"))
         .expect("host provider reads");
     assert_eq!(file.content.as_deref(), Some("readme"));
+    let host_manifest = report
+        .runtime
+        .capability_manifest()
+        .providers
+        .iter()
+        .find(|provider| provider.provider_id == "provider.host.typed")
+        .expect("host provider manifest is registered");
+    assert_eq!(host_manifest.provider_family, "host");
+    assert_eq!(host_manifest.version, "0.1.0");
+    assert_eq!(host_manifest.capabilities, ["host.filesystem"]);
 
     let task = report
         .runtime
@@ -319,6 +422,20 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
         ))
         .expect("protocol adapter maps request");
     assert_eq!(task.task_id, "task.protocol");
+    let protocol_manifest = report
+        .runtime
+        .capability_manifest()
+        .providers
+        .iter()
+        .find(|provider| provider.provider_id == "adapter.protocol.typed")
+        .expect("protocol adapter manifest is registered");
+    assert_eq!(protocol_manifest.provider_family, "protocol_adapter");
+    assert_eq!(protocol_manifest.name, "adapter.protocol.typed");
+    assert_eq!(protocol_manifest.version, "0.1.0");
+    assert_eq!(
+        protocol_manifest.capabilities,
+        ["protocol.map", "protocol.stream"]
+    );
 
     let telemetry_provider = report
         .runtime
@@ -332,6 +449,17 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
             .status,
         "available"
     );
+    let telemetry_manifest = report
+        .runtime
+        .capability_manifest()
+        .providers
+        .iter()
+        .find(|provider| provider.provider_id == "provider.telemetry.typed")
+        .expect("telemetry provider manifest is registered");
+    assert_eq!(telemetry_manifest.provider_family, "telemetry");
+    assert_eq!(telemetry_manifest.name, "typed-telemetry-provider");
+    assert_eq!(telemetry_manifest.version, "0.1.0");
+    assert_eq!(telemetry_manifest.capabilities, ["telemetry.record"]);
 
     let manifest = report.runtime.capability_manifest();
     assert!(manifest
@@ -344,6 +472,12 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
         .iter()
         .any(|capability| capability.capability_id == "model.chat"
             && capability.provider_id == "provider.model.typed"));
+    assert!(manifest
+        .capabilities
+        .iter()
+        .any(|capability| capability.capability_id == "knowledge.search"
+            && capability.provider_id == "provider.knowledge.typed"
+            && capability.side_effect_level.as_deref() == Some("read_only")));
 }
 
 #[test]
@@ -375,6 +509,7 @@ fn runtime_registry_supports_multiple_tool_policy_and_protocol_adapter_providers
         )
         .register_context_provider("provider.context.typed", "0.1.0", FakeContextProvider)
         .register_memory_provider("provider.memory.typed", "0.1.0", FakeMemoryProvider)
+        .register_knowledge_provider("provider.knowledge.typed", "0.1.0", FakeKnowledgeProvider)
         .register_planning_provider("provider.planning.typed", "0.1.0", FakePlanningProvider)
         .register_host_provider("provider.host.typed", "0.1.0", FakeHostProvider)
         .register_protocol_adapter(
@@ -531,6 +666,7 @@ fn runtime_registry_supports_multiple_context_and_planning_providers() {
             NamedContextProvider::new("context.workspace"),
         )
         .register_memory_provider("provider.memory.typed", "0.1.0", FakeMemoryProvider)
+        .register_knowledge_provider("provider.knowledge.typed", "0.1.0", FakeKnowledgeProvider)
         .register_planning_provider(
             "provider.planning.model",
             "0.1.0",
@@ -655,6 +791,7 @@ fn runtime_registry_supports_multiple_memory_host_and_telemetry_providers() {
             "0.1.0",
             NamedMemoryProvider::new("memory.vector"),
         )
+        .register_knowledge_provider("provider.knowledge.typed", "0.1.0", FakeKnowledgeProvider)
         .register_planning_provider("provider.planning.typed", "0.1.0", FakePlanningProvider)
         .register_host_provider(
             "provider.host.local",
@@ -832,6 +969,7 @@ fn runtime_registry_reports_provider_unavailable_for_manifest_only_core_spi_prov
         .register_policy_provider_manifest("provider.policy.manifest", "0.1.0")
         .register_context_provider_manifest("provider.context.manifest", "0.1.0")
         .register_memory_provider_manifest("provider.memory.manifest", "0.1.0")
+        .register_knowledge_provider_manifest("provider.knowledge.manifest", "0.1.0")
         .register_planning_provider_manifest("provider.planning.manifest", "0.1.0")
         .register_host_provider_manifest("provider.host.manifest", "0.1.0")
         .register_protocol_adapter_manifest("adapter.protocol.manifest", "0.1.0")
@@ -854,11 +992,28 @@ fn runtime_registry_reports_provider_unavailable_for_manifest_only_core_spi_prov
     };
     assert_eq!(error.kind(), KernelErrorKind::ProviderUnavailable);
     assert_eq!(error.provider_id(), Some("adapter.protocol.manifest"));
+
+    let error = match report.runtime.knowledge_provider() {
+        Ok(_) => panic!("typed knowledge instance is not registered"),
+        Err(error) => error,
+    };
+    assert_eq!(error.kind(), KernelErrorKind::ProviderUnavailable);
+    assert_eq!(error.provider_id(), Some("provider.knowledge.manifest"));
 }
 
 struct FakeRuntimeAgentConfigurationProvider;
 
 impl AgentConfigurationProvider for FakeRuntimeAgentConfigurationProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            "provider.agent.configuration.typed",
+            "agent_configuration",
+            "typed-agent-configuration",
+            "9.9.9",
+            vec!["agent.configure".to_string()],
+        )
+    }
+
     fn configuration_spec(&self, agent_id: &str) -> KernelResult<AgentConfigurationSpec> {
         Ok(configuration_spec(agent_id))
     }
@@ -912,6 +1067,18 @@ impl FakeToolProvider {
 }
 
 impl ToolProvider for FakeToolProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        provider(
+            self.provider_id,
+            "tool",
+            vec![
+                "tool.invoke",
+                "tool.streaming",
+                "tool.cancellation",
+            ],
+        )
+    }
+
     fn list_tools(&self) -> Vec<ToolDescriptor> {
         vec![ToolDescriptor::new(
             self.tool_id,
@@ -941,6 +1108,16 @@ impl FakePolicyProvider {
 }
 
 impl PolicyProvider for FakePolicyProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            self.provider_id,
+            "policy",
+            "typed-policy-provider",
+            "9.9.9",
+            vec!["policy.evaluate".to_string()],
+        )
+    }
+
     fn evaluate(&self, request: PolicyRequest) -> KernelResult<PolicyDecision> {
         Ok(PolicyDecision::allow(
             "decision.1",
@@ -953,6 +1130,16 @@ impl PolicyProvider for FakePolicyProvider {
 struct FakeContextProvider;
 
 impl ContextProvider for FakeContextProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            "provider.context.typed",
+            "context",
+            "typed-context-provider",
+            "9.9.9",
+            vec!["context.collect".to_string()],
+        )
+    }
+
     fn collect(&self, session_id: &str) -> KernelResult<Vec<ContextFrame>> {
         Ok(vec![ContextFrame::new(
             "context.1",
@@ -976,6 +1163,16 @@ impl NamedContextProvider {
 }
 
 impl ContextProvider for NamedContextProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            "provider.context.named",
+            "context",
+            "named-context-provider",
+            "9.9.9",
+            vec!["context.collect".to_string()],
+        )
+    }
+
     fn collect(&self, session_id: &str) -> KernelResult<Vec<ContextFrame>> {
         Ok(vec![ContextFrame::new(
             self.context_frame_id,
@@ -1012,6 +1209,45 @@ impl MemoryProvider for FakeMemoryProvider {
 
     fn export(&self, scope: MemoryScope, owner_context: &str) -> KernelResult<Vec<MemoryRecord>> {
         self.query(scope, owner_context)
+    }
+}
+
+struct FakeKnowledgeProvider;
+
+impl KnowledgeProvider for FakeKnowledgeProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        provider(
+            "provider.knowledge.typed",
+            "knowledge",
+            vec!["knowledge.search", "knowledge.read", "knowledge.list"],
+        )
+    }
+
+    fn search(&self, _request: KnowledgeSearchRequest) -> KernelResult<Vec<KnowledgeSearchResult>> {
+        Ok(vec![KnowledgeSearchResult::new(
+            "knowledge.1",
+            KnowledgeDocumentKind::WikiSection,
+            "Agent SPI",
+            KnowledgeRetrievalMethod::Keyword,
+        )])
+    }
+
+    fn read(&self, document_id: &str) -> KernelResult<KnowledgeDocument> {
+        Ok(KnowledgeDocument::new(
+            document_id,
+            KnowledgeDocumentKind::WikiPage,
+            "Agent SPI",
+            "knowledge document",
+        ))
+    }
+
+    fn list(&self, _filter: KnowledgeDocumentFilter) -> KernelResult<Vec<KnowledgeDocument>> {
+        Ok(vec![KnowledgeDocument::new(
+            "knowledge.1",
+            KnowledgeDocumentKind::WikiPage,
+            "Agent SPI",
+            "knowledge document",
+        )])
     }
 }
 
@@ -1053,6 +1289,16 @@ impl MemoryProvider for NamedMemoryProvider {
 struct FakePlanningProvider;
 
 impl PlanningProvider for FakePlanningProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            "provider.planning.typed",
+            "planning",
+            "typed-planning-provider",
+            "9.9.9",
+            vec!["planning.create".to_string()],
+        )
+    }
+
     fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> Plan {
         Plan::new("plan.core", task_id, run_id, summary)
     }
@@ -1069,6 +1315,16 @@ impl NamedPlanningProvider {
 }
 
 impl PlanningProvider for NamedPlanningProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            "provider.planning.named",
+            "planning",
+            "named-planning-provider",
+            "9.9.9",
+            vec!["planning.create".to_string()],
+        )
+    }
+
     fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> Plan {
         Plan::new(self.plan_id, task_id, run_id, summary)
     }
@@ -1081,12 +1337,7 @@ impl HostProvider for FakeHostProvider {
         provider(
             "provider.host.typed",
             "host",
-            vec![
-                "host.filesystem",
-                "host.process",
-                "host.network",
-                "host.secrets",
-            ],
+            vec!["host.filesystem"],
         )
     }
 
@@ -1219,7 +1470,10 @@ impl ProtocolAdapter for FakeProtocolAdapter {
             ProtocolTransport::Http,
             ProtocolAdapterAuthMode::LocalTrusted,
         )
-        .with_exposed_capabilities(vec!["protocol.map".to_string()])
+        .with_exposed_capabilities(vec![
+            "protocol.map".to_string(),
+            "protocol.stream".to_string(),
+        ])
     }
 
     fn health(&self) -> ProviderHealth {
@@ -1245,6 +1499,16 @@ impl ProtocolAdapter for FakeProtocolAdapter {
 struct FakeTelemetryProvider;
 
 impl TelemetryProvider for FakeTelemetryProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            "provider.telemetry.typed",
+            "telemetry",
+            "typed-telemetry-provider",
+            "9.9.9",
+            vec!["telemetry.record".to_string()],
+        )
+    }
+
     fn health(&self) -> ProviderHealth {
         ProviderHealth::available()
     }
@@ -1292,6 +1556,16 @@ impl RecordingTelemetryProvider {
 }
 
 impl TelemetryProvider for RecordingTelemetryProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            self.provider_id,
+            "telemetry",
+            "recording-telemetry-provider",
+            "9.9.9",
+            vec!["telemetry.record".to_string()],
+        )
+    }
+
     fn health(&self) -> ProviderHealth {
         ProviderHealth::available()
     }
@@ -1331,6 +1605,20 @@ impl TelemetryProvider for RecordingTelemetryProvider {
 struct FakeRuntimeAgentInstaller;
 
 impl AgentInstaller for FakeRuntimeAgentInstaller {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            "provider.agent.installer.typed",
+            "agent_installer",
+            "typed-agent-installer",
+            "9.9.9",
+            vec![
+                "agent.install".to_string(),
+                "agent.uninstall".to_string(),
+                "agent.upgrade".to_string(),
+            ],
+        )
+    }
+
     fn configuration_spec(&self, agent_id: &str) -> KernelResult<AgentConfigurationSpec> {
         Ok(configuration_spec(agent_id))
     }

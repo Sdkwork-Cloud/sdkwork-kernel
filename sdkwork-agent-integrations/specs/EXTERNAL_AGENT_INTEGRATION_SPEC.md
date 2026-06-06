@@ -46,13 +46,13 @@ Rules:
 
 | Upstream | Initial Classification | SDKWork Focus |
 | --- | --- | --- |
-| Hermes Agent | general agent runtime | Runtime, tool, memory/context, skill |
-| OpenClaw | general agent application/runtime | Runtime, tool orchestration, memory/context |
+| Hermes Agent | general agent runtime | Runtime, tool, memory, knowledge/context, skill |
+| OpenClaw | general agent application/runtime | Runtime, tool orchestration, memory, knowledge/context |
 | Codex | code-agent CLI/runtime | Workspace, patch, terminal, verification, review |
 | Claude Code | code-agent CLI/runtime | Task lifecycle, permission flow, tool orchestration |
 | OpenCode | code-agent runtime/CLI | Provider abstraction, workspace, terminal |
 | Gemini CLI | code-agent CLI/runtime | Model/tool integration, command workflow |
-| Rig | Rust-native agent framework | Model, tool, memory, planning, typed providers |
+| Rig | Rust-native agent framework | Model, tool, memory, knowledge/RAG, planning, typed providers |
 
 ## 4. Mapping Requirements
 
@@ -92,6 +92,7 @@ Required event families:
 - `agent.provider.*`
 - `agent.policy.*`
 - `agent.tool.*`
+- `agent.knowledge.*` when retrieval or document access is exposed
 - `agent.runtime.*`
 - `code.terminal.*` when code-agent processes are involved
 - `code.patch.*` when patches are produced or applied

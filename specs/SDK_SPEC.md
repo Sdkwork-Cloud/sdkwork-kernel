@@ -9,13 +9,13 @@ All SDKWork SDKs `MUST` be generated through the SDKWork SDK generator located
 at:
 
 ```text
-D:\javasource\spring-ai-plus\sdk\sdkwork-sdk-generator
+..\sdkwork-sdk-generator
 ```
 
 The canonical CLI entrypoint is:
 
 ```text
-D:\javasource\spring-ai-plus\sdk\sdkwork-sdk-generator\bin\sdkgen.js
+..\sdkwork-sdk-generator\bin\sdkgen.js
 ```
 
 Repository automation `MUST` default to that entrypoint. `SDKWORK_SDKGEN_PATH`
@@ -130,9 +130,9 @@ A repository conforms to this SDK standard when:
 
 - `specs/SDK_SPEC.md` is present and referenced by the relevant kernel specs.
 - SDK automation defaults to
-  `D:\javasource\spring-ai-plus\sdk\sdkwork-sdk-generator\bin\sdkgen.js`.
+  `..\sdkwork-sdk-generator\bin\sdkgen.js`.
 - SDK docs state that all SDKs are generated through
-  `D:\javasource\spring-ai-plus\sdk\sdkwork-sdk-generator`.
+  `..\sdkwork-sdk-generator`.
 - SDK generation commands use `--standard-profile sdkwork-v3` where the API is
   part of the SDKWork v3 contract.
 - Generated output is isolated from handwritten composition.

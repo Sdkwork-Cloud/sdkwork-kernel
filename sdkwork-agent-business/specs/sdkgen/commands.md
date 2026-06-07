@@ -9,13 +9,13 @@ The application domain is `agent`; SDK generation is owned by the root
 All SDKs are generated through the SDKWork SDK generator:
 
 ```text
-D:\javasource\spring-ai-plus\sdk\sdkwork-sdk-generator
+..\sdkwork-sdk-generator
 ```
 
 The canonical CLI entrypoint is:
 
 ```text
-D:\javasource\spring-ai-plus\sdk\sdkwork-sdk-generator\bin\sdkgen.js
+..\sdkwork-sdk-generator\bin\sdkgen.js
 ```
 
 Do not use `sdkwork-code-generator` for SDK generation. Do not hand-edit

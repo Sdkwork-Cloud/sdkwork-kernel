@@ -11,13 +11,13 @@ This workspace follows the root SDK standard in `specs/SDK_SPEC.md`. All SDKs
 are generated through:
 
 ```text
-D:\javasource\spring-ai-plus\sdk\sdkwork-sdk-generator
+..\sdkwork-sdk-generator
 ```
 
 The canonical CLI entrypoint is:
 
 ```text
-D:\javasource\spring-ai-plus\sdk\sdkwork-sdk-generator\bin\sdkgen.js
+..\sdkwork-sdk-generator\bin\sdkgen.js
 ```
 
 Do not use `sdkwork-code-generator`, handwritten SDK forks, copied generated
@@ -87,7 +87,7 @@ The generator command always uses `--standard-profile sdkwork-v3`.
 The default generator entrypoint is:
 
 ```text
-D:\javasource\spring-ai-plus\sdk\sdkwork-sdk-generator\bin\sdkgen.js
+..\sdkwork-sdk-generator\bin\sdkgen.js
 ```
 
 Override it with `SDKWORK_SDKGEN_PATH` only when the same

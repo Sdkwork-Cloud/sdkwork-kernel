@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import { AGENT_SDK_FAMILIES, resolveAgentSdkFamily } from './_shared/agent-sdk-families.mjs';
 import { syncAgentSdkOwnershipWorkspace } from './_shared/agent-sdk-ownership.mjs';
 import {
@@ -9,7 +10,7 @@ import {
   resolveSdkgenEntrypoint
 } from './_shared/sdkgen-standard.mjs';
 
-const root = process.cwd();
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = parseArgs(process.argv.slice(2));
 const mode = args.mode ?? 'dry-run';
 if (!['dry-run', 'apply'].includes(mode)) {
@@ -21,6 +22,7 @@ const families = requestedFamily
   ? [resolveAgentSdkFamily(args.family)]
   : AGENT_SDK_FAMILIES;
 const sdkgenPath = resolveSdkgenEntrypoint();
+const sdkgenReportPath = toReportPath(sdkgenPath);
 
 if (!fs.existsSync(sdkgenPath)) {
   throw new Error(
@@ -35,7 +37,7 @@ const report = {
   app: 'agent',
   mode,
   standardProfile: SDKWORK_SDKGEN_STANDARD.standardProfile,
-  sdkgenPath,
+  sdkgenPath: sdkgenReportPath,
   startedAt: new Date().toISOString(),
   families: []
 };
@@ -64,8 +66,8 @@ for (const family of families) {
       key: family.key,
       familyDir: family.familyDir,
       authority: family.authority,
-      input,
-      output,
+      input: toReportPath(input),
+      output: toReportPath(output),
       sdkName: family.sdkName,
       sdkType: family.sdkType,
       sdkSurface: family.sdkSurface,
@@ -121,8 +123,8 @@ for (const family of families) {
     key: family.key,
     familyDir: family.familyDir,
     authority: family.authority,
-    input,
-    output,
+    input: toReportPath(input),
+    output: toReportPath(output),
     sdkName: family.sdkName,
     sdkType: family.sdkType,
     sdkOwner: family.sdkOwner,
@@ -277,4 +279,16 @@ function runNodeScript(script, scriptArgs) {
 
 function writeJson(filePath, value) {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+}
+
+function toReportPath(filePath) {
+  const relative = path.relative(root, path.resolve(root, filePath));
+  if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+    return normalizeReportPath(relative);
+  }
+  return normalizeReportPath(filePath);
+}
+
+function normalizeReportPath(filePath) {
+  return String(filePath).replace(/\\/g, '/');
 }

@@ -2,12 +2,13 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import { resolveAgentSdkFamily } from './_shared/agent-sdk-families.mjs';
 import {
   syncAgentSdkOwnershipFamily
 } from './_shared/agent-sdk-ownership.mjs';
 
-const root = process.cwd();
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = parseArgs(process.argv.slice(2));
 const mode = args.mode ?? 'dry-run';
 if (!['dry-run', 'apply'].includes(mode)) {
@@ -68,8 +69,8 @@ const report = {
   targetAuthority: targetFamily.authority,
   packageName: targetFamily.packageName,
   apiPrefix: targetFamily.apiPrefix,
-  sourceRoot,
-  targetRoot,
+  sourceRoot: toReportPath(sourceRoot),
+  targetRoot: toReportPath(targetRoot),
   hasChanges: changes.created.length > 0 || changes.updated.length > 0 || changes.deleted.length > 0,
   changes,
   fileCount: nextFiles.size,
@@ -286,6 +287,14 @@ function materializeTarget(targetDirectory, nextFiles) {
 
 function normalizeRelative(value) {
   return value.replace(/\\/g, '/');
+}
+
+function toReportPath(filePath) {
+  const relative = path.relative(root, path.resolve(root, filePath));
+  if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) {
+    return normalizeRelative(relative);
+  }
+  return normalizeRelative(filePath);
 }
 
 function sha256(content) {

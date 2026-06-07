@@ -52,7 +52,7 @@
         "title": "Unified package check",
         "required": true,
         "rationale": "Validate the generated package with the unified publish helper. Triggered by: build-metadata.",
-        "workingDirectory": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
+        "workingDirectory": "E:\\sdkwork-space\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
         "command": "node",
         "args": [
           "./bin/publish-core.mjs",
@@ -70,7 +70,7 @@
         "title": "Unified package build",
         "required": true,
         "rationale": "Run the full package build because this language uses a lighter check path than the final build. Triggered by: build-metadata.",
-        "workingDirectory": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
+        "workingDirectory": "E:\\sdkwork-space\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
         "command": "node",
         "args": [
           "./bin/publish-core.mjs",
@@ -95,7 +95,7 @@
         "title": "Unified package check",
         "required": true,
         "rationale": "Validate the generated package with the unified publish helper. Triggered by: build-metadata.",
-        "workingDirectory": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
+        "workingDirectory": "E:\\sdkwork-space\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
         "command": "node",
         "args": [
           "./bin/publish-core.mjs",
@@ -113,7 +113,7 @@
         "title": "Unified package build",
         "required": true,
         "rationale": "Run the full package build because this language uses a lighter check path than the final build. Triggered by: build-metadata.",
-        "workingDirectory": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
+        "workingDirectory": "E:\\sdkwork-space\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
         "command": "node",
         "args": [
           "./bin/publish-core.mjs",
@@ -133,7 +133,7 @@
     "version": "0.1.0",
     "language": "typescript",
     "sdkType": "app",
-    "outputPath": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
+    "outputPath": "E:\\sdkwork-space\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
     "packageName": "@sdkwork/agent-app-sdk"
   },
   "versioning": {
@@ -329,7 +329,7 @@
           "title": "Unified package check",
           "required": true,
           "rationale": "Validate the generated package with the unified publish helper. Triggered by: build-metadata.",
-          "workingDirectory": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
+          "workingDirectory": "E:\\sdkwork-space\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
           "command": "node",
           "args": [
             "./bin/publish-core.mjs",
@@ -347,7 +347,7 @@
           "title": "Unified package build",
           "required": true,
           "rationale": "Run the full package build because this language uses a lighter check path than the final build. Triggered by: build-metadata.",
-          "workingDirectory": "D:\\sdkwork-opensource\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
+          "workingDirectory": "E:\\sdkwork-space\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
           "command": "node",
           "args": [
             "./bin/publish-core.mjs",

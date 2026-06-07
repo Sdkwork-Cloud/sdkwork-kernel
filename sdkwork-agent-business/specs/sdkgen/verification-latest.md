@@ -5,7 +5,7 @@
 - SDK workspace: `sdks/`
 - Generator profile: `--standard-profile sdkwork-v3`
 - Generator entrypoint:
-  `D:/javasource/spring-ai-plus/sdk/sdkwork-sdk-generator/bin/sdkgen.js`
+  `../sdkwork-sdk-generator/bin/sdkgen.js`
 
 ## Commands
 

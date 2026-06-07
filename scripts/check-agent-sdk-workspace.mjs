@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import {
   AGENT_SDK_FAMILIES,
   AGENT_SDK_OWNER,
@@ -11,7 +12,7 @@ import {
   resolveSdkgenEntrypoint
 } from '../sdks/_shared/sdkgen-standard.mjs';
 
-const root = process.cwd();
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sdksRoot = path.join(root, 'sdks');
 const families = AGENT_SDK_FAMILIES;
 
@@ -966,6 +967,9 @@ function validateSdkgenReport(label, report) {
   if (report.sdkgenPath !== expectedEntrypoint) {
     errors.push(`${label} sdkgenPath must be ${expectedEntrypoint}`);
   }
+  if (containsLocalDriveAbsolutePath(JSON.stringify(report))) {
+    errors.push(`${label} must use repository-relative report paths instead of local drive absolute paths`);
+  }
   if (!String(report.sdkgenPath ?? '').includes('sdkwork-sdk-generator')) {
     errors.push(`${label} sdkgenPath must point to sdkwork-sdk-generator`);
   }
@@ -1004,6 +1008,10 @@ function validateSdkgenReport(label, report) {
   if (report.openSdkDerivation?.hasChanges !== false) {
     errors.push(`${label} open SDK derivation must have hasChanges=false after standard generation`);
   }
+}
+
+function containsLocalDriveAbsolutePath(value) {
+  return /(^|[^A-Za-z0-9])[A-Za-z]:[\\/]/.test(value);
 }
 
 function ensureFile(relativePath) {

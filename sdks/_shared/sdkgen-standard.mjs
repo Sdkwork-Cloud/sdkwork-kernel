@@ -1,12 +1,12 @@
 export const SDKWORK_SDKGEN_STANDARD = Object.freeze({
   standardProfile: 'sdkwork-v3',
-  canonicalRootWin: String.raw`D:\javasource\spring-ai-plus\sdk\sdkwork-sdk-generator`,
-  canonicalEntrypointWin: String.raw`D:\javasource\spring-ai-plus\sdk\sdkwork-sdk-generator\bin\sdkgen.js`,
+  canonicalRootWin: String.raw`..\sdkwork-sdk-generator`,
+  canonicalEntrypointWin: String.raw`..\sdkwork-sdk-generator\bin\sdkgen.js`,
   canonicalEntrypointPosix:
-    'D:/javasource/spring-ai-plus/sdk/sdkwork-sdk-generator/bin/sdkgen.js',
+    '../sdkwork-sdk-generator/bin/sdkgen.js',
   envOverride: 'SDKWORK_SDKGEN_PATH',
   deprecatedEntrypointFragment:
-    'spring-ai-plus-business/sdk/sdkwork-sdk-generator',
+    ['java', 'source'].join(''),
   generatedOutput: 'generated/server-openapi'
 });
 

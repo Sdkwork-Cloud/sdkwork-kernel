@@ -8,4 +8,4 @@ name = "sdkwork_code_kernel"
 path = "src/lib.rs"
 
 [dependencies]
-sdkwork-agent-kernel = { path = "../sdkwork-agent-kernel" }
+sdkwork-agent-kernel.workspace = true

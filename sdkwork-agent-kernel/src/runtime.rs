@@ -37,7 +37,9 @@ impl AgentRuntime {
     ) -> Self {
         let state = if !capability_manifest.missing_required_capabilities.is_empty() {
             RuntimeState::Failed
-        } else if !capability_manifest.degraded_capabilities.is_empty() {
+        } else if !capability_manifest.degraded_capabilities.is_empty()
+            || provider_registry.has_degraded_provider_health(&capability_manifest.providers)
+        {
             RuntimeState::Degraded
         } else {
             RuntimeState::Ready
@@ -130,6 +132,7 @@ impl AgentRuntime {
             .add_case(self.required_capabilities_case())
             .add_case(self.optional_capabilities_case(profile))
             .add_case(self.capability_namespace_case())
+            .add_case(self.protocol_adapter_exposure_subset_case())
             .add_case(self.provider_manifest_case())
             .add_case(self.local_provider_typed_case(profile, &diagnostics))
             .add_case(self.local_provider_health_case(profile, &diagnostics))
@@ -599,6 +602,47 @@ impl AgentRuntime {
                 "providers are declared",
             )
             .required()
+        }
+    }
+
+    fn protocol_adapter_exposure_subset_case(&self) -> KernelConformanceCase {
+        let effective_capability_ids: Vec<&str> = self
+            .capability_manifest
+            .capabilities
+            .iter()
+            .map(|capability| capability.capability_id.as_str())
+            .collect();
+        let unsupported_exposures: Vec<String> = self
+            .capability_manifest
+            .providers
+            .iter()
+            .filter(|provider| provider.provider_family == "protocol_adapter")
+            .flat_map(|provider| {
+                provider
+                    .capabilities
+                    .iter()
+                    .filter(|capability| {
+                        !effective_capability_ids
+                            .iter()
+                            .any(|effective| effective == &capability.as_str())
+                    })
+                    .map(|capability| format!("{}:{capability}", provider.provider_id))
+            })
+            .collect();
+
+        if unsupported_exposures.is_empty() {
+            KernelConformanceCase::passed(
+                "agent.conformance.runtime.protocol_adapters.exposure_subset",
+                "protocol adapter exposed capabilities are effective runtime capabilities",
+            )
+        } else {
+            KernelConformanceCase::failed(
+                "agent.conformance.runtime.protocol_adapters.exposure_subset",
+                format!(
+                    "protocol adapter exposures are not effective runtime capabilities: {}",
+                    unsupported_exposures.join(", ")
+                ),
+            )
         }
     }
 
@@ -1118,11 +1162,8 @@ impl RuntimeBuilder {
     {
         let provider_id = provider_id.into();
         let version = version.into();
-        let provider_manifest = protocol_adapter_provider_manifest(
-            provider.manifest(),
-            provider_id.clone(),
-            version,
-        );
+        let provider_manifest =
+            protocol_adapter_provider_manifest(provider.manifest(), provider_id.clone(), version);
         self.providers.push(provider_manifest);
         self.provider_registry
             .add_protocol_adapter(provider_id, Arc::new(provider));
@@ -1439,6 +1480,24 @@ impl RuntimeBuilder {
             }
         }
 
+        for provider in &self.providers {
+            for capability_id in &provider.capabilities {
+                let already_negotiated = capabilities
+                    .iter()
+                    .any(|capability| capability.capability_id == *capability_id);
+                let incompatible_required = missing_required_capabilities
+                    .iter()
+                    .any(|missing| missing == capability_id);
+                let incompatible_optional = degraded_capabilities
+                    .iter()
+                    .any(|degraded| degraded == capability_id);
+
+                if !already_negotiated && !incompatible_required && !incompatible_optional {
+                    capabilities.push(capability_from_provider(capability_id, provider, false));
+                }
+            }
+        }
+
         CapabilityManifest {
             schema_version: self.agent_manifest.schema_version.clone(),
             manifest_type: "capability".to_string(),
@@ -1449,10 +1508,18 @@ impl RuntimeBuilder {
             capabilities,
             missing_required_capabilities,
             degraded_capabilities,
-            protocol_adapters: Vec::new(),
+            protocol_adapters: self.protocol_adapter_ids(),
             security_profile: self.security_profile.clone(),
             generated_at: self.generated_at.clone(),
         }
+    }
+
+    fn protocol_adapter_ids(&self) -> Vec<String> {
+        self.providers
+            .iter()
+            .filter(|provider| provider.provider_family == "protocol_adapter")
+            .map(|provider| provider.provider_id.clone())
+            .collect()
     }
 
     fn provider_for_capability(&self, capability_id: &str) -> Option<&ProviderManifest> {
@@ -2164,6 +2231,13 @@ impl RuntimeProviderRegistry {
             _ => None,
         }
     }
+
+    fn has_degraded_provider_health(&self, providers: &[ProviderManifest]) -> bool {
+        providers.iter().any(|provider| {
+            self.health_for_provider(provider)
+                .is_some_and(|health| health.status != "available")
+        })
+    }
 }
 
 impl std::fmt::Debug for RuntimeProviderRegistry {
@@ -2372,9 +2446,24 @@ fn protocol_adapter_provider_manifest(
     provider_id: impl Into<String>,
     version: impl Into<String>,
 ) -> ProviderManifest {
-    let mut capabilities = adapter_manifest.exposed_capabilities;
-    if capabilities.is_empty() {
+    let streaming_support = adapter_manifest.streaming_support;
+    let mut capabilities: Vec<String> = adapter_manifest
+        .exposed_capabilities
+        .into_iter()
+        .filter(|capability| capability.starts_with("protocol."))
+        .collect();
+    if !capabilities
+        .iter()
+        .any(|capability| capability == "protocol.map")
+    {
         capabilities.push("protocol.map".to_string());
+    }
+    if streaming_support != crate::ProtocolAdapterStreamingSupport::None
+        && !capabilities
+            .iter()
+            .any(|capability| capability == "protocol.stream")
+    {
+        capabilities.push("protocol.stream".to_string());
     }
 
     ProviderManifest::new(

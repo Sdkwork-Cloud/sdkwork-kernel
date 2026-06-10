@@ -100,7 +100,7 @@ direct Rust invocation.
 | `code_language` | `LanguageProvider` | `code.language.diagnostics`, `code.language.symbols`, `code.language.format` | `diagnostics`, `symbols`, `format`, `health` |
 | `code_review` | `ReviewProvider` | `code.review.produce` | `review_patch`, `review_verification`, `health` |
 | `code_artifact` | `ArtifactProvider` | `code.artifact.read`, `code.artifact.write` | `put_artifact`, `get_artifact`, `list_artifacts`, `health` |
-| `code_knowledge` | `KnowledgeProvider` | `code.knowledge.search`, `code.knowledge.read` | `search_documents`, `get_document`, `list_documents`, `health` |
+| `code_knowledge` | `KnowledgeProvider` | `code.knowledge.search`, `code.knowledge.read`, `code.knowledge.list` | `search_documents`, `get_document`, `list_documents`, `health` |
 | `code_safety` | `CodeSafetyProvider` | `code.safety.assess` | `assess_workspace`, `assess_patch`, `assess_terminal_command`, `health` |
 
 Rules:

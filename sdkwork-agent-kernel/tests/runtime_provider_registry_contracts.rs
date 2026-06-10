@@ -992,6 +992,11 @@ fn runtime_registry_reports_provider_unavailable_for_manifest_only_core_spi_prov
     };
     assert_eq!(error.kind(), KernelErrorKind::ProviderUnavailable);
     assert_eq!(error.provider_id(), Some("adapter.protocol.manifest"));
+    assert!(report
+        .runtime
+        .capability_manifest()
+        .protocol_adapters
+        .contains(&"adapter.protocol.manifest".to_string()));
 
     let error = match report.runtime.knowledge_provider() {
         Ok(_) => panic!("typed knowledge instance is not registered"),
@@ -1071,11 +1076,7 @@ impl ToolProvider for FakeToolProvider {
         provider(
             self.provider_id,
             "tool",
-            vec![
-                "tool.invoke",
-                "tool.streaming",
-                "tool.cancellation",
-            ],
+            vec!["tool.invoke", "tool.streaming", "tool.cancellation"],
         )
     }
 
@@ -1334,11 +1335,7 @@ struct FakeHostProvider;
 
 impl HostProvider for FakeHostProvider {
     fn provider_manifest(&self) -> ProviderManifest {
-        provider(
-            "provider.host.typed",
-            "host",
-            vec!["host.filesystem"],
-        )
+        provider("provider.host.typed", "host", vec!["host.filesystem"])
     }
 
     fn health(&self) -> ProviderHealth {

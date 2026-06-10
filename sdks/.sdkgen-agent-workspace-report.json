@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "app": "agent",
-  "mode": "apply",
+  "mode": "dry-run",
   "standardProfile": "sdkwork-v3",
   "sdkgenPath": "../sdkwork-sdk-generator/bin/sdkgen.js",
-  "startedAt": "2026-06-06T00:11:32.413Z",
+  "startedAt": "2026-06-10T11:01:38.679Z",
   "families": [
     {
       "key": "open",
@@ -21,9 +21,9 @@
       "skipped": true,
       "skipReason": "sdkwork-v3 standard profile currently supports app, backend, and im prefixes only.",
       "derivedFrom": "sdkwork-agent-app-sdk",
-      "derivedGenerated": true,
+      "derivedGenerated": false,
       "derivedHasChanges": false,
-      "derivationFileCount": 134
+      "derivationFileCount": 136
     },
     {
       "key": "app",
@@ -51,7 +51,7 @@
         }
       ],
       "version": "0.1.0",
-      "fingerprint": "1ad2f6374ccd4a2ec00e12e6331d6798532186da7340b7892bded83b55d3f28c",
+      "fingerprint": "5c4fe626e9e830ccf1f0ec7beac491ec6c6272de21be31435e6b7d32655762a1",
       "hasChanges": false,
       "riskLevel": "low",
       "generated": false
@@ -82,7 +82,7 @@
         }
       ],
       "version": "0.1.0",
-      "fingerprint": "101773718406c5555a573ff7ccba33282ce9cf46ae37eed59d7567a5180601e9",
+      "fingerprint": "5f0a5affcada8830eb24cacc9682aaac34dfee721b4ecec2b128bc5c8885cbe2",
       "hasChanges": false,
       "riskLevel": "low",
       "generated": false
@@ -90,7 +90,7 @@
   ],
   "openSdkDerivation": {
     "schemaVersion": 1,
-    "mode": "apply",
+    "mode": "dry-run",
     "sourceFamily": "sdkwork-agent-app-sdk",
     "sourceAuthority": "sdkwork-agent-app-api",
     "targetFamily": "sdkwork-agent-sdk",
@@ -105,8 +105,8 @@
       "updated": [],
       "deleted": []
     },
-    "fileCount": 134,
-    "generated": true
+    "fileCount": 136,
+    "generated": false
   },
-  "finishedAt": "2026-06-06T00:11:34.109Z"
+  "finishedAt": "2026-06-10T11:01:39.192Z"
 }

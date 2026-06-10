@@ -18,6 +18,7 @@ export interface KnowledgeBaseRecord {
   retrievalModes: KnowledgeIndexKind[];
   capabilityIds: string[];
   configurationProfileId: string;
+  documentCount: number;
   status: AgentStatus;
   visibility: AgentVisibility;
   version: Int64String;

@@ -59,12 +59,13 @@ pub use dto::{
     AgentKnowledgeBaseRecordDto, AgentKnowledgeBaseUpdateRequestDto,
     AgentKnowledgeBindingCreateRequestDto, AgentKnowledgeBindingRecordDto,
     AgentKnowledgeChunkCreateRequestDto, AgentKnowledgeChunkRecordDto,
-    AgentKnowledgeDocumentCreateRequestDto, AgentKnowledgeDocumentRecordDto,
-    AgentKnowledgeDocumentUpdateRequestDto, AgentKnowledgeIndexRecordDto,
-    AgentKnowledgeIndexUpsertRequestDto, AgentKnowledgeSearchRequestDto,
-    AgentKnowledgeSearchResultDto, AgentKnowledgeSourceCreateRequestDto,
-    AgentKnowledgeSourceRecordDto, AgentKnowledgeSourceUpdateRequestDto,
-    AgentKnowledgeSyncJobCreateRequestDto, AgentKnowledgeSyncJobRecordDto, AgentListResponseDto,
+    AgentKnowledgeDocumentCreateRequestDto, AgentKnowledgeDocumentProfileDto,
+    AgentKnowledgeDocumentRecordDto, AgentKnowledgeDocumentUpdateRequestDto,
+    AgentKnowledgeIndexRecordDto, AgentKnowledgeIndexUpsertRequestDto,
+    AgentKnowledgeSearchRequestDto, AgentKnowledgeSearchResultDto,
+    AgentKnowledgeSourceCreateRequestDto, AgentKnowledgeSourceRecordDto,
+    AgentKnowledgeSourceUpdateRequestDto, AgentKnowledgeSyncJobCreateRequestDto,
+    AgentKnowledgeSyncJobRecordDto, AgentListResponseDto, AgentManagementProfileDto,
     AgentMemoryBindingCreateRequestDto, AgentMemoryBindingRecordDto,
     AgentMemoryNamespaceCreateRequestDto, AgentMemoryNamespaceRecordDto,
     AgentMemoryProfileCreateRequestDto, AgentMemoryProfileRecordDto,
@@ -84,7 +85,7 @@ pub use dto::{
 #[cfg(feature = "http-axum")]
 pub use http::{
     build_app_router, build_backend_router, build_combined_router, build_open_router,
-    AgentHttpState,
+    AgentHttpState, AgentRequestContext,
 };
 pub use id::{AgentBusinessIdGenerator, AgentIdGenerator};
 pub use infrastructure::{

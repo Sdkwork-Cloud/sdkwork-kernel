@@ -139,7 +139,7 @@ impl AgentProviderBinding {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModelSelectionPolicy {
     pub default_provider_id: Option<String>,
     pub default_model_id: Option<String>,
@@ -176,17 +176,6 @@ impl ModelSelectionPolicy {
         self.required_capabilities
             .iter()
             .any(|registered| registered == capability)
-    }
-}
-
-impl Default for ModelSelectionPolicy {
-    fn default() -> Self {
-        Self {
-            default_provider_id: None,
-            default_model_id: None,
-            required_capabilities: Vec::new(),
-            allow_provider_fallback: false,
-        }
     }
 }
 
@@ -521,45 +510,50 @@ fn parse_provider_bindings(input: &str) -> KernelResult<Vec<AgentProviderBinding
 }
 
 fn parse_model_selection(input: &str) -> KernelResult<ModelSelectionPolicy> {
-    let mut policy = ModelSelectionPolicy::default();
-    policy.default_provider_id = extract_optional_string(input, "default_provider_id")?;
-    policy.default_model_id = extract_optional_string(input, "default_model_id")?;
-    policy.required_capabilities =
-        extract_optional_string_array(input, "required_capabilities")?.unwrap_or_default();
-    policy.allow_provider_fallback =
-        extract_optional_bool(input, "allow_provider_fallback")?.unwrap_or(false);
+    let policy = ModelSelectionPolicy {
+        default_provider_id: extract_optional_string(input, "default_provider_id")?,
+        default_model_id: extract_optional_string(input, "default_model_id")?,
+        required_capabilities: extract_optional_string_array(input, "required_capabilities")?
+            .unwrap_or_default(),
+        allow_provider_fallback: extract_optional_bool(input, "allow_provider_fallback")?
+            .unwrap_or(false),
+    };
     validate_unique_capabilities(&policy.required_capabilities)?;
     Ok(policy)
 }
 
 fn parse_tool_call_policy(input: &str) -> KernelResult<ToolCallPolicy> {
-    let mut policy = ToolCallPolicy::default();
-    policy.default_provider_id = extract_optional_string(input, "default_provider_id")?;
-    policy.policy_required = extract_optional_bool(input, "policy_required")?.unwrap_or(true);
-    policy.allowed_tool_ids =
-        extract_optional_string_array(input, "allowed_tool_ids")?.unwrap_or_default();
-    policy.denied_tool_ids =
-        extract_optional_string_array(input, "denied_tool_ids")?.unwrap_or_default();
-    policy.max_parallel_calls = extract_optional_u32(input, "max_parallel_calls")?;
+    let policy = ToolCallPolicy {
+        default_provider_id: extract_optional_string(input, "default_provider_id")?,
+        policy_required: extract_optional_bool(input, "policy_required")?.unwrap_or(true),
+        allowed_tool_ids: extract_optional_string_array(input, "allowed_tool_ids")?
+            .unwrap_or_default(),
+        denied_tool_ids: extract_optional_string_array(input, "denied_tool_ids")?
+            .unwrap_or_default(),
+        max_parallel_calls: extract_optional_u32(input, "max_parallel_calls")?,
+    };
     validate_unique_ids(&policy.allowed_tool_ids, "allowed_tool_ids")?;
     validate_unique_ids(&policy.denied_tool_ids, "denied_tool_ids")?;
     Ok(policy)
 }
 
 fn parse_memory_strategy(input: &str) -> KernelResult<MemoryStrategy> {
-    let mut strategy = MemoryStrategy::default();
-    strategy.default_provider_id = extract_optional_string(input, "default_provider_id")?;
-    strategy.enabled_scopes = extract_optional_string_array(input, "enabled_scopes")?
-        .unwrap_or_default()
-        .into_iter()
-        .map(|scope| parse_memory_scope(&scope))
-        .collect::<KernelResult<Vec<_>>>()?;
-    strategy.write_policy_required =
-        extract_optional_bool(input, "write_policy_required")?.unwrap_or(true);
-    strategy.read_policy_required_for_sensitive =
-        extract_optional_bool(input, "read_policy_required_for_sensitive")?.unwrap_or(true);
-    strategy.retention_required =
-        extract_optional_bool(input, "retention_required")?.unwrap_or(false);
+    let strategy = MemoryStrategy {
+        default_provider_id: extract_optional_string(input, "default_provider_id")?,
+        enabled_scopes: extract_optional_string_array(input, "enabled_scopes")?
+            .unwrap_or_default()
+            .into_iter()
+            .map(|scope| parse_memory_scope(&scope))
+            .collect::<KernelResult<Vec<_>>>()?,
+        write_policy_required: extract_optional_bool(input, "write_policy_required")?
+            .unwrap_or(true),
+        read_policy_required_for_sensitive: extract_optional_bool(
+            input,
+            "read_policy_required_for_sensitive",
+        )?
+        .unwrap_or(true),
+        retention_required: extract_optional_bool(input, "retention_required")?.unwrap_or(false),
+    };
     Ok(strategy)
 }
 

@@ -9,7 +9,7 @@
     "root": "sdkwork-birdcoder/kernel/sdkwork-agent-kernel",
     "domain": "intelligence",
     "declaredDomain": null,
-    "capability": "agent",
+    "capability": "agent-kernel",
     "status": "standardizing",
     "languages": [
       "rust"
@@ -93,12 +93,39 @@
     }
   ],
   "contracts": {
-    "publicExports": [],
+    "publicExports": [
+      "AgentExecutionReport",
+      "AgentExecutionReport::to_event",
+      "AgentExecutionReport::to_events",
+      "AgentExecutionRequest",
+      "AgentExecutionService",
+      "AgentExecutionStatus",
+      "AgentObservation",
+      "AgentObservation::to_event",
+      "AgentChatRequest",
+      "AgentChatResponse",
+      "AgentChatRpcAdapter",
+      "AgentChatRpcHandler",
+      "AgentChatService",
+      "agent_chat_rpc_adapter_manifest"
+    ],
     "runtimeEntrypoints": [
+      "AgentExecutionService::execute",
+      "AgentChatService::invoke",
+      "AgentChatRpcAdapter::handle_request",
+      "AgentChatRpcHandler::handle_request",
+      "agent_chat_rpc_adapter_manifest",
       "Cargo.toml"
     ],
     "sdkClients": [],
-    "events": [],
+    "events": [
+      "agent.execution.completed",
+      "agent.execution.failed",
+      "agent.execution.permission_required",
+      "agent.execution.cancelled",
+      "agent.execution.degraded",
+      "agent.execution.observation.*"
+    ],
     "configKeys": [],
     "routeManifest": null
   },

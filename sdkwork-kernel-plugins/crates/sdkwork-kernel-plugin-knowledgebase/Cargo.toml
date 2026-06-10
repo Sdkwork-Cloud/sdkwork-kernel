@@ -1,0 +1,13 @@
+[package]
+name = "sdkwork-kernel-plugin-knowledgebase"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "sdkwork_kernel_plugin_knowledgebase"
+path = "src/lib.rs"
+
+[dependencies]
+sdkwork-agent-kernel.workspace = true
+sdkwork-agent-plugin-core.workspace = true
+sdkwork-knowledgebase-contract.workspace = true

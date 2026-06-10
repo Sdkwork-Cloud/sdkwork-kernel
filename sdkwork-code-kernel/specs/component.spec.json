@@ -7,9 +7,9 @@
     "version": "0.1.0",
     "type": "rust-crate",
     "root": "sdkwork-birdcoder/kernel/sdkwork-code-kernel",
-    "domain": "device",
+    "domain": "intelligence",
     "declaredDomain": null,
-    "capability": "component",
+    "capability": "code-kernel",
     "status": "standardizing",
     "languages": [
       "rust"

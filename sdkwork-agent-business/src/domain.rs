@@ -23,7 +23,7 @@ impl AgentBusinessStatus {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "draft" => Some(Self::Draft),
             "active" => Some(Self::Active),
@@ -74,7 +74,7 @@ impl AgentVisibility {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "private" => Some(Self::Private),
             "organization" => Some(Self::Organization),
@@ -338,7 +338,7 @@ impl AgentImplementationKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "manifest-only" => Some(Self::ManifestOnly),
             "typed-local-provider" => Some(Self::TypedLocalProvider),
@@ -468,7 +468,7 @@ impl AgentSkillInvocationKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "local-workflow" => Some(Self::LocalWorkflow),
             "process-adapter" => Some(Self::ProcessAdapter),
@@ -497,7 +497,7 @@ impl AgentMcpTransportKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "stdio" => Some(Self::Stdio),
             "http" => Some(Self::Http),
@@ -526,7 +526,7 @@ impl AgentMcpAuthKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "none" => Some(Self::None),
             "oauth2" => Some(Self::OAuth2),
@@ -559,7 +559,7 @@ impl AgentPromptTemplateKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "system" => Some(Self::System),
             "developer" => Some(Self::Developer),
@@ -592,7 +592,7 @@ impl AgentPromptTemplateFormat {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "plain-text" => Some(Self::PlainText),
             "handlebars" => Some(Self::Handlebars),
@@ -626,7 +626,7 @@ impl AgentMemoryStoreKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "local-postgres" => Some(Self::LocalPostgres),
             "external-provider" => Some(Self::ExternalProvider),
@@ -663,7 +663,7 @@ impl AgentMemoryIndexKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "keyword" => Some(Self::Keyword),
             "sparse" => Some(Self::Sparse),
@@ -699,7 +699,7 @@ impl AgentMemoryBindingScopeKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "agent" => Some(Self::Agent),
             "deployment" => Some(Self::Deployment),
@@ -736,7 +736,7 @@ impl AgentMemoryNamespaceKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "tenant" => Some(Self::Tenant),
             "organization" => Some(Self::Organization),
@@ -778,7 +778,7 @@ impl AgentMemoryRecordKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "working" => Some(Self::Working),
             "episodic" => Some(Self::Episodic),
@@ -818,7 +818,7 @@ impl AgentMemorySourceKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "conversation-message" => Some(Self::ConversationMessage),
             "tool-result" => Some(Self::ToolResult),
@@ -856,7 +856,7 @@ impl AgentMemoryRelationKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "supports" => Some(Self::Supports),
             "contradicts" => Some(Self::Contradicts),
@@ -896,7 +896,7 @@ impl AgentKnowledgeBaseKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "wiki" => Some(Self::Wiki),
             "document-repository" => Some(Self::DocumentRepository),
@@ -943,7 +943,7 @@ impl AgentKnowledgeIndexKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "exact" => Some(Self::Exact),
             "keyword" => Some(Self::Keyword),
@@ -987,7 +987,7 @@ impl AgentKnowledgeSourceKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "upload" => Some(Self::Upload),
             "wiki" => Some(Self::Wiki),
@@ -1032,7 +1032,7 @@ impl AgentKnowledgeDocumentKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "wiki-page" => Some(Self::WikiPage),
             "wiki-section" => Some(Self::WikiSection),
@@ -1071,7 +1071,7 @@ impl AgentKnowledgeBindingScopeKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "agent" => Some(Self::Agent),
             "deployment" => Some(Self::Deployment),
@@ -1102,7 +1102,7 @@ impl AgentKnowledgeSyncJobKind {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "import" => Some(Self::Import),
             "refresh" => Some(Self::Refresh),
@@ -1133,7 +1133,7 @@ impl AgentKnowledgeSyncJobStatus {
         }
     }
 
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
         match value {
             "queued" => Some(Self::Queued),
             "running" => Some(Self::Running),
@@ -1144,6 +1144,79 @@ impl AgentKnowledgeSyncJobStatus {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AgentDomainParseError;
+
+macro_rules! impl_domain_from_str {
+    ($domain_type:ty) => {
+        impl std::str::FromStr for $domain_type {
+            type Err = AgentDomainParseError;
+
+            fn from_str(value: &str) -> Result<Self, Self::Err> {
+                <$domain_type>::from_code(value).ok_or(AgentDomainParseError)
+            }
+        }
+    };
+}
+
+macro_rules! impl_domain_from_str_compat {
+    ($domain_type:ty) => {
+        impl $domain_type {
+            #[allow(clippy::should_implement_trait)]
+            #[deprecated(note = "use std::str::FromStr or SDKWork domain code parsing")]
+            pub fn from_str(value: &str) -> Option<Self> {
+                Self::from_code(value)
+            }
+        }
+    };
+}
+
+impl_domain_from_str!(AgentBusinessStatus);
+impl_domain_from_str!(AgentVisibility);
+impl_domain_from_str!(AgentImplementationKind);
+impl_domain_from_str!(AgentSkillInvocationKind);
+impl_domain_from_str!(AgentMcpTransportKind);
+impl_domain_from_str!(AgentMcpAuthKind);
+impl_domain_from_str!(AgentPromptTemplateKind);
+impl_domain_from_str!(AgentPromptTemplateFormat);
+impl_domain_from_str!(AgentMemoryStoreKind);
+impl_domain_from_str!(AgentMemoryIndexKind);
+impl_domain_from_str!(AgentMemoryBindingScopeKind);
+impl_domain_from_str!(AgentMemoryNamespaceKind);
+impl_domain_from_str!(AgentMemoryRecordKind);
+impl_domain_from_str!(AgentMemorySourceKind);
+impl_domain_from_str!(AgentMemoryRelationKind);
+impl_domain_from_str!(AgentKnowledgeBaseKind);
+impl_domain_from_str!(AgentKnowledgeIndexKind);
+impl_domain_from_str!(AgentKnowledgeSourceKind);
+impl_domain_from_str!(AgentKnowledgeDocumentKind);
+impl_domain_from_str!(AgentKnowledgeBindingScopeKind);
+impl_domain_from_str!(AgentKnowledgeSyncJobKind);
+impl_domain_from_str!(AgentKnowledgeSyncJobStatus);
+
+impl_domain_from_str_compat!(AgentBusinessStatus);
+impl_domain_from_str_compat!(AgentVisibility);
+impl_domain_from_str_compat!(AgentImplementationKind);
+impl_domain_from_str_compat!(AgentSkillInvocationKind);
+impl_domain_from_str_compat!(AgentMcpTransportKind);
+impl_domain_from_str_compat!(AgentMcpAuthKind);
+impl_domain_from_str_compat!(AgentPromptTemplateKind);
+impl_domain_from_str_compat!(AgentPromptTemplateFormat);
+impl_domain_from_str_compat!(AgentMemoryStoreKind);
+impl_domain_from_str_compat!(AgentMemoryIndexKind);
+impl_domain_from_str_compat!(AgentMemoryBindingScopeKind);
+impl_domain_from_str_compat!(AgentMemoryNamespaceKind);
+impl_domain_from_str_compat!(AgentMemoryRecordKind);
+impl_domain_from_str_compat!(AgentMemorySourceKind);
+impl_domain_from_str_compat!(AgentMemoryRelationKind);
+impl_domain_from_str_compat!(AgentKnowledgeBaseKind);
+impl_domain_from_str_compat!(AgentKnowledgeIndexKind);
+impl_domain_from_str_compat!(AgentKnowledgeSourceKind);
+impl_domain_from_str_compat!(AgentKnowledgeDocumentKind);
+impl_domain_from_str_compat!(AgentKnowledgeBindingScopeKind);
+impl_domain_from_str_compat!(AgentKnowledgeSyncJobKind);
+impl_domain_from_str_compat!(AgentKnowledgeSyncJobStatus);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentSkillPackageRecord {

@@ -1,4 +1,5 @@
 import type { AgentImplementationKind } from './agent-implementation-kind';
+import type { AgentManagementProfile } from './agent-management-profile';
 import type { AgentVisibility } from './agent-visibility';
 import type { Int64String } from './int64-string';
 
@@ -11,6 +12,7 @@ export interface CreateAgentRequest {
   description?: string | null;
   manifest: Record<string, unknown>;
   defaultCodeTaskIntent?: Record<string, unknown>;
+  managementProfile?: AgentManagementProfile | null;
   implementationProviderId?: string | null;
   implementationKind?: AgentImplementationKind | null;
   visibility: AgentVisibility;

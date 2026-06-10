@@ -94,6 +94,7 @@ pub enum CodeKernelCapability {
     ArtifactWrite,
     KnowledgeSearch,
     KnowledgeRead,
+    KnowledgeList,
     SafetyAssess,
 }
 
@@ -126,6 +127,7 @@ impl CodeKernelCapability {
             Self::ArtifactWrite => "code.artifact.write",
             Self::KnowledgeSearch => "code.knowledge.search",
             Self::KnowledgeRead => "code.knowledge.read",
+            Self::KnowledgeList => "code.knowledge.list",
             Self::SafetyAssess => "code.safety.assess",
         }
     }

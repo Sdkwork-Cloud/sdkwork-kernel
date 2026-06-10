@@ -1,0 +1,82 @@
+{
+  "schema_version": "0.1.0",
+  "manifest_type": "provider",
+  "provider_id": "adapter.rpc.agent-chat",
+  "provider_family": "protocol_adapter",
+  "name": "agent-chat-rpc",
+  "display_name": "Agent Chat RPC Protocol Adapter",
+  "version": "0.1.0",
+  "kernel_compatibility": {
+    "agent_kernel": ">=0.1.0 <0.2.0"
+  },
+  "adapter_id": "adapter.rpc.agent-chat",
+  "protocol": "rpc",
+  "protocol_version": "sdkwork.agent.rpc.chat.v1",
+  "transport": "rpc",
+  "auth_mode": "local_trusted",
+  "capabilities": [
+    "protocol.map",
+    "protocol.stream"
+  ],
+  "exposed_capabilities": [
+    "model.chat",
+    "knowledge.search",
+    "protocol.map",
+    "protocol.stream"
+  ],
+  "operations": [
+    "handle_request",
+    "map_request_to_task",
+    "map_response",
+    "map_event_to_stream_update",
+    "health"
+  ],
+  "kernel_object_mappings": [
+    "AgentChatRequest",
+    "AgentChatResponse",
+    "AgentChatKnowledgeQuery",
+    "ProtocolAdapterRequest",
+    "ProtocolObjectEnvelope",
+    "ModelRequest",
+    "ModelResponse",
+    "KnowledgeSearchRequest",
+    "KnowledgeSearchResult",
+    "PolicyRequest",
+    "PolicyDecision"
+  ],
+  "streaming_support": "ordered",
+  "trace_support": true,
+  "configuration_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "security_requirements": {
+    "fail_closed": true,
+    "required_policy_categories": [
+      "model.invoke",
+      "knowledge.search",
+      "protocol.send"
+    ],
+    "secret_handling": {
+      "raw_secrets_in_manifest": false
+    }
+  },
+  "health_model": {
+    "states": [
+      "available",
+      "degraded",
+      "unavailable"
+    ]
+  },
+  "owner": {
+    "name": "sdkwork-platform"
+  },
+  "status": "experimental",
+  "extensions": {
+    "sdkwork.external.initial-registration-mode": "typed-local-provider",
+    "sdkwork.external.execution-status": "implemented-transport-neutral-rpc-chat",
+    "sdkwork.external.implementation-crate": "sdkwork-agent-kernel",
+    "sdkwork.external.rig-plugin-provider": "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig"
+  }
+}

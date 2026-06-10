@@ -45,7 +45,7 @@ build/test orchestration, review loops, and developer-facing UI. Those are
 important validation cases, but kernel contracts must not encode BirdCoder-only
 assumptions.
 
-The kernel standard must support these integration modes:
+The kernel standard must support these composition and plugin modes:
 
 - Headless agent runtime embedded into another Rust host.
 - Code-agent runtime embedded into an IDE, CLI, desktop app, web shell, or
@@ -75,8 +75,8 @@ The kernel standard must support these integration modes:
 
 The most important rule is the same rule that makes kernel architectures
 survive: stable contracts outlive implementations. Providers may change,
-products may change, and UI shells may change, but kernel SPI and integration
-contracts must remain versioned, explicit, and testable.
+products may change, and UI shells may change, but kernel SPI, plugin, and
+adapter contracts must remain versioned, explicit, and testable.
 
 ## Directory Model
 
@@ -85,7 +85,7 @@ kernel/
 |-- README.md
 |-- external/
 |-- specs/
-|-- sdkwork-agent-integrations/
+|-- sdkwork-kernel-plugins/
 |-- sdkwork-agent-kernel/
 |-- sdkwork-agent-business/
 |-- sdkwork-code-kernel/
@@ -111,17 +111,17 @@ Current reference projects:
 - Gemini CLI
 - Rig
 
-### `sdkwork-agent-integrations`
+### `sdkwork-kernel-plugins`
 
-SDKWork-owned standard asset and future adapter boundary for external agent
-and code-agent integrations.
+SDKWork-owned standard asset, provider, and adapter boundary for external agent
+and code-agent plugins.
 
 This layer owns:
 
 - External source mapping documents.
 - Experimental agent and provider manifests.
 - Manifest-only, local-runtime, and process-adapter conformance profiles.
-- Future process adapters and typed provider crates.
+- Process adapters and typed provider crates.
 
 This layer must depend on SDKWork kernel SPI, manifests, policy, host,
 protocol, event, and conformance contracts. Kernel core crates must not depend
@@ -256,7 +256,7 @@ Recommended kernel UI package family:
 
 ```text
 kernel/sdkwork-kernel-ui/
-|-- src/                              # thin demo/integration shell only
+|-- src/                              # thin demo/composition shell only
 |-- packages/
 |   |-- sdkwork-kernel-ui-types/
 |   |-- sdkwork-kernel-ui-core/
@@ -304,7 +304,7 @@ Kernel UI responsibilities:
   configuration status, and diagnostics.
 - Telemetry views: trace ids, request ids, event stream, logs, metrics summaries,
   and troubleshooting panels.
-- Integration components: embeddable panels and hooks that product applications
+- Composition components: embeddable panels and hooks that product applications
   can compose without reimplementing kernel behavior.
 
 Kernel UI must not:
@@ -369,7 +369,7 @@ Compatibility rules:
 - UI packages must degrade gracefully when a kernel capability is unavailable.
 - Generated clients, event schemas, and manifests must not be hand-edited.
 - Kernel-local specs under `kernel/specs/` must record contract decisions that
-  affect external integrations.
+  affect external plugins and adapters.
 
 ## Runtime And Event Model
 
@@ -451,7 +451,7 @@ planning, host, protocol adapter, MCP, Agent Skill, collaboration, and telemetry
 be registered in one runtime and selected by provider id, allowing each agent to
 support different LLM implementations, tool implementations, policy engines,
 context assembly strategies, memory stores, planners, host capability bridges,
-protocol bridges, MCP integrations, skill packs, collaboration backends, and
+protocol bridges, MCP plugins, skill packs, collaboration backends, and
 observability sinks.
 Model providers now expose a provider-neutral `ModelDescriptor` catalog and
 request-level `model_id` selection, so one provider can publish multiple LLMs
@@ -502,7 +502,7 @@ knowledge, and safety provider accessors. Manifest-only providers remain valid
 for introspection but fail closed with `provider_unavailable` when local code
 attempts direct execution. These provider families are intentionally
 mechanism-only: concrete Git, shell, parser, LSP, storage, sandbox, and
-product-policy integrations belong in provider crates or host adapters. The
+product-policy plugins belong in provider crates or host adapters. The
 runtime now also exposes `CodeKernelRuntimeDiagnostics`, a standard
 introspection report with provider counts, capability counts, typed vs
 manifest-only registration, provider health snapshots, degraded state, and
@@ -518,10 +518,10 @@ side-effect, resource, and redaction metadata consistently. Code sessions,
 tasks, patch sets, artifacts, and code events also map to the shared Agent
 Kernel `ProtocolObjectEnvelope`, using generic extension objects plus
 namespaced `sdkwork.code.*` metadata for protocol, UI, IPC, and audit
-integration without making the Agent Kernel depend on Code Kernel objects.
+adapter use without making the Agent Kernel depend on Code Kernel objects.
 Code capability manifests, runtime diagnostics, and conformance reports are
 also exposed as machine-readable schema constants for registry, CI, and
-cross-application integration.
+cross-application composition.
 
 Current kernel UI baseline defines a 10-package TypeScript + Vite + React
 workspace and enforces layered package conformance: feature packages separate

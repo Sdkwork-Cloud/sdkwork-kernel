@@ -34,6 +34,9 @@ use crate::validation::{
 };
 use sdkwork_agent_kernel::{AgentManifest, KernelError, KernelResult, PolicySubject};
 use sdkwork_code_kernel::CodeTaskIntent;
+use serde_json::{json, Map, Value};
+
+const AGENT_MANAGEMENT_PROFILE_CONSTRAINT_PREFIX: &str = "sdkwork.agent.pc.config:";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ListAgentsRequestDto {
@@ -401,7 +404,7 @@ impl GetAgentRequestDto {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AgentRecordDto {
     pub id: String,
     pub agent_id: String,
@@ -413,6 +416,7 @@ pub struct AgentRecordDto {
     pub description: Option<String>,
     pub manifest: AgentManifest,
     pub default_code_task_intent: Option<CodeTaskIntent>,
+    pub management_profile: Option<AgentManagementProfileDto>,
     pub implementation_provider_id: Option<String>,
     pub implementation_kind: Option<String>,
     pub status: String,
@@ -437,6 +441,9 @@ impl AgentRecordDto {
             description: record.description.clone(),
             manifest: record.manifest.clone(),
             default_code_task_intent: record.default_code_task_intent.clone(),
+            management_profile: AgentManagementProfileDto::from_default_code_task_intent(
+                record.default_code_task_intent.as_ref(),
+            ),
             implementation_provider_id: record.implementation_provider_id.clone(),
             implementation_kind: record
                 .implementation_kind
@@ -449,6 +456,181 @@ impl AgentRecordDto {
             updated_at: record.updated_at.clone(),
             deleted_at: record.deleted_at.clone(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentManagementProfileDto {
+    pub author: Option<String>,
+    pub avatar: Option<String>,
+    pub category_id: Option<String>,
+    pub color: Option<String>,
+    pub debug_mode: Option<bool>,
+    pub icon_name: Option<String>,
+    pub json_mode: Option<bool>,
+    pub knowledge_base_ids: Vec<String>,
+    pub memory_enabled: Option<bool>,
+    pub model: Option<String>,
+    pub skill_ids: Vec<String>,
+    pub suggested_prompts: Vec<String>,
+    pub system_prompt: Option<String>,
+    pub temperature: Option<f64>,
+    pub tool_ids: Vec<String>,
+    pub agent_type: Option<String>,
+    pub users: Option<String>,
+    pub voice_ids: Vec<String>,
+    pub welcome_message: Option<String>,
+}
+
+impl AgentManagementProfileDto {
+    pub fn merge_into_default_code_task_intent(
+        self,
+        intent: Option<CodeTaskIntent>,
+    ) -> KernelResult<Option<CodeTaskIntent>> {
+        if self.is_empty() {
+            return Ok(intent);
+        }
+
+        let mut intent = intent.unwrap_or_else(|| {
+            CodeTaskIntent::new(
+                self.system_prompt
+                    .clone()
+                    .or_else(|| self.welcome_message.clone())
+                    .unwrap_or_else(|| "Agent management profile".to_string()),
+            )
+        });
+
+        if let Some(system_prompt) = self.system_prompt.as_ref() {
+            if intent.prompt.trim().is_empty() || intent.prompt == "Agent management profile" {
+                intent.prompt = system_prompt.clone();
+            }
+        }
+
+        for knowledge_base_id in self.knowledge_base_ids.iter() {
+            if !intent
+                .context_paths
+                .iter()
+                .any(|context_path| context_path == knowledge_base_id)
+            {
+                intent.context_paths.push(knowledge_base_id.clone());
+            }
+        }
+
+        intent.constraints.retain(|constraint| {
+            !constraint.starts_with(AGENT_MANAGEMENT_PROFILE_CONSTRAINT_PREFIX)
+                && !constraint.starts_with("agent.type=")
+        });
+        if let Some(agent_type) = self.agent_type.as_ref().and_then(|value| {
+            let trimmed = value.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        }) {
+            intent.constraints.push(format!("agent.type={agent_type}"));
+        }
+        let encoded = serde_json::to_string(&self.to_pc_config_value()).map_err(|error| {
+            KernelError::validation(format!("managementProfile json encode failed: {error}"))
+        })?;
+        intent.constraints.push(format!(
+            "{AGENT_MANAGEMENT_PROFILE_CONSTRAINT_PREFIX}{encoded}"
+        ));
+
+        Ok(Some(intent))
+    }
+
+    pub fn from_default_code_task_intent(intent: Option<&CodeTaskIntent>) -> Option<Self> {
+        let intent = intent?;
+        let mut profile = intent
+            .constraints
+            .iter()
+            .find_map(|constraint| Self::from_compatible_constraint(constraint.as_str()))?;
+
+        if profile.agent_type.is_none() {
+            profile.agent_type = intent
+                .constraints
+                .iter()
+                .find_map(|constraint| constraint.strip_prefix("agent.type="))
+                .and_then(normalize_optional_string);
+        }
+
+        Some(profile)
+    }
+
+    fn from_compatible_constraint(constraint: &str) -> Option<Self> {
+        let encoded = constraint.strip_prefix(AGENT_MANAGEMENT_PROFILE_CONSTRAINT_PREFIX)?;
+        let value: Value = serde_json::from_str(encoded).ok()?;
+        let object = value.as_object()?;
+        let profile = Self {
+            author: optional_object_string(object.get("author")),
+            avatar: optional_object_string(object.get("avatar")),
+            category_id: optional_object_string(object.get("categoryId")),
+            color: optional_object_string(object.get("color")),
+            debug_mode: optional_object_bool(object.get("debugMode")),
+            icon_name: optional_object_string(object.get("iconName")),
+            json_mode: optional_object_bool(object.get("jsonMode")),
+            knowledge_base_ids: object_string_array(object.get("knowledgeBaseIds")),
+            memory_enabled: optional_object_bool(object.get("memoryEnabled")),
+            model: optional_object_string(object.get("model")),
+            skill_ids: object_string_array(object.get("skillIds")),
+            suggested_prompts: object_string_array(object.get("suggestedPrompts")),
+            system_prompt: optional_object_string(object.get("systemPrompt")),
+            temperature: optional_object_f64(object.get("temperature")),
+            tool_ids: object_string_array(object.get("toolIds")),
+            agent_type: optional_object_string(object.get("type")),
+            users: optional_object_string(object.get("users")),
+            voice_ids: object_string_array(object.get("voiceIds")),
+            welcome_message: optional_object_string(object.get("welcomeMessage")),
+        };
+
+        if profile.is_empty() {
+            None
+        } else {
+            Some(profile)
+        }
+    }
+
+    fn to_pc_config_value(&self) -> Value {
+        let mut object = Map::new();
+        insert_optional_string(&mut object, "author", self.author.as_ref());
+        insert_optional_string(&mut object, "avatar", self.avatar.as_ref());
+        insert_optional_string(&mut object, "categoryId", self.category_id.as_ref());
+        insert_optional_string(&mut object, "color", self.color.as_ref());
+        insert_optional_bool(&mut object, "debugMode", self.debug_mode);
+        insert_optional_string(&mut object, "iconName", self.icon_name.as_ref());
+        insert_optional_bool(&mut object, "jsonMode", self.json_mode);
+        insert_string_array(&mut object, "knowledgeBaseIds", &self.knowledge_base_ids);
+        insert_optional_bool(&mut object, "memoryEnabled", self.memory_enabled);
+        insert_optional_string(&mut object, "model", self.model.as_ref());
+        insert_string_array(&mut object, "skillIds", &self.skill_ids);
+        insert_string_array(&mut object, "suggestedPrompts", &self.suggested_prompts);
+        insert_optional_string(&mut object, "systemPrompt", self.system_prompt.as_ref());
+        insert_optional_f64(&mut object, "temperature", self.temperature);
+        insert_string_array(&mut object, "toolIds", &self.tool_ids);
+        insert_optional_string(&mut object, "type", self.agent_type.as_ref());
+        insert_optional_string(&mut object, "users", self.users.as_ref());
+        insert_string_array(&mut object, "voiceIds", &self.voice_ids);
+        insert_optional_string(&mut object, "welcomeMessage", self.welcome_message.as_ref());
+        Value::Object(object)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.author.is_none()
+            && self.avatar.is_none()
+            && self.category_id.is_none()
+            && self.color.is_none()
+            && self.debug_mode.is_none()
+            && self.icon_name.is_none()
+            && self.json_mode.is_none()
+            && self.knowledge_base_ids.is_empty()
+            && self.memory_enabled.is_none()
+            && self.model.is_none()
+            && self.skill_ids.is_empty()
+            && self.suggested_prompts.is_empty()
+            && self.system_prompt.is_none()
+            && self.temperature.is_none()
+            && self.tool_ids.is_empty()
+            && self.agent_type.is_none()
+            && self.users.is_none()
+            && self.voice_ids.is_empty()
+            && self.welcome_message.is_none()
     }
 }
 
@@ -592,7 +774,7 @@ impl AgentDeploymentListResponseDto {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AgentResponseDto {
     pub data: AgentRecordDto,
 }
@@ -605,12 +787,12 @@ impl AgentResponseDto {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AgentListDataDto {
     pub items: Vec<AgentRecordDto>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AgentListResponseDto {
     pub data: AgentListDataDto,
 }
@@ -1689,6 +1871,7 @@ pub struct AgentKnowledgeDocumentRecordDto {
     pub content_hash: String,
     pub summary: Option<String>,
     pub metadata_json: String,
+    pub document_profile: Option<AgentKnowledgeDocumentProfileDto>,
     pub tags: Vec<String>,
     pub categories: Vec<String>,
     pub trust_level: i16,
@@ -1717,6 +1900,9 @@ impl AgentKnowledgeDocumentRecordDto {
             content_hash: record.content_hash.clone(),
             summary: record.summary.clone(),
             metadata_json: record.metadata_json.clone(),
+            document_profile: AgentKnowledgeDocumentProfileDto::from_metadata_json(
+                record.metadata_json.as_str(),
+            ),
             tags: record.tags.clone(),
             categories: record.categories.clone(),
             trust_level: record.trust_level,
@@ -1729,6 +1915,83 @@ impl AgentKnowledgeDocumentRecordDto {
             updated_at: record.updated_at.clone(),
             deleted_at: record.deleted_at.clone(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentKnowledgeDocumentProfileDto {
+    pub author: Option<String>,
+    pub content: Option<String>,
+    pub parent_id: Option<String>,
+    pub document_type: Option<String>,
+    pub file_name: Option<String>,
+    pub file_size: Option<String>,
+    pub mime_type: Option<String>,
+    pub drive_uri: Option<String>,
+}
+
+impl AgentKnowledgeDocumentProfileDto {
+    pub fn merge_into_metadata_json(self, metadata_json: Option<String>) -> KernelResult<String> {
+        let mut value = match metadata_json {
+            Some(metadata_json) => {
+                serde_json::from_str::<Value>(metadata_json.as_str()).map_err(|error| {
+                    KernelError::validation(format!("metadataJson must be valid json: {error}"))
+                })?
+            }
+            None => Value::Object(Map::new()),
+        };
+
+        let object = value.as_object_mut().ok_or_else(|| {
+            KernelError::validation("metadataJson must be a JSON object for documentProfile merge")
+        })?;
+        self.merge_into_object(object);
+
+        serde_json::to_string(&value).map_err(|error| {
+            KernelError::validation(format!("metadataJson json encode failed: {error}"))
+        })
+    }
+
+    pub fn from_metadata_json(metadata_json: &str) -> Option<Self> {
+        let value: Value = serde_json::from_str(metadata_json).ok()?;
+        let object = value.as_object()?;
+        let profile = Self {
+            author: optional_object_string(object.get("pcAuthor")),
+            content: optional_object_string(object.get("pcContent")),
+            parent_id: optional_object_string(object.get("pcParentId")),
+            document_type: optional_object_string(object.get("pcType")),
+            file_name: optional_object_string(object.get("fileName")),
+            file_size: optional_object_string(object.get("fileSize")),
+            mime_type: optional_object_string(object.get("mimeType")),
+            drive_uri: optional_object_string(object.get("driveUri")),
+        };
+
+        if profile.is_empty() {
+            None
+        } else {
+            Some(profile)
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.author.is_none()
+            && self.content.is_none()
+            && self.parent_id.is_none()
+            && self.document_type.is_none()
+            && self.file_name.is_none()
+            && self.file_size.is_none()
+            && self.mime_type.is_none()
+            && self.drive_uri.is_none()
+    }
+
+    fn merge_into_object(&self, object: &mut Map<String, Value>) {
+        insert_optional_string(object, "pcAuthor", self.author.as_ref());
+        insert_optional_string(object, "pcContent", self.content.as_ref());
+        insert_optional_string(object, "pcParentId", self.parent_id.as_ref());
+        insert_optional_string(object, "pcType", self.document_type.as_ref());
+        insert_optional_string(object, "fileName", self.file_name.as_ref());
+        insert_optional_string(object, "fileSize", self.file_size.as_ref());
+        insert_optional_string(object, "mimeType", self.mime_type.as_ref());
+        insert_optional_string(object, "driveUri", self.drive_uri.as_ref());
     }
 }
 
@@ -2286,7 +2549,7 @@ impl AgentMemoryRetrievalIndexRecordDto {
 }
 
 fn parse_visibility(value: &str) -> KernelResult<AgentVisibility> {
-    AgentVisibility::from_str(value).ok_or_else(|| {
+    AgentVisibility::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "visibility must be one of private, organization, tenant, public: {value}"
         ))
@@ -2294,7 +2557,7 @@ fn parse_visibility(value: &str) -> KernelResult<AgentVisibility> {
 }
 
 fn parse_status(value: &str) -> KernelResult<AgentBusinessStatus> {
-    AgentBusinessStatus::from_str(value).ok_or_else(|| {
+    AgentBusinessStatus::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "target_status must be one of draft, active, disabled, archived, deleted: {value}"
         ))
@@ -2302,7 +2565,7 @@ fn parse_status(value: &str) -> KernelResult<AgentBusinessStatus> {
 }
 
 fn parse_implementation_kind(value: &str) -> KernelResult<AgentImplementationKind> {
-    AgentImplementationKind::from_str(value).ok_or_else(|| {
+    AgentImplementationKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "implementation_kind must be one of manifest-only, typed-local-provider, process-adapter, protocol-adapter: {value}"
         ))
@@ -2310,7 +2573,7 @@ fn parse_implementation_kind(value: &str) -> KernelResult<AgentImplementationKin
 }
 
 fn parse_knowledge_base_kind(value: &str) -> KernelResult<AgentKnowledgeBaseKind> {
-    AgentKnowledgeBaseKind::from_str(value).ok_or_else(|| {
+    AgentKnowledgeBaseKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "baseKind must be one of wiki, document-repository, database, api-reference, graph, hybrid, external-provider, file-store: {value}"
         ))
@@ -2318,7 +2581,7 @@ fn parse_knowledge_base_kind(value: &str) -> KernelResult<AgentKnowledgeBaseKind
 }
 
 fn parse_knowledge_index_kind(value: &str) -> KernelResult<AgentKnowledgeIndexKind> {
-    AgentKnowledgeIndexKind::from_str(value).ok_or_else(|| {
+    AgentKnowledgeIndexKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "indexKind must be one of exact, keyword, full_text, structured, graph, wiki, rule, vector, hybrid, llm_rerank, external: {value}"
         ))
@@ -2326,7 +2589,7 @@ fn parse_knowledge_index_kind(value: &str) -> KernelResult<AgentKnowledgeIndexKi
 }
 
 fn parse_knowledge_source_kind(value: &str) -> KernelResult<AgentKnowledgeSourceKind> {
-    AgentKnowledgeSourceKind::from_str(value).ok_or_else(|| {
+    AgentKnowledgeSourceKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "sourceKind must be one of upload, wiki, web, database, api, filesystem, manual, external-provider: {value}"
         ))
@@ -2334,7 +2597,7 @@ fn parse_knowledge_source_kind(value: &str) -> KernelResult<AgentKnowledgeSource
 }
 
 fn parse_knowledge_document_kind(value: &str) -> KernelResult<AgentKnowledgeDocumentKind> {
-    AgentKnowledgeDocumentKind::from_str(value).ok_or_else(|| {
+    AgentKnowledgeDocumentKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "documentKind must be one of wiki-page, wiki-section, article, faq, api-reference, spec, runbook, policy, external-reference, other: {value}"
         ))
@@ -2342,7 +2605,7 @@ fn parse_knowledge_document_kind(value: &str) -> KernelResult<AgentKnowledgeDocu
 }
 
 fn parse_knowledge_binding_scope_kind(value: &str) -> KernelResult<AgentKnowledgeBindingScopeKind> {
-    AgentKnowledgeBindingScopeKind::from_str(value).ok_or_else(|| {
+    AgentKnowledgeBindingScopeKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "scopeKind must be one of agent, deployment, user, session, organization, tenant: {value}"
         ))
@@ -2350,7 +2613,7 @@ fn parse_knowledge_binding_scope_kind(value: &str) -> KernelResult<AgentKnowledg
 }
 
 fn parse_knowledge_sync_job_kind(value: &str) -> KernelResult<AgentKnowledgeSyncJobKind> {
-    AgentKnowledgeSyncJobKind::from_str(value).ok_or_else(|| {
+    AgentKnowledgeSyncJobKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "jobKind must be one of import, refresh, reindex, delete: {value}"
         ))
@@ -2358,7 +2621,7 @@ fn parse_knowledge_sync_job_kind(value: &str) -> KernelResult<AgentKnowledgeSync
 }
 
 fn parse_memory_store_kind(value: &str) -> KernelResult<AgentMemoryStoreKind> {
-    AgentMemoryStoreKind::from_str(value).ok_or_else(|| {
+    AgentMemoryStoreKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "storeKind must be one of local-postgres, external-provider, vector-store, graph-store, hybrid-store, file-store: {value}"
         ))
@@ -2366,7 +2629,7 @@ fn parse_memory_store_kind(value: &str) -> KernelResult<AgentMemoryStoreKind> {
 }
 
 fn parse_memory_index_kind(value: &str) -> KernelResult<AgentMemoryIndexKind> {
-    AgentMemoryIndexKind::from_str(value).ok_or_else(|| {
+    AgentMemoryIndexKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "indexKind must be one of keyword, sparse, vector, graph, wiki, rule, hybrid: {value}"
         ))
@@ -2374,7 +2637,7 @@ fn parse_memory_index_kind(value: &str) -> KernelResult<AgentMemoryIndexKind> {
 }
 
 fn parse_memory_binding_scope_kind(value: &str) -> KernelResult<AgentMemoryBindingScopeKind> {
-    AgentMemoryBindingScopeKind::from_str(value).ok_or_else(|| {
+    AgentMemoryBindingScopeKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "scopeKind must be one of agent, deployment, user, session, organization, tenant: {value}"
         ))
@@ -2382,7 +2645,7 @@ fn parse_memory_binding_scope_kind(value: &str) -> KernelResult<AgentMemoryBindi
 }
 
 fn parse_memory_namespace_kind(value: &str) -> KernelResult<AgentMemoryNamespaceKind> {
-    AgentMemoryNamespaceKind::from_str(value).ok_or_else(|| {
+    AgentMemoryNamespaceKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "namespaceKind must be one of tenant, organization, agent, user, session, thread, task: {value}"
         ))
@@ -2390,7 +2653,7 @@ fn parse_memory_namespace_kind(value: &str) -> KernelResult<AgentMemoryNamespace
 }
 
 fn parse_memory_record_kind(value: &str) -> KernelResult<AgentMemoryRecordKind> {
-    AgentMemoryRecordKind::from_str(value).ok_or_else(|| {
+    AgentMemoryRecordKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "memoryKind must be one of working, episodic, semantic, procedural, preference, summary, task, correction, system: {value}"
         ))
@@ -2398,7 +2661,7 @@ fn parse_memory_record_kind(value: &str) -> KernelResult<AgentMemoryRecordKind> 
 }
 
 fn parse_memory_source_kind(value: &str) -> KernelResult<AgentMemorySourceKind> {
-    AgentMemorySourceKind::from_str(value).ok_or_else(|| {
+    AgentMemorySourceKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "sourceKind must be one of conversation-message, tool-result, document, knowledge-ref, human-feedback, system-rule, business-event: {value}"
         ))
@@ -2406,11 +2669,78 @@ fn parse_memory_source_kind(value: &str) -> KernelResult<AgentMemorySourceKind> 
 }
 
 fn parse_memory_relation_kind(value: &str) -> KernelResult<AgentMemoryRelationKind> {
-    AgentMemoryRelationKind::from_str(value).ok_or_else(|| {
+    AgentMemoryRelationKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
             "relationKind must be one of supports, contradicts, supersedes, duplicates, depends-on, part-of, about-entity: {value}"
         ))
     })
+}
+
+fn optional_object_string(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .and_then(normalize_optional_string)
+}
+
+fn optional_object_bool(value: Option<&Value>) -> Option<bool> {
+    value.and_then(Value::as_bool)
+}
+
+fn optional_object_f64(value: Option<&Value>) -> Option<f64> {
+    value
+        .and_then(Value::as_f64)
+        .filter(|value| value.is_finite())
+}
+
+fn object_string_array(value: Option<&Value>) -> Vec<String> {
+    value
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(Value::as_str)
+                .filter_map(normalize_optional_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn insert_optional_string(object: &mut Map<String, Value>, key: &str, value: Option<&String>) {
+    if let Some(value) = value.and_then(|value| normalize_optional_string(value.as_str())) {
+        object.insert(key.to_string(), Value::String(value));
+    }
+}
+
+fn insert_optional_bool(object: &mut Map<String, Value>, key: &str, value: Option<bool>) {
+    if let Some(value) = value {
+        object.insert(key.to_string(), Value::Bool(value));
+    }
+}
+
+fn insert_optional_f64(object: &mut Map<String, Value>, key: &str, value: Option<f64>) {
+    if let Some(value) = value.filter(|value| value.is_finite()) {
+        object.insert(key.to_string(), json!(value));
+    }
+}
+
+fn insert_string_array(object: &mut Map<String, Value>, key: &str, value: &[String]) {
+    let values = value
+        .iter()
+        .filter_map(|item| normalize_optional_string(item.as_str()))
+        .map(Value::String)
+        .collect::<Vec<_>>();
+    if !values.is_empty() {
+        object.insert(key.to_string(), Value::Array(values));
+    }
+}
+
+fn normalize_optional_string(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -2608,6 +2938,68 @@ mod tests {
     }
 
     #[test]
+    fn record_dto_exposes_pc_management_profile_from_existing_intent_constraints() {
+        let management_profile_json = r##"{"author":"SDKWork","avatar":"robot","categoryId":"assistant","color":"#3b82f6","iconName":"bot","knowledgeBaseIds":["knowledge.base.product","knowledge.base.runbook"],"systemPrompt":"Answer from approved knowledge only.","type":"independent","users":"12 users","welcomeMessage":"How can I help?"}"##;
+        let record = AgentBusinessRecord {
+            id: 7,
+            agent_id: "agent.alpha".to_string(),
+            tenant_id: 1,
+            organization_id: 10,
+            owner_user_id: 100,
+            code: "alpha".to_string(),
+            display_name: "Alpha".to_string(),
+            description: None,
+            manifest: sample_manifest("agent.alpha"),
+            default_code_task_intent: Some(
+                CodeTaskIntent::new("Answer from approved knowledge only.")
+                    .with_context_path("knowledge.base.product")
+                    .with_constraint("agent.type=independent")
+                    .with_constraint(format!("sdkwork.agent.pc.config:{management_profile_json}")),
+            ),
+            implementation_provider_id: None,
+            implementation_kind: Some(AgentImplementationKind::ManifestOnly),
+            status: AgentBusinessStatus::Draft,
+            visibility: AgentVisibility::Private,
+            tags: vec!["assistant".to_string()],
+            version: 2,
+            created_at: "2026-06-01T00:00:00Z".to_string(),
+            updated_at: "2026-06-01T00:00:00Z".to_string(),
+            deleted_at: None,
+        };
+
+        let dto = AgentRecordDto::from_record(&record);
+        let management_profile = dto
+            .management_profile
+            .expect("PC management profile should be parsed from compatible constraints");
+
+        assert_eq!(management_profile.avatar.as_deref(), Some("robot"));
+        assert_eq!(management_profile.author.as_deref(), Some("SDKWork"));
+        assert_eq!(management_profile.category_id.as_deref(), Some("assistant"));
+        assert_eq!(management_profile.color.as_deref(), Some("#3b82f6"));
+        assert_eq!(management_profile.icon_name.as_deref(), Some("bot"));
+        assert_eq!(
+            management_profile.knowledge_base_ids,
+            vec![
+                "knowledge.base.product".to_string(),
+                "knowledge.base.runbook".to_string()
+            ]
+        );
+        assert_eq!(
+            management_profile.system_prompt.as_deref(),
+            Some("Answer from approved knowledge only.")
+        );
+        assert_eq!(
+            management_profile.agent_type.as_deref(),
+            Some("independent")
+        );
+        assert_eq!(management_profile.users.as_deref(), Some("12 users"));
+        assert_eq!(
+            management_profile.welcome_message.as_deref(),
+            Some("How can I help?")
+        );
+    }
+
+    #[test]
     fn provider_binding_request_maps_to_command_with_implementation_kind() {
         let command = AgentProviderBindingRequestDto {
             tenant_id: "1".to_string(),
@@ -2629,6 +3021,61 @@ mod tests {
             crate::domain::AgentImplementationKind::TypedLocalProvider
         );
         assert!(command.make_default);
+    }
+
+    #[test]
+    fn knowledge_document_dto_exposes_pc_document_profile_from_existing_metadata() {
+        let record = AgentKnowledgeDocumentRecord {
+            id: 17,
+            tenant_id: 1,
+            organization_id: 10,
+            knowledge_document_id: "knowledge.document.product.manual".to_string(),
+            knowledge_base_id: "knowledge.base.product".to_string(),
+            knowledge_source_id: None,
+            document_kind: AgentKnowledgeDocumentKind::WikiPage,
+            title: "Product Manual".to_string(),
+            content_ref: "knowledge://pc/documents/knowledge.document.product.manual".to_string(),
+            content_hash: "sha256-pc-12345678".to_string(),
+            summary: Some("Manual summary".to_string()),
+            metadata_json: r#"{"pcAuthor":"SDKWork Docs","pcContent":"Full manual content","pcParentId":"knowledge.document.product.root","pcType":"file","fileName":"manual.pdf","fileSize":"42 KB","mimeType":"application/pdf","driveUri":"drive://knowledge/manual.pdf"}"#.to_string(),
+            tags: vec!["product".to_string()],
+            categories: vec![],
+            trust_level: 4,
+            redaction_classification: "internal".to_string(),
+            chunk_count: 0,
+            status: AgentBusinessStatus::Draft,
+            visibility: AgentVisibility::Private,
+            version: 3,
+            created_at: "2026-06-01T00:00:00Z".to_string(),
+            updated_at: "2026-06-01T00:00:00Z".to_string(),
+            deleted_at: None,
+        };
+
+        let dto = AgentKnowledgeDocumentRecordDto::from_record(&record);
+        let document_profile = dto
+            .document_profile
+            .expect("document profile should parse from compatible metadata");
+
+        assert_eq!(document_profile.author.as_deref(), Some("SDKWork Docs"));
+        assert_eq!(
+            document_profile.content.as_deref(),
+            Some("Full manual content")
+        );
+        assert_eq!(
+            document_profile.parent_id.as_deref(),
+            Some("knowledge.document.product.root")
+        );
+        assert_eq!(document_profile.document_type.as_deref(), Some("file"));
+        assert_eq!(document_profile.file_name.as_deref(), Some("manual.pdf"));
+        assert_eq!(document_profile.file_size.as_deref(), Some("42 KB"));
+        assert_eq!(
+            document_profile.mime_type.as_deref(),
+            Some("application/pdf")
+        );
+        assert_eq!(
+            document_profile.drive_uri.as_deref(),
+            Some("drive://knowledge/manual.pdf")
+        );
     }
 
     #[test]

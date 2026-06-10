@@ -157,6 +157,49 @@ fn runtime_conformance_rejects_capability_ids_that_are_not_lowercase_namespaces(
     assert!(namespace_case.message.contains("Model.Chat"));
 }
 
+#[test]
+fn runtime_conformance_rejects_protocol_adapter_exposure_outside_effective_capabilities() {
+    let runtime = AgentRuntime::from_capability_manifest(CapabilityManifest {
+        schema_version: "0.1.0".to_string(),
+        manifest_type: "capability".to_string(),
+        runtime_id: "runtime.agent.invalid-adapter-exposure".to_string(),
+        agent_id: "agent.intelligence.invalid-adapter-exposure".to_string(),
+        kernel_version: "0.1.0".to_string(),
+        providers: vec![ProviderManifest::new(
+            "adapter.rpc.invalid",
+            "protocol_adapter",
+            "adapter.rpc.invalid",
+            "0.1.0",
+            vec!["protocol.map".to_string(), "model.chat".to_string()],
+        )],
+        capabilities: vec![Capability {
+            capability_id: "protocol.map".to_string(),
+            version: "0.1.0".to_string(),
+            provider_id: "adapter.rpc.invalid".to_string(),
+            status: "available".to_string(),
+            required: true,
+            operations: Vec::new(),
+            side_effect_level: None,
+            policy_categories: Vec::new(),
+        }],
+        missing_required_capabilities: Vec::new(),
+        degraded_capabilities: Vec::new(),
+        protocol_adapters: vec!["adapter.rpc.invalid".to_string()],
+        security_profile: "fail_closed=true".to_string(),
+        generated_at: "2026-06-09T00:00:00Z".to_string(),
+    });
+
+    let report = runtime.conformance_report(AgentRuntimeConformanceProfile::Manifest);
+
+    let exposure_case = report
+        .case("agent.conformance.runtime.protocol_adapters.exposure_subset")
+        .expect("protocol adapter exposure subset case exists");
+    assert_eq!(exposure_case.status.as_str(), "failed");
+    assert!(exposure_case
+        .message
+        .contains("adapter.rpc.invalid:model.chat"));
+}
+
 struct DegradedModelProvider;
 
 impl ModelProvider for DegradedModelProvider {

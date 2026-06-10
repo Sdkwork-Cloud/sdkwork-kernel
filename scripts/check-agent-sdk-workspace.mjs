@@ -364,7 +364,8 @@ for (const family of families) {
 
   validateGeneratedAgentApi(
     `${family.familyDir} generated TypeScript API`,
-    readIfExists(generatedApiPath)
+    readIfExists(generatedApiPath),
+    family
   );
 }
 
@@ -688,10 +689,11 @@ function validateOpenApiOwnership(label, content, family) {
   finishCurrent();
 }
 
-function validateGeneratedAgentApi(label, content) {
+function validateGeneratedAgentApi(label, content, family) {
   if (!content) {
     return;
   }
+  const scopeFreeCallSurface = usesScopeFreeCallSurface(family);
   for (const required of [
     'export class AiMemoryStoresApi',
     'export class AiMemoryProfilesApi',
@@ -715,11 +717,17 @@ function validateGeneratedAgentApi(label, content) {
     'async retrieve(memoryId: string',
     'async delete(memoryId: string',
     'async restore(memoryId: string, body: RestoreAgentRequest',
-    'async list(memoryId: string, params: AiMemorySourcesListParams',
+    scopeFreeCallSurface
+      ? 'async list(memoryId: string, params?: AiMemorySourcesListParams'
+      : 'async list(memoryId: string, params: AiMemorySourcesListParams',
     'async create(memoryId: string, body: CreateMemorySourceRequest',
-    'async list(memoryId: string, params: AiMemoryRelationsListParams',
+    scopeFreeCallSurface
+      ? 'async list(memoryId: string, params?: AiMemoryRelationsListParams'
+      : 'async list(memoryId: string, params: AiMemoryRelationsListParams',
     'async create(memoryId: string, body: CreateMemoryRelationRequest',
-    'async list(memoryId: string, params: AiMemoryRetrievalIndexesListParams',
+    scopeFreeCallSurface
+      ? 'async list(memoryId: string, params?: AiMemoryRetrievalIndexesListParams'
+      : 'async list(memoryId: string, params: AiMemoryRetrievalIndexesListParams',
     'async upsert(body: UpsertMemoryRetrievalIndexRequest',
     'CreateMemoryStoreRequest',
     'UpdateMemoryStoreRequest',
@@ -760,35 +768,67 @@ function validateGeneratedAgentApi(label, content) {
     'export class AiKnowledgeIndexesApi',
     'export class AiKnowledgeBindingsApi',
     'export class AiKnowledgeSyncJobsApi',
-    'async list(params: AiKnowledgeBasesListParams): Promise<KnowledgeBaseListResponse>',
-    'async create(body: CreateKnowledgeBaseRequest, params: AiKnowledgeBasesCreateParams): Promise<KnowledgeBaseResponse>',
+    scopeFreeCallSurface
+      ? 'async list(params?: AiKnowledgeBasesListParams): Promise<KnowledgeBaseListResponse>'
+      : 'async list(params: AiKnowledgeBasesListParams): Promise<KnowledgeBaseListResponse>',
+    scopeFreeCallSurface
+      ? 'async create(body: CreateKnowledgeBaseRequest): Promise<KnowledgeBaseResponse>'
+      : 'async create(body: CreateKnowledgeBaseRequest, params: AiKnowledgeBasesCreateParams): Promise<KnowledgeBaseResponse>',
     'async retrieve(knowledgeBaseId: string',
     'async update(knowledgeBaseId: string, body: UpdateKnowledgeBaseRequest',
     'async delete(knowledgeBaseId: string',
     'async restore(knowledgeBaseId: string, body: RestoreAgentRequest',
-    'async list(knowledgeBaseId: string, params: AiKnowledgeSourcesListParams): Promise<KnowledgeSourceListResponse>',
-    'async create(knowledgeBaseId: string, body: CreateKnowledgeSourceRequest, params: AiKnowledgeSourcesCreateParams): Promise<KnowledgeSourceResponse>',
+    scopeFreeCallSurface
+      ? 'async list(knowledgeBaseId: string, params?: AiKnowledgeSourcesListParams): Promise<KnowledgeSourceListResponse>'
+      : 'async list(knowledgeBaseId: string, params: AiKnowledgeSourcesListParams): Promise<KnowledgeSourceListResponse>',
+    scopeFreeCallSurface
+      ? 'async create(knowledgeBaseId: string, body: CreateKnowledgeSourceRequest): Promise<KnowledgeSourceResponse>'
+      : 'async create(knowledgeBaseId: string, body: CreateKnowledgeSourceRequest, params: AiKnowledgeSourcesCreateParams): Promise<KnowledgeSourceResponse>',
     'async retrieve(knowledgeSourceId: string',
     'async update(knowledgeSourceId: string, body: UpdateKnowledgeSourceRequest',
     'async delete(knowledgeSourceId: string',
     'async restore(knowledgeSourceId: string, body: RestoreAgentRequest',
-    'async create(knowledgeBaseId: string, body: CreateKnowledgeDocumentRequest, params: AiKnowledgeDocumentsCreateParams): Promise<KnowledgeDocumentResponse>',
-    'async list(knowledgeBaseId: string, params: AiKnowledgeListListParams): Promise<KnowledgeDocumentListResponse>',
-    'async read(knowledgeDocumentId: string, params: AiKnowledgeReadReadParams): Promise<KnowledgeDocumentResponse>',
-    'async search(knowledgeBaseId: string, body: SearchKnowledgeRequest, params: AiKnowledgeSearchSearchParams): Promise<KnowledgeSearchResponse>',
+    scopeFreeCallSurface
+      ? 'async create(knowledgeBaseId: string, body: CreateKnowledgeDocumentRequest): Promise<KnowledgeDocumentResponse>'
+      : 'async create(knowledgeBaseId: string, body: CreateKnowledgeDocumentRequest, params: AiKnowledgeDocumentsCreateParams): Promise<KnowledgeDocumentResponse>',
+    scopeFreeCallSurface
+      ? 'async list(knowledgeBaseId: string, params?: AiKnowledgeListListParams): Promise<KnowledgeDocumentListResponse>'
+      : 'async list(knowledgeBaseId: string, params: AiKnowledgeListListParams): Promise<KnowledgeDocumentListResponse>',
+    scopeFreeCallSurface
+      ? 'async read(knowledgeDocumentId: string): Promise<KnowledgeDocumentResponse>'
+      : 'async read(knowledgeDocumentId: string, params: AiKnowledgeReadReadParams): Promise<KnowledgeDocumentResponse>',
+    scopeFreeCallSurface
+      ? 'async search(knowledgeBaseId: string, body: SearchKnowledgeRequest): Promise<KnowledgeSearchResponse>'
+      : 'async search(knowledgeBaseId: string, body: SearchKnowledgeRequest, params: AiKnowledgeSearchSearchParams): Promise<KnowledgeSearchResponse>',
     'async update(knowledgeDocumentId: string, body: UpdateKnowledgeDocumentRequest',
     'async delete(knowledgeDocumentId: string',
-    'async list(knowledgeDocumentId: string, params: AiKnowledgeChunksListParams): Promise<KnowledgeChunkListResponse>',
-    'async create(knowledgeDocumentId: string, body: CreateKnowledgeChunkRequest, params: AiKnowledgeChunksCreateParams): Promise<KnowledgeChunkResponse>',
+    scopeFreeCallSurface
+      ? 'async list(knowledgeDocumentId: string, params?: AiKnowledgeChunksListParams): Promise<KnowledgeChunkListResponse>'
+      : 'async list(knowledgeDocumentId: string, params: AiKnowledgeChunksListParams): Promise<KnowledgeChunkListResponse>',
+    scopeFreeCallSurface
+      ? 'async create(knowledgeDocumentId: string, body: CreateKnowledgeChunkRequest): Promise<KnowledgeChunkResponse>'
+      : 'async create(knowledgeDocumentId: string, body: CreateKnowledgeChunkRequest, params: AiKnowledgeChunksCreateParams): Promise<KnowledgeChunkResponse>',
     'async retrieve(knowledgeChunkId: string',
-    'async list(knowledgeDocumentId: string, params: AiKnowledgeIndexesListParams): Promise<KnowledgeIndexListResponse>',
-    'async upsert(body: UpsertKnowledgeIndexRequest, params: AiKnowledgeIndexesUpsertParams): Promise<KnowledgeIndexResponse>',
+    scopeFreeCallSurface
+      ? 'async list(knowledgeDocumentId: string, params?: AiKnowledgeIndexesListParams): Promise<KnowledgeIndexListResponse>'
+      : 'async list(knowledgeDocumentId: string, params: AiKnowledgeIndexesListParams): Promise<KnowledgeIndexListResponse>',
+    scopeFreeCallSurface
+      ? 'async upsert(body: UpsertKnowledgeIndexRequest): Promise<KnowledgeIndexResponse>'
+      : 'async upsert(body: UpsertKnowledgeIndexRequest, params: AiKnowledgeIndexesUpsertParams): Promise<KnowledgeIndexResponse>',
     'async retrieve(knowledgeIndexId: string',
-    'async list(knowledgeBaseId: string, params: AiKnowledgeBindingsListParams): Promise<KnowledgeBindingListResponse>',
-    'async create(knowledgeBaseId: string, body: CreateKnowledgeBindingRequest, params: AiKnowledgeBindingsCreateParams): Promise<KnowledgeBindingResponse>',
+    scopeFreeCallSurface
+      ? 'async list(knowledgeBaseId: string, params?: AiKnowledgeBindingsListParams): Promise<KnowledgeBindingListResponse>'
+      : 'async list(knowledgeBaseId: string, params: AiKnowledgeBindingsListParams): Promise<KnowledgeBindingListResponse>',
+    scopeFreeCallSurface
+      ? 'async create(knowledgeBaseId: string, body: CreateKnowledgeBindingRequest): Promise<KnowledgeBindingResponse>'
+      : 'async create(knowledgeBaseId: string, body: CreateKnowledgeBindingRequest, params: AiKnowledgeBindingsCreateParams): Promise<KnowledgeBindingResponse>',
     'async retrieve(knowledgeBindingId: string',
-    'async list(knowledgeBaseId: string, params: AiKnowledgeSyncJobsListParams): Promise<KnowledgeSyncJobListResponse>',
-    'async create(knowledgeBaseId: string, body: CreateKnowledgeSyncJobRequest, params: AiKnowledgeSyncJobsCreateParams): Promise<KnowledgeSyncJobResponse>',
+    scopeFreeCallSurface
+      ? 'async list(knowledgeBaseId: string, params?: AiKnowledgeSyncJobsListParams): Promise<KnowledgeSyncJobListResponse>'
+      : 'async list(knowledgeBaseId: string, params: AiKnowledgeSyncJobsListParams): Promise<KnowledgeSyncJobListResponse>',
+    scopeFreeCallSurface
+      ? 'async create(knowledgeBaseId: string, body: CreateKnowledgeSyncJobRequest): Promise<KnowledgeSyncJobResponse>'
+      : 'async create(knowledgeBaseId: string, body: CreateKnowledgeSyncJobRequest, params: AiKnowledgeSyncJobsCreateParams): Promise<KnowledgeSyncJobResponse>',
     'async retrieve(syncJobId: string',
     'async start(syncJobId: string, body: StartKnowledgeSyncJobRequest',
     'async complete(syncJobId: string, body: CompleteKnowledgeSyncJobRequest',
@@ -838,7 +878,7 @@ function validateGeneratedAgentApi(label, content) {
     '}'
   );
   for (const required of [
-    'tenantId: Int64String;',
+    ...(scopeFreeCallSurface ? [] : ['tenantId: Int64String;']),
     'expectedVersion?: Int64String;',
     'requestedAt: string;'
   ]) {
@@ -853,7 +893,7 @@ function validateGeneratedAgentApi(label, content) {
     'async restore(knowledgeDocumentId: string'
   );
   for (const required of [
-    "{ name: 'tenant_id', value: params.tenantId",
+    ...(scopeFreeCallSurface ? [] : ["{ name: 'tenant_id', value: params.tenantId"]),
     "{ name: 'expected_version', value: params.expectedVersion",
     "{ name: 'requested_at', value: params.requestedAt",
     'return this.client.delete<KnowledgeDocumentResponse>'
@@ -864,6 +904,24 @@ function validateGeneratedAgentApi(label, content) {
   }
   if (documentDeleteMethod.includes(', body')) {
     errors.push(`${label} knowledge document delete method must not send a request body`);
+  }
+  if (scopeFreeCallSurface) {
+    for (const forbidden of [
+      'tenantId:',
+      'organizationId:',
+      'ownerUserId:',
+      "'tenant_id'",
+      "'organization_id'",
+      "'owner_user_id'",
+      'AiKnowledgeBasesCreateParams',
+      'AiKnowledgeDocumentsCreateParams',
+      'AiKnowledgeReadReadParams',
+      'AiKnowledgeSearchSearchParams'
+    ]) {
+      if (content.includes(forbidden)) {
+        errors.push(`${label} call surface must not include caller-provided scope ${forbidden}`);
+      }
+    }
   }
 
   for (const forbidden of [
@@ -1008,6 +1066,10 @@ function validateSdkgenReport(label, report) {
   if (report.openSdkDerivation?.hasChanges !== false) {
     errors.push(`${label} open SDK derivation must have hasChanges=false after standard generation`);
   }
+}
+
+function usesScopeFreeCallSurface(family) {
+  return family?.key === 'app' || family?.key === 'open';
 }
 
 function containsLocalDriveAbsolutePath(value) {

@@ -1,6 +1,7 @@
 {
   "name": "@sdkwork/agent-sdk",
   "version": "0.1.0",
+  "private": true,
   "description": "SDKWork agent developer Open API TypeScript SDK.",
   "author": "SDKWork Team",
   "license": "MIT",

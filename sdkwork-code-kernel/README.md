@@ -422,8 +422,8 @@ cargo test --manifest-path kernel/sdkwork-agent-kernel/Cargo.toml
 
 ## SDKWork Documentation Contract
 
-Domain: device
-Capability: component
+Domain: intelligence
+Capability: code-kernel
 Package type: rust-crate
 Status: standardizing
 

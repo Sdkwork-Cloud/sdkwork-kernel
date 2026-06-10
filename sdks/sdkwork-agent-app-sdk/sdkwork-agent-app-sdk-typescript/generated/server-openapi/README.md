@@ -1,6 +1,6 @@
 # sdkwork-agent-app-sdk
 
-Professional TypeScript SDK for SDKWork API.
+Generated SDKWork v3 dual-token transport SDK.
 
 ## Installation
 
@@ -22,46 +22,27 @@ const client = new SdkworkAppClient({
   timeout: 30000,
 });
 
-// Mode A: API Key (recommended for server-to-server calls)
-client.setApiKey('your-api-key');
+// Authentication
+client.setAuthToken('your-auth-token');
+client.setAccessToken('your-access-token');
 
 // Use the SDK
 const params = {
-  tenant_id: 'tenant_id',
-  organization_id: 'organization_id',
-  owner_user_id: 'owner_user_id',
-  include_deleted: false,
-  page: 5,
-  page_size: 6,
+  include_deleted: true,
+  page: 2,
+  page_size: 3,
   q: 'q',
 };
 const result = await client.ai.agents.list(params);
 ```
 
-## Authentication Modes (Mutually Exclusive)
+## Authentication
 
-Choose exactly one mode for the same client instance.
-
-### Mode A: API Key
-
-```typescript
-const client = new SdkworkAppClient({ baseUrl: 'http://localhost:8080' });
-client.setApiKey('your-api-key');
-// Sends: Access-Token: <apiKey>
+```text
+Authorization: Bearer <authToken>
+Access-Token: <accessToken>
 ```
 
-### Mode B: Dual Token
-
-```typescript
-const client = new SdkworkAppClient({ baseUrl: 'http://localhost:8080' });
-client.setAuthToken('your-auth-token');
-client.setAccessToken('your-access-token');
-// Sends:
-// Authorization: Bearer <authToken>
-// Access-Token: <accessToken>
-```
-
-> Do not call `setApiKey(...)` together with `setAuthToken(...)` + `setAccessToken(...)` on the same client.
 
 ## Configuration (Non-Auth)
 
@@ -88,12 +69,9 @@ const client = new SdkworkAppClient({
 ```typescript
 // List managed agents
 const params = {
-  tenant_id: 'tenant_id',
-  organization_id: 'organization_id',
-  owner_user_id: 'owner_user_id',
-  include_deleted: false,
-  page: 5,
-  page_size: 6,
+  include_deleted: true,
+  page: 2,
+  page_size: 3,
   q: 'q',
 };
 const result = await client.ai.agents.list(params);
@@ -106,12 +84,9 @@ import { SdkworkAppClient, NetworkError, TimeoutError, AuthenticationError } fro
 
 try {
   const params = {
-    tenant_id: 'tenant_id',
-    organization_id: 'organization_id',
-    owner_user_id: 'owner_user_id',
-    include_deleted: false,
-    page: 5,
-    page_size: 6,
+    include_deleted: true,
+    page: 2,
+    page_size: 3,
     q: 'q',
   };
   const result = await client.ai.agents.list(params);
@@ -151,7 +126,7 @@ This SDK includes cross-platform publish scripts in `bin/`:
 .\bin\publish.ps1 --action publish --channel test --dry-run
 ```
 
-> Set `NPM_TOKEN` (and optional `NPM_REGISTRY_URL`) before release publish.
+> Configure npm registry credentials before release publish.
 
 ## License
 
@@ -159,10 +134,12 @@ MIT
 
 ## Regeneration Contract
 
-- Generator-owned files are tracked in `.sdkwork/sdkwork-generator-manifest.json`.
-- Each run also writes `.sdkwork/sdkwork-generator-changes.json` so automation can inspect created, updated, deleted, unchanged, scaffolded, and backed-up files plus the classified impact areas, verification plan, and execution decision for the latest generation.
-- Apply mode also writes `.sdkwork/sdkwork-generator-report.json` with the full execution report, including `schemaVersion`, `generator`, stable artifact paths, and the execution handoff commands that match CLI `--json` output.
+- HTTP/OpenAPI generator-owned files are tracked in `.sdkwork/sdkwork-generator-manifest.json`.
+- HTTP/OpenAPI generation also writes `.sdkwork/sdkwork-generator-changes.json` so automation can inspect created, updated, deleted, unchanged, scaffolded, and backed-up files plus the classified impact areas, verification plan, and execution decision for the latest generation.
+- HTTP/OpenAPI apply mode also writes `.sdkwork/sdkwork-generator-report.json` with the full execution report, including `schemaVersion`, `generator`, stable artifact paths, and the execution handoff commands that match CLI `--json` output.
 - CLI JSON output also includes an execution handoff with concrete next commands, including reviewed apply commands for dry-run flows.
-- Put hand-written wrappers, adapters, and orchestration in `custom/`.
-- Files scaffolded under `custom/` are created once and preserved across regenerations.
-- If a generated-owned file was modified locally, its previous content is copied to `.sdkwork/manual-backups/` before overwrite or removal.
+- Put HTTP/OpenAPI hand-written wrappers, adapters, and orchestration in `custom/`.
+- Files scaffolded under `custom/` are created once and preserved across HTTP/OpenAPI regenerations.
+- If an HTTP/OpenAPI generated-owned file was modified locally, its previous content is copied to `.sdkwork/manual-backups/` before overwrite or removal.
+- RPC SDK source workspaces use convention-first evidence by default: RPC SDK family naming, language workspace naming, `rpc/*.manifest.json`, proto source references, generated client source, and native package manifests.
+- Use `sdkgen inspect --protocol rpc` to verify RPC convention evidence. Request persisted generator evidence only with `--emit-control-plane` for release, CI, audit, or migration workflows; evidence paths are derived by generator convention.

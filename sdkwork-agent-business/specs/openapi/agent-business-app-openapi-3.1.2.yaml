@@ -23,9 +23,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.listed
       parameters:
-        - $ref: '#/components/parameters/TenantId'
-        - $ref: '#/components/parameters/OrganizationId'
-        - $ref: '#/components/parameters/OwnerUserId'
         - $ref: '#/components/parameters/IncludeDeleted'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -51,8 +48,6 @@ paths:
       x-sdkwork-permission: agent.business.create
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.created
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
       requestBody:
         required: true
         content:
@@ -110,7 +105,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.retrieved
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/AgentIdPath'
       responses:
         '200':
@@ -162,7 +156,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.updated
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/AgentIdPath'
       requestBody:
         required: true
@@ -234,7 +227,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.deleted
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/AgentIdPath'
       requestBody:
         required: true
@@ -307,7 +299,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.restored
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/AgentIdPath'
       requestBody:
         required: true
@@ -379,7 +370,6 @@ paths:
       x-sdkwork-permission: agent.business.provider_binding.list
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/AgentIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -411,7 +401,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.provider_binding_changed
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/AgentIdPath'
       requestBody:
         required: true
@@ -450,7 +439,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.provider_binding_changed
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/AgentIdPath'
         - $ref: '#/components/parameters/BindingIdPath'
       requestBody:
@@ -487,7 +475,6 @@ paths:
       x-sdkwork-permission: agent.business.deployment.list
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/AgentIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -519,7 +506,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.deployment_created
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/AgentIdPath'
       requestBody:
         required: true
@@ -558,7 +544,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.runtime.executed
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/AgentIdPath'
       requestBody:
         required: true
@@ -595,7 +580,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.runtime.executed
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/AgentIdPath'
       requestBody:
         required: true
@@ -631,9 +615,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.base.list
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
-        - $ref: '#/components/parameters/OrganizationId'
-        - $ref: '#/components/parameters/OwnerUserId'
         - $ref: '#/components/parameters/IncludeDeleted'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -663,8 +644,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.base.create
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_base_created
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
       requestBody:
         required: true
         content:
@@ -699,7 +678,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.base.retrieve
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeBaseIdPath'
       responses:
         '200':
@@ -729,7 +707,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_base_updated
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeBaseIdPath'
       requestBody:
         required: true
@@ -767,7 +744,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_base_deleted
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeBaseIdPath'
         - $ref: '#/components/parameters/ExpectedVersion'
         - $ref: '#/components/parameters/RequestedAt'
@@ -802,7 +778,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_base_restored
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeBaseIdPath'
       requestBody:
         required: true
@@ -840,7 +815,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.source.list
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeBaseIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -872,7 +846,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_source_created
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeBaseIdPath'
       requestBody:
         required: true
@@ -910,7 +883,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.source.retrieve
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeSourceIdPath'
       responses:
         '200':
@@ -940,7 +912,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_source_updated
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeSourceIdPath'
       requestBody:
         required: true
@@ -978,7 +949,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_source_deleted
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeSourceIdPath'
         - $ref: '#/components/parameters/ExpectedVersion'
         - $ref: '#/components/parameters/RequestedAt'
@@ -1013,7 +983,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_source_restored
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeSourceIdPath'
       requestBody:
         required: true
@@ -1052,7 +1021,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.list
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeBaseIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -1084,7 +1052,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_document_created
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeBaseIdPath'
       requestBody:
         required: true
@@ -1123,7 +1090,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.search
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeBaseIdPath'
       requestBody:
         required: true
@@ -1160,7 +1126,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.read
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeDocumentIdPath'
       responses:
         '200':
@@ -1190,7 +1155,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_document_updated
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeDocumentIdPath'
       requestBody:
         required: true
@@ -1228,7 +1192,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_document_deleted
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeDocumentIdPath'
         - $ref: '#/components/parameters/ExpectedVersion'
         - $ref: '#/components/parameters/RequestedAt'
@@ -1263,7 +1226,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_document_restored
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeDocumentIdPath'
       requestBody:
         required: true
@@ -1301,7 +1263,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.chunk.list
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeDocumentIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -1333,7 +1294,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_chunk_created
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeDocumentIdPath'
       requestBody:
         required: true
@@ -1371,7 +1331,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.chunk.retrieve
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeChunkIdPath'
       responses:
         '200':
@@ -1401,7 +1360,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.index.list
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeDocumentIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -1433,7 +1391,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.binding.list
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeBaseIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -1465,7 +1422,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_binding_created
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeBaseIdPath'
       requestBody:
         required: true
@@ -1503,7 +1459,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.binding.retrieve
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeBindingIdPath'
       responses:
         '200':
@@ -1533,7 +1488,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.sync_job.list
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeBaseIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -1565,7 +1519,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_sync_job_created
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeBaseIdPath'
       requestBody:
         required: true
@@ -1603,7 +1556,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.sync_job.retrieve
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeSyncJobIdPath'
       responses:
         '200':
@@ -1634,7 +1586,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_sync_job_started
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeSyncJobIdPath'
       requestBody:
         required: true
@@ -1673,7 +1624,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_sync_job_completed
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeSyncJobIdPath'
       requestBody:
         required: true
@@ -1712,7 +1662,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_sync_job_failed
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeSyncJobIdPath'
       requestBody:
         required: true
@@ -1751,7 +1700,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_sync_job_cancelled
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeSyncJobIdPath'
       requestBody:
         required: true
@@ -1789,8 +1737,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.index.upsert
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.knowledge_index_upserted
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
       requestBody:
         required: true
         content:
@@ -1827,7 +1773,6 @@ paths:
       x-sdkwork-permission: agent.business.knowledge.index.retrieve
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/KnowledgeIndexIdPath'
       responses:
         '200':
@@ -1857,8 +1802,6 @@ paths:
       x-sdkwork-permission: agent.business.memory.store.create
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.memory_store_created
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
       requestBody:
         required: true
         content:
@@ -1895,7 +1838,6 @@ paths:
       x-sdkwork-permission: agent.business.memory.store.retrieve
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryStoreIdPath'
       responses:
         '200':
@@ -1925,7 +1867,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.memory_store_updated
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryStoreIdPath'
       requestBody:
         required: true
@@ -1964,7 +1905,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.memory_profile_created
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryStoreIdPath'
       requestBody:
         required: true
@@ -2002,7 +1942,6 @@ paths:
       x-sdkwork-permission: agent.business.memory.profile.retrieve
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryProfileIdPath'
       responses:
         '200':
@@ -2033,7 +1972,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.memory_binding_created
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryProfileIdPath'
       requestBody:
         required: true
@@ -2071,7 +2009,6 @@ paths:
       x-sdkwork-permission: agent.business.memory.binding.retrieve
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryBindingIdPath'
       responses:
         '200':
@@ -2101,8 +2038,6 @@ paths:
       x-sdkwork-permission: agent.business.memory.namespace.create
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.memory_namespace_created
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
       requestBody:
         required: true
         content:
@@ -2139,7 +2074,6 @@ paths:
       x-sdkwork-permission: agent.business.memory.namespace.retrieve
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryNamespaceIdPath'
       responses:
         '200':
@@ -2169,7 +2103,6 @@ paths:
       x-sdkwork-permission: agent.business.memory.record.list
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryNamespaceIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -2201,7 +2134,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.memory_record_created
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryNamespaceIdPath'
       requestBody:
         required: true
@@ -2239,7 +2171,6 @@ paths:
       x-sdkwork-permission: agent.business.memory.record.retrieve
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryIdPath'
       responses:
         '200':
@@ -2269,7 +2200,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.memory_record_deleted
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryIdPath'
         - $ref: '#/components/parameters/ExpectedVersion'
         - $ref: '#/components/parameters/RequestedAt'
@@ -2304,7 +2234,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.memory_record_restored
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryIdPath'
       requestBody:
         required: true
@@ -2342,7 +2271,6 @@ paths:
       x-sdkwork-permission: agent.business.memory.source.list
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -2374,7 +2302,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.memory_source_created
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryIdPath'
       requestBody:
         required: true
@@ -2412,7 +2339,6 @@ paths:
       x-sdkwork-permission: agent.business.memory.relation.list
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -2444,7 +2370,6 @@ paths:
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.memory_relation_created
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryIdPath'
       requestBody:
         required: true
@@ -2482,7 +2407,6 @@ paths:
       x-sdkwork-permission: agent.business.memory.retrieval_index.list
       x-sdkwork-tenant-scope: tenant
       parameters:
-        - $ref: '#/components/parameters/TenantId'
         - $ref: '#/components/parameters/MemoryIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
@@ -2514,8 +2438,6 @@ paths:
       x-sdkwork-permission: agent.business.memory.retrieval_index.upsert
       x-sdkwork-tenant-scope: tenant
       x-sdkwork-audit-event: agent.business.memory_retrieval_index_upserted
-      parameters:
-        - $ref: '#/components/parameters/TenantId'
       requestBody:
         required: true
         content:
@@ -2550,25 +2472,6 @@ components:
       in: header
       name: Access-Token
   parameters:
-    TenantId:
-      name: tenant_id
-      in: query
-      required: true
-      description: Tenant id in int64-string form.
-      schema:
-        $ref: '#/components/schemas/Int64String'
-    OrganizationId:
-      name: organization_id
-      in: query
-      required: false
-      schema:
-        $ref: '#/components/schemas/Int64String'
-    OwnerUserId:
-      name: owner_user_id
-      in: query
-      required: false
-      schema:
-        $ref: '#/components/schemas/Int64String'
     IncludeDeleted:
       name: include_deleted
       in: query
@@ -2902,6 +2805,10 @@ components:
         defaultCodeTaskIntent:
           type: [object, 'null']
           additionalProperties: true
+        managementProfile:
+          oneOf:
+            - $ref: '#/components/schemas/AgentManagementProfile'
+            - type: 'null'
         implementationProviderId:
           type: [string, 'null']
           minLength: 1
@@ -2933,6 +2840,99 @@ components:
         deletedAt:
           type: [string, 'null']
           format: date-time
+    AgentManagementProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        author:
+          type: string
+          minLength: 1
+          maxLength: 128
+        avatar:
+          type: string
+          minLength: 1
+          maxLength: 512
+        categoryId:
+          type: string
+          minLength: 1
+          maxLength: 64
+        color:
+          type: string
+          minLength: 1
+          maxLength: 32
+        debugMode:
+          type: boolean
+        iconName:
+          type: string
+          minLength: 1
+          maxLength: 64
+        jsonMode:
+          type: boolean
+        knowledgeBaseIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^knowledge\.base\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+          maxItems: 128
+        memoryEnabled:
+          type: boolean
+        model:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^model\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        skillIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^skill\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+          maxItems: 128
+        suggestedPrompts:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 256
+          maxItems: 12
+        systemPrompt:
+          type: string
+          minLength: 1
+          maxLength: 32768
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+        toolIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^tool\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+          maxItems: 128
+        type:
+          type: string
+          enum: [normal, independent]
+        users:
+          type: string
+          minLength: 1
+          maxLength: 128
+        voiceIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^voice\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+          maxItems: 16
+        welcomeMessage:
+          type: string
+          minLength: 1
+          maxLength: 4096
     AgentResponse:
       type: object
       additionalProperties: false
@@ -3162,7 +3162,7 @@ components:
     KnowledgeBaseRecord:
       type: object
       additionalProperties: false
-      required: [id, tenantId, organizationId, ownerUserId, knowledgeBaseId, code, displayName, providerId, baseKind, retrievalModes, capabilityIds, configurationProfileId, status, visibility, version, createdAt, updatedAt]
+      required: [id, tenantId, organizationId, ownerUserId, knowledgeBaseId, code, displayName, providerId, baseKind, retrievalModes, capabilityIds, configurationProfileId, documentCount, status, visibility, version, createdAt, updatedAt]
       properties:
         id:
           $ref: '#/components/schemas/Int64String'
@@ -3215,6 +3215,9 @@ components:
           minLength: 1
           maxLength: 128
           pattern: '^profile\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        documentCount:
+          type: integer
+          minimum: 0
         status:
           $ref: '#/components/schemas/AgentStatus'
         visibility:
@@ -3380,6 +3383,10 @@ components:
         metadata:
           type: object
           additionalProperties: true
+        documentProfile:
+          oneOf:
+            - $ref: '#/components/schemas/KnowledgeDocumentProfile'
+            - type: 'null'
         tags:
           type: array
           items:
@@ -3420,6 +3427,41 @@ components:
         deletedAt:
           type: [string, 'null']
           format: date-time
+    KnowledgeDocumentProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        author:
+          type: string
+          minLength: 1
+          maxLength: 128
+        content:
+          type: string
+          maxLength: 1048576
+        parentId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^knowledge\.document\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        type:
+          type: string
+          enum: [markdown, file, folder]
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 512
+        fileSize:
+          type: string
+          minLength: 1
+          maxLength: 64
+        mimeType:
+          type: string
+          minLength: 1
+          maxLength: 255
+        driveUri:
+          type: string
+          minLength: 1
+          maxLength: 1024
     KnowledgeDocumentResponse:
       type: object
       additionalProperties: false
@@ -4451,17 +4493,13 @@ components:
     CreateAgentRequest:
       type: object
       additionalProperties: false
-      required: [agentId, organizationId, ownerUserId, code, displayName, manifest, visibility, requestedAt]
+      required: [agentId, code, displayName, manifest, visibility, requestedAt]
       properties:
         agentId:
           type: string
           minLength: 1
           maxLength: 128
           pattern: '^agent\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-        organizationId:
-          $ref: '#/components/schemas/Int64String'
-        ownerUserId:
-          $ref: '#/components/schemas/Int64String'
         code:
           type: string
           minLength: 1
@@ -4479,6 +4517,10 @@ components:
         defaultCodeTaskIntent:
           type: [object, 'null']
           additionalProperties: true
+        managementProfile:
+          oneOf:
+            - $ref: '#/components/schemas/AgentManagementProfile'
+            - type: 'null'
         implementationProviderId:
           type: [string, 'null']
           minLength: 1
@@ -4644,6 +4686,10 @@ components:
         defaultCodeTaskIntent:
           type: [object, 'null']
           additionalProperties: true
+        managementProfile:
+          oneOf:
+            - $ref: '#/components/schemas/AgentManagementProfile'
+            - type: 'null'
         expectedVersion:
           $ref: '#/components/schemas/Int64String'
         requestedAt:
@@ -4672,17 +4718,13 @@ components:
     CreateKnowledgeBaseRequest:
       type: object
       additionalProperties: false
-      required: [knowledgeBaseId, organizationId, ownerUserId, code, displayName, providerId, baseKind, retrievalModes, configurationProfileId, visibility, requestedAt]
+      required: [knowledgeBaseId, code, displayName, providerId, baseKind, retrievalModes, configurationProfileId, visibility, requestedAt]
       properties:
         knowledgeBaseId:
           type: string
           minLength: 1
           maxLength: 128
           pattern: '^knowledge\.base\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-        organizationId:
-          $ref: '#/components/schemas/Int64String'
-        ownerUserId:
-          $ref: '#/components/schemas/Int64String'
         code:
           type: string
           minLength: 1
@@ -4775,15 +4817,13 @@ components:
     CreateKnowledgeSourceRequest:
       type: object
       additionalProperties: false
-      required: [knowledgeSourceId, organizationId, sourceKind, sourceRef, sourceHash, requestedAt]
+      required: [knowledgeSourceId, sourceKind, sourceRef, sourceHash, requestedAt]
       properties:
         knowledgeSourceId:
           type: string
           minLength: 1
           maxLength: 128
           pattern: '^knowledge\.source\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-        organizationId:
-          $ref: '#/components/schemas/Int64String'
         sourceKind:
           $ref: '#/components/schemas/KnowledgeSourceKind'
         sourceRef:
@@ -4832,15 +4872,13 @@ components:
     CreateKnowledgeDocumentRequest:
       type: object
       additionalProperties: false
-      required: [knowledgeDocumentId, organizationId, documentKind, title, contentRef, contentHash, requestedAt]
+      required: [knowledgeDocumentId, documentKind, title, contentRef, contentHash, requestedAt]
       properties:
         knowledgeDocumentId:
           type: string
           minLength: 1
           maxLength: 128
           pattern: '^knowledge\.document\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-        organizationId:
-          $ref: '#/components/schemas/Int64String'
         knowledgeSourceId:
           type: [string, 'null']
           minLength: 1
@@ -4866,6 +4904,10 @@ components:
         metadata:
           type: object
           additionalProperties: true
+        documentProfile:
+          oneOf:
+            - $ref: '#/components/schemas/KnowledgeDocumentProfile'
+            - type: 'null'
         tags:
           type: array
           items:
@@ -4923,6 +4965,10 @@ components:
         metadata:
           type: object
           additionalProperties: true
+        documentProfile:
+          oneOf:
+            - $ref: '#/components/schemas/KnowledgeDocumentProfile'
+            - type: 'null'
         tags:
           type: array
           items:
@@ -4951,15 +4997,13 @@ components:
     CreateKnowledgeChunkRequest:
       type: object
       additionalProperties: false
-      required: [knowledgeChunkId, organizationId, chunkOrdinal, contentRef, contentHash, tokenEstimate, requestedAt]
+      required: [knowledgeChunkId, chunkOrdinal, contentRef, contentHash, tokenEstimate, requestedAt]
       properties:
         knowledgeChunkId:
           type: string
           minLength: 1
           maxLength: 128
           pattern: '^knowledge\.chunk\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-        organizationId:
-          $ref: '#/components/schemas/Int64String'
         parentChunkId:
           type: [string, 'null']
           minLength: 1
@@ -5068,15 +5112,13 @@ components:
     CreateKnowledgeBindingRequest:
       type: object
       additionalProperties: false
-      required: [knowledgeBindingId, organizationId, scopeKind, scopeRef, requestedAt]
+      required: [knowledgeBindingId, scopeKind, scopeRef, requestedAt]
       properties:
         knowledgeBindingId:
           type: string
           minLength: 1
           maxLength: 128
           pattern: '^knowledge\.binding\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-        organizationId:
-          $ref: '#/components/schemas/Int64String'
         agentId:
           type: [string, 'null']
           minLength: 1
@@ -5106,15 +5148,13 @@ components:
     CreateKnowledgeSyncJobRequest:
       type: object
       additionalProperties: false
-      required: [syncJobId, organizationId, jobKind, inputRef, requestedAt]
+      required: [syncJobId, jobKind, inputRef, requestedAt]
       properties:
         syncJobId:
           type: string
           minLength: 1
           maxLength: 128
           pattern: '^knowledge\.sync\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-        organizationId:
-          $ref: '#/components/schemas/Int64String'
         knowledgeSourceId:
           type: [string, 'null']
           minLength: 1
@@ -5176,17 +5216,13 @@ components:
     CreateMemoryStoreRequest:
       type: object
       additionalProperties: false
-      required: [memoryStoreId, organizationId, ownerUserId, code, displayName, providerId, storeKind, retrievalModes, configurationProfileId, visibility, requestedAt]
+      required: [memoryStoreId, code, displayName, providerId, storeKind, retrievalModes, configurationProfileId, visibility, requestedAt]
       properties:
         memoryStoreId:
           type: string
           minLength: 1
           maxLength: 128
           pattern: '^memory\.store\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-        organizationId:
-          $ref: '#/components/schemas/Int64String'
-        ownerUserId:
-          $ref: '#/components/schemas/Int64String'
         code:
           type: string
           minLength: 1
@@ -5279,17 +5315,13 @@ components:
     CreateMemoryProfileRequest:
       type: object
       additionalProperties: false
-      required: [memoryProfileId, organizationId, ownerUserId, code, displayName, visibility, requestedAt]
+      required: [memoryProfileId, code, displayName, visibility, requestedAt]
       properties:
         memoryProfileId:
           type: string
           minLength: 1
           maxLength: 128
           pattern: '^memory\.profile\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-        organizationId:
-          $ref: '#/components/schemas/Int64String'
-        ownerUserId:
-          $ref: '#/components/schemas/Int64String'
         code:
           type: string
           minLength: 1
@@ -5324,15 +5356,13 @@ components:
     CreateMemoryBindingRequest:
       type: object
       additionalProperties: false
-      required: [memoryBindingId, organizationId, scopeKind, scopeRef, requestedAt]
+      required: [memoryBindingId, scopeKind, scopeRef, requestedAt]
       properties:
         memoryBindingId:
           type: string
           minLength: 1
           maxLength: 128
           pattern: '^memory\.binding\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-        organizationId:
-          $ref: '#/components/schemas/Int64String'
         agentId:
           type: [string, 'null']
           minLength: 1
@@ -5361,15 +5391,13 @@ components:
     CreateMemoryNamespaceRequest:
       type: object
       additionalProperties: false
-      required: [memoryNamespaceId, organizationId, namespaceKind, visibility, requestedAt]
+      required: [memoryNamespaceId, namespaceKind, visibility, requestedAt]
       properties:
         memoryNamespaceId:
           type: string
           minLength: 1
           maxLength: 128
           pattern: '^memory\.namespace\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-        organizationId:
-          $ref: '#/components/schemas/Int64String'
         agentId:
           type: [string, 'null']
           minLength: 1
@@ -5394,15 +5422,13 @@ components:
     CreateMemoryRecordRequest:
       type: object
       additionalProperties: false
-      required: [memoryId, organizationId, memoryKind, contentFormat, content, salienceScore, confidenceScore, freshnessScore, sensitivityLevel, requestedAt]
+      required: [memoryId, memoryKind, contentFormat, content, salienceScore, confidenceScore, freshnessScore, sensitivityLevel, requestedAt]
       properties:
         memoryId:
           type: string
           minLength: 1
           maxLength: 128
           pattern: '^memory\.record\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-        organizationId:
-          $ref: '#/components/schemas/Int64String'
         agentId:
           type: [string, 'null']
           minLength: 1

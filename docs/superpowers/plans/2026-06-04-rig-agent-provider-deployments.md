@@ -4,7 +4,7 @@
 
 **Goal:** Implement the first Rig-backed agent definition boundary and extend managed agents so every agent records its implementation provider, can switch provider bindings, and can create deployable agent instances.
 
-**Architecture:** Keep Rig integration outside kernel core in `sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig`. Extend `sdkwork-agent-business` with provider binding and deployment records so logical agents, selected implementation providers, and deployed instances have separate lifecycle and persistence contracts.
+**Architecture:** Keep the Rig plugin outside kernel core in `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig`. Extend `sdkwork-agent-business` with provider binding and deployment records so logical agents, selected implementation providers, and deployed instances have separate lifecycle and persistence contracts.
 
 **Tech Stack:** Rust crates and contract tests, existing `sdkwork-agent-kernel` and `sdkwork-agent-business`, PostgreSQL SQL contract constants, Markdown database specs.
 
@@ -82,17 +82,17 @@ cargo test --manifest-path sdkwork-agent-business/Cargo.toml persistence
 
 Expected: PASS.
 
-### Task 3: Rig Integration Crate
+### Task 3: Rig Plugin Crate
 
 **Files:**
-- Create: `sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig/Cargo.toml`
-- Create: `sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig/README.md`
-- Create: `sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig/src/lib.rs`
-- Create: `sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig/src/agent_definition.rs`
-- Create: `sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig/src/deployment.rs`
-- Create: `sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig/src/manifest.rs`
-- Create: `sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig/src/provider.rs`
-- Test: `sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig/tests/rig_agent_contracts.rs`
+- Create: `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/Cargo.toml`
+- Create: `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/README.md`
+- Create: `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/src/lib.rs`
+- Create: `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/src/agent_definition.rs`
+- Create: `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/src/deployment.rs`
+- Create: `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/src/manifest.rs`
+- Create: `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/src/provider.rs`
+- Test: `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/tests/rig_agent_contracts.rs`
 
 - [ ] **Step 1: Write failing Rig crate contract tests**
 
@@ -109,12 +109,12 @@ Cover:
 Run:
 
 ```bash
-cargo test --manifest-path sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig/Cargo.toml
+cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/Cargo.toml
 ```
 
 Expected: FAIL before implementation exists.
 
-- [ ] **Step 3: Implement minimal Rig integration crate**
+- [ ] **Step 3: Implement minimal Rig plugin crate**
 
 Do not depend on `external/rig` directly in the first pass. The crate exposes
 SDKWork-compatible definitions and provider catalog behavior while preserving
@@ -125,30 +125,30 @@ fail-closed live invocation.
 Run:
 
 ```bash
-cargo test --manifest-path sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig/Cargo.toml
+cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/Cargo.toml
 ```
 
 Expected: PASS.
 
-### Task 4: Integration Metadata Update
+### Task 4: Plugin Metadata Update
 
 **Files:**
-- Modify: `sdkwork-agent-integrations/specs/mappings/rig.md`
-- Modify: `sdkwork-agent-integrations/specs/manifests/providers/rig-rust.provider.json`
-- Modify: `sdkwork-agent-integrations/crates/README.md`
+- Modify: `sdkwork-kernel-plugins/specs/mappings/rig.md`
+- Modify: `sdkwork-kernel-plugins/specs/manifests/providers/rig-rust.provider.json`
+- Modify: `sdkwork-kernel-plugins/crates/README.md`
 
 - [ ] **Step 1: Update Rig status**
 
 Mark Rig as catalog and deployment definition ready, with live model execution
 still fail-closed.
 
-- [ ] **Step 2: Run integration checks**
+- [ ] **Step 2: Run plugin checks**
 
 Run:
 
 ```bash
-node --test sdkwork-agent-integrations/tests/external_integration_structure.test.mjs
-node sdkwork-agent-integrations/scripts/check-external-integrations.mjs
+node --test sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs
+node sdkwork-kernel-plugins/scripts/check-kernel-plugins.mjs
 ```
 
 Expected: PASS.
@@ -161,17 +161,17 @@ Expected: PASS.
 cargo test --manifest-path sdkwork-agent-business/Cargo.toml
 ```
 
-- [ ] **Step 2: Run Rig integration tests**
+- [ ] **Step 2: Run Rig plugin tests**
 
 ```bash
-cargo test --manifest-path sdkwork-agent-integrations/crates/sdkwork-agent-integration-rig/Cargo.toml
+cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/Cargo.toml
 ```
 
 - [ ] **Step 3: Run Node checks**
 
 ```bash
-node --test sdkwork-agent-integrations/tests/external_integration_structure.test.mjs
-node sdkwork-agent-integrations/scripts/check-external-integrations.mjs
+node --test sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs
+node sdkwork-kernel-plugins/scripts/check-kernel-plugins.mjs
 node scripts/check-kernel-standards.mjs
 ```
 
@@ -186,5 +186,5 @@ Expected: all verification commands pass.
 ## Worktree Note
 
 This implementation continues in the current workspace because the previous
-approved submodule and integration-standard changes are already staged. Creating
-a new worktree now would split one logical integration stack across indexes.
+approved submodule and plugin-standard changes are already staged. Creating
+a new worktree now would split one logical plugin stack across indexes.

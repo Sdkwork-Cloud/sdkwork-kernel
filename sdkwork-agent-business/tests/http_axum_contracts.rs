@@ -3,9 +3,10 @@
 use axum::body::{to_bytes, Body};
 use axum::http::header::CONTENT_TYPE;
 use axum::http::{HeaderValue, Request, StatusCode};
+use axum::Extension;
 use sdkwork_agent_business::{
-    build_combined_router, AgentHttpState, AllowAllPolicyProvider, InMemoryAgentAuditSink,
-    InMemoryAgentRepository, PolicyMode,
+    build_combined_router, AgentHttpState, AgentRequestContext, AllowAllPolicyProvider,
+    InMemoryAgentAuditSink, InMemoryAgentRepository, PolicyMode,
 };
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -17,16 +18,15 @@ fn auth_headers(mut request: Request<Body>) -> Request<Body> {
     request
 }
 
-fn app_context_headers(mut request: Request<Body>) -> Request<Body> {
-    let headers = request.headers_mut();
-    headers.insert("x-sdkwork-tenant-id", HeaderValue::from_static("1"));
-    headers.insert("x-sdkwork-user-id", HeaderValue::from_static("u-1"));
-    headers.insert("x-sdkwork-actor-kind", HeaderValue::from_static("user"));
-    headers.insert(
-        "x-sdkwork-permission-scope",
-        HeaderValue::from_static("agent.write agent.read"),
-    );
-    request
+fn test_agent_context() -> AgentRequestContext {
+    AgentRequestContext::new("1", "100")
+        .with_organization_id("10")
+        .with_subject_id("u-1")
+        .with_roles(["agent.write", "agent.read"])
+}
+
+fn build_test_app(state: AgentHttpState) -> axum::Router {
+    build_combined_router(state).layer(Extension(test_agent_context()))
 }
 
 fn test_manifest(agent_id: &str, display_name: &str) -> Value {
@@ -50,8 +50,6 @@ fn test_manifest(agent_id: &str, display_name: &str) -> Value {
 fn create_body(agent_id: &str, display_name: &str, requested_at: &str) -> Value {
     json!({
         "agentId": agent_id,
-        "organizationId": "10",
-        "ownerUserId": "100",
         "code": agent_id,
         "displayName": display_name,
         "description": "sample",
@@ -79,7 +77,7 @@ async fn create_agent_at(
 ) {
     let request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents?tenant_id=1")
+        .uri("/app/v3/api/ai/agents")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             create_body(agent_id, display_name, requested_at).to_string(),
@@ -124,6 +122,99 @@ async fn post_json(
     serde_json::from_slice(&body_bytes).expect("response body should be valid json")
 }
 
+async fn patch_json(
+    app: &axum::Router,
+    uri: &str,
+    body: Value,
+    expected_status: StatusCode,
+) -> Value {
+    let request = Request::builder()
+        .method("PATCH")
+        .uri(uri)
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(body.to_string()))
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("request should succeed");
+    let status = response.status();
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    assert_eq!(
+        status,
+        expected_status,
+        "{uri}: {}",
+        String::from_utf8_lossy(&body_bytes)
+    );
+    serde_json::from_slice(&body_bytes).expect("response body should be valid json")
+}
+
+async fn get_json(app: &axum::Router, uri: &str, expected_status: StatusCode) -> Value {
+    let request = Request::builder()
+        .method("GET")
+        .uri(uri)
+        .body(Body::empty())
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("request should succeed");
+    let status = response.status();
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    assert_eq!(
+        status,
+        expected_status,
+        "{uri}: {}",
+        String::from_utf8_lossy(&body_bytes)
+    );
+    serde_json::from_slice(&body_bytes).expect("response body should be valid json")
+}
+
+fn response_constraints(response: &Value) -> Vec<String> {
+    response["data"]["defaultCodeTaskIntent"]["constraints"]
+        .as_array()
+        .expect("defaultCodeTaskIntent.constraints should be an array")
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .expect("constraint should be a string")
+                .to_string()
+        })
+        .collect()
+}
+
+fn response_context_paths(response: &Value) -> Vec<String> {
+    response["data"]["defaultCodeTaskIntent"]["contextPaths"]
+        .as_array()
+        .expect("defaultCodeTaskIntent.contextPaths should be an array")
+        .iter()
+        .map(|value| {
+            value
+                .as_str()
+                .expect("contextPath should be a string")
+                .to_string()
+        })
+        .collect()
+}
+
+fn pc_management_profile_constraints(constraints: &[String]) -> Vec<Value> {
+    constraints
+        .iter()
+        .filter_map(|constraint| {
+            constraint
+                .strip_prefix("sdkwork.agent.pc.config:")
+                .map(|encoded| serde_json::from_str(encoded).expect("PC profile should be JSON"))
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn app_create_and_retrieve_agent_should_work() {
     let state = AgentHttpState::new(
@@ -131,13 +222,13 @@ async fn app_create_and_retrieve_agent_should_work() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.alpha", "Alpha").await;
 
     let request = Request::builder()
         .method("GET")
-        .uri("/app/v3/api/ai/agents/agent.alpha?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.alpha")
         .body(Body::empty())
         .expect("request should be built");
 
@@ -158,17 +249,1716 @@ async fn app_create_and_retrieve_agent_should_work() {
 }
 
 #[tokio::test]
-async fn app_context_headers_should_work_for_generated_app_sdk_clients() {
+async fn app_create_agent_should_derive_scope_from_request_context() {
     let state = AgentHttpState::new(
         InMemoryAgentRepository::new(),
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
+
+    let response = post_json(
+        &app,
+        "/app/v3/api/ai/agents?tenant_id=999",
+        json!({
+            "agentId": "agent.context.scope",
+            "organizationId": "999",
+            "ownerUserId": "999",
+            "code": "agent.context.scope",
+            "displayName": "Context Scope",
+            "description": "scope should come from request context",
+            "manifest": test_manifest("agent.context.scope", "Context Scope"),
+            "defaultCodeTaskIntent": {
+                "prompt": "Use context scope",
+                "contextPaths": ["src/lib.rs"],
+                "constraints": ["safe"]
+            },
+            "visibility": "organization",
+            "tags": ["scope"],
+            "requestedAt": "2026-06-01T00:00:30Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    assert_eq!(response["data"]["tenantId"], "1");
+    assert_eq!(response["data"]["organizationId"], "10");
+    assert_eq!(response["data"]["ownerUserId"], "100");
+}
+
+#[tokio::test]
+async fn app_agent_response_should_expose_pc_management_profile() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    let management_profile = json!({
+        "avatar": "robot",
+        "categoryId": "assistant",
+        "color": "#3b82f6",
+        "iconName": "bot",
+        "knowledgeBaseIds": ["knowledge.base.product", "knowledge.base.runbook"],
+        "systemPrompt": "Answer from approved knowledge only.",
+        "type": "independent",
+        "welcomeMessage": "How can I help?"
+    });
+    let request = Request::builder()
+        .method("POST")
+        .uri("/app/v3/api/ai/agents")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "agentId": "agent.pc.profile",
+                "code": "agent.pc.profile",
+                "displayName": "PC Profile",
+                "description": "sample",
+                "manifest": test_manifest("agent.pc.profile", "PC Profile"),
+                "defaultCodeTaskIntent": {
+                    "prompt": "Answer from approved knowledge only.",
+                    "contextPaths": ["knowledge.base.product"],
+                    "constraints": [
+                        "agent.type=independent",
+                        format!("sdkwork.agent.pc.config:{management_profile}")
+                    ]
+                },
+                "visibility": "private",
+                "tags": ["assistant"],
+                "requestedAt": "2026-06-01T00:00:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("create request should succeed");
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+
+    assert_eq!(body_json["data"]["managementProfile"]["avatar"], "robot");
+    assert_eq!(
+        body_json["data"]["managementProfile"]["categoryId"],
+        "assistant"
+    );
+    assert_eq!(
+        body_json["data"]["managementProfile"]["knowledgeBaseIds"],
+        json!(["knowledge.base.product", "knowledge.base.runbook"])
+    );
+    assert_eq!(
+        body_json["data"]["managementProfile"]["systemPrompt"],
+        "Answer from approved knowledge only."
+    );
+    assert_eq!(
+        body_json["data"]["managementProfile"]["type"],
+        "independent"
+    );
+    assert_eq!(
+        body_json["data"]["managementProfile"]["welcomeMessage"],
+        "How can I help?"
+    );
+}
+
+#[tokio::test]
+async fn app_agent_request_should_accept_management_profile_and_store_compatible_intent() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    let response = post_json(
+        &app,
+        "/app/v3/api/ai/agents",
+        json!({
+            "agentId": "agent.pc.structured",
+            "code": "agent.pc.structured",
+            "displayName": "Structured PC Agent",
+            "description": "sample",
+            "manifest": test_manifest("agent.pc.structured", "Structured PC Agent"),
+            "defaultCodeTaskIntent": {
+                "prompt": "Use approved knowledge",
+                "contextPaths": ["src/lib.rs"],
+                "constraints": ["safe"]
+            },
+            "managementProfile": {
+                "author": "SDKWork",
+                "avatar": "robot",
+                "categoryId": "assistant",
+                "color": "#3b82f6",
+                "debugMode": true,
+                "iconName": "bot",
+                "jsonMode": true,
+                "knowledgeBaseIds": ["knowledge.base.product", "knowledge.base.runbook"],
+                "memoryEnabled": true,
+                "model": "model.openai.gpt-4",
+                "skillIds": ["skill.research.deep"],
+                "suggestedPrompts": ["What can you do?", "Summarize this document"],
+                "systemPrompt": "Answer from approved knowledge only.",
+                "temperature": 0.7,
+                "toolIds": ["tool.mcp.filesystem"],
+                "type": "independent",
+                "users": "12 users",
+                "voiceIds": ["voice.default.narrator"],
+                "welcomeMessage": "How can I help?"
+            },
+            "visibility": "private",
+            "tags": ["assistant"],
+            "requestedAt": "2026-06-01T00:02:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    assert_eq!(response["data"]["managementProfile"]["avatar"], "robot");
+    assert_eq!(response["data"]["managementProfile"]["author"], "SDKWork");
+    assert_eq!(
+        response["data"]["managementProfile"]["knowledgeBaseIds"],
+        json!(["knowledge.base.product", "knowledge.base.runbook"])
+    );
+    assert_eq!(response["data"]["managementProfile"]["type"], "independent");
+    assert_eq!(response["data"]["managementProfile"]["users"], "12 users");
+    assert_eq!(response["data"]["managementProfile"]["debugMode"], true);
+    assert_eq!(response["data"]["managementProfile"]["jsonMode"], true);
+    assert_eq!(response["data"]["managementProfile"]["memoryEnabled"], true);
+    assert_eq!(
+        response["data"]["managementProfile"]["model"],
+        "model.openai.gpt-4"
+    );
+    assert_eq!(response["data"]["managementProfile"]["temperature"], 0.7);
+    assert_eq!(
+        response["data"]["managementProfile"]["suggestedPrompts"],
+        json!(["What can you do?", "Summarize this document"])
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["voiceIds"],
+        json!(["voice.default.narrator"])
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["toolIds"],
+        json!(["tool.mcp.filesystem"])
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["skillIds"],
+        json!(["skill.research.deep"])
+    );
+
+    let constraints = response_constraints(&response);
+    assert!(
+        constraints.iter().any(|constraint| constraint == "safe"),
+        "existing constraints should be preserved: {constraints:?}"
+    );
+    assert!(
+        constraints
+            .iter()
+            .any(|constraint| constraint == "agent.type=independent"),
+        "agent.type compatibility constraint should be written: {constraints:?}"
+    );
+    let pc_profiles = pc_management_profile_constraints(&constraints);
+    assert_eq!(pc_profiles.len(), 1);
+    assert_eq!(pc_profiles[0]["author"], "SDKWork");
+    assert_eq!(pc_profiles[0]["categoryId"], "assistant");
+    assert_eq!(pc_profiles[0]["debugMode"], true);
+    assert_eq!(pc_profiles[0]["jsonMode"], true);
+    assert_eq!(pc_profiles[0]["memoryEnabled"], true);
+    assert_eq!(pc_profiles[0]["model"], "model.openai.gpt-4");
+    assert_eq!(
+        pc_profiles[0]["suggestedPrompts"],
+        json!(["What can you do?", "Summarize this document"])
+    );
+    assert_eq!(pc_profiles[0]["temperature"], 0.7);
+    assert_eq!(
+        pc_profiles[0]["voiceIds"],
+        json!(["voice.default.narrator"])
+    );
+    assert_eq!(pc_profiles[0]["toolIds"], json!(["tool.mcp.filesystem"]));
+    assert_eq!(pc_profiles[0]["skillIds"], json!(["skill.research.deep"]));
+    assert_eq!(pc_profiles[0]["type"], "independent");
+    assert_eq!(pc_profiles[0]["users"], "12 users");
+
+    let context_paths = response_context_paths(&response);
+    for expected_path in [
+        "src/lib.rs",
+        "knowledge.base.product",
+        "knowledge.base.runbook",
+    ] {
+        assert!(
+            context_paths.iter().any(|path| path == expected_path),
+            "contextPaths should include {expected_path}: {context_paths:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn app_agent_management_profile_should_reject_values_outside_openapi_contract() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    let base_profile = json!({
+        "author": "SDKWork",
+        "avatar": "robot",
+        "categoryId": "assistant",
+        "color": "#3b82f6",
+        "debugMode": true,
+        "iconName": "bot",
+        "jsonMode": true,
+        "knowledgeBaseIds": ["knowledge.base.product"],
+        "memoryEnabled": true,
+        "model": "model.openai.gpt-4",
+        "skillIds": ["skill.research.deep"],
+        "suggestedPrompts": ["What can you do?"],
+        "systemPrompt": "Answer from approved knowledge only.",
+        "temperature": 0.7,
+        "toolIds": ["tool.mcp.filesystem"],
+        "type": "independent",
+        "users": "12 users",
+        "voiceIds": ["voice.default.narrator"],
+        "welcomeMessage": "How can I help?"
+    });
+
+    let cases = [
+        (
+            "model-prefix",
+            json!({"model": "provider.openai"}),
+            "managementProfile.model must start with model.",
+        ),
+        (
+            "temperature-min",
+            json!({"temperature": -0.1}),
+            "managementProfile.temperature must be greater than or equal to 0",
+        ),
+        (
+            "temperature-max",
+            json!({"temperature": 2.1}),
+            "managementProfile.temperature must be less than or equal to 2",
+        ),
+        (
+            "knowledge-base-prefix",
+            json!({"knowledgeBaseIds": ["knowledge.document.bad"]}),
+            "managementProfile.knowledgeBaseIds items must start with knowledge.base.",
+        ),
+        (
+            "skill-prefix",
+            json!({"skillIds": ["tool.web.search"]}),
+            "managementProfile.skillIds items must start with skill.",
+        ),
+        (
+            "tool-prefix",
+            json!({"toolIds": ["skill.research.deep"]}),
+            "managementProfile.toolIds items must start with tool.",
+        ),
+        (
+            "voice-prefix",
+            json!({"voiceIds": ["tool.voice.default"]}),
+            "managementProfile.voiceIds items must start with voice.",
+        ),
+        (
+            "suggested-prompts-count",
+            json!({"suggestedPrompts": [
+                "p01", "p02", "p03", "p04", "p05", "p06", "p07",
+                "p08", "p09", "p10", "p11", "p12", "p13"
+            ]}),
+            "managementProfile.suggestedPrompts must contain at most 12 items",
+        ),
+        (
+            "suggested-prompts-length",
+            json!({"suggestedPrompts": ["x".repeat(257)]}),
+            "managementProfile.suggestedPrompts items must be at most 256 characters",
+        ),
+    ];
+
+    for (case_id, override_profile, expected_detail) in cases {
+        let agent_id = format!("agent.pc.invalid.profile.{case_id}");
+        let mut profile = base_profile.clone();
+        let profile_object = profile
+            .as_object_mut()
+            .expect("base profile should be an object");
+        for (key, value) in override_profile
+            .as_object()
+            .expect("override profile should be an object")
+        {
+            profile_object.insert(key.clone(), value.clone());
+        }
+
+        let mut body = create_body(
+            agent_id.as_str(),
+            format!("InvalidProfile{case_id}").as_str(),
+            "2026-06-01T00:02:00Z",
+        );
+        body["managementProfile"] = profile;
+
+        let response =
+            post_json(&app, "/app/v3/api/ai/agents", body, StatusCode::BAD_REQUEST).await;
+
+        assert_eq!(response["code"], "validation_error");
+        assert_eq!(response["errorCategory"], "validation");
+        assert_eq!(response["detail"], expected_detail);
+    }
+}
+
+#[tokio::test]
+async fn app_update_agent_management_profile_should_preserve_existing_intent_constraints() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    let old_profile = json!({
+        "avatar": "old",
+        "categoryId": "legacy",
+        "knowledgeBaseIds": ["knowledge.base.legacy"],
+        "type": "legacy",
+        "welcomeMessage": "Old welcome"
+    });
+    post_json(
+        &app,
+        "/app/v3/api/ai/agents",
+        json!({
+            "agentId": "agent.pc.update.structured",
+            "code": "agent.pc.update.structured",
+            "displayName": "Structured Update PC Agent",
+            "description": "sample",
+            "manifest": test_manifest(
+                "agent.pc.update.structured",
+                "Structured Update PC Agent"
+            ),
+            "defaultCodeTaskIntent": {
+                "prompt": "Keep current prompt",
+                "contextPaths": ["knowledge.base.legacy"],
+                "constraints": [
+                    "safe",
+                    "agent.type=legacy",
+                    format!("sdkwork.agent.pc.config:{old_profile}")
+                ]
+            },
+            "visibility": "private",
+            "tags": ["assistant"],
+            "requestedAt": "2026-06-01T00:03:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let request = Request::builder()
+        .method("PATCH")
+        .uri("/app/v3/api/ai/agents/agent.pc.update.structured")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "managementProfile": {
+                "avatar": "robot",
+                "categoryId": "assistant",
+                "color": "#16a34a",
+                "debugMode": false,
+                "iconName": "sparkles",
+                "jsonMode": true,
+                "knowledgeBaseIds": [
+                    "knowledge.base.legacy",
+                    "knowledge.base.product"
+                ],
+                "memoryEnabled": false,
+                "model": "model.anthropic.claude-sonnet",
+                "skillIds": ["skill.write.release-notes"],
+                "suggestedPrompts": ["Draft release notes"],
+                "systemPrompt": "Answer with current product knowledge.",
+                "temperature": 0.2,
+                "toolIds": ["tool.web.search"],
+                "type": "independent",
+                "voiceIds": ["voice.product.host"],
+                "welcomeMessage": "Ask me about the product."
+            },
+                "requestedAt": "2026-06-01T00:04:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("update request should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let response: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+
+    assert_eq!(response["data"]["managementProfile"]["avatar"], "robot");
+    assert_eq!(
+        response["data"]["managementProfile"]["categoryId"],
+        "assistant"
+    );
+    assert_eq!(response["data"]["managementProfile"]["type"], "independent");
+    assert_eq!(response["data"]["managementProfile"]["debugMode"], false);
+    assert_eq!(response["data"]["managementProfile"]["jsonMode"], true);
+    assert_eq!(
+        response["data"]["managementProfile"]["memoryEnabled"],
+        false
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["model"],
+        "model.anthropic.claude-sonnet"
+    );
+    assert_eq!(response["data"]["managementProfile"]["temperature"], 0.2);
+    assert_eq!(
+        response["data"]["managementProfile"]["suggestedPrompts"],
+        json!(["Draft release notes"])
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["voiceIds"],
+        json!(["voice.product.host"])
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["toolIds"],
+        json!(["tool.web.search"])
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["skillIds"],
+        json!(["skill.write.release-notes"])
+    );
+
+    let constraints = response_constraints(&response);
+    assert!(
+        constraints.iter().any(|constraint| constraint == "safe"),
+        "existing non-profile constraints should be preserved: {constraints:?}"
+    );
+    assert!(
+        constraints
+            .iter()
+            .all(|constraint| constraint != "agent.type=legacy"),
+        "old agent.type compatibility constraint should be replaced: {constraints:?}"
+    );
+    assert!(
+        constraints
+            .iter()
+            .any(|constraint| constraint == "agent.type=independent"),
+        "new agent.type compatibility constraint should be written: {constraints:?}"
+    );
+    let pc_profiles = pc_management_profile_constraints(&constraints);
+    assert_eq!(pc_profiles.len(), 1);
+    assert_eq!(pc_profiles[0]["categoryId"], "assistant");
+    assert_eq!(pc_profiles[0]["debugMode"], false);
+    assert_eq!(pc_profiles[0]["jsonMode"], true);
+    assert_eq!(pc_profiles[0]["memoryEnabled"], false);
+    assert_eq!(pc_profiles[0]["model"], "model.anthropic.claude-sonnet");
+    assert_eq!(
+        pc_profiles[0]["suggestedPrompts"],
+        json!(["Draft release notes"])
+    );
+    assert_eq!(pc_profiles[0]["temperature"], 0.2);
+    assert_eq!(pc_profiles[0]["voiceIds"], json!(["voice.product.host"]));
+    assert_eq!(pc_profiles[0]["toolIds"], json!(["tool.web.search"]));
+    assert_eq!(
+        pc_profiles[0]["skillIds"],
+        json!(["skill.write.release-notes"])
+    );
+    assert_eq!(pc_profiles[0]["type"], "independent");
+
+    let context_paths = response_context_paths(&response);
+    assert_eq!(
+        context_paths
+            .iter()
+            .filter(|path| path.as_str() == "knowledge.base.legacy")
+            .count(),
+        1,
+        "existing contextPath should not be duplicated: {context_paths:?}"
+    );
+    assert!(
+        context_paths
+            .iter()
+            .any(|path| path == "knowledge.base.product"),
+        "new knowledge base id should be appended to contextPaths: {context_paths:?}"
+    );
+}
+
+#[tokio::test]
+async fn backend_agent_request_should_accept_management_profile_and_store_compatible_intent() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    let response = post_json(
+        &app,
+        "/backend/v3/api/ai/agents?tenant_id=1",
+        json!({
+            "agentId": "agent.pc.backend.structured",
+            "organizationId": "10",
+            "ownerUserId": "100",
+            "code": "agent.pc.backend.structured",
+            "displayName": "Backend Structured PC Agent",
+            "description": "backend structured profile",
+            "manifest": test_manifest(
+                "agent.pc.backend.structured",
+                "Backend Structured PC Agent"
+            ),
+            "defaultCodeTaskIntent": {
+                "prompt": "Use approved knowledge",
+                "contextPaths": ["src/lib.rs"],
+                "constraints": ["operator-managed"]
+            },
+            "managementProfile": {
+                "author": "SDKWork Backend",
+                "avatar": "robot",
+                "categoryId": "assistant",
+                "color": "#2563eb",
+                "debugMode": true,
+                "iconName": "bot",
+                "jsonMode": false,
+                "knowledgeBaseIds": [
+                    "knowledge.base.backend.product",
+                    "knowledge.base.backend.runbook"
+                ],
+                "memoryEnabled": true,
+                "model": "model.openai.gpt-4o",
+                "skillIds": ["skill.ops.runbook"],
+                "suggestedPrompts": ["Open incident runbook"],
+                "systemPrompt": "Answer with backend approved knowledge only.",
+                "temperature": 0.4,
+                "toolIds": ["tool.ops.lookup"],
+                "type": "independent",
+                "users": "42 users",
+                "voiceIds": ["voice.ops.dispatcher"],
+                "welcomeMessage": "Ask me about backend-managed knowledge."
+            },
+            "visibility": "organization",
+            "tags": ["assistant", "backend"],
+            "requestedAt": "2026-06-01T00:10:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    assert_eq!(response["data"]["managementProfile"]["avatar"], "robot");
+    assert_eq!(
+        response["data"]["managementProfile"]["author"],
+        "SDKWork Backend"
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["knowledgeBaseIds"],
+        json!([
+            "knowledge.base.backend.product",
+            "knowledge.base.backend.runbook"
+        ])
+    );
+    assert_eq!(response["data"]["managementProfile"]["type"], "independent");
+    assert_eq!(response["data"]["managementProfile"]["users"], "42 users");
+    assert_eq!(response["data"]["managementProfile"]["debugMode"], true);
+    assert_eq!(response["data"]["managementProfile"]["jsonMode"], false);
+    assert_eq!(response["data"]["managementProfile"]["memoryEnabled"], true);
+    assert_eq!(
+        response["data"]["managementProfile"]["model"],
+        "model.openai.gpt-4o"
+    );
+    assert_eq!(response["data"]["managementProfile"]["temperature"], 0.4);
+    assert_eq!(
+        response["data"]["managementProfile"]["suggestedPrompts"],
+        json!(["Open incident runbook"])
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["voiceIds"],
+        json!(["voice.ops.dispatcher"])
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["toolIds"],
+        json!(["tool.ops.lookup"])
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["skillIds"],
+        json!(["skill.ops.runbook"])
+    );
+
+    let constraints = response_constraints(&response);
+    assert!(
+        constraints
+            .iter()
+            .any(|constraint| constraint == "operator-managed"),
+        "existing backend constraints should be preserved: {constraints:?}"
+    );
+    assert!(
+        constraints
+            .iter()
+            .any(|constraint| constraint == "agent.type=independent"),
+        "backend compatibility agent.type should be written: {constraints:?}"
+    );
+    let pc_profiles = pc_management_profile_constraints(&constraints);
+    assert_eq!(pc_profiles.len(), 1);
+    assert_eq!(pc_profiles[0]["author"], "SDKWork Backend");
+    assert_eq!(pc_profiles[0]["categoryId"], "assistant");
+    assert_eq!(pc_profiles[0]["debugMode"], true);
+    assert_eq!(pc_profiles[0]["jsonMode"], false);
+    assert_eq!(pc_profiles[0]["memoryEnabled"], true);
+    assert_eq!(pc_profiles[0]["model"], "model.openai.gpt-4o");
+    assert_eq!(
+        pc_profiles[0]["suggestedPrompts"],
+        json!(["Open incident runbook"])
+    );
+    assert_eq!(pc_profiles[0]["temperature"], 0.4);
+    assert_eq!(pc_profiles[0]["voiceIds"], json!(["voice.ops.dispatcher"]));
+    assert_eq!(pc_profiles[0]["toolIds"], json!(["tool.ops.lookup"]));
+    assert_eq!(pc_profiles[0]["skillIds"], json!(["skill.ops.runbook"]));
+    assert_eq!(pc_profiles[0]["type"], "independent");
+    assert_eq!(pc_profiles[0]["users"], "42 users");
+
+    let context_paths = response_context_paths(&response);
+    for expected_path in [
+        "src/lib.rs",
+        "knowledge.base.backend.product",
+        "knowledge.base.backend.runbook",
+    ] {
+        assert!(
+            context_paths.iter().any(|path| path == expected_path),
+            "backend contextPaths should include {expected_path}: {context_paths:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn backend_update_agent_management_profile_should_preserve_existing_intent_constraints() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    let old_profile = json!({
+        "avatar": "old",
+        "categoryId": "legacy",
+        "knowledgeBaseIds": ["knowledge.base.backend.legacy"],
+        "type": "legacy",
+        "welcomeMessage": "Old backend welcome"
+    });
+    post_json(
+        &app,
+        "/backend/v3/api/ai/agents?tenant_id=1",
+        json!({
+            "agentId": "agent.pc.backend.update.structured",
+            "organizationId": "10",
+            "ownerUserId": "100",
+            "code": "agent.pc.backend.update.structured",
+            "displayName": "Backend Structured Update PC Agent",
+            "description": "backend structured update",
+            "manifest": test_manifest(
+                "agent.pc.backend.update.structured",
+                "Backend Structured Update PC Agent"
+            ),
+            "defaultCodeTaskIntent": {
+                "prompt": "Keep backend prompt",
+                "contextPaths": ["knowledge.base.backend.legacy"],
+                "constraints": [
+                    "operator-managed",
+                    "agent.type=legacy",
+                    format!("sdkwork.agent.pc.config:{old_profile}")
+                ]
+            },
+            "visibility": "organization",
+            "tags": ["assistant", "backend"],
+            "requestedAt": "2026-06-01T00:11:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let response = patch_json(
+        &app,
+        "/backend/v3/api/ai/agents/agent.pc.backend.update.structured?tenant_id=1",
+        json!({
+            "managementProfile": {
+                "avatar": "robot",
+                "categoryId": "assistant",
+                "color": "#0891b2",
+                "debugMode": false,
+                "iconName": "sparkles",
+                "jsonMode": true,
+                "knowledgeBaseIds": [
+                    "knowledge.base.backend.legacy",
+                    "knowledge.base.backend.product"
+                ],
+                "memoryEnabled": false,
+                "model": "model.azure.gpt-4",
+                "skillIds": ["skill.ops.triage"],
+                "suggestedPrompts": ["Triage latest incident"],
+                "systemPrompt": "Answer with current backend-managed knowledge.",
+                "temperature": 0.1,
+                "toolIds": ["tool.ops.audit"],
+                "type": "independent",
+                "voiceIds": ["voice.ops.lead"],
+                "welcomeMessage": "Ask me about backend-managed product knowledge."
+            },
+            "requestedAt": "2026-06-01T00:12:00Z"
+        }),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(response["data"]["managementProfile"]["avatar"], "robot");
+    assert_eq!(
+        response["data"]["managementProfile"]["categoryId"],
+        "assistant"
+    );
+    assert_eq!(response["data"]["managementProfile"]["type"], "independent");
+    assert_eq!(response["data"]["managementProfile"]["debugMode"], false);
+    assert_eq!(response["data"]["managementProfile"]["jsonMode"], true);
+    assert_eq!(
+        response["data"]["managementProfile"]["memoryEnabled"],
+        false
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["model"],
+        "model.azure.gpt-4"
+    );
+    assert_eq!(response["data"]["managementProfile"]["temperature"], 0.1);
+    assert_eq!(
+        response["data"]["managementProfile"]["suggestedPrompts"],
+        json!(["Triage latest incident"])
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["voiceIds"],
+        json!(["voice.ops.lead"])
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["toolIds"],
+        json!(["tool.ops.audit"])
+    );
+    assert_eq!(
+        response["data"]["managementProfile"]["skillIds"],
+        json!(["skill.ops.triage"])
+    );
+
+    let constraints = response_constraints(&response);
+    assert!(
+        constraints
+            .iter()
+            .any(|constraint| constraint == "operator-managed"),
+        "backend non-profile constraints should be preserved: {constraints:?}"
+    );
+    assert!(
+        constraints
+            .iter()
+            .all(|constraint| constraint != "agent.type=legacy"),
+        "old backend compatibility agent.type should be replaced: {constraints:?}"
+    );
+    assert!(
+        constraints
+            .iter()
+            .any(|constraint| constraint == "agent.type=independent"),
+        "new backend compatibility agent.type should be written: {constraints:?}"
+    );
+    let pc_profiles = pc_management_profile_constraints(&constraints);
+    assert_eq!(pc_profiles.len(), 1);
+    assert_eq!(pc_profiles[0]["categoryId"], "assistant");
+    assert_eq!(pc_profiles[0]["debugMode"], false);
+    assert_eq!(pc_profiles[0]["jsonMode"], true);
+    assert_eq!(pc_profiles[0]["memoryEnabled"], false);
+    assert_eq!(pc_profiles[0]["model"], "model.azure.gpt-4");
+    assert_eq!(
+        pc_profiles[0]["suggestedPrompts"],
+        json!(["Triage latest incident"])
+    );
+    assert_eq!(pc_profiles[0]["temperature"], 0.1);
+    assert_eq!(pc_profiles[0]["voiceIds"], json!(["voice.ops.lead"]));
+    assert_eq!(pc_profiles[0]["toolIds"], json!(["tool.ops.audit"]));
+    assert_eq!(pc_profiles[0]["skillIds"], json!(["skill.ops.triage"]));
+    assert_eq!(pc_profiles[0]["type"], "independent");
+
+    let context_paths = response_context_paths(&response);
+    assert_eq!(
+        context_paths
+            .iter()
+            .filter(|path| path.as_str() == "knowledge.base.backend.legacy")
+            .count(),
+        1,
+        "backend existing contextPath should not be duplicated: {context_paths:?}"
+    );
+    assert!(
+        context_paths
+            .iter()
+            .any(|path| path == "knowledge.base.backend.product"),
+        "backend new knowledge base id should be appended to contextPaths: {context_paths:?}"
+    );
+}
+
+#[tokio::test]
+async fn app_knowledge_base_response_should_expose_document_count_projection() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    let create_base_response = post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases",
+        json!({
+            "knowledgeBaseId": "knowledge.base.pc.counted.docs",
+            "code": "knowledge-base-pc-counted-docs",
+            "displayName": "PC Counted Docs",
+            "description": "PC counted docs",
+            "providerId": "provider.knowledge.pc.local",
+            "baseKind": "wiki",
+            "retrievalModes": ["wiki", "keyword"],
+            "capabilityIds": ["knowledge.search", "knowledge.read"],
+            "configurationProfileId": "profile.knowledge.pc.default",
+            "visibility": "private",
+            "requestedAt": "2026-06-01T00:00:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    assert_eq!(create_base_response["data"]["documentCount"], 0);
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases/knowledge.base.pc.counted.docs/documents",
+        json!({
+            "knowledgeDocumentId": "knowledge.document.pc.counted.manual",
+            "knowledgeSourceId": null,
+            "documentKind": "wiki-page",
+            "title": "Counted Manual",
+            "contentRef": "knowledge://pc/documents/knowledge.document.pc.counted.manual",
+            "contentHash": "sha256-pc-counted",
+            "summary": "Counted manual summary",
+            "metadata": {
+                "pcContent": "Full counted manual content",
+                "pcType": "markdown"
+            },
+            "tags": ["manual"],
+            "categories": [],
+            "trustLevel": 4,
+            "redactionClassification": "internal",
+            "requestedAt": "2026-06-01T00:01:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let get_base_response = get_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases/knowledge.base.pc.counted.docs",
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(get_base_response["data"]["documentCount"], 1);
+
+    let list_base_response = get_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases?page=1&page_size=20",
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(list_base_response["data"]["items"][0]["documentCount"], 1);
+}
+
+#[tokio::test]
+async fn app_knowledge_base_include_deleted_list_should_not_fail_document_count_projection() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases",
+        json!({
+            "knowledgeBaseId": "knowledge.base.pc.deleted.counted.docs",
+            "code": "knowledge-base-pc-deleted-counted-docs",
+            "displayName": "PC Deleted Counted Docs",
+            "description": "PC deleted counted docs",
+            "providerId": "provider.knowledge.pc.local",
+            "baseKind": "wiki",
+            "retrievalModes": ["wiki", "keyword"],
+            "capabilityIds": ["knowledge.search", "knowledge.read"],
+            "configurationProfileId": "profile.knowledge.pc.default",
+            "visibility": "private",
+            "requestedAt": "2026-06-01T00:02:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases/knowledge.base.pc.deleted.counted.docs/documents",
+        json!({
+            "knowledgeDocumentId": "knowledge.document.pc.deleted.counted.manual",
+            "knowledgeSourceId": null,
+            "documentKind": "wiki-page",
+            "title": "Deleted Counted Manual",
+            "contentRef": "knowledge://pc/documents/knowledge.document.pc.deleted.counted.manual",
+            "contentHash": "sha256-pc-deleted-counted",
+            "summary": "Deleted counted manual summary",
+            "metadata": {
+                "pcContent": "Deleted counted manual content",
+                "pcType": "markdown"
+            },
+            "tags": ["manual"],
+            "categories": [],
+            "trustLevel": 4,
+            "redactionClassification": "internal",
+            "requestedAt": "2026-06-01T00:03:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let delete_request = Request::builder()
+        .method("DELETE")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.pc.deleted.counted.docs?expected_version=1&requested_at=2026-06-01T00%3A04%3A00Z")
+        .body(Body::empty())
+        .expect("request should be built");
+    let delete_response = app
+        .clone()
+        .oneshot(auth_headers(delete_request))
+        .await
+        .expect("delete base request should succeed");
+    assert_eq!(delete_response.status(), StatusCode::OK);
+
+    let list_base_response = get_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases?include_deleted=true&page=1&page_size=20",
+        StatusCode::OK,
+    )
+    .await;
+    let item = &list_base_response["data"]["items"][0];
+    assert_eq!(
+        item["knowledgeBaseId"],
+        "knowledge.base.pc.deleted.counted.docs"
+    );
+    assert_eq!(item["status"], "deleted");
+    assert_eq!(item["documentCount"], 0);
+}
+
+#[tokio::test]
+async fn app_knowledge_document_response_should_expose_document_profile() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases",
+        json!({
+            "knowledgeBaseId": "knowledge.base.pc.docs",
+            "code": "knowledge-base-pc-docs",
+            "displayName": "PC Docs",
+            "description": "PC docs",
+            "providerId": "provider.knowledge.pc.local",
+            "baseKind": "wiki",
+            "retrievalModes": ["wiki", "keyword"],
+            "capabilityIds": ["knowledge.search", "knowledge.read"],
+            "configurationProfileId": "profile.knowledge.pc.default",
+            "visibility": "private",
+            "requestedAt": "2026-06-01T00:00:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let create_document_response = post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases/knowledge.base.pc.docs/documents",
+        json!({
+            "knowledgeDocumentId": "knowledge.document.pc.manual",
+            "knowledgeSourceId": null,
+            "documentKind": "wiki-page",
+            "title": "Manual",
+            "contentRef": "knowledge://pc/documents/knowledge.document.pc.manual",
+            "contentHash": "sha256-pc-12345678",
+            "summary": "Manual summary",
+            "metadata": {
+                "pcContent": "Full manual content",
+                "pcParentId": "knowledge.document.pc.root",
+                "pcType": "file",
+                "fileName": "manual.pdf",
+                "fileSize": "42 KB",
+                "mimeType": "application/pdf",
+                "driveUri": "drive://knowledge/manual.pdf"
+            },
+            "tags": ["manual"],
+            "categories": [],
+            "trustLevel": 4,
+            "redactionClassification": "internal",
+            "requestedAt": "2026-06-01T00:01:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    assert_eq!(
+        create_document_response["data"]["documentProfile"]["content"],
+        "Full manual content"
+    );
+    assert_eq!(
+        create_document_response["data"]["documentProfile"]["parentId"],
+        "knowledge.document.pc.root"
+    );
+    assert_eq!(
+        create_document_response["data"]["documentProfile"]["type"],
+        "file"
+    );
+    assert_eq!(
+        create_document_response["data"]["documentProfile"]["fileName"],
+        "manual.pdf"
+    );
+    assert_eq!(
+        create_document_response["data"]["documentProfile"]["fileSize"],
+        "42 KB"
+    );
+    assert_eq!(
+        create_document_response["data"]["documentProfile"]["mimeType"],
+        "application/pdf"
+    );
+    assert_eq!(
+        create_document_response["data"]["documentProfile"]["driveUri"],
+        "drive://knowledge/manual.pdf"
+    );
+}
+
+#[tokio::test]
+async fn app_knowledge_document_request_should_accept_document_profile_and_store_compatible_metadata(
+) {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases",
+        json!({
+            "knowledgeBaseId": "knowledge.base.pc.structured.docs",
+            "code": "knowledge-base-pc-structured-docs",
+            "displayName": "PC Structured Docs",
+            "description": "PC structured docs",
+            "providerId": "provider.knowledge.pc.local",
+            "baseKind": "wiki",
+            "retrievalModes": ["wiki", "keyword"],
+            "capabilityIds": ["knowledge.search", "knowledge.read"],
+            "configurationProfileId": "profile.knowledge.pc.default",
+            "visibility": "private",
+            "requestedAt": "2026-06-01T00:05:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let response = post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases/knowledge.base.pc.structured.docs/documents",
+        json!({
+            "knowledgeDocumentId": "knowledge.document.pc.structured.manual",
+            "knowledgeSourceId": null,
+            "documentKind": "wiki-page",
+            "title": "Structured Manual",
+            "contentRef": "knowledge://pc/documents/knowledge.document.pc.structured.manual",
+            "contentHash": "sha256-pc-structured-12345678",
+            "summary": "Structured manual summary",
+            "metadata": {
+                "owner": "pc",
+                "existing": true
+            },
+            "documentProfile": {
+                "author": "SDKWork Docs",
+                "content": "Full structured manual content",
+                "parentId": "knowledge.document.pc.structured.root",
+                "type": "file",
+                "fileName": "structured-manual.pdf",
+                "fileSize": "64 KB",
+                "mimeType": "application/pdf",
+                "driveUri": "drive://knowledge/structured-manual.pdf"
+            },
+            "tags": ["manual"],
+            "categories": [],
+            "trustLevel": 4,
+            "redactionClassification": "internal",
+            "requestedAt": "2026-06-01T00:06:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    assert_eq!(
+        response["data"]["documentProfile"]["content"],
+        "Full structured manual content"
+    );
+    assert_eq!(
+        response["data"]["documentProfile"]["author"],
+        "SDKWork Docs"
+    );
+    assert_eq!(
+        response["data"]["documentProfile"]["parentId"],
+        "knowledge.document.pc.structured.root"
+    );
+    assert_eq!(response["data"]["documentProfile"]["type"], "file");
+    assert_eq!(
+        response["data"]["documentProfile"]["fileName"],
+        "structured-manual.pdf"
+    );
+    assert_eq!(response["data"]["documentProfile"]["fileSize"], "64 KB");
+    assert_eq!(
+        response["data"]["documentProfile"]["mimeType"],
+        "application/pdf"
+    );
+    assert_eq!(
+        response["data"]["documentProfile"]["driveUri"],
+        "drive://knowledge/structured-manual.pdf"
+    );
+
+    assert_eq!(response["data"]["metadata"]["owner"], "pc");
+    assert_eq!(response["data"]["metadata"]["existing"], true);
+    assert_eq!(response["data"]["metadata"]["pcAuthor"], "SDKWork Docs");
+    assert_eq!(
+        response["data"]["metadata"]["pcContent"],
+        "Full structured manual content"
+    );
+    assert_eq!(
+        response["data"]["metadata"]["pcParentId"],
+        "knowledge.document.pc.structured.root"
+    );
+    assert_eq!(response["data"]["metadata"]["pcType"], "file");
+    assert_eq!(
+        response["data"]["metadata"]["fileName"],
+        "structured-manual.pdf"
+    );
+    assert_eq!(response["data"]["metadata"]["fileSize"], "64 KB");
+    assert_eq!(response["data"]["metadata"]["mimeType"], "application/pdf");
+    assert_eq!(
+        response["data"]["metadata"]["driveUri"],
+        "drive://knowledge/structured-manual.pdf"
+    );
+}
+
+#[tokio::test]
+async fn app_knowledge_document_profile_should_reject_values_outside_openapi_contract() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases",
+        json!({
+            "knowledgeBaseId": "knowledge.base.pc.invalid.profile.docs",
+            "code": "knowledge-base-pc-invalid-profile-docs",
+            "displayName": "PC Invalid Profile Docs",
+            "description": "PC invalid profile docs",
+            "providerId": "provider.knowledge.pc.local",
+            "baseKind": "wiki",
+            "retrievalModes": ["wiki", "keyword"],
+            "capabilityIds": ["knowledge.search", "knowledge.read"],
+            "configurationProfileId": "profile.knowledge.pc.default",
+            "visibility": "private",
+            "requestedAt": "2026-06-01T00:06:30Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let base_profile = json!({
+        "author": "SDKWork Docs",
+        "content": "Full structured manual content",
+        "parentId": "knowledge.document.pc.invalid.profile.root",
+        "type": "file",
+        "fileName": "structured-manual.pdf",
+        "fileSize": "64 KB",
+        "mimeType": "application/pdf",
+        "driveUri": "drive://knowledge/structured-manual.pdf"
+    });
+    let long_content = "x".repeat(1_048_577);
+    let long_drive_uri = format!("drive://{}", "x".repeat(1_017));
+
+    let cases = [
+        (
+            "parent-prefix",
+            json!({"parentId": "knowledge.base.bad.parent"}),
+            "documentProfile.parentId must start with knowledge.document.",
+        ),
+        (
+            "type-enum",
+            json!({"type": "text"}),
+            "documentProfile.type must be one of markdown, file, folder",
+        ),
+        (
+            "file-name-empty",
+            json!({"fileName": ""}),
+            "documentProfile.fileName is required",
+        ),
+        (
+            "file-size-long",
+            json!({"fileSize": "x".repeat(65)}),
+            "documentProfile.fileSize must be at most 64 characters",
+        ),
+        (
+            "mime-type-long",
+            json!({"mimeType": "x".repeat(256)}),
+            "documentProfile.mimeType must be at most 255 characters",
+        ),
+        (
+            "drive-uri-long",
+            json!({"driveUri": long_drive_uri}),
+            "documentProfile.driveUri must be at most 1024 characters",
+        ),
+        (
+            "content-long",
+            json!({"content": long_content}),
+            "documentProfile.content must be at most 1048576 characters",
+        ),
+    ];
+
+    for (case_id, override_profile, expected_detail) in cases {
+        let mut profile = base_profile.clone();
+        let profile_object = profile
+            .as_object_mut()
+            .expect("base document profile should be an object");
+        for (key, value) in override_profile
+            .as_object()
+            .expect("override document profile should be an object")
+        {
+            profile_object.insert(key.clone(), value.clone());
+        }
+
+        let response = post_json(
+            &app,
+            "/app/v3/api/ai/knowledge_bases/knowledge.base.pc.invalid.profile.docs/documents",
+            json!({
+                "knowledgeDocumentId": format!("knowledge.document.pc.invalid.profile.{case_id}"),
+                "knowledgeSourceId": null,
+                "documentKind": "wiki-page",
+                "title": format!("Invalid Document Profile {case_id}"),
+                "contentRef": format!("knowledge://pc/documents/knowledge.document.pc.invalid.profile.{case_id}"),
+                "contentHash": format!("sha256-pc-invalid-profile-{case_id}"),
+                "summary": "Invalid profile summary",
+                "metadata": {},
+                "documentProfile": profile,
+                "tags": ["manual"],
+                "categories": [],
+                "trustLevel": 4,
+                "redactionClassification": "internal",
+                "requestedAt": "2026-06-01T00:06:31Z"
+            }),
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+
+        assert_eq!(response["code"], "validation_error");
+        assert_eq!(response["errorCategory"], "validation");
+        assert_eq!(response["detail"], expected_detail);
+    }
+}
+
+#[tokio::test]
+async fn app_update_knowledge_document_profile_should_preserve_existing_metadata() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases",
+        json!({
+            "knowledgeBaseId": "knowledge.base.pc.update.docs",
+            "code": "knowledge-base-pc-update-docs",
+            "displayName": "PC Update Docs",
+            "description": "PC update docs",
+            "providerId": "provider.knowledge.pc.local",
+            "baseKind": "wiki",
+            "retrievalModes": ["wiki", "keyword"],
+            "capabilityIds": ["knowledge.search", "knowledge.read"],
+            "configurationProfileId": "profile.knowledge.pc.default",
+            "visibility": "private",
+            "requestedAt": "2026-06-01T00:07:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    post_json(
+        &app,
+        "/app/v3/api/ai/knowledge_bases/knowledge.base.pc.update.docs/documents",
+        json!({
+            "knowledgeDocumentId": "knowledge.document.pc.update.manual",
+            "knowledgeSourceId": null,
+            "documentKind": "wiki-page",
+            "title": "Update Manual",
+            "contentRef": "knowledge://pc/documents/knowledge.document.pc.update.manual",
+            "contentHash": "sha256-pc-update-12345678",
+            "summary": "Update manual summary",
+            "metadata": {
+                "owner": "pc",
+                "existing": true,
+                "pcContent": "Old content",
+                "pcType": "text"
+            },
+            "tags": ["manual"],
+            "categories": [],
+            "trustLevel": 4,
+            "redactionClassification": "internal",
+            "requestedAt": "2026-06-01T00:08:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let request = Request::builder()
+        .method("PATCH")
+        .uri("/app/v3/api/ai/knowledge_documents/knowledge.document.pc.update.manual")
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "documentProfile": {
+                    "author": "SDKWork Docs",
+                    "content": "Updated structured manual content",
+                    "parentId": "knowledge.document.pc.update.root",
+                    "type": "file",
+                    "fileName": "updated-manual.pdf",
+                    "fileSize": "96 KB",
+                    "mimeType": "application/pdf",
+                    "driveUri": "drive://knowledge/updated-manual.pdf"
+                },
+                "requestedAt": "2026-06-01T00:09:00Z"
+            })
+            .to_string(),
+        ))
+        .expect("request should be built");
+    let response = app
+        .clone()
+        .oneshot(auth_headers(request))
+        .await
+        .expect("update request should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let response: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+
+    assert_eq!(
+        response["data"]["documentProfile"]["content"],
+        "Updated structured manual content"
+    );
+    assert_eq!(
+        response["data"]["documentProfile"]["author"],
+        "SDKWork Docs"
+    );
+    assert_eq!(
+        response["data"]["documentProfile"]["parentId"],
+        "knowledge.document.pc.update.root"
+    );
+    assert_eq!(response["data"]["documentProfile"]["type"], "file");
+    assert_eq!(
+        response["data"]["documentProfile"]["driveUri"],
+        "drive://knowledge/updated-manual.pdf"
+    );
+
+    assert_eq!(response["data"]["metadata"]["owner"], "pc");
+    assert_eq!(response["data"]["metadata"]["existing"], true);
+    assert_eq!(response["data"]["metadata"]["pcAuthor"], "SDKWork Docs");
+    assert_eq!(
+        response["data"]["metadata"]["pcContent"],
+        "Updated structured manual content"
+    );
+    assert_eq!(
+        response["data"]["metadata"]["pcParentId"],
+        "knowledge.document.pc.update.root"
+    );
+    assert_eq!(response["data"]["metadata"]["pcType"], "file");
+    assert_eq!(
+        response["data"]["metadata"]["fileName"],
+        "updated-manual.pdf"
+    );
+    assert_eq!(response["data"]["metadata"]["fileSize"], "96 KB");
+    assert_eq!(response["data"]["metadata"]["mimeType"], "application/pdf");
+    assert_eq!(
+        response["data"]["metadata"]["driveUri"],
+        "drive://knowledge/updated-manual.pdf"
+    );
+}
+
+#[tokio::test]
+async fn backend_knowledge_document_request_should_accept_document_profile_and_store_compatible_metadata(
+) {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    post_json(
+        &app,
+        "/backend/v3/api/ai/knowledge_bases?tenant_id=1",
+        json!({
+            "knowledgeBaseId": "knowledge.base.backend.pc.structured.docs",
+            "organizationId": "10",
+            "ownerUserId": "100",
+            "code": "knowledge-base-backend-pc-structured-docs",
+            "displayName": "Backend PC Structured Docs",
+            "description": "backend PC structured docs",
+            "providerId": "provider.knowledge.pc.local",
+            "baseKind": "wiki",
+            "retrievalModes": ["wiki", "keyword"],
+            "capabilityIds": ["knowledge.search", "knowledge.read"],
+            "configurationProfileId": "profile.knowledge.pc.default",
+            "visibility": "organization",
+            "requestedAt": "2026-06-01T00:13:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let response = post_json(
+        &app,
+        "/backend/v3/api/ai/knowledge_bases/knowledge.base.backend.pc.structured.docs/documents?tenant_id=1",
+        json!({
+            "knowledgeDocumentId": "knowledge.document.backend.pc.structured.manual",
+            "organizationId": "10",
+            "knowledgeSourceId": null,
+            "documentKind": "wiki-page",
+            "title": "Backend Structured Manual",
+            "contentRef": "knowledge://backend/pc/documents/knowledge.document.backend.pc.structured.manual",
+            "contentHash": "sha256-backend-pc-structured-12345678",
+            "summary": "Backend structured manual summary",
+            "metadata": {
+                "owner": "backend",
+                "existing": true
+            },
+            "documentProfile": {
+                "author": "SDKWork Backend Docs",
+                "content": "Full backend structured manual content",
+                "parentId": "knowledge.document.backend.pc.structured.root",
+                "type": "file",
+                "fileName": "backend-structured-manual.pdf",
+                "fileSize": "128 KB",
+                "mimeType": "application/pdf",
+                "driveUri": "drive://knowledge/backend-structured-manual.pdf"
+            },
+            "tags": ["manual", "backend"],
+            "categories": [],
+            "trustLevel": 4,
+            "redactionClassification": "internal",
+            "requestedAt": "2026-06-01T00:14:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    assert_eq!(
+        response["data"]["documentProfile"]["content"],
+        "Full backend structured manual content"
+    );
+    assert_eq!(
+        response["data"]["documentProfile"]["author"],
+        "SDKWork Backend Docs"
+    );
+    assert_eq!(
+        response["data"]["documentProfile"]["parentId"],
+        "knowledge.document.backend.pc.structured.root"
+    );
+    assert_eq!(response["data"]["documentProfile"]["type"], "file");
+    assert_eq!(
+        response["data"]["documentProfile"]["driveUri"],
+        "drive://knowledge/backend-structured-manual.pdf"
+    );
+
+    assert_eq!(response["data"]["metadata"]["owner"], "backend");
+    assert_eq!(response["data"]["metadata"]["existing"], true);
+    assert_eq!(
+        response["data"]["metadata"]["pcAuthor"],
+        "SDKWork Backend Docs"
+    );
+    assert_eq!(
+        response["data"]["metadata"]["pcContent"],
+        "Full backend structured manual content"
+    );
+    assert_eq!(
+        response["data"]["metadata"]["pcParentId"],
+        "knowledge.document.backend.pc.structured.root"
+    );
+    assert_eq!(response["data"]["metadata"]["pcType"], "file");
+    assert_eq!(
+        response["data"]["metadata"]["fileName"],
+        "backend-structured-manual.pdf"
+    );
+    assert_eq!(response["data"]["metadata"]["fileSize"], "128 KB");
+    assert_eq!(response["data"]["metadata"]["mimeType"], "application/pdf");
+    assert_eq!(
+        response["data"]["metadata"]["driveUri"],
+        "drive://knowledge/backend-structured-manual.pdf"
+    );
+}
+
+#[tokio::test]
+async fn backend_update_knowledge_document_profile_should_preserve_existing_metadata() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    post_json(
+        &app,
+        "/backend/v3/api/ai/knowledge_bases?tenant_id=1",
+        json!({
+            "knowledgeBaseId": "knowledge.base.backend.pc.update.docs",
+            "organizationId": "10",
+            "ownerUserId": "100",
+            "code": "knowledge-base-backend-pc-update-docs",
+            "displayName": "Backend PC Update Docs",
+            "description": "backend PC update docs",
+            "providerId": "provider.knowledge.pc.local",
+            "baseKind": "wiki",
+            "retrievalModes": ["wiki", "keyword"],
+            "capabilityIds": ["knowledge.search", "knowledge.read"],
+            "configurationProfileId": "profile.knowledge.pc.default",
+            "visibility": "organization",
+            "requestedAt": "2026-06-01T00:15:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    post_json(
+        &app,
+        "/backend/v3/api/ai/knowledge_bases/knowledge.base.backend.pc.update.docs/documents?tenant_id=1",
+        json!({
+            "knowledgeDocumentId": "knowledge.document.backend.pc.update.manual",
+            "organizationId": "10",
+            "knowledgeSourceId": null,
+            "documentKind": "wiki-page",
+            "title": "Backend Update Manual",
+            "contentRef": "knowledge://backend/pc/documents/knowledge.document.backend.pc.update.manual",
+            "contentHash": "sha256-backend-pc-update-12345678",
+            "summary": "Backend update manual summary",
+            "metadata": {
+                "owner": "backend",
+                "existing": true,
+                "pcContent": "Old backend content",
+                "pcType": "markdown"
+            },
+            "tags": ["manual", "backend"],
+            "categories": [],
+            "trustLevel": 4,
+            "redactionClassification": "internal",
+            "requestedAt": "2026-06-01T00:16:00Z"
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let response = patch_json(
+        &app,
+        "/backend/v3/api/ai/knowledge_documents/knowledge.document.backend.pc.update.manual?tenant_id=1",
+        json!({
+            "documentProfile": {
+                "author": "SDKWork Backend Docs",
+                "content": "Updated backend structured manual content",
+                "parentId": "knowledge.document.backend.pc.update.root",
+                "type": "file",
+                "fileName": "backend-updated-manual.pdf",
+                "fileSize": "160 KB",
+                "mimeType": "application/pdf",
+                "driveUri": "drive://knowledge/backend-updated-manual.pdf"
+            },
+            "requestedAt": "2026-06-01T00:17:00Z"
+        }),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(
+        response["data"]["documentProfile"]["content"],
+        "Updated backend structured manual content"
+    );
+    assert_eq!(
+        response["data"]["documentProfile"]["author"],
+        "SDKWork Backend Docs"
+    );
+    assert_eq!(
+        response["data"]["documentProfile"]["parentId"],
+        "knowledge.document.backend.pc.update.root"
+    );
+    assert_eq!(response["data"]["documentProfile"]["type"], "file");
+    assert_eq!(
+        response["data"]["documentProfile"]["driveUri"],
+        "drive://knowledge/backend-updated-manual.pdf"
+    );
+
+    assert_eq!(response["data"]["metadata"]["owner"], "backend");
+    assert_eq!(response["data"]["metadata"]["existing"], true);
+    assert_eq!(
+        response["data"]["metadata"]["pcAuthor"],
+        "SDKWork Backend Docs"
+    );
+    assert_eq!(
+        response["data"]["metadata"]["pcContent"],
+        "Updated backend structured manual content"
+    );
+    assert_eq!(
+        response["data"]["metadata"]["pcParentId"],
+        "knowledge.document.backend.pc.update.root"
+    );
+    assert_eq!(response["data"]["metadata"]["pcType"], "file");
+    assert_eq!(
+        response["data"]["metadata"]["fileName"],
+        "backend-updated-manual.pdf"
+    );
+    assert_eq!(response["data"]["metadata"]["fileSize"], "160 KB");
+    assert_eq!(response["data"]["metadata"]["mimeType"], "application/pdf");
+    assert_eq!(
+        response["data"]["metadata"]["driveUri"],
+        "drive://knowledge/backend-updated-manual.pdf"
+    );
+}
+
+#[tokio::test]
+async fn app_request_context_should_work_for_generated_app_sdk_clients() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
 
     let request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents?tenant_id=1")
+        .uri("/app/v3/api/ai/agents")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             create_body(
@@ -182,7 +1972,7 @@ async fn app_context_headers_should_work_for_generated_app_sdk_clients() {
 
     let response = app
         .clone()
-        .oneshot(app_context_headers(request))
+        .oneshot(request)
         .await
         .expect("generated app sdk request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
@@ -203,13 +1993,13 @@ async fn app_update_agent_should_replace_manifest_when_manifest_is_present() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.update.manifest", "UpdateManifest").await;
 
     let request = Request::builder()
         .method("PATCH")
-        .uri("/app/v3/api/ai/agents/agent.update.manifest?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.update.manifest")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -248,13 +2038,13 @@ async fn provider_bindings_and_deployments_should_work_over_http() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.rig.http", "RigHttp").await;
 
     let add_binding_request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents/agent.rig.http/provider_bindings?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.rig.http/provider_bindings")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -343,7 +2133,7 @@ async fn provider_bindings_and_deployments_should_work_over_http() {
 
     let list_bindings_request = Request::builder()
         .method("GET")
-        .uri("/app/v3/api/ai/agents/agent.rig.http/provider_bindings?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.rig.http/provider_bindings")
         .body(Body::empty())
         .expect("request should be built");
     let list_bindings_response = app
@@ -393,7 +2183,7 @@ async fn provider_bindings_and_deployments_should_apply_pagination_contract() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.rig.paged", "RigPaged").await;
 
@@ -403,7 +2193,7 @@ async fn provider_bindings_and_deployments_should_apply_pagination_contract() {
     ] {
         let request = Request::builder()
             .method("POST")
-            .uri("/app/v3/api/ai/agents/agent.rig.paged/provider_bindings?tenant_id=1")
+            .uri("/app/v3/api/ai/agents/agent.rig.paged/provider_bindings")
             .header(CONTENT_TYPE, "application/json")
             .body(Body::from(
                 json!({
@@ -461,7 +2251,7 @@ async fn provider_bindings_and_deployments_should_apply_pagination_contract() {
 
     let request = Request::builder()
         .method("GET")
-        .uri("/app/v3/api/ai/agents/agent.rig.paged/provider_bindings?tenant_id=1&page=1&page_size=1")
+        .uri("/app/v3/api/ai/agents/agent.rig.paged/provider_bindings?page=1&page_size=1")
         .body(Body::empty())
         .expect("request should be built");
     let response = app
@@ -525,10 +2315,10 @@ async fn provider_binding_and_deployment_list_missing_agent_should_return_not_fo
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     for uri in [
-        "/app/v3/api/ai/agents/agent.missing/provider_bindings?tenant_id=1",
+        "/app/v3/api/ai/agents/agent.missing/provider_bindings",
         "/backend/v3/api/ai/agents/agent.missing/deployments?tenant_id=1",
     ] {
         let request = Request::builder()
@@ -567,13 +2357,13 @@ async fn app_agent_preview_response_should_use_agent_runtime_api_contract() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.preview.runtime", "Preview Runtime").await;
 
     let request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents/agent.preview.runtime/preview_responses?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.preview.runtime/preview_responses")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -598,7 +2388,7 @@ async fn app_agent_preview_response_should_use_agent_runtime_api_contract() {
 
     let response = app
         .clone()
-        .oneshot(app_context_headers(request))
+        .oneshot(request)
         .await
         .expect("preview request should succeed");
     assert_eq!(response.status(), StatusCode::OK);
@@ -626,13 +2416,13 @@ async fn app_agent_prompt_optimization_should_use_agent_runtime_api_contract() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.prompt.runtime", "Prompt Runtime").await;
 
     let request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents/agent.prompt.runtime/prompt_optimizations?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.prompt.runtime/prompt_optimizations")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -653,7 +2443,7 @@ async fn app_agent_prompt_optimization_should_use_agent_runtime_api_contract() {
 
     let response = app
         .clone()
-        .oneshot(app_context_headers(request))
+        .oneshot(request)
         .await
         .expect("prompt optimization request should succeed");
     assert_eq!(response.status(), StatusCode::OK);
@@ -683,11 +2473,11 @@ async fn app_agent_runtime_execution_missing_agent_should_return_problem_detail(
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents/agent.runtime.missing/preview_responses?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.runtime.missing/preview_responses")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -701,7 +2491,7 @@ async fn app_agent_runtime_execution_missing_agent_should_return_problem_detail(
 
     let response = app
         .clone()
-        .oneshot(app_context_headers(request))
+        .oneshot(request)
         .await
         .expect("missing agent request should return problem detail");
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
@@ -729,7 +2519,7 @@ async fn provider_binding_activation_missing_agent_should_return_not_found() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let request = Request::builder()
         .method("POST")
@@ -773,7 +2563,7 @@ async fn provider_binding_and_deployment_conflicts_should_return_problem_detail(
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.rig.conflict", "RigConflict").await;
 
@@ -789,7 +2579,7 @@ async fn provider_binding_and_deployment_conflicts_should_return_problem_detail(
     for expected_status in [StatusCode::CREATED, StatusCode::CONFLICT] {
         let request = Request::builder()
             .method("POST")
-            .uri("/app/v3/api/ai/agents/agent.rig.conflict/provider_bindings?tenant_id=1")
+            .uri("/app/v3/api/ai/agents/agent.rig.conflict/provider_bindings")
             .header(CONTENT_TYPE, "application/json")
             .body(Body::from(binding_body.to_string()))
             .expect("request should be built");
@@ -863,7 +2653,7 @@ async fn deployment_missing_binding_should_return_not_found_problem_detail() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.rig.missing.binding", "RigMissingBinding").await;
 
@@ -911,13 +2701,13 @@ async fn provider_binding_invalid_standard_ids_should_return_bad_request() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.rig.invalid.ids", "RigInvalidIds").await;
 
     let request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents/agent.rig.invalid.ids/provider_bindings?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.rig.invalid.ids/provider_bindings")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -966,7 +2756,7 @@ async fn provider_binding_invalid_capabilities_should_return_bad_request() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(
         &app,
@@ -977,7 +2767,7 @@ async fn provider_binding_invalid_capabilities_should_return_bad_request() {
 
     let request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents/agent.rig.invalid.capabilities/provider_bindings?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.rig.invalid.capabilities/provider_bindings")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -1018,12 +2808,12 @@ async fn deployment_invalid_standard_ids_should_return_bad_request() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.rig.invalid.deployment", "RigInvalidDeployment").await;
     let binding_request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents/agent.rig.invalid.deployment/provider_bindings?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.rig.invalid.deployment/provider_bindings")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -1084,7 +2874,7 @@ async fn list_should_apply_pagination_contract() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.alpha", "Alpha").await;
     create_agent(&app, "agent.beta", "Beta").await;
@@ -1125,7 +2915,7 @@ async fn list_should_apply_search_query_filter() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.search.alpha", "Alpha Search").await;
     create_agent(&app, "agent.search.beta", "Beta Search").await;
@@ -1164,11 +2954,11 @@ async fn missing_subject_header_should_return_problem_detail() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let request = Request::builder()
         .method("GET")
-        .uri("/app/v3/api/ai/agents?tenant_id=1")
+        .uri("/backend/v3/api/ai/agents?tenant_id=1")
         .body(Body::empty())
         .expect("request should be built");
 
@@ -1209,13 +2999,13 @@ async fn delete_without_requested_at_should_return_bad_request() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.gamma", "Gamma").await;
 
     let request = Request::builder()
         .method("DELETE")
-        .uri("/app/v3/api/ai/agents/agent.gamma?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.gamma")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from("{}"))
         .expect("request should be built");
@@ -1249,11 +3039,11 @@ async fn create_with_invalid_requested_at_should_return_bad_request() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents?tenant_id=1")
+        .uri("/app/v3/api/ai/agents")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             create_body("agent.invalid.time", "InvalidTime", "2026-06-01").to_string(),
@@ -1293,7 +3083,7 @@ async fn create_with_invalid_implementation_provider_id_should_return_bad_reques
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let mut body = create_body(
         "agent.invalid.implementation-provider",
@@ -1305,7 +3095,7 @@ async fn create_with_invalid_implementation_provider_id_should_return_bad_reques
 
     let request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents?tenant_id=1")
+        .uri("/app/v3/api/ai/agents")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(body.to_string()))
         .expect("request should be built");
@@ -1345,13 +3135,13 @@ async fn create_duplicate_agent_should_return_conflict() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.dup.conflict", "DupConflict").await;
 
     let duplicate_request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents?tenant_id=1")
+        .uri("/app/v3/api/ai/agents")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             create_body("agent.dup.conflict", "DupConflict", "2026-06-01T03:00:00Z").to_string(),
@@ -1389,11 +3179,11 @@ async fn create_agent_with_non_standard_agent_id_should_return_bad_request() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents?tenant_id=1")
+        .uri("/app/v3/api/ai/agents")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             create_body("pc.agent.invalid", "InvalidAgent", "2026-06-01T03:30:00Z").to_string(),
@@ -1431,13 +3221,13 @@ async fn restore_with_invalid_requested_at_should_return_bad_request() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.restore.invalid-time", "RestoreInvalidTime").await;
 
     let delete_request = Request::builder()
         .method("DELETE")
-        .uri("/app/v3/api/ai/agents/agent.restore.invalid-time?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.restore.invalid-time")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -1486,13 +3276,13 @@ async fn app_restore_should_restore_deleted_agent() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.restore.app", "RestoreApp").await;
 
     let delete_request = Request::builder()
         .method("DELETE")
-        .uri("/app/v3/api/ai/agents/agent.restore.app?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.restore.app")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -1510,7 +3300,7 @@ async fn app_restore_should_restore_deleted_agent() {
 
     let restore_request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents/agent.restore.app/restore?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.restore.app/restore")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -1541,13 +3331,13 @@ async fn backend_restore_should_restore_deleted_agent() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.restore.backend", "RestoreBackend").await;
 
     let delete_request = Request::builder()
         .method("DELETE")
-        .uri("/app/v3/api/ai/agents/agent.restore.backend?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.restore.backend")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -1596,7 +3386,7 @@ async fn update_with_matching_expected_version_should_succeed() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.expected.update", "ExpectedUpdate").await;
 
@@ -1636,7 +3426,7 @@ async fn update_with_stale_expected_version_should_return_conflict() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.expected.stale", "ExpectedStale").await;
 
@@ -1708,7 +3498,7 @@ async fn status_update_with_stale_expected_version_should_return_version_conflic
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.expected.status", "ExpectedStatus").await;
 
@@ -1774,7 +3564,7 @@ async fn backend_audit_events_should_return_recorded_items() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.audit", "Audit").await;
 
@@ -1828,7 +3618,7 @@ async fn backend_audit_events_action_filter_should_work() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.audit.filter", "AuditFilter").await;
 
@@ -1883,13 +3673,13 @@ async fn backend_audit_events_should_filter_provider_binding_and_deployment_acti
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.audit.rig", "AuditRig").await;
 
     let binding_request = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/agents/agent.audit.rig/provider_bindings?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.audit.rig/provider_bindings")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -1986,7 +3776,7 @@ async fn backend_audit_events_invalid_action_should_return_problem_detail() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.audit.invalid", "AuditInvalid").await;
 
@@ -2017,7 +3807,7 @@ async fn backend_audit_events_time_range_filter_should_work() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.audit.time", "AuditTime").await;
 
@@ -2071,7 +3861,7 @@ async fn backend_audit_events_invalid_from_should_return_problem_detail() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.audit.badfrom", "AuditBadFrom").await;
 
@@ -2095,7 +3885,7 @@ async fn backend_audit_events_from_after_to_should_return_problem_detail() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.audit.rangeerr", "AuditRangeErr").await;
 
@@ -2119,7 +3909,7 @@ async fn backend_audit_events_page_zero_should_return_problem_detail() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.audit.page.zero", "AuditPageZero").await;
 
@@ -2152,7 +3942,7 @@ async fn backend_audit_events_page_size_above_max_should_return_problem_detail()
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.audit.page.size", "AuditPageSize").await;
 
@@ -2185,7 +3975,7 @@ async fn backend_audit_events_should_support_combined_filters_with_pagination() 
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent_at(
         &app,
@@ -2269,7 +4059,7 @@ async fn backend_audit_events_should_sort_by_instant_desc_across_timezones() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent_at(
         &app,
@@ -2332,11 +4122,11 @@ async fn invalid_query_should_return_problem_detail() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let request = Request::builder()
         .method("GET")
-        .uri("/app/v3/api/ai/agents?tenant_id=1&page=oops")
+        .uri("/app/v3/api/ai/agents?page=oops")
         .body(Body::empty())
         .expect("request should be built");
 
@@ -2369,7 +4159,7 @@ async fn retrieve_missing_agent_should_return_not_found_problem_detail() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let request = Request::builder()
         .method("GET")
@@ -2411,11 +4201,11 @@ async fn permission_denied_should_return_permission_problem_detail() {
             mode: PolicyMode::Deny("agent.business.denied".to_string()),
         },
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let request = Request::builder()
         .method("GET")
-        .uri("/app/v3/api/ai/agents?tenant_id=1")
+        .uri("/app/v3/api/ai/agents")
         .body(Body::empty())
         .expect("request should be built");
 
@@ -2450,11 +4240,11 @@ async fn delete_missing_agent_should_return_not_found_problem_detail() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let request = Request::builder()
         .method("DELETE")
-        .uri("/app/v3/api/ai/agents/agent.missing.delete?tenant_id=1")
+        .uri("/app/v3/api/ai/agents/agent.missing.delete")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -2488,7 +4278,7 @@ async fn status_missing_agent_should_return_not_found_problem_detail() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let request = Request::builder()
         .method("POST")
@@ -2527,7 +4317,7 @@ async fn restore_missing_agent_should_return_not_found_problem_detail() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let request = Request::builder()
         .method("POST")
@@ -2568,7 +4358,7 @@ async fn backend_audit_events_permission_denied_should_return_forbidden_problem_
             mode: PolicyMode::Deny("agent.business.denied".to_string()),
         },
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let request = Request::builder()
         .method("GET")
@@ -2600,19 +4390,17 @@ async fn app_knowledge_base_rag_lifecycle_should_work_over_http() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     create_agent(&app, "agent.knowledge.rag", "Knowledge RAG").await;
 
     let create_base = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeBaseId": "knowledge.base.wiki",
-                "organizationId": "10",
-                "ownerUserId": "100",
                 "code": "knowledge-base-wiki",
                 "displayName": "Wiki Knowledge",
                 "description": "wiki style knowledge base",
@@ -2644,12 +4432,11 @@ async fn app_knowledge_base_rag_lifecycle_should_work_over_http() {
 
     let create_source = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/sources?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/sources")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeSourceId": "knowledge.source.wiki.root",
-                "organizationId": "10",
                 "sourceKind": "wiki",
                 "sourceRef": "kb://wiki/root",
                 "sourceHash": "sha256-source-root",
@@ -2669,12 +4456,11 @@ async fn app_knowledge_base_rag_lifecycle_should_work_over_http() {
 
     let create_document = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/documents?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/documents")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeDocumentId": "knowledge.document.rig.setup",
-                "organizationId": "10",
                 "knowledgeSourceId": "knowledge.source.wiki.root",
                 "documentKind": "wiki-page",
                 "title": "Rig setup",
@@ -2700,12 +4486,11 @@ async fn app_knowledge_base_rag_lifecycle_should_work_over_http() {
 
     let create_chunk = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_documents/knowledge.document.rig.setup/chunks?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_documents/knowledge.document.rig.setup/chunks")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeChunkId": "knowledge.chunk.rig.setup.1",
-                "organizationId": "10",
                 "chunkOrdinal": 1,
                 "heading": "Install",
                 "contentRef": "kb://wiki/rig/setup#install",
@@ -2727,7 +4512,7 @@ async fn app_knowledge_base_rag_lifecycle_should_work_over_http() {
 
     let upsert_wiki_index = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_indexes?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_indexes")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -2761,7 +4546,7 @@ async fn app_knowledge_base_rag_lifecycle_should_work_over_http() {
 
     let search_knowledge = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/search?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/search")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -2812,12 +4597,11 @@ async fn app_knowledge_base_rag_lifecycle_should_work_over_http() {
 
     let create_binding = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/bindings?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/bindings")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeBindingId": "knowledge.binding.agent.rag",
-                "organizationId": "10",
                 "agentId": "agent.knowledge.rag",
                 "scopeKind": "agent",
                 "scopeRef": "agent.knowledge.rag",
@@ -2837,12 +4621,11 @@ async fn app_knowledge_base_rag_lifecycle_should_work_over_http() {
 
     let create_sync_job = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/sync_jobs?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/sync_jobs")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "syncJobId": "knowledge.sync.rig.setup.import",
-                "organizationId": "10",
                 "knowledgeSourceId": "knowledge.source.wiki.root",
                 "jobKind": "import",
                 "inputRef": "kb://wiki/root",
@@ -2861,37 +4644,37 @@ async fn app_knowledge_base_rag_lifecycle_should_work_over_http() {
 
     for (uri, expected_id_field, expected_id) in [
         (
-            "/app/v3/api/ai/knowledge_bases?tenant_id=1",
+            "/app/v3/api/ai/knowledge_bases",
             "knowledgeBaseId",
             "knowledge.base.wiki",
         ),
         (
-            "/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/sources?tenant_id=1",
+            "/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/sources",
             "knowledgeSourceId",
             "knowledge.source.wiki.root",
         ),
         (
-            "/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/documents?tenant_id=1",
+            "/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/documents",
             "knowledgeDocumentId",
             "knowledge.document.rig.setup",
         ),
         (
-            "/app/v3/api/ai/knowledge_documents/knowledge.document.rig.setup/chunks?tenant_id=1",
+            "/app/v3/api/ai/knowledge_documents/knowledge.document.rig.setup/chunks",
             "knowledgeChunkId",
             "knowledge.chunk.rig.setup.1",
         ),
         (
-            "/app/v3/api/ai/knowledge_documents/knowledge.document.rig.setup/indexes?tenant_id=1",
+            "/app/v3/api/ai/knowledge_documents/knowledge.document.rig.setup/indexes",
             "knowledgeIndexId",
             "knowledge.index.rig.setup.wiki",
         ),
         (
-            "/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/bindings?tenant_id=1",
+            "/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/bindings",
             "knowledgeBindingId",
             "knowledge.binding.agent.rag",
         ),
         (
-            "/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/sync_jobs?tenant_id=1",
+            "/app/v3/api/ai/knowledge_bases/knowledge.base.wiki/sync_jobs",
             "syncJobId",
             "knowledge.sync.rig.setup.import",
         ),
@@ -2921,22 +4704,22 @@ async fn app_knowledge_base_rag_lifecycle_should_work_over_http() {
 
     for (uri, expected_id_field, expected_id) in [
         (
-            "/app/v3/api/ai/knowledge_chunks/knowledge.chunk.rig.setup.1?tenant_id=1",
+            "/app/v3/api/ai/knowledge_chunks/knowledge.chunk.rig.setup.1",
             "knowledgeChunkId",
             "knowledge.chunk.rig.setup.1",
         ),
         (
-            "/app/v3/api/ai/knowledge_indexes/knowledge.index.rig.setup.wiki?tenant_id=1",
+            "/app/v3/api/ai/knowledge_indexes/knowledge.index.rig.setup.wiki",
             "knowledgeIndexId",
             "knowledge.index.rig.setup.wiki",
         ),
         (
-            "/app/v3/api/ai/knowledge_bindings/knowledge.binding.agent.rag?tenant_id=1",
+            "/app/v3/api/ai/knowledge_bindings/knowledge.binding.agent.rag",
             "knowledgeBindingId",
             "knowledge.binding.agent.rag",
         ),
         (
-            "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.rig.setup.import?tenant_id=1",
+            "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.rig.setup.import",
             "syncJobId",
             "knowledge.sync.rig.setup.import",
         ),
@@ -2968,15 +4751,13 @@ async fn app_knowledge_sync_jobs_support_runtime_transitions_over_http() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     post_json(
         &app,
-        "/app/v3/api/ai/knowledge_bases?tenant_id=1",
+        "/app/v3/api/ai/knowledge_bases",
         json!({
             "knowledgeBaseId": "knowledge.base.sync.http",
-            "organizationId": "10",
-            "ownerUserId": "100",
             "code": "knowledge-base-sync-http",
             "displayName": "HTTP Sync Knowledge",
             "description": "runtime sync transitions",
@@ -2994,10 +4775,9 @@ async fn app_knowledge_sync_jobs_support_runtime_transitions_over_http() {
 
     post_json(
         &app,
-        "/app/v3/api/ai/knowledge_bases/knowledge.base.sync.http/sources?tenant_id=1",
+        "/app/v3/api/ai/knowledge_bases/knowledge.base.sync.http/sources",
         json!({
             "knowledgeSourceId": "knowledge.source.sync.http",
-            "organizationId": "10",
             "sourceKind": "wiki",
             "sourceRef": "kb://sync/http",
             "sourceHash": "sha256-sync-http-source",
@@ -3028,10 +4808,9 @@ async fn app_knowledge_sync_jobs_support_runtime_transitions_over_http() {
     ] {
         post_json(
             &app,
-            "/app/v3/api/ai/knowledge_bases/knowledge.base.sync.http/sync_jobs?tenant_id=1",
+            "/app/v3/api/ai/knowledge_bases/knowledge.base.sync.http/sync_jobs",
             json!({
                 "syncJobId": sync_job_id,
-                "organizationId": "10",
                 "knowledgeSourceId": "knowledge.source.sync.http",
                 "jobKind": job_kind,
                 "inputRef": "kb://sync/http",
@@ -3045,7 +4824,7 @@ async fn app_knowledge_sync_jobs_support_runtime_transitions_over_http() {
 
     let running = post_json(
         &app,
-        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.complete.1/start?tenant_id=1",
+        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.complete.1/start",
         json!({
             "requestedAt": "2026-06-01T12:03:00Z"
         }),
@@ -3058,7 +4837,7 @@ async fn app_knowledge_sync_jobs_support_runtime_transitions_over_http() {
 
     let completed = post_json(
         &app,
-        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.complete.1/complete?tenant_id=1",
+        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.complete.1/complete",
         json!({
             "output": { "indexedDocuments": 1, "indexedChunks": 0 },
             "requestedAt": "2026-06-01T12:04:00Z"
@@ -3072,7 +4851,7 @@ async fn app_knowledge_sync_jobs_support_runtime_transitions_over_http() {
 
     post_json(
         &app,
-        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.fail.1/start?tenant_id=1",
+        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.fail.1/start",
         json!({
             "requestedAt": "2026-06-01T12:06:00Z"
         }),
@@ -3081,7 +4860,7 @@ async fn app_knowledge_sync_jobs_support_runtime_transitions_over_http() {
     .await;
     let failed = post_json(
         &app,
-        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.fail.1/fail?tenant_id=1",
+        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.fail.1/fail",
         json!({
             "error": { "code": "source_unavailable" },
             "requestedAt": "2026-06-01T12:07:00Z"
@@ -3095,7 +4874,7 @@ async fn app_knowledge_sync_jobs_support_runtime_transitions_over_http() {
 
     let cancelled = post_json(
         &app,
-        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.cancel.1/cancel?tenant_id=1",
+        "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.cancel.1/cancel",
         json!({
             "cancellation": { "reason": "operator_cancelled" },
             "requestedAt": "2026-06-01T12:09:00Z"
@@ -3116,17 +4895,15 @@ async fn app_knowledge_base_marketplace_crud_should_work_over_http() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let create_base = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeBaseId": "knowledge.base.crud.http",
-                "organizationId": "10",
-                "ownerUserId": "100",
                 "code": "knowledge-base-crud-http",
                 "displayName": "HTTP CRUD Knowledge",
                 "description": "knowledge base management lifecycle",
@@ -3150,7 +4927,7 @@ async fn app_knowledge_base_marketplace_crud_should_work_over_http() {
 
     let get_base = Request::builder()
         .method("GET")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http")
         .body(Body::empty())
         .expect("request should be built");
     let get_response = app
@@ -3172,7 +4949,7 @@ async fn app_knowledge_base_marketplace_crud_should_work_over_http() {
 
     let update_base = Request::builder()
         .method("PATCH")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -3211,7 +4988,7 @@ async fn app_knowledge_base_marketplace_crud_should_work_over_http() {
 
     let delete_base = Request::builder()
         .method("DELETE")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http?tenant_id=1&expected_version=2&requested_at=2026-06-01T11%3A02%3A00Z")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http?expected_version=2&requested_at=2026-06-01T11%3A02%3A00Z")
         .body(Body::empty())
         .expect("request should be built");
     let delete_response = app
@@ -3230,12 +5007,11 @@ async fn app_knowledge_base_marketplace_crud_should_work_over_http() {
 
     let blocked_source = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http/sources?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http/sources")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeSourceId": "knowledge.source.crud.http.blocked",
-                "organizationId": "10",
                 "sourceKind": "wiki",
                 "sourceRef": "kb://crud/http/blocked",
                 "sourceHash": "sha256-crud-http-blocked",
@@ -3255,7 +5031,7 @@ async fn app_knowledge_base_marketplace_crud_should_work_over_http() {
 
     let restore_base = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http/restore?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http/restore")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -3281,12 +5057,11 @@ async fn app_knowledge_base_marketplace_crud_should_work_over_http() {
 
     let allowed_source = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http/sources?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.crud.http/sources")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeSourceId": "knowledge.source.crud.http.allowed",
-                "organizationId": "10",
                 "sourceKind": "wiki",
                 "sourceRef": "kb://crud/http/allowed",
                 "sourceHash": "sha256-crud-http-allowed",
@@ -3312,17 +5087,15 @@ async fn app_knowledge_source_and_document_management_should_work_over_http() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let create_base = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeBaseId": "knowledge.base.source.document.http",
-                "organizationId": "10",
-                "ownerUserId": "100",
                 "code": "knowledge-base-source-document-http",
                 "displayName": "Source Document Knowledge",
                 "description": "source and document management lifecycle",
@@ -3346,12 +5119,11 @@ async fn app_knowledge_source_and_document_management_should_work_over_http() {
 
     let create_source = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.source.document.http/sources?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.source.document.http/sources")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeSourceId": "knowledge.source.source.document.http",
-                "organizationId": "10",
                 "sourceKind": "wiki",
                 "sourceRef": "kb://source-document/root",
                 "sourceHash": "sha256-source-document-root",
@@ -3371,7 +5143,7 @@ async fn app_knowledge_source_and_document_management_should_work_over_http() {
 
     let get_source = Request::builder()
         .method("GET")
-        .uri("/app/v3/api/ai/knowledge_sources/knowledge.source.source.document.http?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_sources/knowledge.source.source.document.http")
         .body(Body::empty())
         .expect("request should be built");
     let get_source_response = app
@@ -3393,7 +5165,7 @@ async fn app_knowledge_source_and_document_management_should_work_over_http() {
 
     let update_source = Request::builder()
         .method("PATCH")
-        .uri("/app/v3/api/ai/knowledge_sources/knowledge.source.source.document.http?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_sources/knowledge.source.source.document.http")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -3430,7 +5202,7 @@ async fn app_knowledge_source_and_document_management_should_work_over_http() {
 
     let delete_source = Request::builder()
         .method("DELETE")
-        .uri("/app/v3/api/ai/knowledge_sources/knowledge.source.source.document.http?tenant_id=1&expected_version=2&requested_at=2026-06-01T12%3A03%3A00Z")
+        .uri("/app/v3/api/ai/knowledge_sources/knowledge.source.source.document.http?expected_version=2&requested_at=2026-06-01T12%3A03%3A00Z")
         .body(Body::empty())
         .expect("request should be built");
     let delete_source_response = app
@@ -3449,7 +5221,7 @@ async fn app_knowledge_source_and_document_management_should_work_over_http() {
 
     let list_sources = Request::builder()
         .method("GET")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.source.document.http/sources?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.source.document.http/sources")
         .body(Body::empty())
         .expect("request should be built");
     let list_sources_response = app
@@ -3467,12 +5239,11 @@ async fn app_knowledge_source_and_document_management_should_work_over_http() {
 
     let blocked_document = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.source.document.http/documents?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.source.document.http/documents")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeDocumentId": "knowledge.document.source.document.blocked",
-                "organizationId": "10",
                 "knowledgeSourceId": "knowledge.source.source.document.http",
                 "documentKind": "article",
                 "title": "Blocked Source Document",
@@ -3498,7 +5269,7 @@ async fn app_knowledge_source_and_document_management_should_work_over_http() {
 
     let restore_source = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_sources/knowledge.source.source.document.http/restore?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_sources/knowledge.source.source.document.http/restore")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -3524,12 +5295,11 @@ async fn app_knowledge_source_and_document_management_should_work_over_http() {
 
     let create_document = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.source.document.http/documents?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.source.document.http/documents")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeDocumentId": "knowledge.document.source.document.http",
-                "organizationId": "10",
                 "knowledgeSourceId": "knowledge.source.source.document.http",
                 "documentKind": "article",
                 "title": "Original Document",
@@ -3555,7 +5325,7 @@ async fn app_knowledge_source_and_document_management_should_work_over_http() {
 
     let update_document = Request::builder()
         .method("PATCH")
-        .uri("/app/v3/api/ai/knowledge_documents/knowledge.document.source.document.http?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_documents/knowledge.document.source.document.http")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -3597,7 +5367,7 @@ async fn app_knowledge_source_and_document_management_should_work_over_http() {
 
     let delete_document = Request::builder()
         .method("DELETE")
-        .uri("/app/v3/api/ai/knowledge_documents/knowledge.document.source.document.http?tenant_id=1&expected_version=2&requested_at=2026-06-01T12%3A08%3A00Z")
+        .uri("/app/v3/api/ai/knowledge_documents/knowledge.document.source.document.http?expected_version=2&requested_at=2026-06-01T12%3A08%3A00Z")
         .body(Body::empty())
         .expect("request should be built");
     let delete_document_response = app
@@ -3622,17 +5392,15 @@ async fn vector_knowledge_index_without_embedding_metadata_should_return_validat
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let create_base = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeBaseId": "knowledge.base.vector",
-                "organizationId": "10",
-                "ownerUserId": "100",
                 "code": "knowledge-base-vector",
                 "displayName": "Vector Knowledge",
                 "providerId": "provider.knowledge.local",
@@ -3655,7 +5423,7 @@ async fn vector_knowledge_index_without_embedding_metadata_should_return_validat
 
     let invalid_vector_index = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_indexes?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_indexes")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
@@ -3704,17 +5472,15 @@ async fn app_knowledge_search_request_limits_should_return_validation_problem() 
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let create_base = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeBaseId": "knowledge.base.search.limits.http",
-                "organizationId": "10",
-                "ownerUserId": "100",
                 "code": "knowledge-base-search-limits-http",
                 "displayName": "Search Limits Knowledge",
                 "providerId": "provider.knowledge.local",
@@ -3737,7 +5503,7 @@ async fn app_knowledge_search_request_limits_should_return_validation_problem() 
 
     let response = post_json(
         &app,
-        "/app/v3/api/ai/knowledge_bases/knowledge.base.search.limits.http/search?tenant_id=1",
+        "/app/v3/api/ai/knowledge_bases/knowledge.base.search.limits.http/search",
         json!({
             "query": "kernel",
             "topK": 101,
@@ -3762,15 +5528,13 @@ async fn app_knowledge_storage_bounds_should_return_validation_problem() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     post_json(
         &app,
-        "/app/v3/api/ai/knowledge_bases?tenant_id=1",
+        "/app/v3/api/ai/knowledge_bases",
         json!({
             "knowledgeBaseId": "knowledge.base.storage.bounds.http",
-            "organizationId": "10",
-            "ownerUserId": "100",
             "code": "knowledge-base-storage-bounds-http",
             "displayName": "Storage Bounds Knowledge",
             "providerId": "provider.knowledge.local",
@@ -3787,12 +5551,11 @@ async fn app_knowledge_storage_bounds_should_return_validation_problem() {
 
     let oversized_hash = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.storage.bounds.http/documents?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.storage.bounds.http/documents")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeDocumentId": "knowledge.document.storage.bounds.hash",
-                "organizationId": "10",
                 "documentKind": "spec",
                 "title": "Storage Bounds Hash",
                 "contentRef": "kb://storage-bounds/hash",
@@ -3835,12 +5598,11 @@ async fn app_knowledge_storage_bounds_should_return_validation_problem() {
 
     let oversized_scope_ref = Request::builder()
         .method("POST")
-        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.storage.bounds.http/bindings?tenant_id=1")
+        .uri("/app/v3/api/ai/knowledge_bases/knowledge.base.storage.bounds.http/bindings")
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
                 "knowledgeBindingId": "knowledge.binding.storage.bounds.scope",
-                "organizationId": "10",
                 "scopeKind": "agent",
                 "scopeRef": "s".repeat(129),
                 "active": true,
@@ -3883,15 +5645,13 @@ async fn app_memory_stack_should_work_over_http_for_generated_sdk_contracts() {
         InMemoryAgentAuditSink::default(),
         AllowAllPolicyProvider::allow("policy.memory"),
     );
-    let app = build_combined_router(state);
+    let app = build_test_app(state);
 
     let store = post_json(
         &app,
-        "/app/v3/api/ai/memory_stores?tenant_id=1",
+        "/app/v3/api/ai/memory_stores",
         json!({
             "memoryStoreId": "memory.store.http.primary",
-            "organizationId": "10",
-            "ownerUserId": "100",
             "code": "memory-store-http-primary",
             "displayName": "HTTP Primary Memory",
             "description": "HTTP memory store",
@@ -3911,7 +5671,7 @@ async fn app_memory_stack_should_work_over_http_for_generated_sdk_contracts() {
 
     let fetched_store = Request::builder()
         .method("GET")
-        .uri("/app/v3/api/ai/memory_stores/memory.store.http.primary?tenant_id=1")
+        .uri("/app/v3/api/ai/memory_stores/memory.store.http.primary")
         .body(Body::empty())
         .expect("request should be built");
     let fetched_store = app
@@ -3923,11 +5683,9 @@ async fn app_memory_stack_should_work_over_http_for_generated_sdk_contracts() {
 
     post_json(
         &app,
-        "/app/v3/api/ai/memory_stores/memory.store.http.primary/profiles?tenant_id=1",
+        "/app/v3/api/ai/memory_stores/memory.store.http.primary/profiles",
         json!({
             "memoryProfileId": "memory.profile.http.default",
-            "organizationId": "10",
-            "ownerUserId": "100",
             "code": "memory-profile-http-default",
             "displayName": "HTTP Default Memory Profile",
             "description": "HTTP memory policy",
@@ -3945,10 +5703,9 @@ async fn app_memory_stack_should_work_over_http_for_generated_sdk_contracts() {
 
     let binding = post_json(
         &app,
-        "/app/v3/api/ai/memory_profiles/memory.profile.http.default/bindings?tenant_id=1",
+        "/app/v3/api/ai/memory_profiles/memory.profile.http.default/bindings",
         json!({
             "memoryBindingId": "memory.binding.http.agent.default",
-            "organizationId": "10",
             "agentId": "agent.memory.http",
             "scopeKind": "agent",
             "scopeRef": "agent.memory.http",
@@ -3967,10 +5724,9 @@ async fn app_memory_stack_should_work_over_http_for_generated_sdk_contracts() {
 
     post_json(
         &app,
-        "/app/v3/api/ai/memory_namespaces?tenant_id=1",
+        "/app/v3/api/ai/memory_namespaces",
         json!({
             "memoryNamespaceId": "memory.namespace.http.agent.user",
-            "organizationId": "10",
             "agentId": "agent.memory.http",
             "userRef": "user.1",
             "sessionRef": "session.1",
@@ -3985,10 +5741,9 @@ async fn app_memory_stack_should_work_over_http_for_generated_sdk_contracts() {
 
     let record = post_json(
         &app,
-        "/app/v3/api/ai/memory_namespaces/memory.namespace.http.agent.user/records?tenant_id=1",
+        "/app/v3/api/ai/memory_namespaces/memory.namespace.http.agent.user/records",
         json!({
             "memoryId": "memory.record.http.preference.locale",
-            "organizationId": "10",
             "agentId": "agent.memory.http",
             "memoryKind": "preference",
             "contentFormat": "application/json",
@@ -4012,7 +5767,7 @@ async fn app_memory_stack_should_work_over_http_for_generated_sdk_contracts() {
 
     post_json(
         &app,
-        "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/sources?tenant_id=1",
+        "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/sources",
         json!({
             "memorySourceId": "memory.source.http.preference.message",
             "sourceKind": "conversation-message",
@@ -4028,7 +5783,7 @@ async fn app_memory_stack_should_work_over_http_for_generated_sdk_contracts() {
 
     post_json(
         &app,
-        "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/relations?tenant_id=1",
+        "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/relations",
         json!({
             "memoryRelationId": "memory.relation.http.preference.self",
             "fromMemoryId": "memory.record.http.preference.locale",
@@ -4044,7 +5799,7 @@ async fn app_memory_stack_should_work_over_http_for_generated_sdk_contracts() {
 
     post_json(
         &app,
-        "/app/v3/api/ai/memory_retrieval_indexes?tenant_id=1",
+        "/app/v3/api/ai/memory_retrieval_indexes",
         json!({
             "memoryIndexId": "memory.index.http.preference.wiki",
             "memoryId": "memory.record.http.preference.locale",
@@ -4060,7 +5815,7 @@ async fn app_memory_stack_should_work_over_http_for_generated_sdk_contracts() {
 
     let list_records = Request::builder()
         .method("GET")
-        .uri("/app/v3/api/ai/memory_namespaces/memory.namespace.http.agent.user/records?tenant_id=1&page=1&page_size=1")
+        .uri("/app/v3/api/ai/memory_namespaces/memory.namespace.http.agent.user/records?page=1&page_size=1")
         .body(Body::empty())
         .expect("request should be built");
     let response = app
@@ -4082,17 +5837,17 @@ async fn app_memory_stack_should_work_over_http_for_generated_sdk_contracts() {
 
     for (uri, field, expected) in [
         (
-            "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/sources?tenant_id=1",
+            "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/sources",
             "memorySourceId",
             "memory.source.http.preference.message",
         ),
         (
-            "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/relations?tenant_id=1",
+            "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/relations",
             "memoryRelationId",
             "memory.relation.http.preference.self",
         ),
         (
-            "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/retrieval_indexes?tenant_id=1",
+            "/app/v3/api/ai/memory_records/memory.record.http.preference.locale/retrieval_indexes",
             "memoryIndexId",
             "memory.index.http.preference.wiki",
         ),

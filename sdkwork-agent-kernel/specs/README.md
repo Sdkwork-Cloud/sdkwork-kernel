@@ -12,7 +12,7 @@ Root SDKWork standards remain authoritative. Local component specs can narrow or
 | Type | `rust-crate` |
 | Root | `sdkwork-birdcoder/kernel/sdkwork-agent-kernel` |
 | Domain | `intelligence` |
-| Capability | `agent` |
+| Capability | `agent-kernel` |
 | Languages | `rust` |
 | Status | `standardizing` |
 
@@ -40,7 +40,29 @@ Root SDKWork standards remain authoritative. Local component specs can narrow or
 
 ## Public Exports
 
-- Public exports are not declared in the package manifest.
+- `AgentExecutionService::execute`
+- `AgentExecutionRequest`
+- `AgentExecutionReport`
+- `AgentExecutionReport::to_event`
+- `AgentExecutionReport::to_events`
+- `AgentExecutionStatus`
+- `AgentObservation`
+- `AgentObservation::to_event`
+- `AgentChatService::invoke`
+- `AgentChatRequest`
+- `AgentChatResponse`
+- `AgentChatRpcAdapter`
+- `AgentChatRpcHandler`
+- `agent_chat_rpc_adapter_manifest`
+
+## Events
+
+- `agent.execution.completed`
+- `agent.execution.failed`
+- `agent.execution.permission_required`
+- `agent.execution.cancelled`
+- `agent.execution.degraded`
+- `agent.execution.observation.*`
 
 ## SDK Clients
 

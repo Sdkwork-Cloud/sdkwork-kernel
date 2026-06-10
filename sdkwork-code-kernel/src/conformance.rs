@@ -285,7 +285,11 @@ fn standard_capabilities_by_family() -> &'static [(&'static str, &'static [&'sta
         ),
         (
             "code_knowledge",
-            &["code.knowledge.search", "code.knowledge.read"],
+            &[
+                "code.knowledge.search",
+                "code.knowledge.read",
+                "code.knowledge.list",
+            ],
         ),
         ("code_safety", &["code.safety.assess"]),
     ]

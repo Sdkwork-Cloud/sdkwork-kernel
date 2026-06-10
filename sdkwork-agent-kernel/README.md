@@ -578,7 +578,7 @@ cargo fmt --manifest-path kernel/sdkwork-agent-kernel/Cargo.toml --check
 ## SDKWork Documentation Contract
 
 Domain: intelligence
-Capability: agent
+Capability: agent-kernel
 Package type: rust-crate
 Status: standardizing
 

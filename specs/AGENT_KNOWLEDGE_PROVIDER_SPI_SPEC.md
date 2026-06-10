@@ -273,5 +273,5 @@ Required cases:
       runtime diagnostics, and agent definitions.
 - [ ] `knowledge.search`, `knowledge.read`, and `knowledge.list` have runtime
       capability metadata.
-- [ ] External frameworks such as Rig are wrapped by integration providers, not
+- [ ] External frameworks such as Rig are wrapped by plugin providers, not
       imported by kernel-core.

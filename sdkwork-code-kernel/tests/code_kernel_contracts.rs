@@ -40,6 +40,10 @@ fn code_kernel_capabilities_are_namespaced_and_provider_neutral() {
         CodeKernelCapability::TerminalRun.as_str(),
         "code.terminal.run"
     );
+    assert_eq!(
+        CodeKernelCapability::KnowledgeList.as_str(),
+        "code.knowledge.list"
+    );
 }
 
 #[test]

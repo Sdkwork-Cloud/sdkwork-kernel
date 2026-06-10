@@ -7,11 +7,11 @@ use sdkwork_agent_business::{
     AgentKnowledgeChunkCreateCommand, AgentKnowledgeChunkCreateRequestDto,
     AgentKnowledgeChunkRecordDto, AgentKnowledgeDocumentCreateCommand,
     AgentKnowledgeDocumentCreateRequestDto, AgentKnowledgeDocumentKind,
-    AgentKnowledgeDocumentRecordDto, AgentKnowledgeDocumentUpdateCommand,
-    AgentKnowledgeDocumentUpdateRequestDto, AgentKnowledgeIndexKind, AgentKnowledgeIndexRecordDto,
-    AgentKnowledgeIndexUpsertCommand, AgentKnowledgeIndexUpsertRequestDto,
-    AgentKnowledgeListCommand, AgentKnowledgeReadCommand, AgentKnowledgeSearchCommand,
-    AgentKnowledgeSearchRequestDto, AgentKnowledgeSearchResultDto,
+    AgentKnowledgeDocumentProfileDto, AgentKnowledgeDocumentRecordDto,
+    AgentKnowledgeDocumentUpdateCommand, AgentKnowledgeDocumentUpdateRequestDto,
+    AgentKnowledgeIndexKind, AgentKnowledgeIndexRecordDto, AgentKnowledgeIndexUpsertCommand,
+    AgentKnowledgeIndexUpsertRequestDto, AgentKnowledgeListCommand, AgentKnowledgeReadCommand,
+    AgentKnowledgeSearchCommand, AgentKnowledgeSearchRequestDto, AgentKnowledgeSearchResultDto,
     AgentKnowledgeSourceCreateCommand, AgentKnowledgeSourceCreateRequestDto,
     AgentKnowledgeSourceKind, AgentKnowledgeSourceRecordDto, AgentKnowledgeSourceUpdateCommand,
     AgentKnowledgeSourceUpdateRequestDto, AgentKnowledgeSyncJobCancelCommand,
@@ -84,6 +84,7 @@ fn knowledge_dtos_are_public_agent_business_api_contracts() {
     assert_public_contract::<AgentKnowledgeSyncJobCreateRequestDto>();
     assert_public_contract::<AgentKnowledgeBaseRecordDto>();
     assert_public_contract::<AgentKnowledgeSourceRecordDto>();
+    assert_public_contract::<AgentKnowledgeDocumentProfileDto>();
     assert_public_contract::<AgentKnowledgeDocumentRecordDto>();
     assert_public_contract::<AgentKnowledgeChunkRecordDto>();
     assert_public_contract::<AgentKnowledgeIndexRecordDto>();
@@ -113,6 +114,10 @@ fn knowledge_business_crud_surface_is_documented_as_current_contract() {
         "Knowledge binding scope consistency is enforced: agent scopes require matching agentId/scopeRef, and deployment scopes require agentId plus matching deploymentId/scopeRef.",
         "Knowledge chunk, index, and binding update/delete/restore operations are not exposed until the schema adds the required lifecycle, version, timestamp, and audit semantics.",
         "RAG search is provider-neutral and may use exact, keyword, full-text, structured, graph, wiki, rule, vector, hybrid, LLM-rerank, or external retrieval; vector metadata is required only for vector indexes.",
+        "Agent managementProfile is an API read projection derived from default_code_task_intent_json compatibility constraints and is not a separate physical column in this baseline.",
+        "Agent managementProfile compatibility fields include author, avatar, categoryId, color, debugMode, iconName, jsonMode, knowledgeBaseIds, memoryEnabled, model, skillIds, suggestedPrompts, systemPrompt, temperature, toolIds, type, users, voiceIds, and welcomeMessage.",
+        "Knowledge document documentProfile is an API read projection derived from metadata_json compatibility keys and is not a separate physical column in this baseline.",
+        "If managementProfile or documentProfile fields become filter, sort, authorization, retention, or analytics keys, they must be promoted through an expand-backfill-contract migration with explicit columns and indexes.",
     ] {
         let normalized_required = required.split_whitespace().collect::<Vec<_>>().join(" ");
         assert!(

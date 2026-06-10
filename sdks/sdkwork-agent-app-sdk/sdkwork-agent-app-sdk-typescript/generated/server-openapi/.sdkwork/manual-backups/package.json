@@ -36,29 +36,5 @@
     "api",
     "app",
     "sdkwork"
-  ],
-  "sdkwork": {
-    "sdkName": "sdkwork-agent-app-sdk",
-    "authority": "sdkwork-agent-app-api",
-    "sdkOwner": "sdkwork-kernel",
-    "apiPrefix": "/app/v3/api",
-    "sdkType": "app",
-    "sdkSurface": "app",
-    "generatedOutput": "generated/server-openapi",
-    "standardProfile": "sdkwork-v3",
-    "sdkDependencies": [
-      {
-        "workspace": "sdkwork-appbase-app-sdk",
-        "role": "appbase-identity-and-session-capability",
-        "required": true,
-        "dependencyMode": "consumer-sdk",
-        "apiPrefix": "/app/v3/api",
-        "apiAuthority": "sdkwork-appbase.app",
-        "generatedTransportImportPolicy": "forbidden",
-        "packageByLanguage": {
-          "typescript": "@sdkwork/appbase-app-sdk"
-        }
-      }
-    ]
-  }
+  ]
 }

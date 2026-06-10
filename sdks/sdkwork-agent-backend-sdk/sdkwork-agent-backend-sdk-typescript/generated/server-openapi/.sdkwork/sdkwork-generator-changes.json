@@ -6,14 +6,14 @@
     "version": "0.1.0",
     "language": "typescript",
     "sdkType": "backend",
+    "protocol": "http",
     "packageName": "@sdkwork/agent-backend-sdk"
   },
-  "changeFingerprint": "b91205ffc26f0b8c4fb9bba2151eff123025b16e4c8212ee6d38aa6438c98266",
+  "changeFingerprint": "62b7e2e4bb8c8909b60c1dceaa447d98b67d6bac17a31d3c94971d86dbefb087",
   "changes": {
     "createdGeneratedFiles": [],
     "updatedGeneratedFiles": [
-      "package.json",
-      "sdkwork-sdk.json"
+      "src/types/knowledge-base-record.ts"
     ],
     "unchangedGeneratedFiles": [
       "bin/publish-core.mjs",
@@ -23,7 +23,9 @@
       "bin/sdk-gen.sh",
       "CHANGELOG.md",
       "LICENSE",
+      "package.json",
       "README.md",
+      "sdkwork-sdk.json",
       "src/api/ai.ts",
       "src/api/base.ts",
       "src/api/index.ts",
@@ -41,6 +43,7 @@
       "src/types/agent-deployment-response.ts",
       "src/types/agent-implementation-kind.ts",
       "src/types/agent-list-response.ts",
+      "src/types/agent-management-profile.ts",
       "src/types/agent-provider-binding-list-response.ts",
       "src/types/agent-provider-binding-record.ts",
       "src/types/agent-provider-binding-response.ts",
@@ -76,7 +79,6 @@
       "src/types/int64-string.ts",
       "src/types/knowledge-base-kind.ts",
       "src/types/knowledge-base-list-response.ts",
-      "src/types/knowledge-base-record.ts",
       "src/types/knowledge-base-response.ts",
       "src/types/knowledge-binding-list-response.ts",
       "src/types/knowledge-binding-record.ts",
@@ -87,6 +89,7 @@
       "src/types/knowledge-chunk-response.ts",
       "src/types/knowledge-document-kind.ts",
       "src/types/knowledge-document-list-response.ts",
+      "src/types/knowledge-document-profile.ts",
       "src/types/knowledge-document-record.ts",
       "src/types/knowledge-document-response.ts",
       "src/types/knowledge-index-kind.ts",
@@ -152,37 +155,34 @@
       "custom/build-runtime.mjs",
       "custom/README.md"
     ],
-    "backedUpFiles": [
-      "package.json"
-    ]
+    "backedUpFiles": []
   },
   "impact": {
     "schemaVersion": 1,
     "areas": [
-      "build-metadata"
+      "models"
     ],
     "details": [
       {
-        "area": "build-metadata",
+        "area": "models",
         "paths": [
-          "package.json",
-          "sdkwork-sdk.json"
+          "src/types/knowledge-base-record.ts"
         ]
       }
     ],
     "requiresVerification": true,
-    "summary": "Detected impact areas: build-metadata. Verification is required."
+    "summary": "Detected impact areas: models. Verification is required."
   },
   "verificationPlan": {
     "shouldRun": true,
     "runPhase": "now",
-    "summary": "Detected impact areas: build-metadata. Verification is required. Run the required verification commands now against the generated SDK output.",
+    "summary": "Detected impact areas: models. Verification is required. Run the required verification commands now against the generated SDK output.",
     "steps": [
       {
         "id": "check",
         "title": "Unified package check",
         "required": true,
-        "rationale": "Validate the generated package with the unified publish helper. Triggered by: build-metadata.",
+        "rationale": "Validate the generated package with the unified publish helper. Triggered by: models.",
         "workingDirectory": "E:\\sdkwork-space\\sdkwork-kernel\\sdks\\sdkwork-agent-backend-sdk\\sdkwork-agent-backend-sdk-typescript\\generated\\server-openapi",
         "command": "node",
         "args": [
@@ -200,7 +200,7 @@
         "id": "build",
         "title": "Unified package build",
         "required": true,
-        "rationale": "Run the full package build because this language uses a lighter check path than the final build. Triggered by: build-metadata.",
+        "rationale": "Run the full package build because this language uses a lighter check path than the final build. Triggered by: models.",
         "workingDirectory": "E:\\sdkwork-space\\sdkwork-kernel\\sdks\\sdkwork-agent-backend-sdk\\sdkwork-agent-backend-sdk-typescript\\generated\\server-openapi",
         "command": "node",
         "args": [
@@ -218,14 +218,12 @@
   },
   "executionDecision": {
     "schemaVersion": 1,
-    "riskLevel": "high",
+    "riskLevel": "medium",
     "nextAction": "verify",
     "requiresManualReview": false,
     "applyRequiresExpectedFingerprint": false,
     "summary": "Changes have been applied. Run the required verification plan now.",
     "reasons": [
-      "backed-up-generated-files",
-      "manual-review-required",
       "verification-required"
     ]
   },

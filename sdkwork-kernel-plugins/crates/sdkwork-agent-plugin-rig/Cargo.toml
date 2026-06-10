@@ -1,0 +1,16 @@
+[package]
+name = "sdkwork-agent-plugin-rig"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "sdkwork_agent_plugin_rig"
+path = "src/lib.rs"
+
+[dependencies]
+sdkwork-agent-kernel.workspace = true
+sdkwork-agent-plugin-core.workspace = true
+
+[features]
+default = []
+rig-core-adapter = []

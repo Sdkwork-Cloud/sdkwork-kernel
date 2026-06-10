@@ -4,7 +4,7 @@ use sdkwork_agent_kernel::{
     KnowledgeSearchRequest, KnowledgeSearchResult, MemoryProvider, MemoryRecord, MemoryScope,
     ModelProvider, ModelRequest, ModelResponse, Plan, PlanningProvider, PolicyDecision,
     PolicyProvider, PolicyRequest, ProviderHealth, ProviderManifest, RedactionClassification,
-    RuntimeBuilder, TrustLevel, AGENT_RUNTIME_DIAGNOSTICS_SCHEMA,
+    RuntimeBuilder, RuntimeState, TrustLevel, AGENT_RUNTIME_DIAGNOSTICS_SCHEMA,
 };
 
 const DIAGNOSTICS_AGENT_MANIFEST_JSON: &str = r#"
@@ -117,6 +117,8 @@ fn runtime_diagnostics_report_typed_manifest_only_health_and_missing_standard_fa
         .bootstrap()
         .expect("runtime bootstraps");
 
+    assert_eq!(report.runtime.state(), RuntimeState::Degraded);
+
     let diagnostics = report.runtime.diagnostics();
 
     assert_eq!(diagnostics.runtime_id, "runtime.agent.diagnostics");
@@ -177,6 +179,19 @@ fn runtime_diagnostics_report_typed_manifest_only_health_and_missing_standard_fa
             "agent_configuration"
         ]
     );
+}
+
+#[test]
+fn runtime_state_degrades_when_required_typed_provider_health_is_degraded() {
+    let manifest = AgentManifest::from_json(MINIMAL_READY_AGENT_MANIFEST_JSON).unwrap();
+    let report = RuntimeBuilder::new("runtime.agent.degraded-health", manifest)
+        .with_generated_at("2026-05-29T00:00:00Z")
+        .register_model_provider("provider.model.typed", "0.1.0", DegradedModelProvider)
+        .bootstrap()
+        .expect("runtime bootstraps");
+
+    assert_eq!(report.runtime.state(), RuntimeState::Degraded);
+    assert_eq!(report.runtime.diagnostics().state, "degraded");
 }
 
 #[test]

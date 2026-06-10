@@ -36,29 +36,5 @@
     "api",
     "backend",
     "sdkwork"
-  ],
-  "sdkwork": {
-    "sdkName": "sdkwork-agent-backend-sdk",
-    "authority": "sdkwork-agent-backend-api",
-    "sdkOwner": "sdkwork-kernel",
-    "apiPrefix": "/backend/v3/api",
-    "sdkType": "backend",
-    "sdkSurface": "backend",
-    "generatedOutput": "generated/server-openapi",
-    "standardProfile": "sdkwork-v3",
-    "sdkDependencies": [
-      {
-        "workspace": "sdkwork-appbase-backend-sdk",
-        "role": "appbase-backend-management-capability",
-        "required": true,
-        "dependencyMode": "consumer-sdk",
-        "apiPrefix": "/backend/v3/api",
-        "apiAuthority": "sdkwork-appbase.backend",
-        "generatedTransportImportPolicy": "forbidden",
-        "packageByLanguage": {
-          "typescript": "@sdkwork/appbase-backend-sdk"
-        }
-      }
-    ]
-  }
+  ]
 }

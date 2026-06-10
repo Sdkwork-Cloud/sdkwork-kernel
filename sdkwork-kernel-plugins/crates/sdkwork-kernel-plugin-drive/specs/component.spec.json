@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "kind": "sdkwork.component.spec",
+  "component": {
+    "name": "sdkwork-kernel-plugin-drive",
+    "displayName": "SDKWork Drive Kernel Plugin",
+    "version": "0.1.0",
+    "type": "rust-crate",
+    "root": "sdkwork-birdcoder/kernel/sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive",
+    "domain": "intelligence",
+    "declaredDomain": null,
+    "capability": "kernel.plugin.drive",
+    "status": "standardizing",
+    "languages": [
+      "rust",
+      "markdown",
+      "json"
+    ],
+    "generated": false,
+    "private": false,
+    "manifests": [
+      "Cargo.toml",
+      "specs/component.spec.json"
+    ]
+  },
+  "canonicalSpecs": [
+    {
+      "file": "KERNEL_PLUGIN_SPEC.md",
+      "path": "../../../../specs/KERNEL_PLUGIN_SPEC.md",
+      "purpose": "Plugin manifest, foundation plugin dependency, naming, and conformance authority."
+    },
+    {
+      "file": "AGENT_HOST_PROVIDER_SPI_SPEC.md",
+      "path": "../../../../specs/AGENT_HOST_PROVIDER_SPI_SPEC.md",
+      "purpose": "Storage host provider family and capability negotiation authority."
+    },
+    {
+      "file": "RUST_CODE_SPEC.md",
+      "path": "../../../../../sdkwork-specs/RUST_CODE_SPEC.md",
+      "purpose": "Rust crate and module structure."
+    }
+  ],
+  "contracts": {
+    "publicExports": [
+      "SdkworkDrivePlugin",
+      "SdkworkDriveStorageProvider",
+      "sdkwork_drive_plugin_manifest",
+      "sdkwork_drive_provider_manifest",
+      "sdkwork_drive_provider_manifests",
+      "sdkwork_drive_conformance_profile"
+    ],
+    "runtimeEntrypoints": [
+      "SdkworkDriveStorageProvider"
+    ],
+    "sdkClients": [
+      "sdkwork-drive-storage-contract"
+    ],
+    "events": [],
+    "configKeys": [],
+    "routeManifest": null
+  },
+  "plugin": {
+    "pluginId": "plugin.sdkwork.drive",
+    "providerIds": [
+      "provider.storage.sdkwork-drive"
+    ],
+    "implementationKind": "official-foundation-plugin",
+    "optional": true
+  },
+  "verification": {
+    "commands": [
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive/Cargo.toml"
+    ]
+  },
+  "metadata": {
+    "managedBy": "manual",
+    "standardVersion": "2026-06-10"
+  }
+}

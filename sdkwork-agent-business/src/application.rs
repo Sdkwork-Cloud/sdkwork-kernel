@@ -35,6 +35,19 @@ const MAX_KNOWLEDGE_SCOPE_REF_CHARS: usize = 128;
 const MAX_KNOWLEDGE_REDACTION_CLASSIFICATION_CHARS: usize = 64;
 const MAX_MEMORY_SCOPE_REF_CHARS: usize = 128;
 
+struct AgentBusinessAuditEventInput<'a> {
+    action: AgentAuditAction,
+    item_kind: &'a str,
+    tenant_id: u64,
+    organization_id: u64,
+    item_id: &'a str,
+    status: AgentBusinessStatus,
+    visibility: AgentVisibility,
+    version: u64,
+    subject: PolicySubject,
+    occurred_at: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreateAgentCommand {
     pub agent_id: String,
@@ -1209,18 +1222,18 @@ where
         };
 
         self.repository.insert_skill_package(record.clone())?;
-        self.emit_marketplace_audit_event(
-            AgentAuditAction::SkillPackageCreated,
-            "skill",
-            record.tenant_id,
-            record.organization_id,
-            record.skill_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_marketplace_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::SkillPackageCreated,
+            item_kind: "skill",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.skill_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -1300,18 +1313,18 @@ where
         record.mark_updated(command.requested_at.clone());
 
         self.repository.update_skill_package(record.clone())?;
-        self.emit_marketplace_audit_event(
-            AgentAuditAction::SkillPackageUpdated,
-            "skill",
-            record.tenant_id,
-            record.organization_id,
-            record.skill_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_marketplace_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::SkillPackageUpdated,
+            item_kind: "skill",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.skill_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -1368,18 +1381,18 @@ where
         )?;
         record.mark_deleted(command.requested_at.clone());
         self.repository.update_skill_package(record.clone())?;
-        self.emit_marketplace_audit_event(
-            AgentAuditAction::SkillPackageDeleted,
-            "skill",
-            record.tenant_id,
-            record.organization_id,
-            record.skill_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_marketplace_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::SkillPackageDeleted,
+            item_kind: "skill",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.skill_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -1406,18 +1419,18 @@ where
         )?;
         record.mark_restored(command.requested_at.clone());
         self.repository.update_skill_package(record.clone())?;
-        self.emit_marketplace_audit_event(
-            AgentAuditAction::SkillPackageRestored,
-            "skill",
-            record.tenant_id,
-            record.organization_id,
-            record.skill_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_marketplace_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::SkillPackageRestored,
+            item_kind: "skill",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.skill_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -1506,18 +1519,18 @@ where
         };
 
         self.repository.insert_mcp_server(record.clone())?;
-        self.emit_marketplace_audit_event(
-            AgentAuditAction::McpServerCreated,
-            "mcp",
-            record.tenant_id,
-            record.organization_id,
-            record.mcp_server_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_marketplace_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::McpServerCreated,
+            item_kind: "mcp",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.mcp_server_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -1624,18 +1637,18 @@ where
         record.mark_updated(command.requested_at.clone());
 
         self.repository.update_mcp_server(record.clone())?;
-        self.emit_marketplace_audit_event(
-            AgentAuditAction::McpServerUpdated,
-            "mcp",
-            record.tenant_id,
-            record.organization_id,
-            record.mcp_server_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_marketplace_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::McpServerUpdated,
+            item_kind: "mcp",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.mcp_server_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -1692,18 +1705,18 @@ where
         )?;
         record.mark_deleted(command.requested_at.clone());
         self.repository.update_mcp_server(record.clone())?;
-        self.emit_marketplace_audit_event(
-            AgentAuditAction::McpServerDeleted,
-            "mcp",
-            record.tenant_id,
-            record.organization_id,
-            record.mcp_server_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_marketplace_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::McpServerDeleted,
+            item_kind: "mcp",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.mcp_server_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -1730,18 +1743,18 @@ where
         )?;
         record.mark_restored(command.requested_at.clone());
         self.repository.update_mcp_server(record.clone())?;
-        self.emit_marketplace_audit_event(
-            AgentAuditAction::McpServerRestored,
-            "mcp",
-            record.tenant_id,
-            record.organization_id,
-            record.mcp_server_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_marketplace_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::McpServerRestored,
+            item_kind: "mcp",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.mcp_server_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -1819,18 +1832,18 @@ where
         };
 
         self.repository.insert_prompt_template(record.clone())?;
-        self.emit_marketplace_audit_event(
-            AgentAuditAction::PromptTemplateCreated,
-            "prompt",
-            record.tenant_id,
-            record.organization_id,
-            record.prompt_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_marketplace_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::PromptTemplateCreated,
+            item_kind: "prompt",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.prompt_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -1908,18 +1921,18 @@ where
         record.mark_updated(command.requested_at.clone());
 
         self.repository.update_prompt_template(record.clone())?;
-        self.emit_marketplace_audit_event(
-            AgentAuditAction::PromptTemplateUpdated,
-            "prompt",
-            record.tenant_id,
-            record.organization_id,
-            record.prompt_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_marketplace_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::PromptTemplateUpdated,
+            item_kind: "prompt",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.prompt_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -1976,18 +1989,18 @@ where
         )?;
         record.mark_deleted(command.requested_at.clone());
         self.repository.update_prompt_template(record.clone())?;
-        self.emit_marketplace_audit_event(
-            AgentAuditAction::PromptTemplateDeleted,
-            "prompt",
-            record.tenant_id,
-            record.organization_id,
-            record.prompt_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_marketplace_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::PromptTemplateDeleted,
+            item_kind: "prompt",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.prompt_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -2014,18 +2027,18 @@ where
         )?;
         record.mark_restored(command.requested_at.clone());
         self.repository.update_prompt_template(record.clone())?;
-        self.emit_marketplace_audit_event(
-            AgentAuditAction::PromptTemplateRestored,
-            "prompt",
-            record.tenant_id,
-            record.organization_id,
-            record.prompt_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_marketplace_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::PromptTemplateRestored,
+            item_kind: "prompt",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.prompt_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -2092,18 +2105,18 @@ where
             deleted_at: None,
         };
         self.repository.insert_knowledge_base(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeBaseCreated,
-            "knowledge_base",
-            record.tenant_id,
-            record.organization_id,
-            record.knowledge_base_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeBaseCreated,
+            item_kind: "knowledge_base",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.knowledge_base_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -2204,18 +2217,18 @@ where
         record.mark_updated(command.requested_at.clone());
 
         self.repository.update_knowledge_base(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeBaseUpdated,
-            "knowledge_base",
-            record.tenant_id,
-            record.organization_id,
-            record.knowledge_base_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeBaseUpdated,
+            item_kind: "knowledge_base",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.knowledge_base_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -2246,18 +2259,18 @@ where
         )?;
         record.mark_deleted(command.requested_at.clone());
         self.repository.update_knowledge_base(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeBaseDeleted,
-            "knowledge_base",
-            record.tenant_id,
-            record.organization_id,
-            record.knowledge_base_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeBaseDeleted,
+            item_kind: "knowledge_base",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.knowledge_base_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -2288,18 +2301,18 @@ where
         )?;
         record.mark_restored(command.requested_at.clone());
         self.repository.update_knowledge_base(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeBaseRestored,
-            "knowledge_base",
-            record.tenant_id,
-            record.organization_id,
-            record.knowledge_base_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeBaseRestored,
+            item_kind: "knowledge_base",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.knowledge_base_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -2358,18 +2371,18 @@ where
             deleted_at: None,
         };
         self.repository.insert_knowledge_source(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeSourceCreated,
-            "knowledge_source",
-            record.tenant_id,
-            record.organization_id,
-            record.knowledge_source_id.as_str(),
-            record.status,
-            AgentVisibility::Tenant,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeSourceCreated,
+            item_kind: "knowledge_source",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.knowledge_source_id.as_str(),
+            status: record.status,
+            visibility: AgentVisibility::Tenant,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -2470,18 +2483,18 @@ where
         record.mark_updated(command.requested_at.clone());
 
         self.repository.update_knowledge_source(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeSourceUpdated,
-            "knowledge_source",
-            record.tenant_id,
-            record.organization_id,
-            record.knowledge_source_id.as_str(),
-            record.status,
-            AgentVisibility::Tenant,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeSourceUpdated,
+            item_kind: "knowledge_source",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.knowledge_source_id.as_str(),
+            status: record.status,
+            visibility: AgentVisibility::Tenant,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -2513,18 +2526,18 @@ where
         self.get_active_knowledge_base(command.tenant_id, record.knowledge_base_id.as_str())?;
         record.mark_deleted(command.requested_at.clone());
         self.repository.update_knowledge_source(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeSourceDeleted,
-            "knowledge_source",
-            record.tenant_id,
-            record.organization_id,
-            record.knowledge_source_id.as_str(),
-            record.status,
-            AgentVisibility::Tenant,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeSourceDeleted,
+            item_kind: "knowledge_source",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.knowledge_source_id.as_str(),
+            status: record.status,
+            visibility: AgentVisibility::Tenant,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -2556,18 +2569,18 @@ where
         self.get_active_knowledge_base(command.tenant_id, record.knowledge_base_id.as_str())?;
         record.mark_restored(command.requested_at.clone());
         self.repository.update_knowledge_source(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeSourceRestored,
-            "knowledge_source",
-            record.tenant_id,
-            record.organization_id,
-            record.knowledge_source_id.as_str(),
-            record.status,
-            AgentVisibility::Tenant,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeSourceRestored,
+            item_kind: "knowledge_source",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.knowledge_source_id.as_str(),
+            status: record.status,
+            visibility: AgentVisibility::Tenant,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -2654,18 +2667,18 @@ where
             deleted_at: None,
         };
         self.repository.insert_knowledge_document(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeDocumentCreated,
-            "knowledge_document",
-            record.tenant_id,
-            record.organization_id,
-            record.knowledge_document_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeDocumentCreated,
+            item_kind: "knowledge_document",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.knowledge_document_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -2836,18 +2849,18 @@ where
         record.mark_updated(command.requested_at.clone());
 
         self.repository.update_knowledge_document(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeDocumentUpdated,
-            "knowledge_document",
-            record.tenant_id,
-            record.organization_id,
-            record.knowledge_document_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeDocumentUpdated,
+            item_kind: "knowledge_document",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.knowledge_document_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -2906,18 +2919,18 @@ where
         )?;
         record.mark_deleted(command.requested_at.clone());
         self.repository.update_knowledge_document(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeDocumentDeleted,
-            "knowledge_document",
-            record.tenant_id,
-            record.organization_id,
-            record.knowledge_document_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeDocumentDeleted,
+            item_kind: "knowledge_document",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.knowledge_document_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -2958,18 +2971,18 @@ where
         }
         record.mark_restored(command.requested_at.clone());
         self.repository.update_knowledge_document(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeDocumentRestored,
-            "knowledge_document",
-            record.tenant_id,
-            record.organization_id,
-            record.knowledge_document_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeDocumentRestored,
+            item_kind: "knowledge_document",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.knowledge_document_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -3057,18 +3070,18 @@ where
             created_at: command.requested_at.clone(),
         };
         self.repository.insert_knowledge_chunk(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeChunkCreated,
-            "knowledge_chunk",
-            record.tenant_id,
-            record.organization_id,
-            record.knowledge_chunk_id.as_str(),
-            record.status,
-            AgentVisibility::Tenant,
-            1,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeChunkCreated,
+            item_kind: "knowledge_chunk",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.knowledge_chunk_id.as_str(),
+            status: record.status,
+            visibility: AgentVisibility::Tenant,
+            version: 1,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -3228,18 +3241,18 @@ where
             status: AgentBusinessStatus::Active,
         };
         self.repository.upsert_knowledge_index(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeIndexUpserted,
-            "knowledge_index",
-            record.tenant_id,
-            0,
-            record.knowledge_index_id.as_str(),
-            record.status,
-            AgentVisibility::Tenant,
-            1,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeIndexUpserted,
+            item_kind: "knowledge_index",
+            tenant_id: record.tenant_id,
+            organization_id: 0,
+            item_id: record.knowledge_index_id.as_str(),
+            status: record.status,
+            visibility: AgentVisibility::Tenant,
+            version: 1,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -3572,18 +3585,18 @@ where
             updated_at: command.requested_at.clone(),
         };
         self.repository.insert_knowledge_binding(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeBindingCreated,
-            "knowledge_binding",
-            record.tenant_id,
-            record.organization_id,
-            record.knowledge_binding_id.as_str(),
-            AgentBusinessStatus::Active,
-            AgentVisibility::Tenant,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeBindingCreated,
+            item_kind: "knowledge_binding",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.knowledge_binding_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -3693,18 +3706,18 @@ where
             updated_at: command.requested_at.clone(),
         };
         self.repository.insert_knowledge_sync_job(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeSyncJobCreated,
-            "knowledge_sync_job",
-            record.tenant_id,
-            record.organization_id,
-            record.sync_job_id.as_str(),
-            AgentBusinessStatus::Active,
-            AgentVisibility::Tenant,
-            1,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeSyncJobCreated,
+            item_kind: "knowledge_sync_job",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.sync_job_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: 1,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -3788,18 +3801,18 @@ where
         record.completed_at = None;
         record.updated_at = command.requested_at.clone();
         self.repository.update_knowledge_sync_job(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeSyncJobStarted,
-            "knowledge_sync_job",
-            record.tenant_id,
-            record.organization_id,
-            record.sync_job_id.as_str(),
-            AgentBusinessStatus::Active,
-            AgentVisibility::Tenant,
-            knowledge_sync_job_audit_sequence(record.status),
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeSyncJobStarted,
+            item_kind: "knowledge_sync_job",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.sync_job_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: knowledge_sync_job_audit_sequence(record.status),
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -3831,18 +3844,18 @@ where
         record.completed_at = Some(command.requested_at.clone());
         record.updated_at = command.requested_at.clone();
         self.repository.update_knowledge_sync_job(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeSyncJobCompleted,
-            "knowledge_sync_job",
-            record.tenant_id,
-            record.organization_id,
-            record.sync_job_id.as_str(),
-            AgentBusinessStatus::Active,
-            AgentVisibility::Tenant,
-            knowledge_sync_job_audit_sequence(record.status),
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeSyncJobCompleted,
+            item_kind: "knowledge_sync_job",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.sync_job_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: knowledge_sync_job_audit_sequence(record.status),
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -3874,18 +3887,18 @@ where
         record.completed_at = Some(command.requested_at.clone());
         record.updated_at = command.requested_at.clone();
         self.repository.update_knowledge_sync_job(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeSyncJobFailed,
-            "knowledge_sync_job",
-            record.tenant_id,
-            record.organization_id,
-            record.sync_job_id.as_str(),
-            AgentBusinessStatus::Active,
-            AgentVisibility::Tenant,
-            knowledge_sync_job_audit_sequence(record.status),
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeSyncJobFailed,
+            item_kind: "knowledge_sync_job",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.sync_job_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: knowledge_sync_job_audit_sequence(record.status),
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -3917,18 +3930,18 @@ where
         record.completed_at = Some(command.requested_at.clone());
         record.updated_at = command.requested_at.clone();
         self.repository.update_knowledge_sync_job(record.clone())?;
-        self.emit_knowledge_audit_event(
-            AgentAuditAction::KnowledgeSyncJobCancelled,
-            "knowledge_sync_job",
-            record.tenant_id,
-            record.organization_id,
-            record.sync_job_id.as_str(),
-            AgentBusinessStatus::Active,
-            AgentVisibility::Tenant,
-            knowledge_sync_job_audit_sequence(record.status),
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_knowledge_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::KnowledgeSyncJobCancelled,
+            item_kind: "knowledge_sync_job",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.sync_job_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: knowledge_sync_job_audit_sequence(record.status),
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -3992,18 +4005,18 @@ where
             deleted_at: None,
         };
         self.repository.insert_memory_store(record.clone())?;
-        self.emit_memory_audit_event(
-            AgentAuditAction::MemoryStoreCreated,
-            "memory_store",
-            record.tenant_id,
-            record.organization_id,
-            record.memory_store_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryStoreCreated,
+            item_kind: "memory_store",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_store_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -4068,18 +4081,18 @@ where
         }
         record.mark_updated(command.requested_at.clone());
         self.repository.update_memory_store(record.clone())?;
-        self.emit_memory_audit_event(
-            AgentAuditAction::MemoryStoreUpdated,
-            "memory_store",
-            record.tenant_id,
-            record.organization_id,
-            record.memory_store_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryStoreUpdated,
+            item_kind: "memory_store",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_store_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -4169,18 +4182,18 @@ where
             deleted_at: None,
         };
         self.repository.insert_memory_profile(record.clone())?;
-        self.emit_memory_audit_event(
-            AgentAuditAction::MemoryProfileCreated,
-            "memory_profile",
-            record.tenant_id,
-            record.organization_id,
-            record.memory_profile_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryProfileCreated,
+            item_kind: "memory_profile",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_profile_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -4260,18 +4273,18 @@ where
             updated_at: command.requested_at.clone(),
         };
         self.repository.insert_memory_binding(record.clone())?;
-        self.emit_memory_audit_event(
-            AgentAuditAction::MemoryBindingCreated,
-            "memory_binding",
-            record.tenant_id,
-            record.organization_id,
-            record.memory_binding_id.as_str(),
-            AgentBusinessStatus::Active,
-            AgentVisibility::Tenant,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryBindingCreated,
+            item_kind: "memory_binding",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_binding_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -4349,18 +4362,18 @@ where
             deleted_at: None,
         };
         self.repository.insert_memory_namespace(record.clone())?;
-        self.emit_memory_audit_event(
-            AgentAuditAction::MemoryNamespaceCreated,
-            "memory_namespace",
-            record.tenant_id,
-            record.organization_id,
-            record.memory_namespace_id.as_str(),
-            record.status,
-            record.visibility,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryNamespaceCreated,
+            item_kind: "memory_namespace",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_namespace_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -4442,18 +4455,18 @@ where
             redacted_at: None,
         };
         self.repository.insert_memory_record(record.clone())?;
-        self.emit_memory_audit_event(
-            AgentAuditAction::MemoryRecordCreated,
-            "memory_record",
-            record.tenant_id,
-            record.organization_id,
-            record.memory_id.as_str(),
-            record.status,
-            AgentVisibility::Tenant,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryRecordCreated,
+            item_kind: "memory_record",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_id.as_str(),
+            status: record.status,
+            visibility: AgentVisibility::Tenant,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -4518,18 +4531,18 @@ where
         self.get_active_memory_namespace(command.tenant_id, record.memory_namespace_id.as_str())?;
         record.mark_deleted(command.requested_at.clone());
         self.repository.update_memory_record(record.clone())?;
-        self.emit_memory_audit_event(
-            AgentAuditAction::MemoryRecordDeleted,
-            "memory_record",
-            record.tenant_id,
-            record.organization_id,
-            record.memory_id.as_str(),
-            record.status,
-            AgentVisibility::Tenant,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryRecordDeleted,
+            item_kind: "memory_record",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_id.as_str(),
+            status: record.status,
+            visibility: AgentVisibility::Tenant,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -4557,18 +4570,18 @@ where
         self.get_active_memory_namespace(command.tenant_id, record.memory_namespace_id.as_str())?;
         record.mark_restored(command.requested_at.clone());
         self.repository.update_memory_record(record.clone())?;
-        self.emit_memory_audit_event(
-            AgentAuditAction::MemoryRecordRestored,
-            "memory_record",
-            record.tenant_id,
-            record.organization_id,
-            record.memory_id.as_str(),
-            record.status,
-            AgentVisibility::Tenant,
-            record.version,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryRecordRestored,
+            item_kind: "memory_record",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_id.as_str(),
+            status: record.status,
+            visibility: AgentVisibility::Tenant,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -4609,18 +4622,18 @@ where
             created_at: command.requested_at.clone(),
         };
         self.repository.insert_memory_source(record.clone())?;
-        self.emit_memory_audit_event(
-            AgentAuditAction::MemorySourceCreated,
-            "memory_source",
-            record.tenant_id,
-            0,
-            record.memory_source_id.as_str(),
-            AgentBusinessStatus::Active,
-            AgentVisibility::Tenant,
-            1,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemorySourceCreated,
+            item_kind: "memory_source",
+            tenant_id: record.tenant_id,
+            organization_id: 0,
+            item_id: record.memory_source_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: 1,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -4685,18 +4698,18 @@ where
             created_at: command.requested_at.clone(),
         };
         self.repository.insert_memory_relation(record.clone())?;
-        self.emit_memory_audit_event(
-            AgentAuditAction::MemoryRelationCreated,
-            "memory_relation",
-            record.tenant_id,
-            0,
-            record.memory_relation_id.as_str(),
-            AgentBusinessStatus::Active,
-            AgentVisibility::Tenant,
-            1,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryRelationCreated,
+            item_kind: "memory_relation",
+            tenant_id: record.tenant_id,
+            organization_id: 0,
+            item_id: record.memory_relation_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: 1,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -4747,12 +4760,12 @@ where
         )?;
         validate_non_empty(command.external_ref.as_str(), "externalRef")?;
         validate_non_empty(command.content_hash.as_str(), "contentHash")?;
-        if command.index_kind == AgentMemoryIndexKind::Vector {
-            if command.embedding_model_id.is_none() || command.vector_dimension.is_none() {
-                return Err(KernelError::validation(
-                    "vector memory index requires embeddingModelId and vectorDimension",
-                ));
-            }
+        if command.index_kind == AgentMemoryIndexKind::Vector
+            && (command.embedding_model_id.is_none() || command.vector_dimension.is_none())
+        {
+            return Err(KernelError::validation(
+                "vector memory index requires embeddingModelId and vectorDimension",
+            ));
         }
         self.get_active_memory_record(command.tenant_id, command.memory_id.as_str())?;
         let record = AgentMemoryRetrievalIndexRecord {
@@ -4771,18 +4784,18 @@ where
         };
         self.repository
             .upsert_memory_retrieval_index(record.clone())?;
-        self.emit_memory_audit_event(
-            AgentAuditAction::MemoryRetrievalIndexUpserted,
-            "memory_retrieval_index",
-            record.tenant_id,
-            0,
-            record.memory_index_id.as_str(),
-            record.status,
-            AgentVisibility::Tenant,
-            1,
-            command.requested_by,
-            command.requested_at,
-        )?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryRetrievalIndexUpserted,
+            item_kind: "memory_retrieval_index",
+            tenant_id: record.tenant_id,
+            organization_id: 0,
+            item_id: record.memory_index_id.as_str(),
+            status: record.status,
+            visibility: AgentVisibility::Tenant,
+            version: 1,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
         Ok(record)
     }
 
@@ -5383,38 +5396,32 @@ where
 
     fn emit_marketplace_audit_event(
         &mut self,
-        action: AgentAuditAction,
-        item_kind: &str,
-        tenant_id: u64,
-        organization_id: u64,
-        item_id: &str,
-        status: AgentBusinessStatus,
-        visibility: AgentVisibility,
-        version: u64,
-        subject: PolicySubject,
-        occurred_at: String,
+        input: AgentBusinessAuditEventInput<'_>,
     ) -> KernelResult<()> {
         let payload = format!(
             "action={};item_kind={};item_id={};tenant_id={};organization_id={};status={};visibility={}",
-            action.event_type(),
-            item_kind,
-            item_id,
-            tenant_id,
-            organization_id,
-            status.as_str(),
-            visibility.as_str()
+            input.action.event_type(),
+            input.item_kind,
+            input.item_id,
+            input.tenant_id,
+            input.organization_id,
+            input.status.as_str(),
+            input.visibility.as_str()
         );
         let event = KernelEvent::new(
-            format!("agent_marketplace_{}_{}_{}", item_kind, item_id, version),
-            action.event_type(),
+            format!(
+                "agent_marketplace_{}_{}_{}",
+                input.item_kind, input.item_id, input.version
+            ),
+            input.action.event_type(),
             KernelEventSeverity::Info,
             payload,
         )
         .from_source(KernelEventSource::Runtime)
         .with_redaction(KernelEventRedaction::TenantSensitive)
-        .with_context("subject_id", subject.subject_id.as_str())
-        .with_context("subject_tenant_id", subject.tenant_id.as_str())
-        .occurred_at(occurred_at)
+        .with_context("subject_id", input.subject.subject_id.as_str())
+        .with_context("subject_tenant_id", input.subject.tenant_id.as_str())
+        .occurred_at(input.occurred_at)
         .with_payload_schema("sdkwork.agent.business.marketplace.v1");
 
         self.audit_sink.record(event)
@@ -5422,38 +5429,32 @@ where
 
     fn emit_memory_audit_event(
         &mut self,
-        action: AgentAuditAction,
-        item_kind: &str,
-        tenant_id: u64,
-        organization_id: u64,
-        item_id: &str,
-        status: AgentBusinessStatus,
-        visibility: AgentVisibility,
-        version: u64,
-        subject: PolicySubject,
-        occurred_at: String,
+        input: AgentBusinessAuditEventInput<'_>,
     ) -> KernelResult<()> {
         let payload = format!(
             "action={};item_kind={};item_id={};tenant_id={};organization_id={};status={};visibility={}",
-            action.event_type(),
-            item_kind,
-            item_id,
-            tenant_id,
-            organization_id,
-            status.as_str(),
-            visibility.as_str()
+            input.action.event_type(),
+            input.item_kind,
+            input.item_id,
+            input.tenant_id,
+            input.organization_id,
+            input.status.as_str(),
+            input.visibility.as_str()
         );
         let event = KernelEvent::new(
-            format!("agent_memory_{}_{}_{}", item_kind, item_id, version),
-            action.event_type(),
+            format!(
+                "agent_memory_{}_{}_{}",
+                input.item_kind, input.item_id, input.version
+            ),
+            input.action.event_type(),
             KernelEventSeverity::Info,
             payload,
         )
         .from_source(KernelEventSource::Runtime)
         .with_redaction(KernelEventRedaction::TenantSensitive)
-        .with_context("subject_id", subject.subject_id.as_str())
-        .with_context("subject_tenant_id", subject.tenant_id.as_str())
-        .occurred_at(occurred_at)
+        .with_context("subject_id", input.subject.subject_id.as_str())
+        .with_context("subject_tenant_id", input.subject.tenant_id.as_str())
+        .occurred_at(input.occurred_at)
         .with_payload_schema("sdkwork.agent.business.memory.v1");
 
         self.audit_sink.record(event)
@@ -5461,38 +5462,32 @@ where
 
     fn emit_knowledge_audit_event(
         &mut self,
-        action: AgentAuditAction,
-        item_kind: &str,
-        tenant_id: u64,
-        organization_id: u64,
-        item_id: &str,
-        status: AgentBusinessStatus,
-        visibility: AgentVisibility,
-        version: u64,
-        subject: PolicySubject,
-        occurred_at: String,
+        input: AgentBusinessAuditEventInput<'_>,
     ) -> KernelResult<()> {
         let payload = format!(
             "action={};item_kind={};item_id={};tenant_id={};organization_id={};status={};visibility={}",
-            action.event_type(),
-            item_kind,
-            item_id,
-            tenant_id,
-            organization_id,
-            status.as_str(),
-            visibility.as_str()
+            input.action.event_type(),
+            input.item_kind,
+            input.item_id,
+            input.tenant_id,
+            input.organization_id,
+            input.status.as_str(),
+            input.visibility.as_str()
         );
         let event = KernelEvent::new(
-            format!("agent_knowledge_{}_{}_{}", item_kind, item_id, version),
-            action.event_type(),
+            format!(
+                "agent_knowledge_{}_{}_{}",
+                input.item_kind, input.item_id, input.version
+            ),
+            input.action.event_type(),
             KernelEventSeverity::Info,
             payload,
         )
         .from_source(KernelEventSource::Runtime)
         .with_redaction(KernelEventRedaction::TenantSensitive)
-        .with_context("subject_id", subject.subject_id.as_str())
-        .with_context("subject_tenant_id", subject.tenant_id.as_str())
-        .occurred_at(occurred_at)
+        .with_context("subject_id", input.subject.subject_id.as_str())
+        .with_context("subject_tenant_id", input.subject.tenant_id.as_str())
+        .occurred_at(input.occurred_at)
         .with_payload_schema("sdkwork.agent.business.knowledge.v1");
 
         self.audit_sink.record(event)

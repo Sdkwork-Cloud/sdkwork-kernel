@@ -1,0 +1,17 @@
+[package]
+name = "sdkwork-kernel-plugin-drive"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "sdkwork_kernel_plugin_drive"
+path = "src/lib.rs"
+
+[dependencies]
+async-trait = "0.1"
+sdkwork-agent-kernel.workspace = true
+sdkwork-agent-plugin-core.workspace = true
+sdkwork-drive-storage-contract.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1.0", features = ["macros", "rt"] }

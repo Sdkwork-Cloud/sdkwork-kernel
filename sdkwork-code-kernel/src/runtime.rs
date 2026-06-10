@@ -658,6 +658,7 @@ impl CodeKernelRuntimeBuilder {
             &[
                 CodeKernelCapability::KnowledgeSearch,
                 CodeKernelCapability::KnowledgeRead,
+                CodeKernelCapability::KnowledgeList,
             ],
         ))
     }
@@ -680,6 +681,7 @@ impl CodeKernelRuntimeBuilder {
             &[
                 CodeKernelCapability::KnowledgeSearch,
                 CodeKernelCapability::KnowledgeRead,
+                CodeKernelCapability::KnowledgeList,
             ],
         ));
         self.provider_registry.knowledge_provider_id = Some(provider_id);
@@ -1155,9 +1157,14 @@ fn capability_metadata(capability_id: &str) -> CapabilityMetadata {
             vec!["code.knowledge.search"],
         ),
         "code.knowledge.read" => code_capability_metadata(
-            vec!["get_document", "list_documents"],
+            vec!["get_document"],
             SideEffectLevel::ReadOnly,
             vec!["code.knowledge.read"],
+        ),
+        "code.knowledge.list" => code_capability_metadata(
+            vec!["list_documents"],
+            SideEffectLevel::ReadOnly,
+            vec!["code.knowledge.list"],
         ),
         "code.safety.assess" => code_capability_metadata(
             vec![

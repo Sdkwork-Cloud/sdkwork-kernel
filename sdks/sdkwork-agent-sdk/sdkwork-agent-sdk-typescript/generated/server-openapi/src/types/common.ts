@@ -26,7 +26,6 @@ export type { AuthTokenManager, AuthMode, AuthTokens };
 
 export interface SdkworkAgentConfig {
   baseUrl: string;
-  apiKey?: string;
   authToken?: string;
   accessToken?: string;
   tenantId?: string;

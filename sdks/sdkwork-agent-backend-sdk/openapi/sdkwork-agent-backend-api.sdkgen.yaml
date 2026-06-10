@@ -4164,6 +4164,10 @@ components:
         defaultCodeTaskIntent:
           type: [object, 'null']
           additionalProperties: true
+        managementProfile:
+          oneOf:
+            - $ref: '#/components/schemas/AgentManagementProfile'
+            - type: 'null'
         implementationProviderId:
           type: [string, 'null']
           minLength: 1
@@ -4195,6 +4199,99 @@ components:
         deletedAt:
           type: [string, 'null']
           format: date-time
+    AgentManagementProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        author:
+          type: string
+          minLength: 1
+          maxLength: 128
+        avatar:
+          type: string
+          minLength: 1
+          maxLength: 512
+        categoryId:
+          type: string
+          minLength: 1
+          maxLength: 64
+        color:
+          type: string
+          minLength: 1
+          maxLength: 32
+        debugMode:
+          type: boolean
+        iconName:
+          type: string
+          minLength: 1
+          maxLength: 64
+        jsonMode:
+          type: boolean
+        knowledgeBaseIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^knowledge\.base\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+          maxItems: 128
+        memoryEnabled:
+          type: boolean
+        model:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^model\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        skillIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^skill\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+          maxItems: 128
+        suggestedPrompts:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 256
+          maxItems: 12
+        systemPrompt:
+          type: string
+          minLength: 1
+          maxLength: 32768
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+        toolIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^tool\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+          maxItems: 128
+        type:
+          type: string
+          enum: [normal, independent]
+        users:
+          type: string
+          minLength: 1
+          maxLength: 128
+        voiceIds:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+            pattern: '^voice\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+          maxItems: 16
+        welcomeMessage:
+          type: string
+          minLength: 1
+          maxLength: 4096
     AgentResponse:
       type: object
       additionalProperties: false
@@ -4414,7 +4511,7 @@ components:
     KnowledgeBaseRecord:
       type: object
       additionalProperties: false
-      required: [id, tenantId, organizationId, ownerUserId, knowledgeBaseId, code, displayName, providerId, baseKind, retrievalModes, capabilityIds, configurationProfileId, status, visibility, version, createdAt, updatedAt]
+      required: [id, tenantId, organizationId, ownerUserId, knowledgeBaseId, code, displayName, providerId, baseKind, retrievalModes, capabilityIds, configurationProfileId, documentCount, status, visibility, version, createdAt, updatedAt]
       properties:
         id:
           $ref: '#/components/schemas/Int64String'
@@ -4467,6 +4564,9 @@ components:
           minLength: 1
           maxLength: 128
           pattern: '^profile\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        documentCount:
+          type: integer
+          minimum: 0
         status:
           $ref: '#/components/schemas/AgentStatus'
         visibility:
@@ -4632,6 +4732,10 @@ components:
         metadata:
           type: object
           additionalProperties: true
+        documentProfile:
+          oneOf:
+            - $ref: '#/components/schemas/KnowledgeDocumentProfile'
+            - type: 'null'
         tags:
           type: array
           items:
@@ -4672,6 +4776,41 @@ components:
         deletedAt:
           type: [string, 'null']
           format: date-time
+    KnowledgeDocumentProfile:
+      type: object
+      additionalProperties: false
+      properties:
+        author:
+          type: string
+          minLength: 1
+          maxLength: 128
+        content:
+          type: string
+          maxLength: 1048576
+        parentId:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^knowledge\.document\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        type:
+          type: string
+          enum: [markdown, file, folder]
+        fileName:
+          type: string
+          minLength: 1
+          maxLength: 512
+        fileSize:
+          type: string
+          minLength: 1
+          maxLength: 64
+        mimeType:
+          type: string
+          minLength: 1
+          maxLength: 255
+        driveUri:
+          type: string
+          minLength: 1
+          maxLength: 1024
     KnowledgeDocumentResponse:
       type: object
       additionalProperties: false
@@ -5731,6 +5870,10 @@ components:
         defaultCodeTaskIntent:
           type: [object, 'null']
           additionalProperties: true
+        managementProfile:
+          oneOf:
+            - $ref: '#/components/schemas/AgentManagementProfile'
+            - type: 'null'
         implementationProviderId:
           type: [string, 'null']
           minLength: 1
@@ -5842,6 +5985,10 @@ components:
         defaultCodeTaskIntent:
           type: [object, 'null']
           additionalProperties: true
+        managementProfile:
+          oneOf:
+            - $ref: '#/components/schemas/AgentManagementProfile'
+            - type: 'null'
         expectedVersion:
           $ref: '#/components/schemas/Int64String'
         requestedAt:
@@ -6076,6 +6223,10 @@ components:
         metadata:
           type: object
           additionalProperties: true
+        documentProfile:
+          oneOf:
+            - $ref: '#/components/schemas/KnowledgeDocumentProfile'
+            - type: 'null'
         tags:
           type: array
           items:
@@ -6133,6 +6284,10 @@ components:
         metadata:
           type: object
           additionalProperties: true
+        documentProfile:
+          oneOf:
+            - $ref: '#/components/schemas/KnowledgeDocumentProfile'
+            - type: 'null'
         tags:
           type: array
           items:

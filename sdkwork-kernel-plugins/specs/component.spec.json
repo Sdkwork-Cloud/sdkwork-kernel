@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "kind": "sdkwork.component.spec",
+  "component": {
+    "name": "sdkwork-kernel-plugins",
+    "displayName": "SDKWork Agent Plugins",
+    "version": "0.1.0",
+    "type": "node-package",
+    "root": "sdkwork-birdcoder/kernel/sdkwork-kernel-plugins",
+    "domain": "intelligence",
+    "declaredDomain": null,
+    "capability": "kernel.plugin",
+    "status": "standardizing",
+    "languages": [
+      "markdown",
+      "json",
+      "javascript",
+      "rust"
+    ],
+    "generated": false,
+    "private": false,
+    "manifests": [
+      "specs/component.spec.json"
+    ]
+  },
+  "canonicalSpecs": [
+    {
+      "file": "KERNEL_PLUGIN_SPEC.md",
+      "path": "../specs/KERNEL_PLUGIN_SPEC.md",
+      "purpose": "Canonical plugin manifest, contribution, dependency, lifecycle, security, conformance, and plugin naming rules."
+    },
+    {
+      "file": "AGENT_KERNEL_SPEC.md",
+      "path": "../specs/AGENT_KERNEL_SPEC.md",
+      "purpose": "Agent runtime, provider SPI, event, policy, and manifest authority."
+    },
+    {
+      "file": "CODE_KERNEL_SPEC.md",
+      "path": "../specs/CODE_KERNEL_SPEC.md",
+      "purpose": "Code-agent workspace, patch, terminal, verification, review, and safety authority."
+    },
+    {
+      "file": "AGENT_MANIFEST_SPEC.md",
+      "path": "../specs/AGENT_MANIFEST_SPEC.md",
+      "purpose": "Agent and provider manifest shape, naming, negotiation, and compatibility rules."
+    },
+    {
+      "file": "AGENT_PROTOCOL_ADAPTER_SPEC.md",
+      "path": "../specs/AGENT_PROTOCOL_ADAPTER_SPEC.md",
+      "purpose": "External protocol and process bridge mapping rules."
+    },
+    {
+      "file": "AGENT_SECURITY_POLICY_SPEC.md",
+      "path": "../specs/AGENT_SECURITY_POLICY_SPEC.md",
+      "purpose": "Fail-closed policy, sandbox, redaction, and audit rules."
+    },
+    {
+      "file": "AGENT_CONFORMANCE_SPEC.md",
+      "path": "../specs/AGENT_CONFORMANCE_SPEC.md",
+      "purpose": "Compatibility profile and report expectations."
+    },
+    {
+      "file": "COMPONENT_SPEC.md",
+      "path": "../../sdkwork-specs/COMPONENT_SPEC.md",
+      "purpose": "Component-local contract and discovery rules."
+    },
+    {
+      "file": "CODE_STYLE_SPEC.md",
+      "path": "../../sdkwork-specs/CODE_STYLE_SPEC.md",
+      "purpose": "Authored source structure and generated code boundaries."
+    },
+    {
+      "file": "NAMING_SPEC.md",
+      "path": "../../sdkwork-specs/NAMING_SPEC.md",
+      "purpose": "Canonical SDKWork naming rules."
+    },
+    {
+      "file": "TYPESCRIPT_CODE_SPEC.md",
+      "path": "../../sdkwork-specs/TYPESCRIPT_CODE_SPEC.md",
+      "purpose": "TypeScript, JavaScript, and Node package rules."
+    },
+    {
+      "file": "MODULE_SPEC.md",
+      "path": "../../sdkwork-specs/MODULE_SPEC.md",
+      "purpose": "Reusable module and package boundary rules."
+    },
+    {
+      "file": "TEST_SPEC.md",
+      "path": "../../sdkwork-specs/TEST_SPEC.md",
+      "purpose": "Verification and contract testing expectations."
+    },
+    {
+      "file": "RUST_CODE_SPEC.md",
+      "path": "../../sdkwork-specs/RUST_CODE_SPEC.md",
+      "purpose": "Rust crate and module rules."
+    }
+  ],
+  "contracts": {
+    "publicExports": [],
+    "runtimeEntrypoints": [
+      "crates/sdkwork-agent-plugin-core",
+      "crates/sdkwork-agent-plugin-rig",
+      "crates/sdkwork-kernel-plugin-drive",
+      "crates/sdkwork-kernel-plugin-knowledgebase"
+    ],
+    "sdkClients": [
+      "sdkwork-drive-storage-contract",
+      "sdkwork-knowledgebase-contract"
+    ],
+    "events": [],
+    "configKeys": [],
+    "routeManifest": null
+  },
+  "pluginPolicy": {
+    "authority": "Root Kernel Plugin, Agent Kernel, and Code Kernel specs remain authoritative. External projects are reference inputs, not kernel contracts.",
+    "dependencyPolicy": "Kernel core crates must not depend on external submodule source. Plugin crates depend on public kernel SPI only.",
+    "sdkPolicy": "Generated SDK clients are not declared at this boundary.",
+    "languagePolicy": "Runtime code is allowed only in SDKWork-owned plugin crates that depend on public kernel SPI and keep external source trees as references."
+  },
+  "plugin": {
+    "canonicalName": "plugin",
+    "packageRoot": "sdkwork-kernel-plugins",
+    "namingPolicy": "Plugin crates, modules, public types, manifests, and examples use plugin naming directly.",
+    "officialPackageNames": [
+      "sdkwork-kernel-plugin-core",
+      "sdkwork-agent-plugin-core",
+      "sdkwork-agent-plugin-rig",
+      "sdkwork-kernel-plugin-drive",
+      "sdkwork-kernel-plugin-knowledgebase"
+    ]
+  },
+  "verification": {
+    "commands": [
+      "node --test sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs",
+      "node sdkwork-kernel-plugins/scripts/check-kernel-plugins.mjs",
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core/Cargo.toml",
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/Cargo.toml",
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive/Cargo.toml",
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml"
+    ]
+  },
+  "metadata": {
+    "managedBy": "manual",
+    "standardVersion": "2026-06-04"
+  }
+}

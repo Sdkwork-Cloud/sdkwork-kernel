@@ -1,6 +1,6 @@
 use crate::{
-    AgentArtifact, AgentMessage, AgentTask, KernelError, KernelErrorKind, KernelEvent,
-    KernelEventRedaction, KernelResult, ProviderHealth, TraceContext,
+    AgentArtifact, AgentMessage, AgentTask, EventStreamItem, KernelError, KernelErrorKind,
+    KernelEvent, KernelEventRedaction, KernelResult, ProviderHealth, TraceContext,
 };
 
 pub trait ProtocolAdapter {
@@ -8,9 +8,27 @@ pub trait ProtocolAdapter {
 
     fn health(&self) -> ProviderHealth;
 
+    fn handle_request(
+        &self,
+        _runtime: &crate::AgentRuntime,
+        _request: ProtocolAdapterRequest,
+    ) -> KernelResult<ProtocolObjectEnvelope> {
+        Err(KernelError::provider_error(
+            self.manifest().adapter_id,
+            "protocol adapter does not implement direct request handling",
+        ))
+    }
+
     fn map_request_to_task(&self, request: ProtocolAdapterRequest) -> KernelResult<AgentTask>;
 
     fn map_event_to_stream_update(&self, event: KernelEvent) -> KernelResult<ProtocolStreamUpdate>;
+
+    fn map_stream_item_to_stream_update(
+        &self,
+        item: EventStreamItem,
+    ) -> KernelResult<ProtocolStreamUpdate> {
+        Ok(ProtocolStreamUpdate::from_event(item.event, item.sequence))
+    }
 
     fn map_response(&self, task: AgentTask) -> KernelResult<ProtocolAdapterResponse>;
 }
@@ -233,6 +251,54 @@ impl ProtocolStreamUpdate {
             payload: event.payload,
             trace_context: event.trace_context,
         }
+    }
+
+    pub fn to_sse_event(&self) -> ProtocolSseEvent {
+        ProtocolSseEvent::from_stream_update(self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProtocolSseEvent {
+    pub event_id: String,
+    pub event_type: String,
+    pub data: Vec<String>,
+}
+
+impl ProtocolSseEvent {
+    pub fn from_stream_update(update: &ProtocolStreamUpdate) -> Self {
+        let mut data = vec![
+            format!("event_version={}", update.event_version),
+            format!("sequence={}", update.sequence),
+        ];
+        data.extend(
+            format!("payload={}", update.payload)
+                .lines()
+                .map(std::string::ToString::to_string),
+        );
+
+        Self {
+            event_id: update.event_id.clone(),
+            event_type: update.event_type.clone(),
+            data,
+        }
+    }
+
+    pub fn to_frame(&self) -> String {
+        let mut frame = String::new();
+        frame.push_str("id: ");
+        frame.push_str(&self.event_id);
+        frame.push('\n');
+        frame.push_str("event: ");
+        frame.push_str(&self.event_type);
+        frame.push('\n');
+        for data_line in &self.data {
+            frame.push_str("data: ");
+            frame.push_str(data_line);
+            frame.push('\n');
+        }
+        frame.push('\n');
+        frame
     }
 }
 

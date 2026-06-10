@@ -1,6 +1,7 @@
 use crate::{
-    KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelEventSource,
-    KernelResult, PolicyCategory, PolicyRequest, ProviderHealth, ProviderManifest, TraceContext,
+    AgentRuntime, KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity,
+    KernelEventSource, KernelResult, PolicyCategory, PolicyDecision, PolicyDecisionValue,
+    PolicyRequest, ProviderHealth, ProviderManifest, TraceContext,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,6 +142,10 @@ impl ToolDescriptor {
 
         if let Some(run_id) = &call.run_id {
             request = request.with_run(run_id.clone());
+        }
+
+        if let Some(step_id) = &call.step_id {
+            request = request.with_context("step_id", step_id.clone());
         }
 
         request
@@ -458,5 +463,189 @@ pub trait ToolProvider {
         Err(KernelError::CapabilityMissing {
             capability_id: "tool.cancellation".to_string(),
         })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolExecutionRequest {
+    pub tool_execution_id: String,
+    pub tool_call: ToolCall,
+}
+
+impl ToolExecutionRequest {
+    pub fn new(tool_execution_id: impl Into<String>, tool_call: ToolCall) -> Self {
+        Self {
+            tool_execution_id: tool_execution_id.into(),
+            tool_call,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolExecutionResponse {
+    pub tool_execution_id: String,
+    pub provider_id: String,
+    pub descriptor: ToolDescriptor,
+    pub policy_decision: PolicyDecision,
+    pub result: ToolResult,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolStreamExecutionResponse {
+    pub tool_execution_id: String,
+    pub provider_id: String,
+    pub descriptor: ToolDescriptor,
+    pub policy_decision: PolicyDecision,
+    pub chunks: Vec<ToolStreamChunk>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCancellationRequest {
+    pub tool_cancellation_id: String,
+    pub provider_id: Option<String>,
+    pub tool_call_id: String,
+}
+
+impl ToolCancellationRequest {
+    pub fn new(tool_cancellation_id: impl Into<String>, tool_call_id: impl Into<String>) -> Self {
+        Self {
+            tool_cancellation_id: tool_cancellation_id.into(),
+            provider_id: None,
+            tool_call_id: tool_call_id.into(),
+        }
+    }
+
+    pub fn with_provider_id(mut self, provider_id: impl Into<String>) -> Self {
+        self.provider_id = Some(provider_id.into());
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolCancellationResponse {
+    pub tool_cancellation_id: String,
+    pub provider_id: String,
+    pub result: ToolResult,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ToolExecutionService;
+
+impl ToolExecutionService {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn invoke(
+        &self,
+        runtime: &AgentRuntime,
+        request: ToolExecutionRequest,
+    ) -> KernelResult<ToolExecutionResponse> {
+        let provider = self.select_provider(runtime, request.tool_call.provider_id.as_deref())?;
+        let (descriptor, policy_decision) =
+            self.authorize_tool_call(runtime, provider, &request.tool_call)?;
+        let tool_call = self.with_policy_metadata(request.tool_call, &descriptor, &policy_decision);
+        let result = provider.invoke_tool(tool_call)?;
+
+        Ok(ToolExecutionResponse {
+            tool_execution_id: request.tool_execution_id,
+            provider_id: descriptor.provider_id.clone(),
+            descriptor,
+            policy_decision,
+            result,
+        })
+    }
+
+    pub fn stream(
+        &self,
+        runtime: &AgentRuntime,
+        request: ToolExecutionRequest,
+    ) -> KernelResult<ToolStreamExecutionResponse> {
+        let provider = self.select_provider(runtime, request.tool_call.provider_id.as_deref())?;
+        let (descriptor, policy_decision) =
+            self.authorize_tool_call(runtime, provider, &request.tool_call)?;
+        let tool_call = self.with_policy_metadata(request.tool_call, &descriptor, &policy_decision);
+        let chunks = provider.stream_tool_call(tool_call)?;
+
+        Ok(ToolStreamExecutionResponse {
+            tool_execution_id: request.tool_execution_id,
+            provider_id: descriptor.provider_id.clone(),
+            descriptor,
+            policy_decision,
+            chunks,
+        })
+    }
+
+    pub fn cancel(
+        &self,
+        runtime: &AgentRuntime,
+        request: ToolCancellationRequest,
+    ) -> KernelResult<ToolCancellationResponse> {
+        let provider = self.select_provider(runtime, request.provider_id.as_deref())?;
+        let provider_id = provider.provider_manifest().provider_id;
+        let result = provider.cancel_tool_call(&request.tool_call_id)?;
+
+        Ok(ToolCancellationResponse {
+            tool_cancellation_id: request.tool_cancellation_id,
+            provider_id,
+            result,
+        })
+    }
+
+    fn select_provider<'a>(
+        &self,
+        runtime: &'a AgentRuntime,
+        provider_id: Option<&str>,
+    ) -> KernelResult<&'a (dyn ToolProvider + Send + Sync)> {
+        match provider_id {
+            Some(provider_id) => runtime.tool_provider_by_id(provider_id),
+            None => runtime.tool_provider(),
+        }
+    }
+
+    fn authorize_tool_call(
+        &self,
+        runtime: &AgentRuntime,
+        provider: &(dyn ToolProvider + Send + Sync),
+        tool_call: &ToolCall,
+    ) -> KernelResult<(ToolDescriptor, PolicyDecision)> {
+        let descriptor = provider.describe_tool(&tool_call.tool_id)?;
+        let policy_request = provider.authorize_tool_call(&descriptor, tool_call)?;
+        let policy_decision = runtime.policy_provider()?.evaluate(policy_request)?;
+        self.ensure_allowed(&policy_decision)?;
+        Ok((descriptor, policy_decision))
+    }
+
+    fn with_policy_metadata(
+        &self,
+        mut tool_call: ToolCall,
+        descriptor: &ToolDescriptor,
+        policy_decision: &PolicyDecision,
+    ) -> ToolCall {
+        tool_call.policy_decision_id = Some(policy_decision.decision_id.clone());
+        if tool_call.provider_id.is_none() {
+            tool_call.provider_id = Some(descriptor.provider_id.clone());
+        }
+
+        tool_call
+    }
+
+    fn ensure_allowed(&self, policy_decision: &PolicyDecision) -> KernelResult<()> {
+        match policy_decision.decision {
+            PolicyDecisionValue::Allow => Ok(()),
+            PolicyDecisionValue::Deny => Err(KernelError::PolicyDenied {
+                reason_code: policy_decision.reason_code.clone(),
+            }),
+            PolicyDecisionValue::NeedsApproval => Err(KernelError::permission_required(
+                policy_decision
+                    .safe_reason
+                    .clone()
+                    .unwrap_or_else(|| policy_decision.reason_code.clone()),
+            )),
+            PolicyDecisionValue::Defer => Err(KernelError::provider_error(
+                "policy.deferred",
+                policy_decision.reason_code.clone(),
+            )),
+        }
     }
 }

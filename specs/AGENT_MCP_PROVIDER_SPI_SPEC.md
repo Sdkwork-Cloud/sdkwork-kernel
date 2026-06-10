@@ -78,6 +78,27 @@ Rules:
   namespaced metadata, and deterministic mapping to `ContextFrame` values before
   they are used as model context.
 
+### 2.1 Rust Baseline
+
+The Rust Agent Kernel exposes `McpToolExecutionService` as the standard
+policy-aware entrypoint for invoking MCP tools.
+
+Implemented baseline behavior:
+
+- `McpToolExecutionRequest` carries the MCP server id, the `ToolCall`, and an
+  optional MCP provider id.
+- The service resolves the typed MCP provider by request or tool-call provider
+  id, otherwise by deterministic runtime default.
+- The service reads the MCP tool descriptor through `McpProvider::list_tools`,
+  builds a standard tool policy request from that descriptor, evaluates runtime
+  policy, and only calls `McpProvider::invoke_tool` after an `allow` decision.
+- `deny`, `needs_approval`, and `defer` decisions map to stable kernel errors
+  without invoking the MCP provider.
+- The policy decision id and resolved MCP provider id are linked back into the
+  `ToolCall` before MCP invocation.
+- MCP resources and prompts remain first-class MCP surfaces and continue to
+  convert to `ContextFrame` values only when explicitly requested.
+
 ## 3. Runtime Registration
 
 Runtime builders `MUST` provide manifest-only and typed registration paths for

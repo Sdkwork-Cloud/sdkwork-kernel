@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "kind": "sdkwork.component.spec",
+  "component": {
+    "name": "sdkwork-kernel-plugin-knowledgebase",
+    "displayName": "SDKWork Kernel Plugin Knowledgebase",
+    "version": "0.1.0",
+    "type": "rust-crate",
+    "root": "sdkwork-kernel/sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase",
+    "domain": "intelligence",
+    "capability": "kernel-plugin-knowledgebase",
+    "languages": [
+      "rust"
+    ],
+    "generated": false,
+    "manifests": [
+      "Cargo.toml"
+    ]
+  },
+  "canonicalSpecs": [
+    {
+      "file": "KERNEL_PLUGIN_SPEC.md",
+      "path": "../../../../specs/KERNEL_PLUGIN_SPEC.md",
+      "purpose": "Canonical plugin manifest, contribution, dependency, lifecycle, security, conformance, and plugin naming rules."
+    },
+    {
+      "file": "AGENT_KNOWLEDGE_PROVIDER_SPI_SPEC.md",
+      "path": "../../../../specs/AGENT_KNOWLEDGE_PROVIDER_SPI_SPEC.md",
+      "purpose": "Provider-neutral knowledge search, read, list, provenance, and policy rules."
+    },
+    {
+      "file": "COMPONENT_SPEC.md",
+      "path": "../../../../sdkwork-specs/COMPONENT_SPEC.md",
+      "purpose": "Component-local contract and discovery rules."
+    },
+    {
+      "file": "CODE_STYLE_SPEC.md",
+      "path": "../../../../sdkwork-specs/CODE_STYLE_SPEC.md",
+      "purpose": "Authored source structure and generated code boundaries."
+    },
+    {
+      "file": "NAMING_SPEC.md",
+      "path": "../../../../sdkwork-specs/NAMING_SPEC.md",
+      "purpose": "Canonical SDKWork naming rules."
+    },
+    {
+      "file": "RUST_CODE_SPEC.md",
+      "path": "../../../../sdkwork-specs/RUST_CODE_SPEC.md",
+      "purpose": "Rust crate and module rules."
+    }
+  ],
+  "contracts": {
+    "publicExports": [
+      "."
+    ],
+    "runtimeEntrypoints": [
+      "SdkworkKnowledgebasePlugin",
+      "SdkworkKnowledgebaseProvider",
+      "KnowledgebaseRetrievalClient",
+      "sdkwork_knowledgebase_plugin_manifest",
+      "sdkwork_knowledgebase_provider_manifests"
+    ],
+    "routeManifest": null,
+    "sdkClients": [
+      "sdkwork-knowledgebase-contract"
+    ],
+    "events": [],
+    "configKeys": []
+  },
+  "verification": {
+    "commands": [
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml"
+    ]
+  },
+  "plugin": {
+    "pluginId": "plugin.sdkwork.knowledgebase",
+    "canonicalName": "plugin",
+    "package": "sdkwork-kernel-plugin-knowledgebase",
+    "namingPolicy": "SdkworkKnowledgebasePlugin and sdkwork_knowledgebase_plugin_manifest are the canonical foundation plugin entrypoints.",
+    "optional": true
+  }
+}

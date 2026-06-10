@@ -1,3 +1,4 @@
+mod chat;
 mod collaboration;
 mod configuration;
 mod conformance;
@@ -5,6 +6,7 @@ mod context_memory;
 mod definition;
 mod error;
 mod event;
+mod execution;
 mod host;
 mod installation;
 mod knowledge;
@@ -23,6 +25,11 @@ mod skill;
 mod telemetry;
 mod tool;
 
+pub use chat::{
+    agent_chat_rpc_adapter_manifest, AgentChatKnowledgeQuery, AgentChatMemoryQuery,
+    AgentChatRequest, AgentChatResponse, AgentChatRpcAdapter, AgentChatRpcHandler,
+    AgentChatService,
+};
 pub use collaboration::{
     AgentCard, AgentCollaborationProvider, AgentDelegation, AgentHandoffRequest, AgentHandoffResult,
 };
@@ -53,6 +60,10 @@ pub use event::{
     EventStreamItem, EventStreamStatus, EventSubscription, KernelEvent, KernelEventRedaction,
     KernelEventSeverity, KernelEventSource, TraceContext,
 };
+pub use execution::{
+    AgentExecutionReport, AgentExecutionRequest, AgentExecutionResumeDecision,
+    AgentExecutionResumeRequest, AgentExecutionService, AgentExecutionStatus, AgentObservation,
+};
 pub use host::{
     EnvironmentRequest, ExecutorRequest, FilesystemOperation, FilesystemRequest, FilesystemResult,
     HostEnvPolicy, HostPathPolicy, HostProvider, NetworkRequest, NetworkResult, ProcessRequest,
@@ -77,14 +88,17 @@ pub use manifest::{
 };
 pub use mcp::{
     McpPromptDescriptor, McpPromptMessage, McpProvider, McpResourceContent, McpResourceDescriptor,
-    McpServerDescriptor,
+    McpServerDescriptor, McpToolExecutionRequest, McpToolExecutionResponse,
+    McpToolExecutionService,
 };
 pub use message::{
     AgentArtifact, AgentMessage, AgentMessageRole, AgentPart, AgentPartKind, ArtifactKind,
 };
 pub use model::{
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
-    ModelStreamChunk, ModelUsage,
+    ModelCancellationRequest, ModelCancellationResponse, ModelDescriptor, ModelExecutionRequest,
+    ModelExecutionResponse, ModelExecutionService, ModelProvider, ModelRequest, ModelResponse,
+    ModelResponseFormat, ModelStatus, ModelStreamChunk, ModelStreamExecutionResponse,
+    ModelStructuredOutputValidation, ModelUsage,
 };
 pub use package::{
     AgentPackageLifecycle, AgentPackageManifest, AgentPackageProviderBinding,
@@ -98,8 +112,8 @@ pub use policy::{
 pub use protocol::{
     ProtocolAdapter, ProtocolAdapterAuthMode, ProtocolAdapterManifest, ProtocolAdapterRequest,
     ProtocolAdapterResponse, ProtocolAdapterStreamingSupport, ProtocolError, ProtocolFamily,
-    ProtocolObjectEnvelope, ProtocolObjectKind, ProtocolObjectMapper, ProtocolStreamUpdate,
-    ProtocolTransport, StandardProtocolObjectMapper,
+    ProtocolObjectEnvelope, ProtocolObjectKind, ProtocolObjectMapper, ProtocolSseEvent,
+    ProtocolStreamUpdate, ProtocolTransport, StandardProtocolObjectMapper,
 };
 pub use runtime::{
     AgentProviderDiagnostic, AgentRuntime, AgentRuntimeDiagnostics, RuntimeBootstrapReport,
@@ -118,8 +132,9 @@ pub use telemetry::{
     TelemetryProvider, TelemetrySpan, TelemetrySpanStatus,
 };
 pub use tool::{
-    SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider, ToolResult,
-    ToolSchema, ToolStreamChunk,
+    SideEffectLevel, ToolCall, ToolCallStatus, ToolCancellationRequest, ToolCancellationResponse,
+    ToolDescriptor, ToolExecutionRequest, ToolExecutionResponse, ToolExecutionService,
+    ToolProvider, ToolResult, ToolSchema, ToolStreamChunk, ToolStreamExecutionResponse,
 };
 
 pub const AGENT_KERNEL_SPEC_VERSION: &str = "0.1.0";

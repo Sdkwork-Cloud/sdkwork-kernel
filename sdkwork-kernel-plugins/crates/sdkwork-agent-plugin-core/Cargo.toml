@@ -1,0 +1,11 @@
+[package]
+name = "sdkwork-agent-plugin-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "sdkwork_agent_plugin_core"
+path = "src/lib.rs"
+
+[dependencies]
+sdkwork-agent-kernel.workspace = true

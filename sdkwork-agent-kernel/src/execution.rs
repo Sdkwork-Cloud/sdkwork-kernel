@@ -1,0 +1,1236 @@
+use crate::{
+    AgentChatKnowledgeQuery, AgentChatMemoryQuery, AgentChatRequest, AgentChatService,
+    AgentRuntime, KernelError, KernelErrorKind, KernelErrorSource, KernelEvent,
+    KernelEventRedaction, KernelEventSeverity, KernelEventSource, KernelResult,
+    KnowledgeRetrievalMethod, McpToolExecutionRequest, McpToolExecutionResponse,
+    McpToolExecutionService, ModelResponse, Plan, PolicySubject, RuntimeState, ToolCall,
+    ToolExecutionRequest, ToolExecutionResponse, ToolExecutionService, TraceContext,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentExecutionStatus {
+    Completed,
+    Failed,
+    PermissionRequired,
+    Cancelled,
+    Degraded,
+}
+
+impl AgentExecutionStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::PermissionRequired => "permission_required",
+            Self::Cancelled => "cancelled",
+            Self::Degraded => "degraded",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentExecutionResumeDecision {
+    Approved,
+    Rejected,
+}
+
+impl AgentExecutionResumeDecision {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Approved => "approved",
+            Self::Rejected => "rejected",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentExecutionResumeRequest {
+    pub resume_request_id: String,
+    pub execution_id: String,
+    pub decision: AgentExecutionResumeDecision,
+    pub approved_by: Option<String>,
+    pub comment: Option<String>,
+    pub session_id: Option<String>,
+    pub task_id: Option<String>,
+    pub run_id: Option<String>,
+    pub step_id: Option<String>,
+    pub trace_context: Option<TraceContext>,
+    pub permission_error_kind: Option<String>,
+    pub permission_error_code: Option<String>,
+}
+
+impl AgentExecutionResumeRequest {
+    pub fn new(
+        resume_request_id: impl Into<String>,
+        execution_id: impl Into<String>,
+        decision: AgentExecutionResumeDecision,
+    ) -> KernelResult<Self> {
+        let request = Self {
+            resume_request_id: resume_request_id.into(),
+            execution_id: execution_id.into(),
+            decision,
+            approved_by: None,
+            comment: None,
+            session_id: None,
+            task_id: None,
+            run_id: None,
+            step_id: None,
+            trace_context: None,
+            permission_error_kind: None,
+            permission_error_code: None,
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    pub fn with_comment(mut self, comment: impl Into<String>) -> Self {
+        let comment = comment.into();
+        if !comment.trim().is_empty() {
+            self.comment = Some(comment);
+        }
+        self
+    }
+
+    pub fn to_event(&self, event_id: impl Into<String>) -> KernelEvent {
+        let mut event = KernelEvent::new(
+            event_id,
+            format!("agent.execution.resume.{}", self.decision.as_str()),
+            self.event_severity(),
+            self.event_payload(),
+        )
+        .from_source(KernelEventSource::Policy)
+        .with_redaction(KernelEventRedaction::Internal)
+        .with_payload_schema("sdkwork.agent.execution.resume_request.v1");
+
+        if let Some(session_id) = &self.session_id {
+            event = event.for_session(session_id.clone());
+        }
+        if let Some(task_id) = &self.task_id {
+            event = event.for_task(task_id.clone());
+        }
+        if let Some(run_id) = &self.run_id {
+            event = event.for_run(run_id.clone());
+        }
+        if let Some(step_id) = &self.step_id {
+            event = event.for_step(step_id.clone());
+        }
+        if let Some(trace_context) = &self.trace_context {
+            event = event.with_trace_context(trace_context.clone());
+        }
+
+        event
+    }
+
+    fn validate(&self) -> KernelResult<()> {
+        if self.resume_request_id.trim().is_empty() {
+            return Err(KernelError::validation(
+                "resume request id must not be empty",
+            ));
+        }
+
+        if self.execution_id.trim().is_empty() {
+            return Err(KernelError::validation("execution id must not be empty"));
+        }
+
+        if self.decision == AgentExecutionResumeDecision::Approved
+            && match self.approved_by.as_deref() {
+                Some(approved_by) => approved_by.trim().is_empty(),
+                None => true,
+            }
+        {
+            return Err(KernelError::validation(
+                "approval actor is required for approved resume",
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn event_severity(&self) -> KernelEventSeverity {
+        match self.decision {
+            AgentExecutionResumeDecision::Approved => KernelEventSeverity::Info,
+            AgentExecutionResumeDecision::Rejected => KernelEventSeverity::Warn,
+        }
+    }
+
+    fn event_payload(&self) -> String {
+        let mut fields = vec![
+            format!("resume_request_id={}", self.resume_request_id),
+            format!("execution_id={}", self.execution_id),
+            format!("decision={}", self.decision.as_str()),
+            format!("approved_by={}", self.approved_by.as_deref().unwrap_or("")),
+        ];
+
+        if let Some(comment) = &self.comment {
+            fields.push(format!("comment={comment}"));
+        }
+        if let Some(error_kind) = &self.permission_error_kind {
+            fields.push(format!("permission_error_kind={error_kind}"));
+        }
+        if let Some(error_code) = &self.permission_error_code {
+            fields.push(format!("permission_error_code={error_code}"));
+        }
+
+        fields.join(";")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentObservation {
+    pub observation_id: String,
+    pub source_family: String,
+    pub action_id: Option<String>,
+    pub status: String,
+    pub summary: String,
+    pub redaction_classification: KernelEventRedaction,
+    pub metadata: Vec<(String, String)>,
+}
+
+impl AgentObservation {
+    pub fn to_event(&self, event_id: impl Into<String>) -> KernelEvent {
+        KernelEvent::new(
+            event_id,
+            format!("agent.execution.observation.{}", self.source_family),
+            observation_event_severity(&self.status),
+            self.event_payload(),
+        )
+        .from_source(observation_event_source(&self.source_family))
+        .with_redaction(self.redaction_classification)
+        .with_payload_schema("sdkwork.agent.execution.observation.v1")
+    }
+
+    fn event_payload(&self) -> String {
+        let mut fields = vec![
+            format!("observation_id={}", self.observation_id),
+            format!("source_family={}", self.source_family),
+            format!("status={}", self.status),
+            format!("summary={}", self.summary),
+        ];
+
+        if let Some(action_id) = &self.action_id {
+            fields.push(format!("action_id={action_id}"));
+        }
+
+        for (key, value) in &self.metadata {
+            fields.push(format!("{key}={value}"));
+        }
+
+        fields.join(";")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentExecutionRequest {
+    pub execution_id: String,
+    pub messages: Vec<String>,
+    pub provider_id: Option<String>,
+    pub model_id: Option<String>,
+    pub session_id: Option<String>,
+    pub task_id: Option<String>,
+    pub run_id: Option<String>,
+    pub step_id: Option<String>,
+    pub subject: Option<PolicySubject>,
+    pub trace_context: Option<TraceContext>,
+    pub timeout_ms: Option<u64>,
+    pub include_tool_descriptors: bool,
+    pub memory_query: Option<AgentChatMemoryQuery>,
+    pub knowledge_query: Option<AgentChatKnowledgeQuery>,
+    pub mcp_server_id: Option<String>,
+    pub metadata: Vec<(String, String)>,
+}
+
+impl AgentExecutionRequest {
+    pub fn new(execution_id: impl Into<String>, messages: Vec<String>) -> Self {
+        Self {
+            execution_id: execution_id.into(),
+            messages,
+            provider_id: None,
+            model_id: None,
+            session_id: None,
+            task_id: None,
+            run_id: None,
+            step_id: None,
+            subject: None,
+            trace_context: None,
+            timeout_ms: None,
+            include_tool_descriptors: false,
+            memory_query: None,
+            knowledge_query: None,
+            mcp_server_id: None,
+            metadata: Vec::new(),
+        }
+    }
+
+    pub fn with_provider_id(mut self, provider_id: impl Into<String>) -> Self {
+        self.provider_id = Some(provider_id.into());
+        self
+    }
+
+    pub fn with_model_id(mut self, model_id: impl Into<String>) -> Self {
+        self.model_id = Some(model_id.into());
+        self
+    }
+
+    pub fn for_session(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
+    }
+
+    pub fn for_task(mut self, task_id: impl Into<String>) -> Self {
+        self.task_id = Some(task_id.into());
+        self
+    }
+
+    pub fn for_run(mut self, run_id: impl Into<String>) -> Self {
+        self.run_id = Some(run_id.into());
+        self
+    }
+
+    pub fn for_step(mut self, step_id: impl Into<String>) -> Self {
+        self.step_id = Some(step_id.into());
+        self
+    }
+
+    pub fn with_subject(mut self, subject: PolicySubject) -> Self {
+        self.subject = Some(subject);
+        self
+    }
+
+    pub fn with_trace_context(mut self, trace_context: TraceContext) -> Self {
+        self.trace_context = Some(trace_context);
+        self
+    }
+
+    pub fn with_timeout_ms(mut self, timeout_ms: u64) -> Self {
+        self.timeout_ms = Some(timeout_ms);
+        self
+    }
+
+    pub fn include_tool_descriptors(mut self) -> Self {
+        self.include_tool_descriptors = true;
+        self
+    }
+
+    pub fn with_memory_query(
+        mut self,
+        scope: crate::MemoryScope,
+        owner_context: impl Into<String>,
+    ) -> Self {
+        let provider_id = self
+            .memory_query
+            .as_ref()
+            .and_then(|memory_query| memory_query.provider_id.clone());
+        self.memory_query = Some(AgentChatMemoryQuery {
+            scope,
+            owner_context: owner_context.into(),
+            provider_id,
+        });
+        self
+    }
+
+    pub fn with_memory_provider_id(mut self, provider_id: impl Into<String>) -> Self {
+        if let Some(memory_query) = &mut self.memory_query {
+            memory_query.provider_id = Some(provider_id.into());
+        } else {
+            self.memory_query = Some(
+                AgentChatMemoryQuery::new(crate::MemoryScope::Session, String::new())
+                    .with_provider_id(provider_id),
+            );
+        }
+        self
+    }
+
+    pub fn with_knowledge_query(mut self, query: impl Into<String>) -> Self {
+        let mut next_query = self
+            .knowledge_query
+            .take()
+            .unwrap_or_else(|| AgentChatKnowledgeQuery::new(String::new()));
+        next_query.query = query.into();
+        self.knowledge_query = Some(next_query);
+        self
+    }
+
+    pub fn with_knowledge_provider_id(mut self, provider_id: impl Into<String>) -> Self {
+        self.ensure_knowledge_query().provider_id = Some(provider_id.into());
+        self
+    }
+
+    pub fn with_knowledge_tenant_id(mut self, tenant_id: impl Into<String>) -> Self {
+        self.ensure_knowledge_query().tenant_id = Some(tenant_id.into());
+        self
+    }
+
+    pub fn with_knowledge_namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.ensure_knowledge_query().namespace = Some(namespace.into());
+        self
+    }
+
+    pub fn with_knowledge_top_k(mut self, top_k: usize) -> Self {
+        self.ensure_knowledge_query().top_k = Some(top_k);
+        self
+    }
+
+    pub fn with_knowledge_method(mut self, method: KnowledgeRetrievalMethod) -> Self {
+        let knowledge_query = self.ensure_knowledge_query();
+        if !knowledge_query.methods.contains(&method) {
+            knowledge_query.methods.push(method);
+        }
+        self
+    }
+
+    pub fn with_knowledge_filter(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        self.ensure_knowledge_query()
+            .filters
+            .push((key.into(), value.into()));
+        self
+    }
+
+    pub fn include_external_knowledge(mut self) -> Self {
+        self.ensure_knowledge_query().include_external = true;
+        self
+    }
+
+    pub fn with_mcp_server_id(mut self, server_id: impl Into<String>) -> Self {
+        self.mcp_server_id = Some(server_id.into());
+        self
+    }
+
+    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.push((key.into(), value.into()));
+        self
+    }
+
+    fn validate(&self) -> KernelResult<()> {
+        if self.execution_id.trim().is_empty() {
+            return Err(KernelError::validation("execution id must not be empty"));
+        }
+
+        if self.messages.is_empty() {
+            return Err(KernelError::validation(
+                "execution requires at least one message",
+            ));
+        }
+
+        if self
+            .messages
+            .iter()
+            .any(|message| message.trim().is_empty())
+        {
+            return Err(KernelError::validation(
+                "execution messages must not be blank",
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn to_chat_request(&self) -> AgentChatRequest {
+        let mut request = AgentChatRequest::new(self.execution_id.clone(), self.messages.clone());
+
+        if let Some(provider_id) = &self.provider_id {
+            request = request.with_provider_id(provider_id.clone());
+        }
+
+        if let Some(model_id) = &self.model_id {
+            request = request.with_model_id(model_id.clone());
+        }
+
+        if let Some(session_id) = &self.session_id {
+            request = request.for_session(session_id.clone());
+        }
+
+        if let Some(task_id) = &self.task_id {
+            request = request.for_task(task_id.clone());
+        }
+
+        if let Some(run_id) = &self.run_id {
+            request = request.for_run(run_id.clone());
+        }
+
+        if let Some(step_id) = &self.step_id {
+            request = request.for_step(step_id.clone());
+        }
+
+        if let Some(subject) = &self.subject {
+            request = request.with_subject(subject.clone());
+        }
+
+        if let Some(trace_context) = &self.trace_context {
+            request = request.with_trace_context(trace_context.clone());
+        }
+
+        if let Some(timeout_ms) = self.timeout_ms {
+            request = request.with_timeout_ms(timeout_ms);
+        }
+
+        if self.include_tool_descriptors {
+            request = request.include_tool_descriptors();
+        }
+
+        if let Some(memory_query) = &self.memory_query {
+            request =
+                request.with_memory_query(memory_query.scope, memory_query.owner_context.clone());
+            if let Some(provider_id) = &memory_query.provider_id {
+                request = request.with_memory_provider_id(provider_id.clone());
+            }
+        }
+
+        if let Some(knowledge_query) = &self.knowledge_query {
+            request = request.with_knowledge_query(knowledge_query.query.clone());
+            if let Some(provider_id) = &knowledge_query.provider_id {
+                request = request.with_knowledge_provider_id(provider_id.clone());
+            }
+            if let Some(tenant_id) = &knowledge_query.tenant_id {
+                request = request.with_knowledge_tenant_id(tenant_id.clone());
+            }
+            if let Some(namespace) = &knowledge_query.namespace {
+                request = request.with_knowledge_namespace(namespace.clone());
+            }
+            if let Some(top_k) = knowledge_query.top_k {
+                request = request.with_knowledge_top_k(top_k);
+            }
+            for method in &knowledge_query.methods {
+                request = request.with_knowledge_method(*method);
+            }
+            for (key, value) in &knowledge_query.filters {
+                request = request.with_knowledge_filter(key.clone(), value.clone());
+            }
+            if knowledge_query.include_external {
+                request = request.include_external_knowledge();
+            }
+        }
+
+        for (key, value) in &self.metadata {
+            request = request.with_metadata(key.clone(), value.clone());
+        }
+
+        request
+    }
+
+    fn ensure_knowledge_query(&mut self) -> &mut AgentChatKnowledgeQuery {
+        self.knowledge_query
+            .get_or_insert_with(|| AgentChatKnowledgeQuery::new(String::new()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentExecutionReport {
+    pub execution_id: String,
+    pub status: AgentExecutionStatus,
+    pub session_id: Option<String>,
+    pub task_id: Option<String>,
+    pub run_id: Option<String>,
+    pub step_id: Option<String>,
+    pub trace_context: Option<TraceContext>,
+    pub plan: Option<Plan>,
+    pub model_response: Option<ModelResponse>,
+    pub tool_executions: Vec<ToolExecutionResponse>,
+    pub mcp_tool_executions: Vec<McpToolExecutionResponse>,
+    pub observations: Vec<AgentObservation>,
+    pub error: Option<KernelError>,
+}
+
+impl AgentExecutionReport {
+    pub fn approval_resume_request(
+        &self,
+        resume_request_id: impl Into<String>,
+        decision: AgentExecutionResumeDecision,
+        approved_by: impl Into<String>,
+    ) -> KernelResult<AgentExecutionResumeRequest> {
+        if self.status != AgentExecutionStatus::PermissionRequired {
+            return Err(KernelError::validation(
+                "only permission-required execution reports can build approval resume requests",
+            ));
+        }
+
+        let approved_by = approved_by.into();
+        let mut request = AgentExecutionResumeRequest {
+            resume_request_id: resume_request_id.into(),
+            execution_id: self.execution_id.clone(),
+            decision,
+            approved_by: if approved_by.trim().is_empty() {
+                None
+            } else {
+                Some(approved_by)
+            },
+            comment: None,
+            session_id: self.session_id.clone(),
+            task_id: self.task_id.clone(),
+            run_id: self.run_id.clone(),
+            step_id: self.step_id.clone(),
+            trace_context: self.trace_context.clone(),
+            permission_error_kind: None,
+            permission_error_code: None,
+        };
+
+        if let Some(error) = &self.error {
+            request.permission_error_kind = Some(error.kind().as_str().to_string());
+            request.permission_error_code = Some(error.code().to_string());
+        }
+
+        request.validate()?;
+        Ok(request)
+    }
+
+    pub fn to_event(&self, event_id: impl Into<String>) -> KernelEvent {
+        let event_id = event_id.into();
+        let mut event = KernelEvent::new(
+            event_id,
+            self.event_type(),
+            self.event_severity(),
+            self.event_payload(),
+        )
+        .from_source(KernelEventSource::Runtime)
+        .with_redaction(self.report_redaction())
+        .with_payload_schema("sdkwork.agent.execution.report.v1");
+
+        if let Some(session_id) = &self.session_id {
+            event = event.for_session(session_id.clone());
+        }
+        if let Some(task_id) = &self.task_id {
+            event = event.for_task(task_id.clone());
+        }
+        if let Some(run_id) = &self.run_id {
+            event = event.for_run(run_id.clone());
+        }
+        if let Some(step_id) = &self.step_id {
+            event = event.for_step(step_id.clone());
+        }
+        if let Some(trace_context) = &self.trace_context {
+            event = event.with_trace_context(trace_context.clone());
+        }
+
+        event
+    }
+
+    pub fn to_events(&self, event_id_prefix: impl Into<String>) -> Vec<KernelEvent> {
+        let event_id_prefix = event_id_prefix.into();
+        let report_event_id = format!("{event_id_prefix}.report");
+        let mut events = vec![self.to_event(report_event_id.clone())];
+
+        for (index, observation) in self.observations.iter().enumerate() {
+            let mut event =
+                observation.to_event(format!("{event_id_prefix}.observation.{}", index + 1));
+            event = event.caused_by(report_event_id.clone());
+            if let Some(session_id) = &self.session_id {
+                event = event.for_session(session_id.clone());
+            }
+            if let Some(task_id) = &self.task_id {
+                event = event.for_task(task_id.clone());
+            }
+            if let Some(run_id) = &self.run_id {
+                event = event.for_run(run_id.clone());
+            }
+            if let Some(step_id) = &self.step_id {
+                event = event.for_step(step_id.clone());
+            }
+            if let Some(trace_context) = &self.trace_context {
+                event = event.with_trace_context(trace_context.clone());
+            }
+            events.push(event);
+        }
+
+        events
+    }
+
+    fn event_type(&self) -> &'static str {
+        match self.status {
+            AgentExecutionStatus::Completed => "agent.execution.completed",
+            AgentExecutionStatus::Failed => "agent.execution.failed",
+            AgentExecutionStatus::PermissionRequired => "agent.execution.permission_required",
+            AgentExecutionStatus::Cancelled => "agent.execution.cancelled",
+            AgentExecutionStatus::Degraded => "agent.execution.degraded",
+        }
+    }
+
+    fn event_severity(&self) -> KernelEventSeverity {
+        match self.status {
+            AgentExecutionStatus::Completed | AgentExecutionStatus::Degraded => {
+                KernelEventSeverity::Info
+            }
+            AgentExecutionStatus::PermissionRequired | AgentExecutionStatus::Cancelled => {
+                KernelEventSeverity::Warn
+            }
+            AgentExecutionStatus::Failed => KernelEventSeverity::Error,
+        }
+    }
+
+    fn event_payload(&self) -> String {
+        let mut fields = vec![
+            format!("execution_id={}", self.execution_id),
+            format!("status={}", self.status.as_str()),
+            format!("observations={}", self.observations.len()),
+            format!("tool_executions={}", self.tool_executions.len()),
+            format!("mcp_tool_executions={}", self.mcp_tool_executions.len()),
+        ];
+
+        if let Some(plan) = &self.plan {
+            fields.push(format!("plan_id={}", plan.plan_id));
+            fields.push(format!("plan_actions={}", plan.actions.len()));
+        }
+
+        if let Some(model_response) = &self.model_response {
+            fields.push(format!("model_provider_id={}", model_response.provider_id));
+            fields.push(format!(
+                "model_status={}",
+                model_response.status.as_report_str()
+            ));
+        }
+
+        if let Some(error) = &self.error {
+            fields.push(format!("error_kind={}", error.kind().as_str()));
+            fields.push(format!("error_source={}", error.source().as_str()));
+        }
+
+        fields.join(";")
+    }
+
+    fn report_redaction(&self) -> KernelEventRedaction {
+        self.observations
+            .iter()
+            .map(|observation| observation.redaction_classification)
+            .chain(
+                self.error
+                    .as_ref()
+                    .map(KernelError::redaction_classification),
+            )
+            .fold(KernelEventRedaction::Internal, max_redaction)
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct AgentExecutionService;
+
+impl AgentExecutionService {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn execute(
+        &self,
+        runtime: &AgentRuntime,
+        request: AgentExecutionRequest,
+    ) -> KernelResult<AgentExecutionReport> {
+        request.validate()?;
+        self.ensure_runtime_executable(runtime)?;
+        let plan = self.create_plan(runtime, &request)?;
+        let chat_response = match AgentChatService::new().invoke(runtime, request.to_chat_request())
+        {
+            Ok(chat_response) => chat_response,
+            Err(error) => {
+                let Some(status) = self.chat_error_status(&error) else {
+                    return Err(error);
+                };
+                return Ok(self.failed_before_model_report(&request, plan, status, error));
+            }
+        };
+        let model_response = chat_response.model_response;
+        let mut observations = vec![AgentObservation {
+            observation_id: format!("observation.{}.model", request.execution_id),
+            source_family: "model".to_string(),
+            action_id: None,
+            status: model_response.status.as_report_str().to_string(),
+            summary: format!(
+                "model provider {} returned response",
+                model_response.provider_id
+            ),
+            redaction_classification: model_response.redaction_classification,
+            metadata: vec![(
+                "sdkwork.model.provider_id".to_string(),
+                model_response.provider_id.clone(),
+            )],
+        }];
+
+        if let Some((status, error)) = self.non_success_model_report(&model_response) {
+            return Ok(self.execution_report(
+                &request,
+                status,
+                plan,
+                Some(model_response),
+                Vec::new(),
+                Vec::new(),
+                observations,
+                Some(error),
+            ));
+        }
+
+        let mut tool_executions = Vec::new();
+        let mut mcp_tool_executions = Vec::new();
+
+        for (index, tool_call) in model_response.tool_calls.iter().cloned().enumerate() {
+            match self.execute_tool_call(runtime, &request, tool_call.clone(), index + 1) {
+                Ok(ExecutedToolCall::Tool(tool_execution)) => {
+                    observations.push(AgentObservation {
+                        observation_id: format!(
+                            "observation.{}.tool.{}",
+                            request.execution_id,
+                            index + 1
+                        ),
+                        source_family: "tool".to_string(),
+                        action_id: Some(tool_execution.result.tool_call_id.clone()),
+                        status: tool_execution.result.status.clone(),
+                        summary: format!("tool {} executed", tool_execution.descriptor.tool_id),
+                        redaction_classification: tool_execution.result.redaction_classification,
+                        metadata: vec![(
+                            "sdkwork.tool.provider_id".to_string(),
+                            tool_execution.provider_id.clone(),
+                        )],
+                    });
+                    let failed =
+                        tool_execution.result.normalized_status != crate::ToolCallStatus::Succeeded;
+                    tool_executions.push(tool_execution);
+                    if failed {
+                        return Ok(self.execution_report(
+                            &request,
+                            AgentExecutionStatus::Failed,
+                            plan,
+                            Some(model_response),
+                            tool_executions,
+                            mcp_tool_executions,
+                            observations,
+                            Some(
+                                KernelError::provider_error(
+                                    "tool.execution_failed",
+                                    "tool execution failed",
+                                )
+                                .from_source(KernelErrorSource::Tool),
+                            ),
+                        ));
+                    }
+                }
+                Ok(ExecutedToolCall::Mcp(mcp_tool_execution)) => {
+                    observations.push(AgentObservation {
+                        observation_id: format!(
+                            "observation.{}.mcp.{}",
+                            request.execution_id,
+                            index + 1
+                        ),
+                        source_family: "mcp".to_string(),
+                        action_id: Some(mcp_tool_execution.result.tool_call_id.clone()),
+                        status: mcp_tool_execution.result.status.clone(),
+                        summary: format!(
+                            "mcp tool {} executed",
+                            mcp_tool_execution.descriptor.tool_id
+                        ),
+                        redaction_classification: mcp_tool_execution
+                            .result
+                            .redaction_classification,
+                        metadata: vec![
+                            (
+                                "sdkwork.mcp.provider_id".to_string(),
+                                mcp_tool_execution.provider_id.clone(),
+                            ),
+                            (
+                                "sdkwork.mcp.server_id".to_string(),
+                                mcp_tool_execution.server_id.clone(),
+                            ),
+                        ],
+                    });
+                    let failed = mcp_tool_execution.result.normalized_status
+                        != crate::ToolCallStatus::Succeeded;
+                    mcp_tool_executions.push(mcp_tool_execution);
+                    if failed {
+                        return Ok(self.execution_report(
+                            &request,
+                            AgentExecutionStatus::Failed,
+                            plan,
+                            Some(model_response),
+                            tool_executions,
+                            mcp_tool_executions,
+                            observations,
+                            Some(
+                                KernelError::provider_error(
+                                    "mcp.tool.execution_failed",
+                                    "MCP tool execution failed",
+                                )
+                                .from_source(KernelErrorSource::Tool),
+                            ),
+                        ));
+                    }
+                }
+                Err(error) if error.kind() == KernelErrorKind::PermissionRequired => {
+                    return Ok(self.execution_report(
+                        &request,
+                        AgentExecutionStatus::PermissionRequired,
+                        plan,
+                        Some(model_response),
+                        tool_executions,
+                        mcp_tool_executions,
+                        observations,
+                        Some(error),
+                    ));
+                }
+                Err(error) => {
+                    observations.push(AgentObservation {
+                        observation_id: format!(
+                            "observation.{}.tool.{}",
+                            request.execution_id,
+                            index + 1
+                        ),
+                        source_family: self
+                            .failed_tool_source_family(runtime, &request, &tool_call),
+                        action_id: Some(tool_call.tool_call_id.clone()),
+                        status: "failed".to_string(),
+                        summary: format!("tool {} failed closed", tool_call.tool_id),
+                        redaction_classification: KernelEventRedaction::Internal,
+                        metadata: vec![("sdkwork.tool.id".to_string(), tool_call.tool_id.clone())],
+                    });
+
+                    return Ok(self.execution_report(
+                        &request,
+                        AgentExecutionStatus::Failed,
+                        plan,
+                        Some(model_response),
+                        tool_executions,
+                        mcp_tool_executions,
+                        observations,
+                        Some(error),
+                    ));
+                }
+            }
+        }
+
+        Ok(self.execution_report(
+            &request,
+            AgentExecutionStatus::Completed,
+            plan,
+            Some(model_response),
+            tool_executions,
+            mcp_tool_executions,
+            observations,
+            None,
+        ))
+    }
+
+    fn failed_before_model_report(
+        &self,
+        request: &AgentExecutionRequest,
+        plan: Option<Plan>,
+        status: AgentExecutionStatus,
+        error: KernelError,
+    ) -> AgentExecutionReport {
+        self.execution_report(
+            request,
+            status,
+            plan,
+            None,
+            Vec::new(),
+            Vec::new(),
+            vec![AgentObservation {
+                observation_id: format!("observation.{}.model", request.execution_id),
+                source_family: "model".to_string(),
+                action_id: None,
+                status: error.kind().as_str().to_string(),
+                summary: "model invocation stopped before provider execution".to_string(),
+                redaction_classification: error.redaction_classification(),
+                metadata: vec![
+                    (
+                        "sdkwork.error.kind".to_string(),
+                        error.kind().as_str().to_string(),
+                    ),
+                    (
+                        "sdkwork.error.source".to_string(),
+                        error.source().as_str().to_string(),
+                    ),
+                ],
+            }],
+            Some(error),
+        )
+    }
+
+    fn execution_report(
+        &self,
+        request: &AgentExecutionRequest,
+        status: AgentExecutionStatus,
+        plan: Option<Plan>,
+        model_response: Option<ModelResponse>,
+        tool_executions: Vec<ToolExecutionResponse>,
+        mcp_tool_executions: Vec<McpToolExecutionResponse>,
+        observations: Vec<AgentObservation>,
+        error: Option<KernelError>,
+    ) -> AgentExecutionReport {
+        AgentExecutionReport {
+            execution_id: request.execution_id.clone(),
+            status,
+            session_id: request.session_id.clone(),
+            task_id: request.task_id.clone(),
+            run_id: request.run_id.clone(),
+            step_id: request.step_id.clone(),
+            trace_context: request.trace_context.clone(),
+            plan,
+            model_response,
+            tool_executions,
+            mcp_tool_executions,
+            observations,
+            error,
+        }
+    }
+
+    fn chat_error_status(&self, error: &KernelError) -> Option<AgentExecutionStatus> {
+        match error.kind() {
+            KernelErrorKind::ValidationError => None,
+            KernelErrorKind::PermissionRequired => Some(AgentExecutionStatus::PermissionRequired),
+            KernelErrorKind::Cancelled => Some(AgentExecutionStatus::Cancelled),
+            _ => Some(AgentExecutionStatus::Failed),
+        }
+    }
+
+    fn non_success_model_report(
+        &self,
+        model_response: &ModelResponse,
+    ) -> Option<(AgentExecutionStatus, KernelError)> {
+        match model_response.status {
+            crate::ModelStatus::Succeeded => None,
+            crate::ModelStatus::Failed => Some((
+                AgentExecutionStatus::Failed,
+                KernelError::provider_error("model.execution_failed", "model execution failed")
+                    .from_source(KernelErrorSource::Model),
+            )),
+            crate::ModelStatus::Cancelled => Some((
+                AgentExecutionStatus::Cancelled,
+                KernelError::cancelled("model execution cancelled")
+                    .from_source(KernelErrorSource::Model),
+            )),
+            crate::ModelStatus::TimedOut => Some((
+                AgentExecutionStatus::Failed,
+                KernelError::timeout("model execution timed out")
+                    .from_source(KernelErrorSource::Model),
+            )),
+            crate::ModelStatus::PolicyDenied => Some((
+                AgentExecutionStatus::Failed,
+                KernelError::PolicyDenied {
+                    reason_code: "model.policy_denied".to_string(),
+                },
+            )),
+        }
+    }
+
+    fn ensure_runtime_executable(&self, runtime: &AgentRuntime) -> KernelResult<()> {
+        if runtime.state() != RuntimeState::Failed {
+            return Ok(());
+        }
+
+        let capability_id = runtime
+            .capability_manifest()
+            .missing_required_capabilities
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "runtime.failed".to_string());
+
+        Err(KernelError::CapabilityMissing { capability_id }
+            .from_source(KernelErrorSource::Runtime))
+    }
+
+    fn create_plan(
+        &self,
+        runtime: &AgentRuntime,
+        request: &AgentExecutionRequest,
+    ) -> KernelResult<Option<Plan>> {
+        let planning_provider = match runtime.planning_provider() {
+            Ok(provider) => provider,
+            Err(error) if error.kind() == KernelErrorKind::CapabilityMissing => return Ok(None),
+            Err(error) => return Err(error),
+        };
+
+        let task_id = request
+            .task_id
+            .clone()
+            .unwrap_or_else(|| format!("task.{}", request.execution_id));
+        let run_id = request
+            .run_id
+            .clone()
+            .unwrap_or_else(|| format!("run.{}", request.execution_id));
+        let summary = request.messages.join("\n");
+        let plan = planning_provider.create_plan(&task_id, &run_id, &summary);
+        planning_provider.validate_plan(&plan)?;
+
+        Ok(Some(plan))
+    }
+
+    fn execute_tool_call(
+        &self,
+        runtime: &AgentRuntime,
+        request: &AgentExecutionRequest,
+        tool_call: ToolCall,
+        sequence: usize,
+    ) -> KernelResult<ExecutedToolCall> {
+        let tool_call = self.enrich_tool_call(request, tool_call);
+
+        if let Some(provider_id) = tool_call.provider_id.clone() {
+            if runtime.tool_provider_by_id(&provider_id).is_ok() {
+                return ToolExecutionService::new()
+                    .invoke(
+                        runtime,
+                        ToolExecutionRequest::new(
+                            format!("tool-execution.{}.{}", request.execution_id, sequence),
+                            tool_call,
+                        ),
+                    )
+                    .map(ExecutedToolCall::Tool);
+            }
+
+            if runtime.mcp_provider_by_id(&provider_id).is_ok() {
+                let server_id = request.mcp_server_id.as_deref().ok_or_else(|| {
+                    KernelError::validation("mcp server id is required for MCP tool calls")
+                        .from_source(KernelErrorSource::Tool)
+                })?;
+                return McpToolExecutionService::new()
+                    .invoke(
+                        runtime,
+                        McpToolExecutionRequest::new(
+                            format!("mcp-execution.{}.{}", request.execution_id, sequence),
+                            server_id,
+                            tool_call,
+                        )
+                        .with_provider_id(provider_id),
+                    )
+                    .map(ExecutedToolCall::Mcp);
+            }
+        }
+
+        let tool_result = ToolExecutionService::new().invoke(
+            runtime,
+            ToolExecutionRequest::new(
+                format!("tool-execution.{}.{}", request.execution_id, sequence),
+                tool_call.clone(),
+            ),
+        );
+
+        match tool_result {
+            Ok(tool_execution) => Ok(ExecutedToolCall::Tool(tool_execution)),
+            Err(tool_error)
+                if request.mcp_server_id.is_some()
+                    && tool_error.kind() == KernelErrorKind::CapabilityMissing =>
+            {
+                let mcp_result = McpToolExecutionService::new().invoke(
+                    runtime,
+                    McpToolExecutionRequest::new(
+                        format!("mcp-execution.{}.{}", request.execution_id, sequence),
+                        request.mcp_server_id.clone().unwrap_or_default(),
+                        tool_call,
+                    ),
+                );
+                match mcp_result {
+                    Ok(mcp_tool_execution) => Ok(ExecutedToolCall::Mcp(mcp_tool_execution)),
+                    Err(mcp_error) if mcp_error.kind() == KernelErrorKind::CapabilityMissing => {
+                        Err(tool_error)
+                    }
+                    Err(mcp_error) => Err(mcp_error),
+                }
+            }
+            Err(tool_error) => Err(tool_error),
+        }
+    }
+
+    fn enrich_tool_call(
+        &self,
+        request: &AgentExecutionRequest,
+        mut tool_call: ToolCall,
+    ) -> ToolCall {
+        if tool_call.session_id.is_none() {
+            tool_call.session_id = request.session_id.clone();
+        }
+        if tool_call.task_id.is_none() {
+            tool_call.task_id = request.task_id.clone();
+        }
+        if tool_call.run_id.is_none() {
+            tool_call.run_id = request.run_id.clone();
+        }
+        if tool_call.step_id.is_none() {
+            tool_call.step_id = request.step_id.clone();
+        }
+        if tool_call.trace_context.is_none() {
+            tool_call.trace_context = request.trace_context.clone();
+        }
+        if tool_call.timeout_ms.is_none() {
+            tool_call.timeout_ms = request.timeout_ms;
+        }
+
+        tool_call
+    }
+
+    fn failed_tool_source_family(
+        &self,
+        runtime: &AgentRuntime,
+        request: &AgentExecutionRequest,
+        tool_call: &ToolCall,
+    ) -> String {
+        if tool_call
+            .provider_id
+            .as_deref()
+            .is_some_and(|provider_id| runtime.mcp_provider_by_id(provider_id).is_ok())
+            || request.mcp_server_id.is_some()
+        {
+            "mcp".to_string()
+        } else {
+            "tool".to_string()
+        }
+    }
+}
+
+enum ExecutedToolCall {
+    Tool(ToolExecutionResponse),
+    Mcp(McpToolExecutionResponse),
+}
+
+trait ModelStatusReportExt {
+    fn as_report_str(&self) -> &'static str;
+}
+
+impl ModelStatusReportExt for crate::ModelStatus {
+    fn as_report_str(&self) -> &'static str {
+        match self {
+            Self::Succeeded => "succeeded",
+            Self::Failed => "failed",
+            Self::Cancelled => "cancelled",
+            Self::TimedOut => "timed_out",
+            Self::PolicyDenied => "policy_denied",
+        }
+    }
+}
+
+fn observation_event_source(source_family: &str) -> KernelEventSource {
+    match source_family {
+        "model" => KernelEventSource::Model,
+        "tool" | "mcp" => KernelEventSource::Tool,
+        "memory" => KernelEventSource::Memory,
+        "knowledge" | "context" => KernelEventSource::Context,
+        "policy" => KernelEventSource::Policy,
+        _ => KernelEventSource::Unknown,
+    }
+}
+
+fn observation_event_severity(status: &str) -> KernelEventSeverity {
+    match status {
+        "succeeded" | "completed" => KernelEventSeverity::Info,
+        "permission_required" | "cancelled" => KernelEventSeverity::Warn,
+        "failed" | "timed_out" | "policy_denied" | "provider_unavailable" => {
+            KernelEventSeverity::Error
+        }
+        _ => KernelEventSeverity::Info,
+    }
+}
+
+fn max_redaction(left: KernelEventRedaction, right: KernelEventRedaction) -> KernelEventRedaction {
+    if redaction_rank(left) >= redaction_rank(right) {
+        left
+    } else {
+        right
+    }
+}
+
+fn redaction_rank(redaction: KernelEventRedaction) -> u8 {
+    match redaction {
+        KernelEventRedaction::Public => 0,
+        KernelEventRedaction::Unknown => 1,
+        KernelEventRedaction::Internal => 2,
+        KernelEventRedaction::TenantSensitive => 3,
+        KernelEventRedaction::PersonalData => 4,
+        KernelEventRedaction::Secret => 5,
+        KernelEventRedaction::Regulated => 6,
+    }
+}

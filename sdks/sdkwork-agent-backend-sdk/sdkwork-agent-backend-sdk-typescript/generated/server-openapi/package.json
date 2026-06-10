@@ -1,7 +1,8 @@
 {
   "name": "@sdkwork/agent-backend-sdk",
   "version": "0.1.0",
-  "description": "sdkwork-agent-backend-sdk",
+  "private": true,
+  "description": "Generator-owned TypeScript transport SDK for sdkwork-agent-backend-sdk.",
   "author": "SDKWork Team",
   "license": "MIT",
   "type": "module",

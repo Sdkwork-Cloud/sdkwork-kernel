@@ -1827,14 +1827,28 @@ mod tests {
                 "deploymentId:",
                 &["pattern: '^agent\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'"],
             );
+            let create_agent_agent_id_until = if label == "backend" {
+                "organizationId:"
+            } else {
+                "code:"
+            };
             assert_schema_property_block_contains(
                 label,
                 openapi,
                 "CreateAgentRequest:",
                 "agentId:",
-                "organizationId:",
+                create_agent_agent_id_until,
                 &["pattern: '^agent\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'"],
             );
+            if label != "backend" {
+                assert_schema_block_excludes(
+                    label,
+                    openapi,
+                    "CreateAgentRequest:",
+                    "UpdateAgentRequest:",
+                    &["organizationId:", "ownerUserId:"],
+                );
+            }
             assert_schema_property_block_contains(
                 label,
                 openapi,
@@ -1850,6 +1864,150 @@ mod tests {
                 "implementationProviderId:",
                 "implementationKind:",
                 &["pattern: '^provider\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "CreateAgentRequest:",
+                "managementProfile:",
+                "implementationProviderId:",
+                &["$ref: '#/components/schemas/AgentManagementProfile'"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "UpdateAgentRequest:",
+                "managementProfile:",
+                "expectedVersion:",
+                &["$ref: '#/components/schemas/AgentManagementProfile'"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "AgentRecord:",
+                "managementProfile:",
+                "implementationProviderId:",
+                &["$ref: '#/components/schemas/AgentManagementProfile'"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "AgentManagementProfile:",
+                "author:",
+                "avatar:",
+                &["maxLength: 128"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "AgentManagementProfile:",
+                "knowledgeBaseIds:",
+                "systemPrompt:",
+                &[
+                    "type: array",
+                    "pattern: '^knowledge\\.base\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
+                    "maxItems: 128",
+                ],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "AgentManagementProfile:",
+                "debugMode:",
+                "iconName:",
+                &["type: boolean"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "AgentManagementProfile:",
+                "jsonMode:",
+                "knowledgeBaseIds:",
+                &["type: boolean"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "AgentManagementProfile:",
+                "memoryEnabled:",
+                "model:",
+                &["type: boolean"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "AgentManagementProfile:",
+                "model:",
+                "skillIds:",
+                &["pattern: '^model\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "AgentManagementProfile:",
+                "skillIds:",
+                "suggestedPrompts:",
+                &[
+                    "type: array",
+                    "pattern: '^skill\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
+                    "maxItems: 128",
+                ],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "AgentManagementProfile:",
+                "suggestedPrompts:",
+                "systemPrompt:",
+                &["type: array", "maxItems: 12", "maxLength: 256"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "AgentManagementProfile:",
+                "temperature:",
+                "toolIds:",
+                &["type: number", "minimum: 0", "maximum: 2"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "AgentManagementProfile:",
+                "toolIds:",
+                "users:",
+                &[
+                    "type: array",
+                    "pattern: '^tool\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
+                    "maxItems: 128",
+                ],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "AgentManagementProfile:",
+                "voiceIds:",
+                "welcomeMessage:",
+                &[
+                    "type: array",
+                    "pattern: '^voice\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
+                    "maxItems: 16",
+                ],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "AgentManagementProfile:",
+                "type:",
+                "welcomeMessage:",
+                &["enum:", "normal", "independent"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "AgentManagementProfile:",
+                "users:",
+                "welcomeMessage:",
+                &["maxLength: 128"],
             );
 
             if label != "backend" {
@@ -2051,6 +2209,14 @@ mod tests {
             assert_schema_property_block_contains(
                 label,
                 openapi,
+                "KnowledgeBaseRecord:",
+                "documentCount:",
+                "status:",
+                &["type: integer", "minimum: 0"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
                 "KnowledgeIndexKind:",
                 "enum:",
                 "KnowledgeSourceKind:",
@@ -2118,6 +2284,54 @@ mod tests {
                 "trustLevel:",
                 "redactionClassification:",
                 &["maximum: 5"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "KnowledgeDocumentRecord:",
+                "documentProfile:",
+                "tags:",
+                &["$ref: '#/components/schemas/KnowledgeDocumentProfile'"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "CreateKnowledgeDocumentRequest:",
+                "documentProfile:",
+                "tags:",
+                &["$ref: '#/components/schemas/KnowledgeDocumentProfile'"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "UpdateKnowledgeDocumentRequest:",
+                "documentProfile:",
+                "tags:",
+                &["$ref: '#/components/schemas/KnowledgeDocumentProfile'"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "KnowledgeDocumentProfile:",
+                "author:",
+                "content:",
+                &["maxLength: 128"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "KnowledgeDocumentProfile:",
+                "parentId:",
+                "fileName:",
+                &["pattern: '^knowledge\\.document\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "KnowledgeDocumentProfile:",
+                "enum:",
+                "fileName:",
+                &["markdown", "file", "folder"],
             );
             assert_schema_property_block_contains(
                 label,
@@ -2855,6 +3069,30 @@ mod tests {
             assert!(
                 block.contains(item),
                 "{label} OpenAPI schema {schema} property {property} must contain {item}"
+            );
+        }
+    }
+
+    fn assert_schema_block_excludes(
+        label: &str,
+        openapi: &str,
+        schema: &str,
+        until: &str,
+        forbidden: &[&str],
+    ) {
+        let schema_start = openapi
+            .find(schema)
+            .unwrap_or_else(|| panic!("{label} OpenAPI must contain schema {schema}"));
+        let after_schema = &openapi[schema_start..];
+        let end = after_schema
+            .find(until)
+            .unwrap_or_else(|| panic!("{label} OpenAPI schema {schema} must end at {until}"));
+        let block = &after_schema[..end];
+
+        for item in forbidden {
+            assert!(
+                !block.contains(item),
+                "{label} OpenAPI schema {schema} must not contain {item}"
             );
         }
     }

@@ -11,6 +11,7 @@ intelligence, review, artifacts, and the code-agent runtime registry.
 | Spec | Responsibility |
 | --- | --- |
 | [`SDK_SPEC.md`](./SDK_SPEC.md) | SDK generation source of truth, canonical `sdkwork-sdk-generator` location, generated output boundaries, regeneration contract, and conformance rules |
+| [`KERNEL_PLUGIN_SPEC.md`](./KERNEL_PLUGIN_SPEC.md) | Kernel plugin identity, manifests, contribution points, provider and adapter loading, lifecycle, security, dependencies, conformance, distribution, and plugin naming policy |
 
 ## Agent Kernel Standard Set
 
@@ -56,6 +57,7 @@ intelligence, review, artifacts, and the code-agent runtime registry.
 | [`schemas/capability-manifest.schema.json`](./schemas/capability-manifest.schema.json) | `CapabilityManifest` |
 | [`schemas/agent-runtime-diagnostics.schema.json`](./schemas/agent-runtime-diagnostics.schema.json) | `AgentRuntimeDiagnostics` |
 | [`schemas/kernel-conformance-report.schema.json`](./schemas/kernel-conformance-report.schema.json) | `KernelConformanceReport` |
+| [`schemas/kernel-plugin-manifest.schema.json`](./schemas/kernel-plugin-manifest.schema.json) | `KernelPluginManifest` |
 | [`schemas/code-capability-manifest.schema.json`](./schemas/code-capability-manifest.schema.json) | `CodeKernelCapabilityManifest` |
 | [`schemas/code-runtime-diagnostics.schema.json`](./schemas/code-runtime-diagnostics.schema.json) | `CodeKernelRuntimeDiagnostics` |
 | [`schemas/code-conformance-report.schema.json`](./schemas/code-conformance-report.schema.json) | `CodeConformanceReport` |
@@ -113,6 +115,8 @@ implementations mature.
       conformance reports.
 - [ ] Every generic kernel and code manifest/report contract has a
       machine-readable schema.
+- [ ] Every plugin compatibility claim is backed by `KernelPluginManifest`,
+      declared provider/adapter contributions, and a conformance profile.
 - [ ] Every protected action flows through policy.
 - [ ] Every side-effectful code operation can build a standard
       `PolicyRequest`.

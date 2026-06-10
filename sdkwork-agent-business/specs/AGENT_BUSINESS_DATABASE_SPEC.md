@@ -558,6 +558,35 @@ Rules:
   belong to the same `(tenant_id, knowledge_base_id)`.
 - `knowledge.read` and `knowledge.list` expose only active documents.
 
+#### 3.7.3.1 PC-compatible structured read projections
+
+Agent and knowledge-management clients may need stable management fields that
+were historically written into existing JSON snapshots. The baseline keeps the
+physical schema unchanged and exposes these fields as API read projections:
+
+- Agent managementProfile is an API read projection derived from
+  default_code_task_intent_json compatibility constraints and is not a
+  separate physical column in this baseline.
+- Knowledge document documentProfile is an API read projection derived from
+  metadata_json compatibility keys and is not a separate physical column in
+  this baseline.
+- The current `managementProfile` compatibility key is the
+  `sdkwork.agent.pc.config:` constraint inside `default_code_task_intent_json`.
+  It may expose `author`, `avatar`, `categoryId`, `color`, `debugMode`,
+  `iconName`, `jsonMode`, `knowledgeBaseIds`, `memoryEnabled`, `model`,
+  `skillIds`, `suggestedPrompts`, `systemPrompt`, `temperature`, `toolIds`,
+  `type`, `users`, `voiceIds`, and `welcomeMessage`.
+- Agent managementProfile compatibility fields include author, avatar,
+  categoryId, color, debugMode, iconName, jsonMode, knowledgeBaseIds,
+  memoryEnabled, model, skillIds, suggestedPrompts, systemPrompt, temperature,
+  toolIds, type, users, voiceIds, and welcomeMessage.
+- The current `documentProfile` compatibility keys in `metadata_json` are
+  `pcAuthor`, `pcContent`, `pcParentId`, `pcType`, `fileName`, `fileSize`,
+  `mimeType`, and `driveUri`.
+- If managementProfile or documentProfile fields become filter, sort,
+  authorization, retention, or analytics keys, they must be promoted through an
+  expand-backfill-contract migration with explicit columns and indexes.
+
 #### 3.7.4 `a_agent_knowledge_chunk`
 
 Stable chunk/section table for retrieval.

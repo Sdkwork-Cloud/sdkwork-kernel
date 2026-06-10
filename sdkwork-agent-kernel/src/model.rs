@@ -1,6 +1,8 @@
 use crate::{
-    KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelEventSource,
-    KernelResult, ProviderHealth, ProviderManifest, ToolCall, ToolDescriptor, TraceContext,
+    AgentRuntime, ContextFrame, KernelError, KernelEvent, KernelEventRedaction,
+    KernelEventSeverity, KernelEventSource, KernelResult, PolicyCategory, PolicyDecision,
+    PolicyDecisionValue, PolicyRequest, PolicySubject, ProviderHealth, ProviderManifest,
+    RedactionClassification, SideEffectLevel, ToolCall, ToolDescriptor, TraceContext,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -167,6 +169,7 @@ pub struct ModelRequest {
     pub step_id: Option<String>,
     pub messages: Vec<String>,
     pub context_frame_ids: Vec<String>,
+    pub context_frames: Vec<ContextFrame>,
     pub tool_descriptors: Vec<ToolDescriptor>,
     pub response_format: Option<ModelResponseFormat>,
     pub policy_request_id: Option<String>,
@@ -186,6 +189,7 @@ impl ModelRequest {
             step_id: None,
             messages,
             context_frame_ids: Vec::new(),
+            context_frames: Vec::new(),
             tool_descriptors: Vec::new(),
             response_format: None,
             policy_request_id: None,
@@ -227,6 +231,19 @@ impl ModelRequest {
 
     pub fn with_context_frame(mut self, context_frame_id: impl Into<String>) -> Self {
         self.context_frame_ids.push(context_frame_id.into());
+        self
+    }
+
+    pub fn with_context_frame_payload(mut self, context_frame: ContextFrame) -> Self {
+        if !self
+            .context_frame_ids
+            .iter()
+            .any(|frame_id| frame_id == &context_frame.context_frame_id)
+        {
+            self.context_frame_ids
+                .push(context_frame.context_frame_id.clone());
+        }
+        self.context_frames.push(context_frame);
         self
     }
 
@@ -438,5 +455,477 @@ pub trait ModelProvider {
         Err(KernelError::CapabilityMissing {
             capability_id: "model.cancellation".to_string(),
         })
+    }
+
+    fn validate_structured_output(
+        &self,
+        _request: &ModelRequest,
+        _response: &ModelResponse,
+    ) -> KernelResult<ModelStructuredOutputValidation> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "model.structured_output".to_string(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelStructuredOutputValidation {
+    pub model_request_id: String,
+    pub schema_id: String,
+    pub valid: bool,
+    pub errors: Vec<String>,
+}
+
+impl ModelStructuredOutputValidation {
+    pub fn valid(model_request_id: impl Into<String>, schema_id: impl Into<String>) -> Self {
+        Self {
+            model_request_id: model_request_id.into(),
+            schema_id: schema_id.into(),
+            valid: true,
+            errors: Vec::new(),
+        }
+    }
+
+    pub fn invalid(
+        model_request_id: impl Into<String>,
+        schema_id: impl Into<String>,
+        errors: Vec<String>,
+    ) -> Self {
+        Self {
+            model_request_id: model_request_id.into(),
+            schema_id: schema_id.into(),
+            valid: false,
+            errors,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelExecutionRequest {
+    pub model_execution_id: String,
+    pub provider_id: Option<String>,
+    pub subject: Option<PolicySubject>,
+    pub model_request: ModelRequest,
+}
+
+impl ModelExecutionRequest {
+    pub fn new(model_execution_id: impl Into<String>, model_request: ModelRequest) -> Self {
+        Self {
+            model_execution_id: model_execution_id.into(),
+            provider_id: None,
+            subject: None,
+            model_request,
+        }
+    }
+
+    pub fn with_provider_id(mut self, provider_id: impl Into<String>) -> Self {
+        self.provider_id = Some(provider_id.into());
+        self
+    }
+
+    pub fn with_subject(mut self, subject: PolicySubject) -> Self {
+        self.subject = Some(subject);
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelExecutionResponse {
+    pub model_execution_id: String,
+    pub provider_id: String,
+    pub model_descriptor: Option<ModelDescriptor>,
+    pub invoke_policy_decision: PolicyDecision,
+    pub sensitive_context_policy_decision: Option<PolicyDecision>,
+    pub structured_output_validation: Option<ModelStructuredOutputValidation>,
+    pub model_response: ModelResponse,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelStreamExecutionResponse {
+    pub model_execution_id: String,
+    pub provider_id: String,
+    pub model_descriptor: Option<ModelDescriptor>,
+    pub invoke_policy_decision: PolicyDecision,
+    pub sensitive_context_policy_decision: Option<PolicyDecision>,
+    pub chunks: Vec<ModelStreamChunk>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelCancellationRequest {
+    pub model_cancellation_id: String,
+    pub provider_id: Option<String>,
+    pub model_request_id: String,
+}
+
+impl ModelCancellationRequest {
+    pub fn new(
+        model_cancellation_id: impl Into<String>,
+        model_request_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            model_cancellation_id: model_cancellation_id.into(),
+            provider_id: None,
+            model_request_id: model_request_id.into(),
+        }
+    }
+
+    pub fn with_provider_id(mut self, provider_id: impl Into<String>) -> Self {
+        self.provider_id = Some(provider_id.into());
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModelCancellationResponse {
+    pub model_cancellation_id: String,
+    pub provider_id: String,
+    pub model_response: ModelResponse,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ModelExecutionService;
+
+impl ModelExecutionService {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn invoke(
+        &self,
+        runtime: &AgentRuntime,
+        request: ModelExecutionRequest,
+    ) -> KernelResult<ModelExecutionResponse> {
+        let provider = self.select_provider(runtime, request.provider_id.as_deref())?;
+        let provider_id = provider.provider_manifest().provider_id;
+        let model_descriptor =
+            self.resolve_model_descriptor(provider, request.model_request.model_id.as_deref())?;
+        let (invoke_policy_decision, sensitive_context_policy_decision) = self
+            .evaluate_model_policies(runtime, &request, &provider_id, model_descriptor.as_ref())?;
+        let mut model_request = request.model_request;
+        model_request = self.with_policy_metadata(
+            model_request,
+            &provider_id,
+            &invoke_policy_decision,
+            sensitive_context_policy_decision.as_ref(),
+        );
+        let validation_request = model_request.clone();
+        let model_response = provider.invoke(model_request)?;
+        let structured_output_validation =
+            self.validate_structured_output(provider, &validation_request, &model_response)?;
+
+        Ok(ModelExecutionResponse {
+            model_execution_id: request.model_execution_id,
+            provider_id,
+            model_descriptor,
+            invoke_policy_decision,
+            sensitive_context_policy_decision,
+            structured_output_validation,
+            model_response,
+        })
+    }
+
+    pub fn stream(
+        &self,
+        runtime: &AgentRuntime,
+        request: ModelExecutionRequest,
+    ) -> KernelResult<ModelStreamExecutionResponse> {
+        let provider = self.select_provider(runtime, request.provider_id.as_deref())?;
+        let provider_id = provider.provider_manifest().provider_id;
+        let model_descriptor =
+            self.resolve_model_descriptor(provider, request.model_request.model_id.as_deref())?;
+        let (invoke_policy_decision, sensitive_context_policy_decision) = self
+            .evaluate_model_policies(runtime, &request, &provider_id, model_descriptor.as_ref())?;
+        let model_request = self.with_policy_metadata(
+            request.model_request,
+            &provider_id,
+            &invoke_policy_decision,
+            sensitive_context_policy_decision.as_ref(),
+        );
+        let chunks = provider.stream(model_request)?;
+
+        Ok(ModelStreamExecutionResponse {
+            model_execution_id: request.model_execution_id,
+            provider_id,
+            model_descriptor,
+            invoke_policy_decision,
+            sensitive_context_policy_decision,
+            chunks,
+        })
+    }
+
+    pub fn cancel(
+        &self,
+        runtime: &AgentRuntime,
+        request: ModelCancellationRequest,
+    ) -> KernelResult<ModelCancellationResponse> {
+        let provider = self.select_provider(runtime, request.provider_id.as_deref())?;
+        let provider_id = provider.provider_manifest().provider_id;
+        let model_response = provider.cancel(&request.model_request_id)?;
+
+        Ok(ModelCancellationResponse {
+            model_cancellation_id: request.model_cancellation_id,
+            provider_id,
+            model_response,
+        })
+    }
+
+    fn select_provider<'a>(
+        &self,
+        runtime: &'a AgentRuntime,
+        provider_id: Option<&str>,
+    ) -> KernelResult<&'a (dyn ModelProvider + Send + Sync)> {
+        match provider_id {
+            Some(provider_id) => runtime.model_provider_by_id(provider_id),
+            None => runtime.model_provider(),
+        }
+    }
+
+    fn evaluate_model_policies(
+        &self,
+        runtime: &AgentRuntime,
+        request: &ModelExecutionRequest,
+        provider_id: &str,
+        model_descriptor: Option<&ModelDescriptor>,
+    ) -> KernelResult<(PolicyDecision, Option<PolicyDecision>)> {
+        let invoke_policy_request =
+            self.invoke_policy_request(request, provider_id, model_descriptor);
+        let invoke_policy_decision = runtime.policy_provider()?.evaluate(invoke_policy_request)?;
+        self.ensure_allowed(&invoke_policy_decision)?;
+
+        let sensitive_context_policy_decision =
+            if self.requires_sensitive_context_policy(&request.model_request) {
+                let sensitive_context_policy_request =
+                    self.sensitive_context_policy_request(request, provider_id, model_descriptor);
+                let decision = runtime
+                    .policy_provider()?
+                    .evaluate(sensitive_context_policy_request)?;
+                self.ensure_allowed(&decision)?;
+                Some(decision)
+            } else {
+                None
+            };
+
+        Ok((invoke_policy_decision, sensitive_context_policy_decision))
+    }
+
+    fn with_policy_metadata(
+        &self,
+        mut model_request: ModelRequest,
+        provider_id: &str,
+        invoke_policy_decision: &PolicyDecision,
+        sensitive_context_policy_decision: Option<&PolicyDecision>,
+    ) -> ModelRequest {
+        model_request = model_request
+            .with_metadata("sdkwork.model.provider_id", provider_id)
+            .with_metadata(
+                "sdkwork.model.policy_decision_id",
+                invoke_policy_decision.decision_id.clone(),
+            );
+        if let Some(decision) = sensitive_context_policy_decision {
+            model_request = model_request.with_metadata(
+                "sdkwork.model.sensitive_context_policy_decision_id",
+                decision.decision_id.clone(),
+            );
+        }
+
+        model_request
+    }
+
+    fn validate_structured_output(
+        &self,
+        provider: &(dyn ModelProvider + Send + Sync),
+        request: &ModelRequest,
+        response: &ModelResponse,
+    ) -> KernelResult<Option<ModelStructuredOutputValidation>> {
+        let Some(ModelResponseFormat::JsonSchema(schema_id)) = &request.response_format else {
+            return Ok(None);
+        };
+
+        let validation = provider.validate_structured_output(request, response)?;
+        if validation.valid {
+            Ok(Some(validation))
+        } else {
+            Err(KernelError::validation(format!(
+                "structured model output did not match {schema_id}: {}",
+                validation.errors.join("; ")
+            )))
+        }
+    }
+
+    fn resolve_model_descriptor(
+        &self,
+        provider: &(dyn ModelProvider + Send + Sync),
+        model_id: Option<&str>,
+    ) -> KernelResult<Option<ModelDescriptor>> {
+        let catalog = provider.list_models();
+        if catalog.is_empty() {
+            return Ok(None);
+        }
+
+        match model_id {
+            Some(model_id) => catalog
+                .into_iter()
+                .find(|descriptor| descriptor.model_id == model_id)
+                .map(Some)
+                .ok_or_else(|| KernelError::CapabilityMissing {
+                    capability_id: model_id.to_string(),
+                }),
+            None => Ok(catalog.into_iter().next()),
+        }
+    }
+
+    fn invoke_policy_request(
+        &self,
+        request: &ModelExecutionRequest,
+        provider_id: &str,
+        model_descriptor: Option<&ModelDescriptor>,
+    ) -> PolicyRequest {
+        let policy_request_id = request
+            .model_request
+            .policy_request_id
+            .clone()
+            .unwrap_or_else(|| format!("policy.{}.model.invoke", request.model_execution_id));
+        let resource = model_descriptor
+            .map(|descriptor| descriptor.model_id.as_str())
+            .or(request.model_request.model_id.as_deref())
+            .unwrap_or("model.default");
+        self.base_policy_request(
+            policy_request_id,
+            PolicyCategory::ModelInvoke,
+            "model.invoke",
+            resource,
+            request,
+            provider_id,
+        )
+    }
+
+    fn sensitive_context_policy_request(
+        &self,
+        request: &ModelExecutionRequest,
+        provider_id: &str,
+        model_descriptor: Option<&ModelDescriptor>,
+    ) -> PolicyRequest {
+        let policy_request_id = request
+            .model_request
+            .policy_request_id
+            .clone()
+            .map(|request_id| format!("{request_id}.sensitive_context"))
+            .unwrap_or_else(|| {
+                format!(
+                    "policy.{}.model.send_sensitive_context",
+                    request.model_execution_id
+                )
+            });
+        let resource = model_descriptor
+            .map(|descriptor| descriptor.model_id.as_str())
+            .or(request.model_request.model_id.as_deref())
+            .unwrap_or("model.default");
+        self.base_policy_request(
+            policy_request_id,
+            PolicyCategory::ModelSendSensitiveContext,
+            "model.send_sensitive_context",
+            resource,
+            request,
+            provider_id,
+        )
+        .with_redaction(self.sensitive_context_redaction(&request.model_request))
+    }
+
+    fn base_policy_request(
+        &self,
+        policy_request_id: impl Into<String>,
+        category: PolicyCategory,
+        action: &str,
+        resource: &str,
+        request: &ModelExecutionRequest,
+        provider_id: &str,
+    ) -> PolicyRequest {
+        let mut policy_request = PolicyRequest::new(policy_request_id, category.as_str(), resource)
+            .with_category(category)
+            .with_action(action)
+            .with_side_effect_level(SideEffectLevel::ExternalSend)
+            .with_context("provider_id", provider_id.to_string());
+
+        if let Some(subject) = &request.subject {
+            policy_request = policy_request.with_subject(subject.clone());
+        }
+
+        if let Some(session_id) = &request.model_request.session_id {
+            policy_request = policy_request.with_session(session_id.clone());
+        }
+
+        if let Some(task_id) = &request.model_request.task_id {
+            policy_request = policy_request.with_task(task_id.clone());
+        }
+
+        if let Some(run_id) = &request.model_request.run_id {
+            policy_request = policy_request.with_run(run_id.clone());
+        }
+
+        if let Some(step_id) = &request.model_request.step_id {
+            policy_request = policy_request.with_context("step_id", step_id.clone());
+        }
+
+        if let Some(model_id) = &request.model_request.model_id {
+            policy_request = policy_request.with_context("model_id", model_id.clone());
+        }
+
+        policy_request
+    }
+
+    fn requires_sensitive_context_policy(&self, request: &ModelRequest) -> bool {
+        request
+            .context_frames
+            .iter()
+            .any(|frame| frame.redaction_classification.requires_redaction())
+    }
+
+    fn sensitive_context_redaction(&self, request: &ModelRequest) -> KernelEventRedaction {
+        if request
+            .context_frames
+            .iter()
+            .any(|frame| frame.redaction_classification == RedactionClassification::Secret)
+        {
+            KernelEventRedaction::Secret
+        } else if request
+            .context_frames
+            .iter()
+            .any(|frame| frame.redaction_classification == RedactionClassification::Regulated)
+        {
+            KernelEventRedaction::Regulated
+        } else if request
+            .context_frames
+            .iter()
+            .any(|frame| frame.redaction_classification == RedactionClassification::PersonalData)
+        {
+            KernelEventRedaction::PersonalData
+        } else if request
+            .context_frames
+            .iter()
+            .any(|frame| frame.redaction_classification == RedactionClassification::TenantSensitive)
+        {
+            KernelEventRedaction::TenantSensitive
+        } else {
+            KernelEventRedaction::Internal
+        }
+    }
+
+    fn ensure_allowed(&self, policy_decision: &PolicyDecision) -> KernelResult<()> {
+        match policy_decision.decision {
+            PolicyDecisionValue::Allow => Ok(()),
+            PolicyDecisionValue::Deny => Err(KernelError::PolicyDenied {
+                reason_code: policy_decision.reason_code.clone(),
+            }),
+            PolicyDecisionValue::NeedsApproval => Err(KernelError::permission_required(
+                policy_decision
+                    .safe_reason
+                    .clone()
+                    .unwrap_or_else(|| policy_decision.reason_code.clone()),
+            )),
+            PolicyDecisionValue::Defer => Err(KernelError::provider_error(
+                "policy.deferred",
+                policy_decision.reason_code.clone(),
+            )),
+        }
     }
 }

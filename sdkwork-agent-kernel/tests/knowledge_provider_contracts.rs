@@ -15,7 +15,10 @@ fn knowledge_provider_supports_non_vector_retrieval_methods() {
         .with_namespace("sdkwork.kernel")
         .with_tenant_id("tenant.sdkwork")
         .with_policy_context("policy-decision.knowledge.1")
-        .with_trace_context(TraceContext::new("trace.knowledge.1", "span.knowledge.search"))
+        .with_trace_context(TraceContext::new(
+            "trace.knowledge.1",
+            "span.knowledge.search",
+        ))
         .with_timeout_ms(25_000)
         .with_metadata("rag.pipeline", "wiki")
         .with_method(KnowledgeRetrievalMethod::Keyword)

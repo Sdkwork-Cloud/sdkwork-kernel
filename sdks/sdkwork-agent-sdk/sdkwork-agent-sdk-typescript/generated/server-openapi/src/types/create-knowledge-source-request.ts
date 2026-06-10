@@ -1,9 +1,7 @@
-import type { Int64String } from './int64-string';
 import type { KnowledgeSourceKind } from './knowledge-source-kind';
 
 export interface CreateKnowledgeSourceRequest {
   knowledgeSourceId: string;
-  organizationId: Int64String;
   sourceKind: KnowledgeSourceKind;
   sourceRef: string;
   sourceHash: string;

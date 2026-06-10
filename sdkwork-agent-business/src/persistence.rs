@@ -1843,104 +1843,104 @@ impl AgentMemoryRetrievalIndexRow {
 }
 
 fn parse_implementation_kind(input: &str) -> KernelResult<AgentImplementationKind> {
-    AgentImplementationKind::from_str(input)
+    AgentImplementationKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid implementation kind: {input}")))
 }
 
 fn parse_skill_invocation_kind(input: &str) -> KernelResult<AgentSkillInvocationKind> {
-    AgentSkillInvocationKind::from_str(input)
+    AgentSkillInvocationKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid skill invocation kind: {input}")))
 }
 
 fn parse_mcp_transport_kind(input: &str) -> KernelResult<AgentMcpTransportKind> {
-    AgentMcpTransportKind::from_str(input)
+    AgentMcpTransportKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid mcp transport kind: {input}")))
 }
 
 fn parse_mcp_auth_kind(input: &str) -> KernelResult<AgentMcpAuthKind> {
-    AgentMcpAuthKind::from_str(input)
+    AgentMcpAuthKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid mcp auth kind: {input}")))
 }
 
 fn parse_prompt_template_kind(input: &str) -> KernelResult<AgentPromptTemplateKind> {
-    AgentPromptTemplateKind::from_str(input)
+    AgentPromptTemplateKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid prompt template kind: {input}")))
 }
 
 fn parse_prompt_template_format(input: &str) -> KernelResult<AgentPromptTemplateFormat> {
-    AgentPromptTemplateFormat::from_str(input)
+    AgentPromptTemplateFormat::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid prompt template format: {input}")))
 }
 
 fn parse_memory_store_kind(input: &str) -> KernelResult<AgentMemoryStoreKind> {
-    AgentMemoryStoreKind::from_str(input)
+    AgentMemoryStoreKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid memory store kind: {input}")))
 }
 
 fn parse_memory_index_kind(input: &str) -> KernelResult<AgentMemoryIndexKind> {
-    AgentMemoryIndexKind::from_str(input)
+    AgentMemoryIndexKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid memory index kind: {input}")))
 }
 
 fn parse_memory_binding_scope_kind(input: &str) -> KernelResult<AgentMemoryBindingScopeKind> {
-    AgentMemoryBindingScopeKind::from_str(input).ok_or_else(|| {
+    AgentMemoryBindingScopeKind::from_code(input).ok_or_else(|| {
         KernelError::validation(format!("invalid memory binding scope kind: {input}"))
     })
 }
 
 fn parse_memory_namespace_kind(input: &str) -> KernelResult<AgentMemoryNamespaceKind> {
-    AgentMemoryNamespaceKind::from_str(input)
+    AgentMemoryNamespaceKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid memory namespace kind: {input}")))
 }
 
 fn parse_memory_record_kind(input: &str) -> KernelResult<AgentMemoryRecordKind> {
-    AgentMemoryRecordKind::from_str(input)
+    AgentMemoryRecordKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid memory record kind: {input}")))
 }
 
 fn parse_memory_source_kind(input: &str) -> KernelResult<AgentMemorySourceKind> {
-    AgentMemorySourceKind::from_str(input)
+    AgentMemorySourceKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid memory source kind: {input}")))
 }
 
 fn parse_memory_relation_kind(input: &str) -> KernelResult<AgentMemoryRelationKind> {
-    AgentMemoryRelationKind::from_str(input)
+    AgentMemoryRelationKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid memory relation kind: {input}")))
 }
 
 fn parse_knowledge_base_kind(input: &str) -> KernelResult<AgentKnowledgeBaseKind> {
-    AgentKnowledgeBaseKind::from_str(input)
+    AgentKnowledgeBaseKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid knowledge base kind: {input}")))
 }
 
 fn parse_knowledge_index_kind(input: &str) -> KernelResult<AgentKnowledgeIndexKind> {
-    AgentKnowledgeIndexKind::from_str(input)
+    AgentKnowledgeIndexKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid knowledge index kind: {input}")))
 }
 
 fn parse_knowledge_source_kind(input: &str) -> KernelResult<AgentKnowledgeSourceKind> {
-    AgentKnowledgeSourceKind::from_str(input)
+    AgentKnowledgeSourceKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid knowledge source kind: {input}")))
 }
 
 fn parse_knowledge_document_kind(input: &str) -> KernelResult<AgentKnowledgeDocumentKind> {
-    AgentKnowledgeDocumentKind::from_str(input)
+    AgentKnowledgeDocumentKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid knowledge document kind: {input}")))
 }
 
 fn parse_knowledge_binding_scope_kind(input: &str) -> KernelResult<AgentKnowledgeBindingScopeKind> {
-    AgentKnowledgeBindingScopeKind::from_str(input).ok_or_else(|| {
+    AgentKnowledgeBindingScopeKind::from_code(input).ok_or_else(|| {
         KernelError::validation(format!("invalid knowledge binding scope kind: {input}"))
     })
 }
 
 fn parse_knowledge_sync_job_kind(input: &str) -> KernelResult<AgentKnowledgeSyncJobKind> {
-    AgentKnowledgeSyncJobKind::from_str(input)
+    AgentKnowledgeSyncJobKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid knowledge sync job kind: {input}")))
 }
 
 fn parse_knowledge_sync_job_status(input: &str) -> KernelResult<AgentKnowledgeSyncJobStatus> {
-    AgentKnowledgeSyncJobStatus::from_str(input).ok_or_else(|| {
+    AgentKnowledgeSyncJobStatus::from_code(input).ok_or_else(|| {
         KernelError::validation(format!("invalid knowledge sync job status: {input}"))
     })
 }

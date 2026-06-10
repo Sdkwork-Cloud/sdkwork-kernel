@@ -187,6 +187,12 @@ fn code_runtime_registry_invokes_typed_code_spi_providers() {
             && capability.provider_id == "provider.code.knowledge.typed"
     }));
     assert!(manifest.capabilities.iter().any(|capability| {
+        capability.capability_id == CodeKernelCapability::KnowledgeList.as_str()
+            && capability.provider_id == "provider.code.knowledge.typed"
+            && capability.operations == ["list_documents"]
+            && capability.policy_categories == ["code.knowledge.list"]
+    }));
+    assert!(manifest.capabilities.iter().any(|capability| {
         capability.capability_id == CodeKernelCapability::SafetyAssess.as_str()
             && capability.provider_id == "provider.code.safety.typed"
     }));

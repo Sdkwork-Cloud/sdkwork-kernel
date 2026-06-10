@@ -1,6 +1,7 @@
 use crate::{
-    ContextFrame, KernelError, KernelResult, ProviderHealth, ProviderManifest,
-    RedactionClassification, ToolCall, ToolDescriptor, ToolResult, TrustLevel,
+    AgentRuntime, ContextFrame, KernelError, KernelResult, PolicyDecision, PolicyDecisionValue,
+    ProviderHealth, ProviderManifest, RedactionClassification, ToolCall, ToolDescriptor,
+    ToolResult, TrustLevel,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -279,5 +280,117 @@ pub trait McpProvider {
         Err(KernelError::CapabilityMissing {
             capability_id: prompt_id.to_string(),
         })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpToolExecutionRequest {
+    pub mcp_execution_id: String,
+    pub server_id: String,
+    pub provider_id: Option<String>,
+    pub tool_call: ToolCall,
+}
+
+impl McpToolExecutionRequest {
+    pub fn new(
+        mcp_execution_id: impl Into<String>,
+        server_id: impl Into<String>,
+        tool_call: ToolCall,
+    ) -> Self {
+        Self {
+            mcp_execution_id: mcp_execution_id.into(),
+            server_id: server_id.into(),
+            provider_id: None,
+            tool_call,
+        }
+    }
+
+    pub fn with_provider_id(mut self, provider_id: impl Into<String>) -> Self {
+        self.provider_id = Some(provider_id.into());
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpToolExecutionResponse {
+    pub mcp_execution_id: String,
+    pub server_id: String,
+    pub provider_id: String,
+    pub descriptor: ToolDescriptor,
+    pub policy_decision: PolicyDecision,
+    pub result: ToolResult,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct McpToolExecutionService;
+
+impl McpToolExecutionService {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn invoke(
+        &self,
+        runtime: &AgentRuntime,
+        request: McpToolExecutionRequest,
+    ) -> KernelResult<McpToolExecutionResponse> {
+        let provider_id = request
+            .provider_id
+            .as_deref()
+            .or(request.tool_call.provider_id.as_deref());
+        let provider = match provider_id {
+            Some(provider_id) => runtime.mcp_provider_by_id(provider_id)?,
+            None => runtime.mcp_provider()?,
+        };
+
+        let descriptor = provider
+            .list_tools(&request.server_id)?
+            .into_iter()
+            .find(|descriptor| descriptor.tool_id == request.tool_call.tool_id)
+            .ok_or_else(|| KernelError::CapabilityMissing {
+                capability_id: request.tool_call.tool_id.clone(),
+            })?;
+        let policy_request = descriptor.policy_request(
+            format!("policy-request.{}", request.tool_call.tool_call_id),
+            &request.tool_call,
+        );
+        let policy_decision = runtime.policy_provider()?.evaluate(policy_request)?;
+        self.ensure_allowed(&policy_decision)?;
+
+        let mut tool_call = request.tool_call;
+        tool_call.policy_decision_id = Some(policy_decision.decision_id.clone());
+        if tool_call.provider_id.is_none() {
+            tool_call.provider_id = Some(descriptor.provider_id.clone());
+        }
+
+        let result = provider.invoke_tool(&request.server_id, tool_call)?;
+
+        Ok(McpToolExecutionResponse {
+            mcp_execution_id: request.mcp_execution_id,
+            server_id: request.server_id,
+            provider_id: descriptor.provider_id.clone(),
+            descriptor,
+            policy_decision,
+            result,
+        })
+    }
+
+    fn ensure_allowed(&self, policy_decision: &PolicyDecision) -> KernelResult<()> {
+        match policy_decision.decision {
+            PolicyDecisionValue::Allow => Ok(()),
+            PolicyDecisionValue::Deny => Err(KernelError::PolicyDenied {
+                reason_code: policy_decision.reason_code.clone(),
+            }),
+            PolicyDecisionValue::NeedsApproval => Err(KernelError::permission_required(
+                policy_decision
+                    .safe_reason
+                    .clone()
+                    .unwrap_or_else(|| policy_decision.reason_code.clone()),
+            )),
+            PolicyDecisionValue::Defer => Err(KernelError::provider_error(
+                "policy.deferred",
+                policy_decision.reason_code.clone(),
+            )),
+        }
     }
 }

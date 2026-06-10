@@ -215,6 +215,36 @@ Rules:
   subject to policy.
 - Unsafe content decisions `MUST` map to stable kernel errors and events.
 
+### 8.1 Rust Baseline
+
+The Rust Agent Kernel exposes `ModelExecutionService` as the standard runtime
+entrypoint for LLM execution. Provider code still implements `ModelProvider`,
+but agent services, protocol adapters, and plugin tests call the execution
+service when they need policy-aware model work.
+
+Implemented baseline behavior:
+
+- `ModelExecutionRequest` selects a typed model provider by provider id or the
+  deterministic runtime default.
+- `ModelExecutionService::invoke` evaluates `model.invoke` before provider
+  invocation and fails closed for `deny`, `needs_approval`, or `defer`.
+- Tenant-sensitive, personal, regulated, or secret context frames trigger a
+  second `model.send_sensitive_context` policy request before any context leaves
+  the trusted boundary.
+- Allowed policy decisions are linked into the forwarded `ModelRequest`
+  metadata under namespaced SDKWork keys.
+- `ModelExecutionService::stream` uses the same provider selection and policy
+  gates before delegating to `ModelProvider::stream`.
+- `ModelExecutionService::cancel` routes cancellation through the selected
+  provider and preserves a normalized cancellation response.
+- `ModelProvider::validate_structured_output` is the provider-neutral
+  structured-output validation hook. When a request uses
+  `ModelResponseFormat::JsonSchema`, the execution service invokes that hook and
+  maps invalid output to `validation_error`.
+- `AgentChatService` composes memory, knowledge, and tool descriptors, then
+  delegates model execution to `ModelExecutionService` instead of directly
+  calling provider `invoke`.
+
 ## 9. Error Mapping
 
 | Provider condition | Kernel error kind |

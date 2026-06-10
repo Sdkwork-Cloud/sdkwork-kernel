@@ -25,7 +25,7 @@ fn runtime_diagnostics_report_typed_manifest_only_and_missing_provider_state() {
 
     assert_eq!(diagnostics.runtime_id, "code.runtime.diagnostics");
     assert_eq!(diagnostics.provider_count, 3);
-    assert_eq!(diagnostics.capability_count, 8);
+    assert_eq!(diagnostics.capability_count, 9);
     assert_eq!(diagnostics.typed_provider_count, 2);
     assert_eq!(diagnostics.manifest_only_provider_count, 1);
     assert!(diagnostics.is_degraded());
@@ -53,6 +53,14 @@ fn runtime_diagnostics_report_typed_manifest_only_and_missing_provider_state() {
     assert_eq!(knowledge.provider_family, "code_knowledge");
     assert!(!knowledge.typed_registered);
     assert_eq!(knowledge.health, None);
+    assert_eq!(
+        knowledge.capabilities,
+        [
+            "code.knowledge.search",
+            "code.knowledge.read",
+            "code.knowledge.list"
+        ]
+    );
     assert_eq!(
         diagnostics.manifest_only_provider_ids(),
         ["provider.code.knowledge.manifest"]

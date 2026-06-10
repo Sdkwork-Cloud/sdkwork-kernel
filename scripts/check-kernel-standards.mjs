@@ -9,6 +9,7 @@ const kernelRoot = process.cwd().endsWith('kernel')
 
 const requiredSpecFiles = [
   'SDK_SPEC.md',
+  'KERNEL_PLUGIN_SPEC.md',
   'AGENT_KERNEL_SPEC.md',
   'CODE_KERNEL_SPEC.md',
   'AGENT_MANIFEST_SPEC.md',
@@ -31,6 +32,7 @@ const requiredSpecFiles = [
 ];
 
 const requiredSchemas = [
+  'kernel-plugin-manifest.schema.json',
   'agent-definition.schema.json',
   'agent-manifest.schema.json',
   'agent-package-manifest.schema.json',
@@ -110,6 +112,49 @@ for (const schemaFile of requiredSchemas) {
 for (const [crateDir, files] of requiredRustCrates) {
   for (const file of files) {
     ensureFile(path.join(crateDir, file));
+  }
+}
+
+for (const pluginFile of [
+  'README.md',
+  'specs/component.spec.json',
+  'scripts/check-kernel-plugins.mjs',
+  'crates/sdkwork-agent-plugin-core/Cargo.toml',
+  'crates/sdkwork-agent-plugin-rig/Cargo.toml',
+  'crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml'
+]) {
+  ensureFile(path.join('sdkwork-kernel-plugins', pluginFile));
+}
+
+const kernelPluginCheck = spawnSync(
+  process.execPath,
+  [path.join(kernelRoot, 'sdkwork-kernel-plugins', 'scripts', 'check-kernel-plugins.mjs')],
+  {
+    cwd: kernelRoot,
+    encoding: 'utf8'
+  }
+);
+if (kernelPluginCheck.status !== 0) {
+  errors.push(
+    `kernel plugin structure check failed:\n${kernelPluginCheck.stdout}${kernelPluginCheck.stderr}`
+  );
+}
+
+for (const [crateDir, expectedDomain, expectedCapability] of [
+  ['sdkwork-agent-kernel', 'intelligence', 'agent-kernel'],
+  ['sdkwork-code-kernel', 'intelligence', 'code-kernel'],
+  ['sdkwork-agent-business', 'intelligence', 'agent-business']
+]) {
+  const componentSpec = readJson(path.join(crateDir, 'specs', 'component.spec.json'));
+
+  if (componentSpec) {
+    const component = componentSpec.component ?? {};
+    if (component.domain !== expectedDomain) {
+      errors.push(`${crateDir} component domain must be ${expectedDomain}`);
+    }
+    if (component.capability !== expectedCapability) {
+      errors.push(`${crateDir} component capability must be ${expectedCapability}`);
+    }
   }
 }
 

@@ -32,7 +32,7 @@ No `sdkwork.app.config.json` is present at this root. If the task changes applic
 - `.sdkwork/`: reserved local dictionary folder; create only for local skills, plugins, manifests, or AI workspace metadata.
 - `specs/`: local application/component contracts and narrowing rules.
 - `sdks/`: SDK families, OpenAPI authorities, route manifests, and generated SDK artifacts.
-- Local directories to inspect first when relevant: `docs/`, `external/`, `scripts/`, `sdks/`, `sdkwork-agent-business/`, `sdkwork-agent-integrations/`, `sdkwork-agent-kernel/`, `sdkwork-code-kernel/`, `sdkwork-kernel-ui/`, `specs/`.
+- Local directories to inspect first when relevant: `docs/`, `external/`, `scripts/`, `sdks/`, `sdkwork-agent-business/`, `sdkwork-kernel-plugins/`, `sdkwork-agent-kernel/`, `sdkwork-code-kernel/`, `sdkwork-kernel-ui/`, `specs/`.
 
 ## Spec Resolution Order
 

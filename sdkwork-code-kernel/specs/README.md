@@ -11,8 +11,8 @@ Root SDKWork standards remain authoritative. Local component specs can narrow or
 | Name | `sdkwork-code-kernel` |
 | Type | `rust-crate` |
 | Root | `sdkwork-birdcoder/kernel/sdkwork-code-kernel` |
-| Domain | `platform` |
-| Capability | `component` |
+| Domain | `intelligence` |
+| Capability | `code-kernel` |
 | Languages | `rust` |
 | Status | `standardizing` |
 

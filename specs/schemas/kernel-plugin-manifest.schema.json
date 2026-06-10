@@ -1,0 +1,179 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdkwork.example.invalid/kernel/schemas/kernel-plugin-manifest.schema.json",
+  "title": "SDKWork Kernel Plugin Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_type",
+    "plugin_id",
+    "display_name",
+    "version",
+    "implementation_kind",
+    "kernel_compatibility",
+    "contributions",
+    "security_profile",
+    "supported_profiles",
+    "owner",
+    "status"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "#/$defs/semver" },
+    "manifest_type": { "const": "kernel_plugin" },
+    "plugin_id": { "type": "string", "pattern": "^plugin\\.[a-z0-9_.-]+\\.[a-z0-9_.-]+$" },
+    "display_name": { "type": "string", "minLength": 1 },
+    "version": { "$ref": "#/$defs/semver" },
+    "implementation_kind": { "$ref": "#/$defs/implementationKind" },
+    "source_reference": { "type": "string", "minLength": 1 },
+    "kernel_compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kernel"],
+      "properties": {
+        "kernel": { "type": "string", "minLength": 1 },
+        "agent_kernel": { "type": "string", "minLength": 1 },
+        "code_kernel": { "type": "string", "minLength": 1 }
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/dependency" },
+      "uniqueItems": true
+    },
+    "contributions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["providers", "adapters"],
+      "properties": {
+        "agent_ids": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^agent\\.[a-z0-9_.-]+$" },
+          "uniqueItems": true
+        },
+        "package_ids": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^agent\\.[a-z0-9_.-]+$" },
+          "uniqueItems": true
+        },
+        "providers": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^provider\\.[a-z0-9_.-]+$" },
+          "uniqueItems": true
+        },
+        "adapters": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^adapter\\.[a-z0-9_.-]+$" },
+          "uniqueItems": true
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/capabilityId" },
+          "uniqueItems": true
+        },
+        "configuration_profiles": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^profile\\.[a-z0-9_.-]+$" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "security_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fail_closed", "required_policy_categories", "side_effect_level", "audit_required"],
+      "properties": {
+        "fail_closed": { "type": "boolean" },
+        "required_policy_categories": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/capabilityId" },
+          "uniqueItems": true
+        },
+        "side_effect_level": {
+          "enum": ["read_only", "external_send", "side_effectful", "destructive", "privileged"]
+        },
+        "audit_required": { "type": "boolean" },
+        "sandbox_required": { "type": "boolean" },
+        "trust_level": {
+          "enum": ["trusted_host", "trusted_sdkwork", "tenant_configured", "external_untrusted"]
+        },
+        "secret_handling": {
+          "enum": ["no_secrets", "secret_refs_only", "host_secret_provider_required"]
+        }
+      }
+    },
+    "supported_profiles": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*$" },
+      "uniqueItems": true
+    },
+    "owner": { "$ref": "#/$defs/owner" },
+    "status": { "$ref": "#/$defs/status" },
+    "deprecation": { "$ref": "#/$defs/deprecation" },
+    "extensions": { "$ref": "#/$defs/extensions" }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "implementationKind": {
+      "enum": [
+        "manifest-only",
+        "typed-local-provider",
+        "protocol-adapter",
+        "process-adapter",
+        "external-plugin",
+        "official-foundation-plugin"
+      ]
+    },
+    "capabilityId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.-]*\\.[a-z0-9_.-]+$"
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dependency_id", "kind", "version_requirement", "required"],
+      "properties": {
+        "dependency_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_.-]*\\.[a-z0-9_.-]+$" },
+        "kind": {
+          "enum": ["kernel", "agent_kernel", "code_kernel", "sdk", "foundation", "protocol", "external"]
+        },
+        "version_requirement": { "type": "string", "minLength": 1 },
+        "required": { "type": "boolean" }
+      }
+    },
+    "status": {
+      "enum": ["experimental", "candidate", "stable", "deprecated", "removed"]
+    },
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "contact": { "type": "string" },
+        "url": { "type": "string" }
+      }
+    },
+    "deprecation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deprecated_since", "replacement", "removal_not_before", "migration_notes"],
+      "properties": {
+        "deprecated_since": { "$ref": "#/$defs/semver" },
+        "replacement": { "type": "string", "minLength": 1 },
+        "removal_not_before": { "$ref": "#/$defs/semver" },
+        "migration_notes": { "type": "string", "minLength": 1 }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^(sdkwork|[a-z0-9-]+\\.[a-z0-9.-]+)\\.[a-z0-9.-]+$"
+      },
+      "additionalProperties": true
+    }
+  }
+}

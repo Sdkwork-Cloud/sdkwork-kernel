@@ -148,6 +148,31 @@ Rules:
 - Denied tool calls `MUST` emit audit records.
 - Policy decision ids `MUST` be linked to the `ToolCall`.
 
+### 5.1 Rust Baseline
+
+The Rust Agent Kernel exposes `ToolExecutionService` as the standard
+policy-aware entrypoint for local tool invocation, streaming, and cancellation.
+
+Implemented baseline behavior:
+
+- `ToolExecutionRequest` carries a `ToolCall` and a stable execution id.
+- The service resolves the requested provider by `ToolCall.provider_id` or the
+  deterministic runtime default.
+- The service loads the `ToolDescriptor`, asks the provider to build the
+  authorization `PolicyRequest`, evaluates the runtime policy provider, and only
+  calls `ToolProvider::invoke_tool` on an `allow` decision.
+- `deny`, `needs_approval`, and `defer` decisions map to `policy_denied`,
+  `permission_required`, and stable provider-deferred errors without invoking
+  the tool provider.
+- The allowed policy decision id and resolved provider id are written back into
+  the `ToolCall` before provider execution.
+- `ToolExecutionService::stream` uses the same provider selection,
+  descriptor lookup, authorization request, and policy gates before delegating
+  to `ToolProvider::stream_tool_call`.
+- `ToolExecutionService::cancel` routes `ToolCancellationRequest` to the
+  selected provider's `cancel_tool_call` hook and returns a normalized
+  `ToolCancellationResponse`.
+
 ## 6. Tool Result
 
 Required fields:

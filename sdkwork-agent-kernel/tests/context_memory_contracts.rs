@@ -1,6 +1,6 @@
 use sdkwork_agent_kernel::{
-    ContextFrame, ContextProvider, KernelResult, MemoryProvider, MemoryRecord, MemoryScope,
-    RedactionClassification, TrustLevel,
+    ContextExplanation, ContextFrame, ContextProvider, ContextRanking, KernelResult, MemoryProvider,
+    MemoryRecord, MemoryScope, RedactionClassification, TrustLevel,
 };
 
 #[test]
@@ -103,6 +103,38 @@ fn memory_provider_trait_supports_query_write_delete_and_export() {
         .query(MemoryScope::User, "user.1")
         .unwrap()
         .is_empty());
+}
+
+#[test]
+fn context_provider_rank_returns_scored_frames() {
+    let provider = FakeContextProvider;
+    let frames = provider.collect("session.1").expect("context collected");
+    let rankings = provider.rank(&frames).expect("ranking succeeds");
+
+    assert_eq!(rankings.len(), 1);
+    assert_eq!(rankings[0].frame_id, "context.fake");
+    assert!(rankings[0].relevance_score > 0.0);
+    assert!(rankings[0].relevance_score <= 1.0);
+}
+
+#[test]
+fn context_provider_trim_passes_through_with_default() {
+    let provider = FakeContextProvider;
+    let frames = provider.collect("session.1").expect("context collected");
+    let trimmed = provider.trim(frames.clone(), 100).expect("trim succeeds");
+
+    assert_eq!(trimmed.len(), frames.len());
+    assert_eq!(trimmed[0].context_frame_id, frames[0].context_frame_id);
+}
+
+#[test]
+fn context_provider_explain_returns_default_explanation() {
+    let provider = FakeContextProvider;
+    let frames = provider.collect("session.1").expect("context collected");
+    let explanation = provider.explain(&frames[0]).expect("explain succeeds");
+
+    assert_eq!(explanation.frame_id, "context.fake");
+    assert!(!explanation.reason.is_empty());
 }
 
 struct FakeContextProvider;

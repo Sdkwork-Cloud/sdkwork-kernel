@@ -191,9 +191,32 @@ pub trait PolicyProvider {
 
     fn evaluate(&self, request: PolicyRequest) -> KernelResult<PolicyDecision>;
 
+    fn explain(&self, decision: &PolicyDecision) -> KernelResult<PolicyExplanation> {
+        Ok(PolicyExplanation {
+            decision_id: decision.decision_id.clone(),
+            contributing_rules: Vec::new(),
+            human_readable: decision
+                .safe_reason
+                .clone()
+                .unwrap_or_else(|| decision.reason_code.clone()),
+        })
+    }
+
+    fn record_decision(&self, decision: &PolicyDecision) -> KernelResult<()> {
+        let _ = decision;
+        Ok(())
+    }
+
     fn health(&self) -> ProviderHealth {
         ProviderHealth::available()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PolicyExplanation {
+    pub decision_id: String,
+    pub contributing_rules: Vec<String>,
+    pub human_readable: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

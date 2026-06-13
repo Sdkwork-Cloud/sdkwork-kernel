@@ -1,8 +1,9 @@
 use sdkwork_agent_kernel::{
-    EnvironmentRequest, ExecutorRequest, FilesystemOperation, FilesystemRequest, FilesystemResult,
-    HostEnvPolicy, HostPathPolicy, HostProvider, KernelError, KernelResult, NetworkRequest,
-    NetworkResult, ProcessRequest, ProcessResult, ProviderHealth, ProviderManifest, SecretRef,
-    SecretValue, SideEffectLevel, StorageRequest, TimeRequest,
+    EnvironmentRequest, EnvironmentResult, ExecutorRequest, ExecutorResult, ExecutorStatus,
+    FilesystemOperation, FilesystemRequest, FilesystemResult, HostEnvPolicy, HostPathPolicy,
+    HostProvider, KernelError, KernelResult, NetworkRequest, NetworkResult, ProcessRequest,
+    ProcessResult, ProviderHealth, ProviderManifest, SecretRef, SecretValue, SideEffectLevel,
+    StorageRequest, StorageResult, TimeRequest, TimeResult,
 };
 
 #[test]
@@ -123,6 +124,35 @@ fn host_provider_trait_supports_deterministic_fake_host() {
         .expect("fake secret resolves");
     assert_eq!(secret.redacted(), "[REDACTED]");
     assert!(!format!("{secret:?}").contains("fake-secret-value"));
+
+    let storage = provider
+        .storage(StorageRequest::put("storage.1", "session", "key", "value"))
+        .expect("fake storage succeeds");
+    assert!(storage.stored);
+    assert_eq!(storage.version, Some(1));
+
+    let time = provider
+        .time(TimeRequest::now("time.1"))
+        .expect("fake time succeeds");
+    assert_eq!(time.timestamp, "2026-01-01T00:00:00Z");
+    assert_eq!(time.timezone, Some("UTC".to_string()));
+
+    let env = provider
+        .environment(EnvironmentRequest::get("env.1", "PATH"))
+        .expect("fake environment succeeds");
+    assert_eq!(env.variable_name, "PATH");
+    assert!(env.value.is_some());
+
+    let env_missing = provider
+        .environment(EnvironmentRequest::get("env.2", "MISSING_VAR"))
+        .expect("fake environment missing succeeds");
+    assert!(env_missing.value.is_none());
+
+    let executor = provider
+        .executor(ExecutorRequest::run("executor.1", "action.1"))
+        .expect("fake executor succeeds");
+    assert_eq!(executor.status, ExecutorStatus::Completed);
+    assert_eq!(executor.output, Some("fake executor output".to_string()));
 }
 
 struct FakeHostProvider {
@@ -178,6 +208,37 @@ impl HostProvider for FakeHostProvider {
         Ok(SecretValue::new(
             secret_ref.secret_ref_id,
             "fake-secret-value",
+        ))
+    }
+
+    fn storage(&self, request: StorageRequest) -> KernelResult<StorageResult> {
+        Ok(StorageResult::stored(request.operation_id).with_version(1))
+    }
+
+    fn time(&self, request: TimeRequest) -> KernelResult<TimeResult> {
+        Ok(TimeResult::now(request.operation_id, "2026-01-01T00:00:00Z").with_timezone("UTC"))
+    }
+
+    fn environment(&self, request: EnvironmentRequest) -> KernelResult<EnvironmentResult> {
+        if request.variable_name == "PATH" {
+            Ok(EnvironmentResult::resolved(
+                request.operation_id,
+                request.variable_name,
+                "/usr/bin:/usr/local/bin",
+            ))
+        } else {
+            Ok(EnvironmentResult::not_found(
+                request.operation_id,
+                request.variable_name,
+            ))
+        }
+    }
+
+    fn executor(&self, request: ExecutorRequest) -> KernelResult<ExecutorResult> {
+        Ok(ExecutorResult::completed(
+            request.operation_id,
+            request.action_id,
+            "fake executor output",
         ))
     }
 }

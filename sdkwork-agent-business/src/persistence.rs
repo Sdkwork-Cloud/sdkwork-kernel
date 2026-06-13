@@ -1,17 +1,18 @@
 use crate::domain::{
     AgentBusinessRecord, AgentBusinessStatus, AgentDeploymentRecord, AgentDeploymentStatus,
-    AgentImplementationKind, AgentKnowledgeBaseKind, AgentKnowledgeBaseRecord,
-    AgentKnowledgeBindingRecord, AgentKnowledgeBindingScopeKind, AgentKnowledgeChunkRecord,
-    AgentKnowledgeDocumentKind, AgentKnowledgeDocumentRecord, AgentKnowledgeIndexKind,
-    AgentKnowledgeIndexRecord, AgentKnowledgeSourceKind, AgentKnowledgeSourceRecord,
-    AgentKnowledgeSyncJobKind, AgentKnowledgeSyncJobRecord, AgentKnowledgeSyncJobStatus,
-    AgentMcpAuthKind, AgentMcpServerRecord, AgentMcpTransportKind, AgentMemoryBindingRecord,
-    AgentMemoryBindingScopeKind, AgentMemoryIndexKind, AgentMemoryNamespaceKind,
-    AgentMemoryNamespaceRecord, AgentMemoryProfileRecord, AgentMemoryRecord, AgentMemoryRecordKind,
-    AgentMemoryRelationKind, AgentMemoryRelationRecord, AgentMemoryRetrievalIndexRecord,
-    AgentMemorySourceKind, AgentMemorySourceRecord, AgentMemoryStoreKind, AgentMemoryStoreRecord,
-    AgentPromptTemplateFormat, AgentPromptTemplateKind, AgentPromptTemplateRecord,
-    AgentProviderBindingRecord, AgentSkillInvocationKind, AgentSkillPackageRecord, AgentVisibility,
+    AgentImplementationKind, AgentImplementationType, AgentKnowledgeBaseKind,
+    AgentKnowledgeBaseRecord, AgentKnowledgeBindingRecord, AgentKnowledgeBindingScopeKind,
+    AgentKnowledgeChunkRecord, AgentKnowledgeDocumentKind, AgentKnowledgeDocumentRecord,
+    AgentKnowledgeIndexKind, AgentKnowledgeIndexRecord, AgentKnowledgeSourceKind,
+    AgentKnowledgeSourceRecord, AgentKnowledgeSyncJobKind, AgentKnowledgeSyncJobRecord,
+    AgentKnowledgeSyncJobStatus, AgentMcpAuthKind, AgentMcpServerRecord, AgentMcpTransportKind,
+    AgentMemoryBindingRecord, AgentMemoryBindingScopeKind, AgentMemoryIndexKind,
+    AgentMemoryNamespaceKind, AgentMemoryNamespaceRecord, AgentMemoryProfileRecord,
+    AgentMemoryRecord, AgentMemoryRecordKind, AgentMemoryRelationKind, AgentMemoryRelationRecord,
+    AgentMemoryRetrievalIndexRecord, AgentMemorySourceKind, AgentMemorySourceRecord,
+    AgentMemoryStoreKind, AgentMemoryStoreRecord, AgentPromptTemplateFormat,
+    AgentPromptTemplateKind, AgentPromptTemplateRecord, AgentProviderBindingRecord,
+    AgentSkillInvocationKind, AgentSkillPackageRecord, AgentVisibility,
 };
 use crate::ports::{AgentAuditSink, AgentListQuery, AgentMarketplaceListQuery, AgentRepository};
 use crate::validation::{validate_capabilities, validate_standard_id};
@@ -35,13 +36,13 @@ const MAX_KNOWLEDGE_SCOPE_REF_STORAGE_CHARS: usize = 128;
 const MAX_KNOWLEDGE_REDACTION_CLASSIFICATION_STORAGE_CHARS: usize = 64;
 
 pub const SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID: &str =
-    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, implementation_provider_id, implementation_kind, status, visibility, tags_json, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at, version FROM a_agent_business WHERE tenant_id = $1 AND agent_id = $2 LIMIT 1";
+    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, implementation_provider_id, implementation_kind, implementation_type, status, visibility, tags_json, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at, version FROM a_agent_business WHERE tenant_id = $1 AND agent_id = $2 LIMIT 1";
 pub const SQL_INSERT_AGENT_BUSINESS: &str =
-    "INSERT INTO a_agent_business (id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, implementation_provider_id, implementation_kind, status, visibility, tags_json, created_at, updated_at, deleted_at, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)";
+    "INSERT INTO a_agent_business (id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, implementation_provider_id, implementation_kind, implementation_type, status, visibility, tags_json, created_at, updated_at, deleted_at, version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)";
 pub const SQL_UPDATE_AGENT_BUSINESS: &str =
-    "UPDATE a_agent_business SET organization_id = $1, owner_user_id = $2, code = $3, display_name = $4, description = $5, manifest_json = $6, default_code_task_intent_json = $7, implementation_provider_id = $8, implementation_kind = $9, status = $10, visibility = $11, tags_json = $12, updated_at = $13, deleted_at = $14, version = $15 WHERE tenant_id = $16 AND agent_id = $17 AND version = $18";
+    "UPDATE a_agent_business SET organization_id = $1, owner_user_id = $2, code = $3, display_name = $4, description = $5, manifest_json = $6, default_code_task_intent_json = $7, implementation_provider_id = $8, implementation_kind = $9, implementation_type = $10, status = $11, visibility = $12, tags_json = $13, updated_at = $14, deleted_at = $15, version = $16 WHERE tenant_id = $17 AND agent_id = $18 AND version = $19";
 pub const SQL_LIST_AGENT_BUSINESS: &str =
-    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, implementation_provider_id, implementation_kind, status, visibility, tags_json, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at, version FROM a_agent_business WHERE tenant_id = $1 ORDER BY updated_at DESC";
+    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, agent_id, code, display_name, description, manifest_json, default_code_task_intent_json, implementation_provider_id, implementation_kind, implementation_type, status, visibility, tags_json, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at, version FROM a_agent_business WHERE tenant_id = $1 ORDER BY updated_at DESC";
 pub const SQL_INSERT_AGENT_PROVIDER_BINDING: &str =
     "INSERT INTO a_agent_provider_binding (id, uuid, tenant_id, agent_id, binding_id, provider_id, implementation_kind, configuration_profile_id, capabilities_json, active, version, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)";
 pub const SQL_UPDATE_AGENT_PROVIDER_BINDING: &str =
@@ -177,6 +178,20 @@ pub const SQL_UPSERT_AGENT_MEMORY_RETRIEVAL_INDEX: &str =
     "INSERT INTO a_agent_memory_retrieval_index (id, uuid, tenant_id, memory_index_id, memory_id, index_kind, index_provider_id, external_ref, embedding_model_id, vector_dimension, content_hash, indexed_at, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) ON CONFLICT (tenant_id, memory_index_id) DO UPDATE SET index_kind = EXCLUDED.index_kind, index_provider_id = EXCLUDED.index_provider_id, external_ref = EXCLUDED.external_ref, embedding_model_id = EXCLUDED.embedding_model_id, vector_dimension = EXCLUDED.vector_dimension, content_hash = EXCLUDED.content_hash, indexed_at = EXCLUDED.indexed_at, status = EXCLUDED.status";
 pub const SQL_LIST_AGENT_MEMORY_RETRIEVAL_INDEXES: &str =
     "SELECT id, uuid, tenant_id, memory_index_id, memory_id, index_kind, index_provider_id, external_ref, embedding_model_id, vector_dimension, content_hash, indexed_at::text AS indexed_at, status FROM a_agent_memory_retrieval_index WHERE tenant_id = $1 AND memory_id = $2 ORDER BY indexed_at DESC, memory_index_id ASC";
+pub const SQL_LIST_AGENT_MEMORY_STORES: &str =
+    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, memory_store_id, code, display_name, description, provider_id, store_kind, retrieval_modes_json, capability_ids_json, configuration_profile_id, status, visibility, version, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at FROM a_agent_memory_store WHERE tenant_id = $1 ORDER BY updated_at DESC, code ASC";
+pub const SQL_UPDATE_AGENT_MEMORY_PROFILE: &str =
+    "UPDATE a_agent_memory_profile SET organization_id = $1, owner_user_id = $2, code = $3, display_name = $4, description = $5, memory_store_id = $6, write_policy_json = $7, retrieval_policy_json = $8, compaction_policy_json = $9, retention_policy_json = $10, privacy_policy_json = $11, status = $12, visibility = $13, version = $14, updated_at = $15, deleted_at = $16 WHERE tenant_id = $17 AND memory_profile_id = $18 AND version = $19";
+pub const SQL_UPDATE_AGENT_MEMORY_BINDING: &str =
+    "UPDATE a_agent_memory_binding SET memory_profile_id = $1, agent_id = $2, deployment_id = $3, scope_kind = $4, scope_ref = $5, active = $6, default_binding = $7, version = $8, updated_at = $9 WHERE tenant_id = $10 AND memory_binding_id = $11 AND version = $12";
+pub const SQL_UPDATE_AGENT_MEMORY_NAMESPACE: &str =
+    "UPDATE a_agent_memory_namespace SET organization_id = $1, agent_id = $2, user_ref = $3, session_ref = $4, thread_ref = $5, namespace_kind = $6, status = $7, visibility = $8, version = $9, updated_at = $10, deleted_at = $11 WHERE tenant_id = $12 AND memory_namespace_id = $13 AND version = $14";
+pub const SQL_SELECT_AGENT_MEMORY_SOURCE: &str =
+    "SELECT id, uuid, tenant_id, memory_source_id, memory_id, source_kind, source_ref, source_hash, evidence_json, captured_at::text AS captured_at, created_at::text AS created_at FROM a_agent_memory_source WHERE tenant_id = $1 AND memory_source_id = $2 LIMIT 1";
+pub const SQL_SELECT_AGENT_MEMORY_RELATION: &str =
+    "SELECT id, uuid, tenant_id, memory_relation_id, from_memory_id, to_memory_id, relation_kind, weight, valid_from::text AS valid_from, valid_until::text AS valid_until, created_at::text AS created_at FROM a_agent_memory_relation WHERE tenant_id = $1 AND memory_relation_id = $2 LIMIT 1";
+pub const SQL_SELECT_AGENT_MEMORY_RETRIEVAL_INDEX: &str =
+    "SELECT id, uuid, tenant_id, memory_index_id, memory_id, index_kind, index_provider_id, external_ref, embedding_model_id, vector_dimension, content_hash, indexed_at::text AS indexed_at, status FROM a_agent_memory_retrieval_index WHERE tenant_id = $1 AND memory_index_id = $2 LIMIT 1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentBusinessRow {
@@ -193,6 +208,7 @@ pub struct AgentBusinessRow {
     pub default_code_task_intent_json: Option<String>,
     pub implementation_provider_id: Option<String>,
     pub implementation_kind: Option<String>,
+    pub implementation_type: String,
     pub status: i16,
     pub visibility: i16,
     pub tags_json: String,
@@ -223,6 +239,7 @@ impl AgentBusinessRow {
             implementation_kind: record
                 .implementation_kind
                 .map(|kind| kind.as_str().to_string()),
+            implementation_type: record.implementation_type.as_str().to_string(),
             status: record.status.as_db_code(),
             visibility: record.visibility.as_db_code(),
             tags_json: tags_to_json(&record.tags)?,
@@ -253,6 +270,7 @@ impl AgentBusinessRow {
                 .as_deref()
                 .map(parse_implementation_kind)
                 .transpose()?,
+            implementation_type: parse_implementation_type(&self.implementation_type)?,
             status: AgentBusinessStatus::from_db_code(self.status).ok_or_else(|| {
                 KernelError::validation(format!("invalid db status code: {}", self.status))
             })?,
@@ -1845,6 +1863,14 @@ impl AgentMemoryRetrievalIndexRow {
 fn parse_implementation_kind(input: &str) -> KernelResult<AgentImplementationKind> {
     AgentImplementationKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid implementation kind: {input}")))
+}
+
+fn parse_implementation_type(input: &str) -> KernelResult<AgentImplementationType> {
+    AgentImplementationType::from_code(input).ok_or_else(|| {
+        KernelError::validation(format!(
+            "implementationType must be one of sdkwork-native, rig-rust, openai-agents, langchain, langgraph, crewai, autogen, semantic-kernel, custom: {input}"
+        ))
+    })
 }
 
 fn parse_skill_invocation_kind(input: &str) -> KernelResult<AgentSkillInvocationKind> {
@@ -3709,6 +3735,7 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
                         &row.default_code_task_intent_json,
                         &row.implementation_provider_id,
                         &row.implementation_kind,
+                        &row.implementation_type,
                         &row.status,
                         &row.visibility,
                         &row.tags_json,
@@ -3745,6 +3772,7 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
                         &row.default_code_task_intent_json,
                         &row.implementation_provider_id,
                         &row.implementation_kind,
+                        &row.implementation_type,
                         &row.status,
                         &row.visibility,
                         &row.tags_json,
@@ -6433,6 +6461,9 @@ fn pg_row_to_agent_business_row(row: Row) -> KernelResult<AgentBusinessRow> {
         implementation_kind: row
             .try_get("implementation_kind")
             .map_err(map_postgres_error)?,
+        implementation_type: row
+            .try_get("implementation_type")
+            .map_err(map_postgres_error)?,
         status: row.try_get("status").map_err(map_postgres_error)?,
         visibility: row.try_get("visibility").map_err(map_postgres_error)?,
         tags_json: row.try_get("tags_json").map_err(map_postgres_error)?,
@@ -7324,6 +7355,7 @@ mod tests {
             default_code_task_intent_json: None,
             implementation_provider_id: Some("provider.model.rig-rust".to_string()),
             implementation_kind: Some("typed-local-provider".to_string()),
+            implementation_type: "sdkwork-native".to_string(),
             status: 1,
             visibility: 1,
             tags_json: "[]".to_string(),
@@ -7850,11 +7882,15 @@ mod tests {
 
         assert!(SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID.contains("tenant_id = $1"));
         assert!(SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID.contains("agent_id = $2"));
+        assert!(SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID.contains("implementation_type"));
         assert!(SQL_INSERT_AGENT_BUSINESS.contains("VALUES ($1"));
-        assert!(SQL_INSERT_AGENT_BUSINESS.contains("$20"));
+        assert!(SQL_INSERT_AGENT_BUSINESS.contains("$21"));
         assert!(SQL_INSERT_AGENT_BUSINESS.contains("implementation_provider_id"));
+        assert!(SQL_INSERT_AGENT_BUSINESS.contains("implementation_type"));
+        assert!(SQL_UPDATE_AGENT_BUSINESS.contains("implementation_type = $10"));
         assert!(SQL_UPDATE_AGENT_BUSINESS
-            .contains("WHERE tenant_id = $16 AND agent_id = $17 AND version = $18"));
+            .contains("WHERE tenant_id = $17 AND agent_id = $18 AND version = $19"));
+        assert!(SQL_LIST_AGENT_BUSINESS.contains("implementation_type"));
         assert!(SQL_LIST_AGENT_BUSINESS.contains("ORDER BY updated_at DESC"));
         assert!(
             SQL_INSERT_AUDIT_EVENT.starts_with("INSERT INTO a_agent_business_audit_event (id, ")
@@ -8030,6 +8066,11 @@ mod tests {
             "CREATE TABLE IF NOT EXISTS a_agent_memory_compaction_job",
             "ck_a_agent_business_implementation_provider_id_standard",
             "implementation_provider_id ~ '^provider\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
+            "implementation_type VARCHAR(64) NOT NULL DEFAULT 'sdkwork-native'",
+            "ck_a_agent_business_implementation_type",
+            "'sdkwork-native'",
+            "'openai-agents'",
+            "'semantic-kernel'",
             "ck_a_agent_provider_binding_binding_id_standard",
             "binding_id ~ '^binding\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
             "ck_a_agent_provider_binding_provider_id_standard",
@@ -8168,6 +8209,7 @@ mod tests {
             default_code_task_intent: Some(CodeTaskIntent::new("Refactor runtime")),
             implementation_provider_id: Some("provider.model.rig-rust".to_string()),
             implementation_kind: Some(AgentImplementationKind::TypedLocalProvider),
+            implementation_type: AgentImplementationType::LangGraph,
             status: AgentBusinessStatus::Active,
             visibility: AgentVisibility::Tenant,
             tags: vec!["starter".to_string()],
@@ -8178,9 +8220,35 @@ mod tests {
         };
 
         let row = AgentBusinessRow::from_record(&record).expect("row mapping should succeed");
+        assert_eq!(row.implementation_type, "langgraph");
         let rebuilt = row.into_record().expect("record mapping should succeed");
 
         assert_eq!(rebuilt, record);
+    }
+
+    #[test]
+    fn agent_business_row_roundtrip_preserves_implementation_type() {
+        let mut row = sample_agent_business_row();
+        row.implementation_type = "openai-agents".to_string();
+
+        let rebuilt = row.into_record().expect("record mapping should succeed");
+
+        assert_eq!(
+            rebuilt.implementation_type,
+            AgentImplementationType::OpenAiAgents
+        );
+    }
+
+    #[test]
+    fn agent_business_row_rejects_invalid_implementation_type_from_storage() {
+        let mut row = sample_agent_business_row();
+        row.implementation_type = "unsupported-framework".to_string();
+
+        let error = row
+            .into_record()
+            .expect_err("invalid implementation type should fail");
+
+        assert_validation_contains(error, "implementationType");
     }
 
     #[test]
@@ -8891,6 +8959,7 @@ mod tests {
             default_code_task_intent_json: None,
             implementation_provider_id: None,
             implementation_kind: None,
+            implementation_type: "sdkwork-native".to_string(),
             status: 9,
             visibility: 0,
             tags_json: "[]".to_string(),

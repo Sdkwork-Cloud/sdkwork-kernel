@@ -1,7 +1,7 @@
 use sdkwork_agent_kernel::{
     KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelEventSource, PolicyCategory,
-    PolicyDecision, PolicyDecisionConstraint, PolicyDecisionValue, PolicyRequest, PolicySubject,
-    SideEffectLevel,
+    PolicyDecision, PolicyDecisionConstraint, PolicyDecisionValue, PolicyExplanation,
+    PolicyProvider, PolicyRequest, PolicySubject, SideEffectLevel,
 };
 
 #[test]
@@ -212,4 +212,46 @@ fn keep_kernel_event_import_reachable_for_policy_event_contracts() {
     );
 
     assert_eq!(event.event_id, "event.policy.1");
+}
+
+#[test]
+fn policy_provider_explain_extracts_reason_from_decision() {
+    let provider = FakePolicyProvider;
+    let decision = PolicyDecision::deny(
+        "decision.1",
+        "request.1",
+        "provider.policy.fake",
+        "tool_disabled",
+    )
+    .with_safe_reason("Tool is disabled for this tenant");
+
+    let explanation = provider.explain(&decision).expect("explain succeeds");
+
+    assert_eq!(explanation.decision_id, "decision.1");
+    assert_eq!(
+        explanation.human_readable,
+        "Tool is disabled for this tenant"
+    );
+}
+
+#[test]
+fn policy_provider_record_decision_is_no_op_by_default() {
+    let provider = FakePolicyProvider;
+    let decision = PolicyDecision::allow("decision.1", "request.1", "provider.policy.fake");
+
+    provider
+        .record_decision(&decision)
+        .expect("record_decision succeeds");
+}
+
+struct FakePolicyProvider;
+
+impl PolicyProvider for FakePolicyProvider {
+    fn evaluate(&self, request: PolicyRequest) -> sdkwork_agent_kernel::KernelResult<PolicyDecision> {
+        Ok(PolicyDecision::allow(
+            "decision.fake",
+            &request.policy_request_id,
+            "provider.policy.fake",
+        ))
+    }
 }

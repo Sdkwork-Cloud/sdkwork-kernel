@@ -1,4 +1,4 @@
-﻿-- SDKWork Agent Business PostgreSQL Schema Baseline
+-- SDKWork Agent Business PostgreSQL Schema Baseline
 -- Component: sdkwork-agent-business
 -- Domain: intelligence
 -- Version: 0.1.0
@@ -137,6 +137,7 @@ CREATE TABLE IF NOT EXISTS a_agent_business (
     default_code_task_intent_json TEXT,
     implementation_provider_id VARCHAR(128),
     implementation_kind VARCHAR(64),
+    implementation_type VARCHAR(64) NOT NULL DEFAULT 'sdkwork-native',
     status SMALLINT NOT NULL,
     visibility SMALLINT NOT NULL,
     tags_json TEXT NOT NULL DEFAULT '[]',
@@ -152,6 +153,19 @@ CREATE TABLE IF NOT EXISTS a_agent_business (
             'typed-local-provider',
             'process-adapter',
             'protocol-adapter'
+        )
+    ),
+    CONSTRAINT ck_a_agent_business_implementation_type CHECK (
+        implementation_type IN (
+            'sdkwork-native',
+            'rig-rust',
+            'openai-agents',
+            'langchain',
+            'langgraph',
+            'crewai',
+            'autogen',
+            'semantic-kernel',
+            'custom'
         )
     ),
     CONSTRAINT ck_a_agent_business_implementation_provider_id_standard CHECK (
@@ -1374,7 +1388,21 @@ CREATE TABLE IF NOT EXISTS a_agent_business_audit_event (
             'memory_record_restored',
             'memory_source_created',
             'memory_relation_created',
-            'memory_retrieval_index_upserted'
+            'memory_retrieval_index_upserted',
+            'runtime_executed',
+            'memory_profile_updated',
+            'memory_profile_deleted',
+            'memory_profile_restored',
+            'memory_binding_updated',
+            'memory_binding_deleted',
+            'memory_binding_restored',
+            'memory_namespace_updated',
+            'memory_namespace_deleted',
+            'memory_namespace_restored',
+            'memory_source_deleted',
+            'memory_source_restored',
+            'memory_relation_deleted',
+            'memory_relation_restored'
         )
     )
 );

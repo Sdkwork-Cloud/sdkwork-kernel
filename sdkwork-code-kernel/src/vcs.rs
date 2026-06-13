@@ -1,4 +1,5 @@
 use crate::Workspace;
+use crate::first_policy_category;
 use sdkwork_agent_kernel::{
     KernelResult, PolicyCategory, PolicyRequest, ProviderHealth, SideEffectLevel,
 };
@@ -337,11 +338,4 @@ impl VcsRestoreReport {
         self.skipped_paths = skipped_paths;
         self
     }
-}
-
-fn first_policy_category(policy_categories: &[String], fallback: &str) -> String {
-    policy_categories
-        .first()
-        .cloned()
-        .unwrap_or_else(|| fallback.to_string())
 }

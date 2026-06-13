@@ -3,15 +3,24 @@ import { AgentRuntimePanel } from '@sdkwork/kernel-ui-agent';
 import { CodeKernelPanel } from '@sdkwork/kernel-ui-code';
 import { createKernelUiRuntime } from '@sdkwork/kernel-ui-core';
 import { PermissionQueue } from '@sdkwork/kernel-ui-permissions';
-import { createMockKernelUiClient } from '@sdkwork/kernel-ui-services';
+import { createKernelUiClient, createMockKernelUiClient } from '@sdkwork/kernel-ui-services';
+import type { KernelUiClient } from '@sdkwork/kernel-ui-types';
 import { TerminalKernelPanel } from '@sdkwork/kernel-ui-terminal';
 import { TelemetryEventStream } from '@sdkwork/kernel-ui-telemetry';
 import type { KernelUiSnapshot, PermissionDecisionValue } from '@sdkwork/kernel-ui-types';
 import { WorkspaceKernelPanel } from '@sdkwork/kernel-ui-workspace';
 import './styles.css';
 
+function createClient(): KernelUiClient {
+  const apiUrl = import.meta.env.VITE_KERNEL_API_URL as string | undefined;
+  if (apiUrl) {
+    return createKernelUiClient({ baseUrl: apiUrl });
+  }
+  return createMockKernelUiClient();
+}
+
 export function App() {
-  const runtime = useMemo(() => createKernelUiRuntime(createMockKernelUiClient()), []);
+  const runtime = useMemo(() => createKernelUiRuntime(createClient()), []);
   const [snapshot, setSnapshot] = useState<KernelUiSnapshot | null>(null);
 
   useEffect(() => {

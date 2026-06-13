@@ -1767,8 +1767,8 @@ impl PlanningProvider for ExecutionPlanningProvider {
         )
     }
 
-    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> Plan {
-        Plan::new("plan.execution", task_id, run_id, summary).add_action(
+    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> KernelResult<Plan> {
+        Ok(Plan::new("plan.execution", task_id, run_id, summary).add_action(
             Action::new(
                 "action.execution.model",
                 ActionKind::ModelCall,
@@ -1776,7 +1776,7 @@ impl PlanningProvider for ExecutionPlanningProvider {
             )
             .with_required_capabilities(vec!["model.chat".to_string()])
             .with_side_effect_level(SideEffectLevel::ReadOnly),
-        )
+        ))
     }
 
     fn health(&self) -> ProviderHealth {
@@ -1925,11 +1925,11 @@ impl McpProvider for RecordingMcpProvider {
         ProviderHealth::available()
     }
 
-    fn list_servers(&self) -> Vec<McpServerDescriptor> {
-        vec![
+    fn list_servers(&self) -> KernelResult<Vec<McpServerDescriptor>> {
+        Ok(vec![
             McpServerDescriptor::new("mcp.execution", "provider.mcp.execution", "sdkwork.test")
                 .with_capability("mcp.tools"),
-        ]
+        ])
     }
 
     fn list_tools(&self, _server_id: &str) -> KernelResult<Vec<ToolDescriptor>> {
@@ -1974,11 +1974,11 @@ impl McpProvider for CapturingMcpProvider {
         ProviderHealth::available()
     }
 
-    fn list_servers(&self) -> Vec<McpServerDescriptor> {
-        vec![
+    fn list_servers(&self) -> KernelResult<Vec<McpServerDescriptor>> {
+        Ok(vec![
             McpServerDescriptor::new("mcp.execution", "provider.mcp.execution", "sdkwork.test")
                 .with_capability("mcp.tools"),
-        ]
+        ])
     }
 
     fn list_tools(&self, _server_id: &str) -> KernelResult<Vec<ToolDescriptor>> {
@@ -2024,11 +2024,11 @@ impl McpProvider for CountingMcpProvider {
         ProviderHealth::available()
     }
 
-    fn list_servers(&self) -> Vec<McpServerDescriptor> {
-        vec![
+    fn list_servers(&self) -> KernelResult<Vec<McpServerDescriptor>> {
+        Ok(vec![
             McpServerDescriptor::new("mcp.execution", "provider.mcp.execution", "sdkwork.test")
                 .with_capability("mcp.tools"),
-        ]
+        ])
     }
 
     fn list_tools(&self, _server_id: &str) -> KernelResult<Vec<ToolDescriptor>> {

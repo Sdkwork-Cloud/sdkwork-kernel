@@ -1,5 +1,6 @@
 use sdkwork_agent_kernel::{
-    Action, ActionKind, ActionStatus, Observation, Plan, PlanningProvider, SideEffectLevel,
+    Action, ActionKind, ActionStatus, KernelResult, Observation, Plan, PlanningProvider,
+    SideEffectLevel,
 };
 
 #[test]
@@ -70,20 +71,33 @@ fn plan_revision_increments_revision_and_preserves_previous_plan_id() {
 #[test]
 fn planning_provider_trait_can_create_and_validate_plan() {
     let provider = FakePlanningProvider;
-    let plan = provider.create_plan("task.1", "run.1", "do work");
+    let plan = provider.create_plan("task.1", "run.1", "do work").expect("plan creation succeeds");
 
     provider.validate_plan(&plan).expect("plan validates");
     assert_eq!(plan.task_id, "task.1");
 }
 
+#[test]
+fn planning_provider_revise_plan_delegates_to_plan_revise_as() {
+    let provider = FakePlanningProvider;
+    let plan = provider.create_plan("task.1", "run.1", "initial plan").expect("plan creation succeeds");
+    let revised = provider
+        .revise_plan(&plan, "revised plan")
+        .expect("revision succeeds");
+
+    assert_eq!(revised.revision, 2);
+    assert_eq!(revised.summary, "revised plan");
+    assert_eq!(revised.previous_plan_id.as_deref(), Some("plan.fake"));
+}
+
 struct FakePlanningProvider;
 
 impl PlanningProvider for FakePlanningProvider {
-    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> Plan {
-        Plan::new("plan.fake", task_id, run_id, summary).add_action(Action::new(
+    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> KernelResult<Plan> {
+        Ok(Plan::new("plan.fake", task_id, run_id, summary).add_action(Action::new(
             "action.fake",
             ActionKind::Internal,
             "internal action",
-        ))
+        )))
     }
 }

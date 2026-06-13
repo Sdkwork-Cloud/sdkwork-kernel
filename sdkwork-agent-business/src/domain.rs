@@ -139,6 +139,19 @@ pub enum AgentAuditAction {
     MemorySourceCreated,
     MemoryRelationCreated,
     MemoryRetrievalIndexUpserted,
+    MemoryProfileUpdated,
+    MemoryProfileDeleted,
+    MemoryProfileRestored,
+    MemoryBindingUpdated,
+    MemoryBindingDeleted,
+    MemoryBindingRestored,
+    MemoryNamespaceUpdated,
+    MemoryNamespaceDeleted,
+    MemoryNamespaceRestored,
+    MemorySourceDeleted,
+    MemorySourceRestored,
+    MemoryRelationDeleted,
+    MemoryRelationRestored,
     KnowledgeBaseCreated,
     KnowledgeBaseUpdated,
     KnowledgeBaseDeleted,
@@ -197,6 +210,19 @@ impl AgentAuditAction {
             Self::MemorySourceCreated => "agent.business.memory.source.created",
             Self::MemoryRelationCreated => "agent.business.memory.relation.created",
             Self::MemoryRetrievalIndexUpserted => "agent.business.memory.retrieval_index.upserted",
+            Self::MemoryProfileUpdated => "agent.business.memory.profile.updated",
+            Self::MemoryProfileDeleted => "agent.business.memory.profile.deleted",
+            Self::MemoryProfileRestored => "agent.business.memory.profile.restored",
+            Self::MemoryBindingUpdated => "agent.business.memory.binding.updated",
+            Self::MemoryBindingDeleted => "agent.business.memory.binding.deleted",
+            Self::MemoryBindingRestored => "agent.business.memory.binding.restored",
+            Self::MemoryNamespaceUpdated => "agent.business.memory.namespace.updated",
+            Self::MemoryNamespaceDeleted => "agent.business.memory.namespace.deleted",
+            Self::MemoryNamespaceRestored => "agent.business.memory.namespace.restored",
+            Self::MemorySourceDeleted => "agent.business.memory.source.deleted",
+            Self::MemorySourceRestored => "agent.business.memory.source.restored",
+            Self::MemoryRelationDeleted => "agent.business.memory.relation.deleted",
+            Self::MemoryRelationRestored => "agent.business.memory.relation.restored",
             Self::KnowledgeBaseCreated => "agent.business.knowledge.base.created",
             Self::KnowledgeBaseUpdated => "agent.business.knowledge.base.updated",
             Self::KnowledgeBaseDeleted => "agent.business.knowledge.base.deleted",
@@ -255,6 +281,19 @@ impl AgentAuditAction {
             Self::MemorySourceCreated => "memory_source_created",
             Self::MemoryRelationCreated => "memory_relation_created",
             Self::MemoryRetrievalIndexUpserted => "memory_retrieval_index_upserted",
+            Self::MemoryProfileUpdated => "memory_profile_updated",
+            Self::MemoryProfileDeleted => "memory_profile_deleted",
+            Self::MemoryProfileRestored => "memory_profile_restored",
+            Self::MemoryBindingUpdated => "memory_binding_updated",
+            Self::MemoryBindingDeleted => "memory_binding_deleted",
+            Self::MemoryBindingRestored => "memory_binding_restored",
+            Self::MemoryNamespaceUpdated => "memory_namespace_updated",
+            Self::MemoryNamespaceDeleted => "memory_namespace_deleted",
+            Self::MemoryNamespaceRestored => "memory_namespace_restored",
+            Self::MemorySourceDeleted => "memory_source_deleted",
+            Self::MemorySourceRestored => "memory_source_restored",
+            Self::MemoryRelationDeleted => "memory_relation_deleted",
+            Self::MemoryRelationRestored => "memory_relation_restored",
             Self::KnowledgeBaseCreated => "knowledge_base_created",
             Self::KnowledgeBaseUpdated => "knowledge_base_updated",
             Self::KnowledgeBaseDeleted => "knowledge_base_deleted",
@@ -349,6 +388,56 @@ impl AgentImplementationKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentImplementationType {
+    SdkworkNative,
+    RigRust,
+    OpenAiAgents,
+    LangChain,
+    LangGraph,
+    CrewAi,
+    AutoGen,
+    SemanticKernel,
+    Custom,
+}
+
+impl AgentImplementationType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::SdkworkNative => "sdkwork-native",
+            Self::RigRust => "rig-rust",
+            Self::OpenAiAgents => "openai-agents",
+            Self::LangChain => "langchain",
+            Self::LangGraph => "langgraph",
+            Self::CrewAi => "crewai",
+            Self::AutoGen => "autogen",
+            Self::SemanticKernel => "semantic-kernel",
+            Self::Custom => "custom",
+        }
+    }
+
+    pub(crate) fn from_code(value: &str) -> Option<Self> {
+        match value {
+            "sdkwork-native" => Some(Self::SdkworkNative),
+            "rig-rust" => Some(Self::RigRust),
+            "openai-agents" => Some(Self::OpenAiAgents),
+            "langchain" => Some(Self::LangChain),
+            "langgraph" => Some(Self::LangGraph),
+            "crewai" => Some(Self::CrewAi),
+            "autogen" => Some(Self::AutoGen),
+            "semantic-kernel" => Some(Self::SemanticKernel),
+            "custom" => Some(Self::Custom),
+            _ => None,
+        }
+    }
+}
+
+impl Default for AgentImplementationType {
+    fn default() -> Self {
+        Self::SdkworkNative
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentBusinessRecord {
     pub id: u64,
@@ -363,6 +452,7 @@ pub struct AgentBusinessRecord {
     pub default_code_task_intent: Option<CodeTaskIntent>,
     pub implementation_provider_id: Option<String>,
     pub implementation_kind: Option<AgentImplementationKind>,
+    pub implementation_type: AgentImplementationType,
     pub status: AgentBusinessStatus,
     pub visibility: AgentVisibility,
     pub tags: Vec<String>,
@@ -1782,6 +1872,13 @@ impl AgentMemoryProfileRecord {
     }
 }
 
+impl AgentMemoryBindingRecord {
+    pub fn mark_updated(&mut self, updated_at: impl Into<String>) {
+        self.updated_at = updated_at.into();
+        self.version = self.version.saturating_add(1);
+    }
+}
+
 impl AgentMemoryNamespaceRecord {
     pub fn is_deleted(&self) -> bool {
         self.status == AgentBusinessStatus::Deleted || self.deleted_at.is_some()
@@ -1789,6 +1886,21 @@ impl AgentMemoryNamespaceRecord {
 
     pub fn mark_updated(&mut self, updated_at: impl Into<String>) {
         self.updated_at = updated_at.into();
+        self.version = self.version.saturating_add(1);
+    }
+
+    pub fn mark_deleted(&mut self, deleted_at: impl Into<String>) {
+        let deleted_at = deleted_at.into();
+        self.status = AgentBusinessStatus::Deleted;
+        self.deleted_at = Some(deleted_at.clone());
+        self.updated_at = deleted_at;
+        self.version = self.version.saturating_add(1);
+    }
+
+    pub fn mark_restored(&mut self, restored_at: impl Into<String>) {
+        self.status = AgentBusinessStatus::Active;
+        self.deleted_at = None;
+        self.updated_at = restored_at.into();
         self.version = self.version.saturating_add(1);
     }
 }

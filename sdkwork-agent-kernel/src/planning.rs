@@ -194,10 +194,15 @@ pub trait PlanningProvider {
         )
     }
 
-    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> Plan;
+    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> KernelResult<Plan>;
 
     fn validate_plan(&self, plan: &Plan) -> KernelResult<()> {
         plan.validate()
+    }
+
+    fn revise_plan(&self, plan: &Plan, new_summary: &str) -> KernelResult<Plan> {
+        let new_plan_id = format!("{}.r{}", plan.plan_id, plan.revision + 1);
+        Ok(plan.revise_as(new_plan_id, new_summary))
     }
 
     fn health(&self) -> ProviderHealth {

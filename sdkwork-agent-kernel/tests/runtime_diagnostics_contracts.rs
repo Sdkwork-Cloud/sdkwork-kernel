@@ -429,8 +429,8 @@ impl KnowledgeProvider for DegradedKnowledgeProvider {
 struct DegradedPlanningProvider;
 
 impl PlanningProvider for DegradedPlanningProvider {
-    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> Plan {
-        Plan::new("plan.diagnostics", task_id, run_id, summary)
+    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> KernelResult<Plan> {
+        Ok(Plan::new("plan.diagnostics", task_id, run_id, summary))
     }
 
     fn health(&self) -> ProviderHealth {

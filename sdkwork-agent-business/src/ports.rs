@@ -598,6 +598,55 @@ pub trait AgentRepository {
     ) -> Vec<AgentMemoryRetrievalIndexRecord> {
         Vec::new()
     }
+
+    fn list_memory_stores(&self, _tenant_id: u64) -> Vec<AgentMemoryStoreRecord> {
+        Vec::new()
+    }
+
+    fn update_memory_profile(&mut self, _record: AgentMemoryProfileRecord) -> KernelResult<()> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "agent.business.memory.profile".to_string(),
+        })
+    }
+
+    fn update_memory_binding(&mut self, _record: AgentMemoryBindingRecord) -> KernelResult<()> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "agent.business.memory.binding".to_string(),
+        })
+    }
+
+    fn update_memory_namespace(
+        &mut self,
+        _record: AgentMemoryNamespaceRecord,
+    ) -> KernelResult<()> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "agent.business.memory.namespace".to_string(),
+        })
+    }
+
+    fn get_memory_source(
+        &self,
+        _tenant_id: u64,
+        _memory_source_id: &str,
+    ) -> Option<AgentMemorySourceRecord> {
+        None
+    }
+
+    fn get_memory_relation(
+        &self,
+        _tenant_id: u64,
+        _memory_relation_id: &str,
+    ) -> Option<AgentMemoryRelationRecord> {
+        None
+    }
+
+    fn get_memory_retrieval_index(
+        &self,
+        _tenant_id: u64,
+        _retrieval_index_id: &str,
+    ) -> Option<AgentMemoryRetrievalIndexRecord> {
+        None
+    }
 }
 
 pub trait AgentAuditSink {

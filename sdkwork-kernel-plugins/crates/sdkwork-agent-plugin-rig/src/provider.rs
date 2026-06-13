@@ -238,15 +238,15 @@ impl McpProvider for RigMcpProvider {
         fail_closed_health()
     }
 
-    fn list_servers(&self) -> Vec<McpServerDescriptor> {
-        vec![McpServerDescriptor::new(
+    fn list_servers(&self) -> KernelResult<Vec<McpServerDescriptor>> {
+        Ok(vec![McpServerDescriptor::new(
             ids::DEFAULT_MCP_SERVER_ID,
             ids::MCP_PROVIDER_ID,
             "sdkwork.rig.adapter",
         )
         .with_capability("mcp.tools")
         .with_capability("mcp.resources")
-        .with_capability("mcp.prompts")]
+        .with_capability("mcp.prompts")])
     }
 
     fn list_tools(&self, server_id: &str) -> KernelResult<Vec<ToolDescriptor>> {

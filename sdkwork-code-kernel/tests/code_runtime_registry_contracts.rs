@@ -613,7 +613,7 @@ impl KnowledgeProvider for FakeKnowledgeProvider {
         Ok(vec![KnowledgeSearchResult::new(
             "doc.kernel.1",
             KnowledgeDocumentKind::Spec,
-            100,
+            100.0,
             "Kernel spec",
         )])
     }

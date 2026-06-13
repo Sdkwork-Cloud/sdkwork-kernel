@@ -1336,11 +1336,18 @@ impl AgentRepository for InMemoryAgentRepository {
     }
 
     fn list_memory_sources(&self, tenant_id: u64, memory_id: &str) -> Vec<AgentMemorySourceRecord> {
-        self.memory_sources
+        let mut results: Vec<AgentMemorySourceRecord> = self
+            .memory_sources
             .iter()
             .filter(|record| record.tenant_id == tenant_id && record.memory_id == memory_id)
             .cloned()
-            .collect()
+            .collect();
+        results.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.memory_source_id.cmp(&b.memory_source_id))
+        });
+        results
     }
 
     fn insert_memory_relation(&mut self, record: AgentMemoryRelationRecord) -> KernelResult<()> {
@@ -1361,14 +1368,21 @@ impl AgentRepository for InMemoryAgentRepository {
         tenant_id: u64,
         memory_id: &str,
     ) -> Vec<AgentMemoryRelationRecord> {
-        self.memory_relations
+        let mut results: Vec<AgentMemoryRelationRecord> = self
+            .memory_relations
             .iter()
             .filter(|record| {
                 record.tenant_id == tenant_id
                     && (record.from_memory_id == memory_id || record.to_memory_id == memory_id)
             })
             .cloned()
-            .collect()
+            .collect();
+        results.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| a.memory_relation_id.cmp(&b.memory_relation_id))
+        });
+        results
     }
 
     fn upsert_memory_retrieval_index(
@@ -1396,6 +1410,155 @@ impl AgentRepository for InMemoryAgentRepository {
             .filter(|record| record.tenant_id == tenant_id && record.memory_id == memory_id)
             .cloned()
             .collect()
+    }
+
+    fn list_memory_stores(&self, tenant_id: u64) -> Vec<AgentMemoryStoreRecord> {
+        let mut records: Vec<AgentMemoryStoreRecord> = self
+            .memory_stores
+            .iter()
+            .filter(|record| record.tenant_id == tenant_id)
+            .cloned()
+            .collect();
+        records.sort_by(|left, right| {
+            right
+                .updated_at
+                .cmp(&left.updated_at)
+                .then_with(|| left.code.cmp(&right.code))
+        });
+        records
+    }
+
+    fn update_memory_profile(&mut self, record: AgentMemoryProfileRecord) -> KernelResult<()> {
+        let Some(index) = self.memory_profiles.iter().position(|existing| {
+            existing.tenant_id == record.tenant_id
+                && existing.memory_profile_id == record.memory_profile_id
+        }) else {
+            return Err(KernelError::validation("agent memory profile not found"));
+        };
+        let expected_version = self.memory_profiles[index].version.saturating_add(1);
+        if record.version != expected_version {
+            return Err(KernelError::conflict(format!(
+                "agent memory profile version mismatch: expected={expected_version}, actual={}",
+                record.version
+            )));
+        }
+        if self
+            .memory_profiles
+            .iter()
+            .enumerate()
+            .any(|(current, existing)| {
+                current != index
+                    && existing.tenant_id == record.tenant_id
+                    && existing.code == record.code
+            })
+        {
+            return Err(KernelError::conflict(
+                "agent memory profile code already exists",
+            ));
+        }
+        self.memory_profiles[index] = record;
+        Ok(())
+    }
+
+    fn update_memory_binding(&mut self, record: AgentMemoryBindingRecord) -> KernelResult<()> {
+        validate_memory_binding_scope_invariant(&record)?;
+        let Some(index) = self.memory_bindings.iter().position(|existing| {
+            existing.tenant_id == record.tenant_id
+                && existing.memory_binding_id == record.memory_binding_id
+        }) else {
+            return Err(KernelError::validation("agent memory binding not found"));
+        };
+        let expected_version = self.memory_bindings[index].version.saturating_add(1);
+        if record.version != expected_version {
+            return Err(KernelError::conflict(format!(
+                "agent memory binding version mismatch: expected={expected_version}, actual={}",
+                record.version
+            )));
+        }
+        if record.active
+            && record.default_binding
+            && self
+                .memory_bindings
+                .iter()
+                .enumerate()
+                .any(|(current, existing)| {
+                    current != index
+                        && existing.tenant_id == record.tenant_id
+                        && existing.memory_profile_id == record.memory_profile_id
+                        && existing.scope_kind == record.scope_kind
+                        && existing.scope_ref == record.scope_ref
+                        && existing.active
+                        && existing.default_binding
+                })
+        {
+            return Err(KernelError::conflict(
+                "active default memory binding already exists",
+            ));
+        }
+        self.memory_bindings[index] = record;
+        Ok(())
+    }
+
+    fn update_memory_namespace(
+        &mut self,
+        record: AgentMemoryNamespaceRecord,
+    ) -> KernelResult<()> {
+        let Some(index) = self.memory_namespaces.iter().position(|existing| {
+            existing.tenant_id == record.tenant_id
+                && existing.memory_namespace_id == record.memory_namespace_id
+        }) else {
+            return Err(KernelError::validation(
+                "agent memory namespace not found",
+            ));
+        };
+        let expected_version = self.memory_namespaces[index].version.saturating_add(1);
+        if record.version != expected_version {
+            return Err(KernelError::conflict(format!(
+                "agent memory namespace version mismatch: expected={expected_version}, actual={}",
+                record.version
+            )));
+        }
+        self.memory_namespaces[index] = record;
+        Ok(())
+    }
+
+    fn get_memory_source(
+        &self,
+        tenant_id: u64,
+        memory_source_id: &str,
+    ) -> Option<AgentMemorySourceRecord> {
+        self.memory_sources
+            .iter()
+            .find(|record| {
+                record.tenant_id == tenant_id && record.memory_source_id == memory_source_id
+            })
+            .cloned()
+    }
+
+    fn get_memory_relation(
+        &self,
+        tenant_id: u64,
+        memory_relation_id: &str,
+    ) -> Option<AgentMemoryRelationRecord> {
+        self.memory_relations
+            .iter()
+            .find(|record| {
+                record.tenant_id == tenant_id && record.memory_relation_id == memory_relation_id
+            })
+            .cloned()
+    }
+
+    fn get_memory_retrieval_index(
+        &self,
+        tenant_id: u64,
+        retrieval_index_id: &str,
+    ) -> Option<AgentMemoryRetrievalIndexRecord> {
+        self.memory_retrieval_indexes
+            .iter()
+            .find(|record| {
+                record.tenant_id == tenant_id && record.memory_index_id == retrieval_index_id
+            })
+            .cloned()
     }
 }
 
@@ -1688,8 +1851,9 @@ impl PolicyProvider for AllowAllPolicyProvider {
 mod tests {
     use super::*;
     use crate::domain::{
-        AgentBusinessStatus, AgentImplementationKind, AgentMemoryBindingRecord,
-        AgentMemoryBindingScopeKind, AgentProviderBindingRecord, AgentVisibility,
+        AgentBusinessStatus, AgentImplementationKind, AgentImplementationType,
+        AgentMemoryBindingRecord, AgentMemoryBindingScopeKind, AgentProviderBindingRecord,
+        AgentVisibility,
     };
     use sdkwork_agent_kernel::AgentManifest;
     use sdkwork_agent_kernel::KernelErrorKind;
@@ -1730,6 +1894,7 @@ mod tests {
             default_code_task_intent: None,
             implementation_provider_id: None,
             implementation_kind: None,
+            implementation_type: AgentImplementationType::SdkworkNative,
             status: AgentBusinessStatus::Draft,
             visibility: AgentVisibility::Organization,
             tags: vec!["starter".to_string()],

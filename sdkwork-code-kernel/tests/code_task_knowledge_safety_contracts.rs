@@ -64,7 +64,7 @@ fn knowledge_provider_returns_repository_docs_specs_and_generated_contracts() {
         )
         .expect("knowledge search returns results");
     assert_eq!(results[0].document_id, "doc.openapi.1");
-    assert_eq!(results[0].score, 98);
+    assert_eq!(results[0].score, 98.0);
 
     let document = provider
         .get_document(&workspace, "doc.openapi.1")
@@ -134,7 +134,7 @@ impl KnowledgeProvider for FakeKnowledgeProvider {
         Ok(vec![KnowledgeSearchResult::new(
             "doc.openapi.1",
             KnowledgeDocumentKind::GeneratedContract,
-            98,
+            98.0,
             "Generated OpenAPI contract",
         )])
     }

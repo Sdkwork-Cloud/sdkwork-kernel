@@ -378,7 +378,8 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
         .runtime
         .planning_provider()
         .expect("planning provider is registered")
-        .create_plan("task.1", "run.1", "plan");
+        .create_plan("task.1", "run.1", "plan")
+        .expect("plan creation succeeds");
     assert_eq!(plan.plan_id, "plan.core");
     let planning_manifest = report
         .runtime
@@ -726,6 +727,7 @@ fn runtime_registry_supports_multiple_context_and_planning_providers() {
             .planning_provider()
             .expect("default planning provider")
             .create_plan("task.1", "run.1", "plan")
+            .expect("plan creation succeeds")
             .plan_id,
         "plan.model"
     );
@@ -735,6 +737,7 @@ fn runtime_registry_supports_multiple_context_and_planning_providers() {
             .planning_provider_by_id("provider.planning.rules")
             .expect("planning provider by id")
             .create_plan("task.1", "run.1", "plan")
+            .expect("plan creation succeeds")
             .plan_id,
         "plan.rules"
     );
@@ -1300,8 +1303,8 @@ impl PlanningProvider for FakePlanningProvider {
         )
     }
 
-    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> Plan {
-        Plan::new("plan.core", task_id, run_id, summary)
+    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> KernelResult<Plan> {
+        Ok(Plan::new("plan.core", task_id, run_id, summary))
     }
 }
 
@@ -1326,8 +1329,8 @@ impl PlanningProvider for NamedPlanningProvider {
         )
     }
 
-    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> Plan {
-        Plan::new(self.plan_id, task_id, run_id, summary)
+    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> KernelResult<Plan> {
+        Ok(Plan::new(self.plan_id, task_id, run_id, summary))
     }
 }
 
@@ -1371,6 +1374,22 @@ impl HostProvider for FakeHostProvider {
 
     fn resolve_secret(&self, secret_ref: SecretRef) -> KernelResult<SecretValue> {
         Ok(SecretValue::new(secret_ref.secret_ref_id, "secret"))
+    }
+
+    fn storage(&self, request: sdkwork_agent_kernel::StorageRequest) -> KernelResult<sdkwork_agent_kernel::StorageResult> {
+        Ok(sdkwork_agent_kernel::StorageResult::stored(request.operation_id))
+    }
+
+    fn time(&self, request: sdkwork_agent_kernel::TimeRequest) -> KernelResult<sdkwork_agent_kernel::TimeResult> {
+        Ok(sdkwork_agent_kernel::TimeResult::now(request.operation_id, "2026-01-01T00:00:00Z"))
+    }
+
+    fn environment(&self, request: sdkwork_agent_kernel::EnvironmentRequest) -> KernelResult<sdkwork_agent_kernel::EnvironmentResult> {
+        Ok(sdkwork_agent_kernel::EnvironmentResult::not_found(request.operation_id, request.variable_name))
+    }
+
+    fn executor(&self, request: sdkwork_agent_kernel::ExecutorRequest) -> KernelResult<sdkwork_agent_kernel::ExecutorResult> {
+        Ok(sdkwork_agent_kernel::ExecutorResult::completed(request.operation_id, request.action_id, ""))
     }
 }
 
@@ -1438,6 +1457,22 @@ impl HostProvider for NamedHostProvider {
 
     fn resolve_secret(&self, secret_ref: SecretRef) -> KernelResult<SecretValue> {
         Ok(SecretValue::new(secret_ref.secret_ref_id, "secret"))
+    }
+
+    fn storage(&self, request: sdkwork_agent_kernel::StorageRequest) -> KernelResult<sdkwork_agent_kernel::StorageResult> {
+        Ok(sdkwork_agent_kernel::StorageResult::stored(request.operation_id))
+    }
+
+    fn time(&self, request: sdkwork_agent_kernel::TimeRequest) -> KernelResult<sdkwork_agent_kernel::TimeResult> {
+        Ok(sdkwork_agent_kernel::TimeResult::now(request.operation_id, "2026-01-01T00:00:00Z"))
+    }
+
+    fn environment(&self, request: sdkwork_agent_kernel::EnvironmentRequest) -> KernelResult<sdkwork_agent_kernel::EnvironmentResult> {
+        Ok(sdkwork_agent_kernel::EnvironmentResult::not_found(request.operation_id, request.variable_name))
+    }
+
+    fn executor(&self, request: sdkwork_agent_kernel::ExecutorRequest) -> KernelResult<sdkwork_agent_kernel::ExecutorResult> {
+        Ok(sdkwork_agent_kernel::ExecutorResult::completed(request.operation_id, request.action_id, ""))
     }
 }
 

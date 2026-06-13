@@ -1,4 +1,4 @@
-use crate::{TerminalCommand, Workspace};
+use crate::{first_policy_category, TerminalCommand, Workspace};
 use sdkwork_agent_kernel::{
     KernelResult, PolicyCategory, PolicyRequest, ProviderHealth, SideEffectLevel,
 };
@@ -20,6 +20,7 @@ pub struct VerificationPlan {
     pub verification_id: String,
     pub workspace_id: String,
     pub commands: Vec<TerminalCommand>,
+    pub policy_categories: Vec<String>,
 }
 
 impl VerificationPlan {
@@ -28,6 +29,7 @@ impl VerificationPlan {
             verification_id: verification_id.into(),
             workspace_id: workspace_id.into(),
             commands: Vec::new(),
+            policy_categories: Vec::new(),
         }
     }
 
@@ -36,18 +38,22 @@ impl VerificationPlan {
         self
     }
 
+    pub fn with_policy_categories(mut self, policy_categories: Vec<String>) -> Self {
+        self.policy_categories = policy_categories;
+        self
+    }
+
     pub fn to_policy_request(&self, policy_request_id: impl Into<String>) -> PolicyRequest {
+        let category = first_policy_category(&self.policy_categories, "code.verification.run");
         PolicyRequest::new(
             policy_request_id,
-            "code.verification.run",
+            &category,
             format!(
                 "workspace://{}/verifications/{}",
                 self.workspace_id, self.verification_id
             ),
         )
-        .with_category(PolicyCategory::ProductSpecific(
-            "code.verification.run".to_string(),
-        ))
+        .with_category(PolicyCategory::ProductSpecific(category))
         .with_action("verification.run")
         .with_side_effect_level(SideEffectLevel::SideEffectful)
         .with_context("workspace_id", self.workspace_id.clone())

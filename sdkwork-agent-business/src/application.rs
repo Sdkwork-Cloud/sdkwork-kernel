@@ -1,12 +1,12 @@
 use crate::domain::{
     AgentAuditAction, AgentBusinessRecord, AgentBusinessStatus, AgentDeploymentRecord,
-    AgentDeploymentStatus, AgentImplementationKind, AgentKnowledgeBaseKind,
-    AgentKnowledgeBaseRecord, AgentKnowledgeBindingRecord, AgentKnowledgeBindingScopeKind,
-    AgentKnowledgeChunkRecord, AgentKnowledgeDocumentKind, AgentKnowledgeDocumentRecord,
-    AgentKnowledgeIndexKind, AgentKnowledgeIndexRecord, AgentKnowledgeSearchResult,
-    AgentKnowledgeSourceKind, AgentKnowledgeSourceRecord, AgentKnowledgeSyncJobKind,
-    AgentKnowledgeSyncJobRecord, AgentKnowledgeSyncJobStatus, AgentMcpAuthKind,
-    AgentMcpServerRecord, AgentMcpTransportKind, AgentMemoryBindingRecord,
+    AgentDeploymentStatus, AgentImplementationKind, AgentImplementationType,
+    AgentKnowledgeBaseKind, AgentKnowledgeBaseRecord, AgentKnowledgeBindingRecord,
+    AgentKnowledgeBindingScopeKind, AgentKnowledgeChunkRecord, AgentKnowledgeDocumentKind,
+    AgentKnowledgeDocumentRecord, AgentKnowledgeIndexKind, AgentKnowledgeIndexRecord,
+    AgentKnowledgeSearchResult, AgentKnowledgeSourceKind, AgentKnowledgeSourceRecord,
+    AgentKnowledgeSyncJobKind, AgentKnowledgeSyncJobRecord, AgentKnowledgeSyncJobStatus,
+    AgentMcpAuthKind, AgentMcpServerRecord, AgentMcpTransportKind, AgentMemoryBindingRecord,
     AgentMemoryBindingScopeKind, AgentMemoryIndexKind, AgentMemoryNamespaceKind,
     AgentMemoryNamespaceRecord, AgentMemoryProfileRecord, AgentMemoryRecord, AgentMemoryRecordKind,
     AgentMemoryRelationKind, AgentMemoryRelationRecord, AgentMemoryRetrievalIndexRecord,
@@ -63,6 +63,7 @@ pub struct CreateAgentCommand {
     pub default_code_task_intent: Option<CodeTaskIntent>,
     pub implementation_provider_id: Option<String>,
     pub implementation_kind: Option<AgentImplementationKind>,
+    pub implementation_type: Option<AgentImplementationType>,
     pub requested_by: PolicySubject,
     pub requested_at: String,
 }
@@ -78,6 +79,9 @@ pub struct UpdateAgentCommand {
     pub visibility: Option<AgentVisibility>,
     pub tags: Option<Vec<String>>,
     pub default_code_task_intent: Option<CodeTaskIntent>,
+    pub implementation_provider_id: Option<Option<String>>,
+    pub implementation_kind: Option<Option<AgentImplementationKind>>,
+    pub implementation_type: Option<AgentImplementationType>,
     pub requested_by: PolicySubject,
     pub requested_at: String,
 }
@@ -801,6 +805,7 @@ where
             default_code_task_intent: command.default_code_task_intent,
             implementation_provider_id: command.implementation_provider_id,
             implementation_kind: command.implementation_kind,
+            implementation_type: command.implementation_type.unwrap_or_default(),
             status: AgentBusinessStatus::Draft,
             visibility: command.visibility,
             tags: command.tags,
@@ -4818,6 +4823,651 @@ where
             .list_memory_retrieval_indexes(tenant_id, memory_id))
     }
 
+    pub fn list_memory_stores(
+        &mut self,
+        tenant_id: u64,
+        requested_by: PolicySubject,
+    ) -> KernelResult<Vec<AgentMemoryStoreRecord>> {
+        self.authorize(
+            "agent.business.memory.store.list",
+            requested_by,
+            format!("agent.business.memory.store.tenant.{tenant_id}"),
+            "memory.store.list",
+        )?;
+        Ok(self.repository.list_memory_stores(tenant_id))
+    }
+
+    pub fn update_memory_profile(
+        &mut self,
+        command: AgentMemoryProfileCreateCommand,
+    ) -> KernelResult<AgentMemoryProfileRecord> {
+        self.authorize(
+            "agent.business.memory.profile.update",
+            command.requested_by.clone(),
+            format!(
+                "agent.business.memory.profile.{}",
+                command.memory_profile_id
+            ),
+            "memory.profile.update",
+        )?;
+        validate_standard_id(
+            command.memory_profile_id.as_str(),
+            "memoryProfileId",
+            Some("memory.profile."),
+        )?;
+        let mut record = self
+            .repository
+            .get_memory_profile(command.tenant_id, command.memory_profile_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory profile not found"))?;
+        ensure_marketplace_update_allowed(
+            record.is_deleted(),
+            record.version,
+            None,
+            "agent memory profile",
+        )?;
+        validate_standard_id(
+            command.memory_store_id.as_str(),
+            "memoryStoreId",
+            Some("memory.store."),
+        )?;
+        for (value, field) in [
+            (command.write_policy_json.as_str(), "writePolicyJson"),
+            (
+                command.retrieval_policy_json.as_str(),
+                "retrievalPolicyJson",
+            ),
+            (
+                command.compaction_policy_json.as_str(),
+                "compactionPolicyJson",
+            ),
+            (
+                command.retention_policy_json.as_str(),
+                "retentionPolicyJson",
+            ),
+            (command.privacy_policy_json.as_str(), "privacyPolicyJson"),
+        ] {
+            validate_marketplace_json(value, field)?;
+        }
+        self.get_active_memory_store(command.tenant_id, command.memory_store_id.as_str())?;
+
+        record.organization_id = command.organization_id;
+        record.owner_user_id = command.owner_user_id;
+        record.code = command.code;
+        record.display_name = command.display_name;
+        record.description = command.description;
+        record.memory_store_id = command.memory_store_id;
+        record.write_policy_json = command.write_policy_json;
+        record.retrieval_policy_json = command.retrieval_policy_json;
+        record.compaction_policy_json = command.compaction_policy_json;
+        record.retention_policy_json = command.retention_policy_json;
+        record.privacy_policy_json = command.privacy_policy_json;
+        record.visibility = command.visibility;
+        record.mark_updated(command.requested_at.clone());
+
+        self.repository.update_memory_profile(record.clone())?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryProfileUpdated,
+            item_kind: "memory_profile",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_profile_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
+        Ok(record)
+    }
+
+    pub fn delete_memory_profile(
+        &mut self,
+        command: DeleteAgentMarketplaceItemCommand,
+    ) -> KernelResult<AgentMemoryProfileRecord> {
+        self.authorize(
+            "agent.business.memory.profile.delete",
+            command.requested_by.clone(),
+            format!("agent.business.memory.profile.{}", command.item_id),
+            "memory.profile.delete",
+        )?;
+        validate_standard_id(
+            command.item_id.as_str(),
+            "memoryProfileId",
+            Some("memory.profile."),
+        )?;
+        let mut record = self
+            .repository
+            .get_memory_profile(command.tenant_id, command.item_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory profile not found"))?;
+        ensure_marketplace_delete_allowed(
+            record.is_deleted(),
+            record.version,
+            command.expected_version,
+            "agent memory profile",
+        )?;
+        self.get_active_memory_store(command.tenant_id, record.memory_store_id.as_str())?;
+        record.mark_deleted(command.requested_at.clone());
+        self.repository.update_memory_profile(record.clone())?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryProfileDeleted,
+            item_kind: "memory_profile",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_profile_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
+        Ok(record)
+    }
+
+    pub fn restore_memory_profile(
+        &mut self,
+        command: RestoreAgentMarketplaceItemCommand,
+    ) -> KernelResult<AgentMemoryProfileRecord> {
+        self.authorize(
+            "agent.business.memory.profile.restore",
+            command.requested_by.clone(),
+            format!("agent.business.memory.profile.{}", command.item_id),
+            "memory.profile.restore",
+        )?;
+        validate_standard_id(
+            command.item_id.as_str(),
+            "memoryProfileId",
+            Some("memory.profile."),
+        )?;
+        let mut record = self
+            .repository
+            .get_memory_profile(command.tenant_id, command.item_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory profile not found"))?;
+        ensure_marketplace_restore_allowed(
+            record.is_deleted(),
+            record.version,
+            command.expected_version,
+            "agent memory profile",
+        )?;
+        self.get_active_memory_store(command.tenant_id, record.memory_store_id.as_str())?;
+        record.mark_restored(command.requested_at.clone());
+        self.repository.update_memory_profile(record.clone())?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryProfileRestored,
+            item_kind: "memory_profile",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_profile_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
+        Ok(record)
+    }
+
+    pub fn update_memory_binding(
+        &mut self,
+        command: AgentMemoryBindingCreateCommand,
+    ) -> KernelResult<AgentMemoryBindingRecord> {
+        self.authorize(
+            "agent.business.memory.binding.update",
+            command.requested_by.clone(),
+            format!(
+                "agent.business.memory.binding.{}",
+                command.memory_binding_id
+            ),
+            "memory.binding.update",
+        )?;
+        validate_standard_id(
+            command.memory_binding_id.as_str(),
+            "memoryBindingId",
+            Some("memory.binding."),
+        )?;
+        let mut record = self
+            .repository
+            .get_memory_binding(command.tenant_id, command.memory_binding_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory binding not found"))?;
+        validate_standard_id(
+            command.memory_profile_id.as_str(),
+            "memoryProfileId",
+            Some("memory.profile."),
+        )?;
+        validate_optional_agent_id(command.agent_id.as_deref())?;
+        validate_optional_standard_ref(
+            command.deployment_id.as_deref(),
+            "deploymentId",
+            "deployment.",
+        )?;
+        validate_safe_text_field(
+            command.scope_ref.as_str(),
+            "scopeRef",
+            MAX_MEMORY_SCOPE_REF_CHARS,
+        )?;
+        validate_memory_binding_scope(
+            command.scope_kind,
+            command.scope_ref.as_str(),
+            command.agent_id.as_deref(),
+            command.deployment_id.as_deref(),
+        )?;
+        self.get_active_memory_profile(command.tenant_id, command.memory_profile_id.as_str())?;
+
+        record.organization_id = command.organization_id;
+        record.memory_profile_id = command.memory_profile_id;
+        record.agent_id = command.agent_id;
+        record.deployment_id = command.deployment_id;
+        record.scope_kind = command.scope_kind;
+        record.scope_ref = command.scope_ref;
+        record.active = command.active;
+        record.default_binding = command.default_binding;
+        record.mark_updated(command.requested_at.clone());
+
+        self.repository.update_memory_binding(record.clone())?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryBindingUpdated,
+            item_kind: "memory_binding",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_binding_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
+        Ok(record)
+    }
+
+    pub fn delete_memory_binding(
+        &mut self,
+        command: DeleteAgentMarketplaceItemCommand,
+    ) -> KernelResult<AgentMemoryBindingRecord> {
+        self.authorize(
+            "agent.business.memory.binding.delete",
+            command.requested_by.clone(),
+            format!("agent.business.memory.binding.{}", command.item_id),
+            "memory.binding.delete",
+        )?;
+        validate_standard_id(
+            command.item_id.as_str(),
+            "memoryBindingId",
+            Some("memory.binding."),
+        )?;
+        let record = self
+            .repository
+            .get_memory_binding(command.tenant_id, command.item_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory binding not found"))?;
+        self.get_active_memory_profile(command.tenant_id, record.memory_profile_id.as_str())?;
+        let mut updated = record.clone();
+        updated.active = false;
+        updated.mark_updated(command.requested_at.clone());
+        self.repository.update_memory_binding(updated.clone())?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryBindingDeleted,
+            item_kind: "memory_binding",
+            tenant_id: updated.tenant_id,
+            organization_id: updated.organization_id,
+            item_id: updated.memory_binding_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: updated.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
+        Ok(updated)
+    }
+
+    pub fn restore_memory_binding(
+        &mut self,
+        command: RestoreAgentMarketplaceItemCommand,
+    ) -> KernelResult<AgentMemoryBindingRecord> {
+        self.authorize(
+            "agent.business.memory.binding.restore",
+            command.requested_by.clone(),
+            format!("agent.business.memory.binding.{}", command.item_id),
+            "memory.binding.restore",
+        )?;
+        validate_standard_id(
+            command.item_id.as_str(),
+            "memoryBindingId",
+            Some("memory.binding."),
+        )?;
+        let record = self
+            .repository
+            .get_memory_binding(command.tenant_id, command.item_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory binding not found"))?;
+        self.get_active_memory_profile(command.tenant_id, record.memory_profile_id.as_str())?;
+        let mut updated = record.clone();
+        updated.active = true;
+        updated.mark_updated(command.requested_at.clone());
+        self.repository.update_memory_binding(updated.clone())?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryBindingRestored,
+            item_kind: "memory_binding",
+            tenant_id: updated.tenant_id,
+            organization_id: updated.organization_id,
+            item_id: updated.memory_binding_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: updated.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
+        Ok(updated)
+    }
+
+    pub fn update_memory_namespace(
+        &mut self,
+        command: AgentMemoryNamespaceCreateCommand,
+    ) -> KernelResult<AgentMemoryNamespaceRecord> {
+        self.authorize(
+            "agent.business.memory.namespace.update",
+            command.requested_by.clone(),
+            format!(
+                "agent.business.memory.namespace.{}",
+                command.memory_namespace_id
+            ),
+            "memory.namespace.update",
+        )?;
+        validate_standard_id(
+            command.memory_namespace_id.as_str(),
+            "memoryNamespaceId",
+            Some("memory.namespace."),
+        )?;
+        let mut record = self
+            .repository
+            .get_memory_namespace(command.tenant_id, command.memory_namespace_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory namespace not found"))?;
+        validate_optional_agent_id(command.agent_id.as_deref())?;
+        validate_optional_plain_ref(command.user_ref.as_deref(), "userRef")?;
+        validate_optional_plain_ref(command.session_ref.as_deref(), "sessionRef")?;
+        validate_optional_plain_ref(command.thread_ref.as_deref(), "threadRef")?;
+
+        record.organization_id = command.organization_id;
+        record.agent_id = command.agent_id;
+        record.user_ref = command.user_ref;
+        record.session_ref = command.session_ref;
+        record.thread_ref = command.thread_ref;
+        record.namespace_kind = command.namespace_kind;
+        record.visibility = command.visibility;
+        record.mark_updated(command.requested_at.clone());
+
+        self.repository.update_memory_namespace(record.clone())?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryNamespaceUpdated,
+            item_kind: "memory_namespace",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_namespace_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
+        Ok(record)
+    }
+
+    pub fn delete_memory_namespace(
+        &mut self,
+        command: DeleteAgentMarketplaceItemCommand,
+    ) -> KernelResult<AgentMemoryNamespaceRecord> {
+        self.authorize(
+            "agent.business.memory.namespace.delete",
+            command.requested_by.clone(),
+            format!("agent.business.memory.namespace.{}", command.item_id),
+            "memory.namespace.delete",
+        )?;
+        validate_standard_id(
+            command.item_id.as_str(),
+            "memoryNamespaceId",
+            Some("memory.namespace."),
+        )?;
+        let mut record = self
+            .repository
+            .get_memory_namespace(command.tenant_id, command.item_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory namespace not found"))?;
+        ensure_marketplace_delete_allowed(
+            record.is_deleted(),
+            record.version,
+            command.expected_version,
+            "agent memory namespace",
+        )?;
+        record.mark_deleted(command.requested_at.clone());
+        self.repository.update_memory_namespace(record.clone())?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryNamespaceDeleted,
+            item_kind: "memory_namespace",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_namespace_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
+        Ok(record)
+    }
+
+    pub fn restore_memory_namespace(
+        &mut self,
+        command: RestoreAgentMarketplaceItemCommand,
+    ) -> KernelResult<AgentMemoryNamespaceRecord> {
+        self.authorize(
+            "agent.business.memory.namespace.restore",
+            command.requested_by.clone(),
+            format!("agent.business.memory.namespace.{}", command.item_id),
+            "memory.namespace.restore",
+        )?;
+        validate_standard_id(
+            command.item_id.as_str(),
+            "memoryNamespaceId",
+            Some("memory.namespace."),
+        )?;
+        let mut record = self
+            .repository
+            .get_memory_namespace(command.tenant_id, command.item_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory namespace not found"))?;
+        ensure_marketplace_restore_allowed(
+            record.is_deleted(),
+            record.version,
+            command.expected_version,
+            "agent memory namespace",
+        )?;
+        record.mark_restored(command.requested_at.clone());
+        self.repository.update_memory_namespace(record.clone())?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryNamespaceRestored,
+            item_kind: "memory_namespace",
+            tenant_id: record.tenant_id,
+            organization_id: record.organization_id,
+            item_id: record.memory_namespace_id.as_str(),
+            status: record.status,
+            visibility: record.visibility,
+            version: record.version,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
+        Ok(record)
+    }
+
+    pub fn get_memory_source(
+        &mut self,
+        command: GetAgentMarketplaceItemCommand,
+    ) -> KernelResult<AgentMemorySourceRecord> {
+        self.authorize(
+            "agent.business.memory.source.retrieve",
+            command.requested_by,
+            format!("agent.business.memory.source.{}", command.item_id),
+            "memory.source.retrieve",
+        )?;
+        validate_standard_id(
+            command.item_id.as_str(),
+            "memorySourceId",
+            Some("memory.source."),
+        )?;
+        self.repository
+            .get_memory_source(command.tenant_id, command.item_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory source not found"))
+    }
+
+    pub fn delete_memory_source(
+        &mut self,
+        command: DeleteAgentMarketplaceItemCommand,
+    ) -> KernelResult<AgentMemorySourceRecord> {
+        self.authorize(
+            "agent.business.memory.source.delete",
+            command.requested_by.clone(),
+            format!("agent.business.memory.source.{}", command.item_id),
+            "memory.source.delete",
+        )?;
+        validate_standard_id(
+            command.item_id.as_str(),
+            "memorySourceId",
+            Some("memory.source."),
+        )?;
+        let record = self
+            .repository
+            .get_memory_source(command.tenant_id, command.item_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory source not found"))?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemorySourceDeleted,
+            item_kind: "memory_source",
+            tenant_id: record.tenant_id,
+            organization_id: 0,
+            item_id: record.memory_source_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: 1,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
+        Ok(record)
+    }
+
+    pub fn restore_memory_source(
+        &mut self,
+        command: RestoreAgentMarketplaceItemCommand,
+    ) -> KernelResult<AgentMemorySourceRecord> {
+        self.authorize(
+            "agent.business.memory.source.restore",
+            command.requested_by.clone(),
+            format!("agent.business.memory.source.{}", command.item_id),
+            "memory.source.restore",
+        )?;
+        validate_standard_id(
+            command.item_id.as_str(),
+            "memorySourceId",
+            Some("memory.source."),
+        )?;
+        let record = self
+            .repository
+            .get_memory_source(command.tenant_id, command.item_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory source not found"))?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemorySourceRestored,
+            item_kind: "memory_source",
+            tenant_id: record.tenant_id,
+            organization_id: 0,
+            item_id: record.memory_source_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: 1,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
+        Ok(record)
+    }
+
+    pub fn get_memory_relation(
+        &mut self,
+        command: GetAgentMarketplaceItemCommand,
+    ) -> KernelResult<AgentMemoryRelationRecord> {
+        self.authorize(
+            "agent.business.memory.relation.retrieve",
+            command.requested_by,
+            format!("agent.business.memory.relation.{}", command.item_id),
+            "memory.relation.retrieve",
+        )?;
+        validate_standard_id(
+            command.item_id.as_str(),
+            "memoryRelationId",
+            Some("memory.relation."),
+        )?;
+        self.repository
+            .get_memory_relation(command.tenant_id, command.item_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory relation not found"))
+    }
+
+    pub fn delete_memory_relation(
+        &mut self,
+        command: DeleteAgentMarketplaceItemCommand,
+    ) -> KernelResult<AgentMemoryRelationRecord> {
+        self.authorize(
+            "agent.business.memory.relation.delete",
+            command.requested_by.clone(),
+            format!("agent.business.memory.relation.{}", command.item_id),
+            "memory.relation.delete",
+        )?;
+        validate_standard_id(
+            command.item_id.as_str(),
+            "memoryRelationId",
+            Some("memory.relation."),
+        )?;
+        let record = self
+            .repository
+            .get_memory_relation(command.tenant_id, command.item_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory relation not found"))?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryRelationDeleted,
+            item_kind: "memory_relation",
+            tenant_id: record.tenant_id,
+            organization_id: 0,
+            item_id: record.memory_relation_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: 1,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
+        Ok(record)
+    }
+
+    pub fn restore_memory_relation(
+        &mut self,
+        command: RestoreAgentMarketplaceItemCommand,
+    ) -> KernelResult<AgentMemoryRelationRecord> {
+        self.authorize(
+            "agent.business.memory.relation.restore",
+            command.requested_by.clone(),
+            format!("agent.business.memory.relation.{}", command.item_id),
+            "memory.relation.restore",
+        )?;
+        validate_standard_id(
+            command.item_id.as_str(),
+            "memoryRelationId",
+            Some("memory.relation."),
+        )?;
+        let record = self
+            .repository
+            .get_memory_relation(command.tenant_id, command.item_id.as_str())
+            .ok_or_else(|| KernelError::validation("agent memory relation not found"))?;
+        self.emit_memory_audit_event(AgentBusinessAuditEventInput {
+            action: AgentAuditAction::MemoryRelationRestored,
+            item_kind: "memory_relation",
+            tenant_id: record.tenant_id,
+            organization_id: 0,
+            item_id: record.memory_relation_id.as_str(),
+            status: AgentBusinessStatus::Active,
+            visibility: AgentVisibility::Tenant,
+            version: 1,
+            subject: command.requested_by,
+            occurred_at: command.requested_at,
+        })?;
+        Ok(record)
+    }
+
     pub fn update_agent(
         &mut self,
         command: UpdateAgentCommand,
@@ -4870,6 +5520,18 @@ where
         }
         if let Some(intent) = command.default_code_task_intent {
             record.default_code_task_intent = Some(intent);
+        }
+        if let Some(provider_id) = command.implementation_provider_id {
+            if let Some(provider_id) = provider_id.as_deref() {
+                validate_standard_id(provider_id, "implementationProviderId", Some("provider."))?;
+            }
+            record.implementation_provider_id = provider_id;
+        }
+        if let Some(implementation_kind) = command.implementation_kind {
+            record.implementation_kind = implementation_kind;
+        }
+        if let Some(implementation_type) = command.implementation_type {
+            record.implementation_type = implementation_type;
         }
         record.mark_updated(command.requested_at.clone());
 

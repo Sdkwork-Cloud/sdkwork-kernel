@@ -1,4 +1,4 @@
-use crate::{KernelResult, ProviderHealth, ProviderManifest, SideEffectLevel};
+use crate::{KernelError, KernelResult, ProviderHealth, ProviderManifest, SideEffectLevel};
 use std::fmt::{Debug, Formatter};
 
 pub trait HostProvider {
@@ -13,6 +13,30 @@ pub trait HostProvider {
     fn network(&self, request: NetworkRequest) -> KernelResult<NetworkResult>;
 
     fn resolve_secret(&self, secret_ref: SecretRef) -> KernelResult<SecretValue>;
+
+    fn storage(&self, _request: StorageRequest) -> KernelResult<StorageResult> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "host.storage".to_string(),
+        })
+    }
+
+    fn time(&self, _request: TimeRequest) -> KernelResult<TimeResult> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "host.time".to_string(),
+        })
+    }
+
+    fn environment(&self, _request: EnvironmentRequest) -> KernelResult<EnvironmentResult> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "host.environment".to_string(),
+        })
+    }
+
+    fn executor(&self, _request: ExecutorRequest) -> KernelResult<ExecutorResult> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "host.executor".to_string(),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -439,6 +463,141 @@ impl ExecutorRequest {
 
     pub fn requires_policy(&self) -> bool {
         true
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StorageResult {
+    pub operation_id: String,
+    pub stored: bool,
+    pub version: Option<u64>,
+}
+
+impl StorageResult {
+    pub fn stored(operation_id: impl Into<String>) -> Self {
+        Self {
+            operation_id: operation_id.into(),
+            stored: true,
+            version: None,
+        }
+    }
+
+    pub fn with_version(mut self, version: u64) -> Self {
+        self.version = Some(version);
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimeResult {
+    pub operation_id: String,
+    pub timestamp: String,
+    pub timezone: Option<String>,
+}
+
+impl TimeResult {
+    pub fn now(operation_id: impl Into<String>, timestamp: impl Into<String>) -> Self {
+        Self {
+            operation_id: operation_id.into(),
+            timestamp: timestamp.into(),
+            timezone: None,
+        }
+    }
+
+    pub fn with_timezone(mut self, timezone: impl Into<String>) -> Self {
+        self.timezone = Some(timezone.into());
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvironmentResult {
+    pub operation_id: String,
+    pub variable_name: String,
+    pub value: Option<String>,
+}
+
+impl EnvironmentResult {
+    pub fn resolved(
+        operation_id: impl Into<String>,
+        variable_name: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        Self {
+            operation_id: operation_id.into(),
+            variable_name: variable_name.into(),
+            value: Some(value.into()),
+        }
+    }
+
+    pub fn not_found(operation_id: impl Into<String>, variable_name: impl Into<String>) -> Self {
+        Self {
+            operation_id: operation_id.into(),
+            variable_name: variable_name.into(),
+            value: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutorStatus {
+    Completed,
+    Failed,
+    Cancelled,
+    TimedOut,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutorResult {
+    pub operation_id: String,
+    pub action_id: String,
+    pub status: ExecutorStatus,
+    pub output: Option<String>,
+}
+
+impl ExecutorResult {
+    pub fn completed(
+        operation_id: impl Into<String>,
+        action_id: impl Into<String>,
+        output: impl Into<String>,
+    ) -> Self {
+        Self {
+            operation_id: operation_id.into(),
+            action_id: action_id.into(),
+            status: ExecutorStatus::Completed,
+            output: Some(output.into()),
+        }
+    }
+
+    pub fn failed(
+        operation_id: impl Into<String>,
+        action_id: impl Into<String>,
+        output: impl Into<String>,
+    ) -> Self {
+        Self {
+            operation_id: operation_id.into(),
+            action_id: action_id.into(),
+            status: ExecutorStatus::Failed,
+            output: Some(output.into()),
+        }
+    }
+
+    pub fn cancelled(operation_id: impl Into<String>, action_id: impl Into<String>) -> Self {
+        Self {
+            operation_id: operation_id.into(),
+            action_id: action_id.into(),
+            status: ExecutorStatus::Cancelled,
+            output: None,
+        }
+    }
+
+    pub fn timed_out(operation_id: impl Into<String>, action_id: impl Into<String>) -> Self {
+        Self {
+            operation_id: operation_id.into(),
+            action_id: action_id.into(),
+            status: ExecutorStatus::TimedOut,
+            output: None,
+        }
     }
 }
 

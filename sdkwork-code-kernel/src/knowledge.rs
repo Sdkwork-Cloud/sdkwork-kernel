@@ -108,11 +108,11 @@ impl KnowledgeQuery {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct KnowledgeSearchResult {
     pub document_id: String,
     pub kind: KnowledgeDocumentKind,
-    pub score: u32,
+    pub score: f32,
     pub title: String,
 }
 
@@ -120,7 +120,7 @@ impl KnowledgeSearchResult {
     pub fn new(
         document_id: impl Into<String>,
         kind: KnowledgeDocumentKind,
-        score: u32,
+        score: f32,
         title: impl Into<String>,
     ) -> Self {
         Self {

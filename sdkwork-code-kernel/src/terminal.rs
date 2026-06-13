@@ -1,4 +1,5 @@
 use crate::{CommandResult, Workspace};
+use crate::first_policy_category;
 use sdkwork_agent_kernel::{
     HostEnvPolicy, KernelEventRedaction, KernelResult, PolicyCategory, PolicyRequest,
     ProviderHealth, SideEffectLevel,
@@ -170,13 +171,6 @@ impl TerminalOutputChunk {
         self.redaction_classification = redaction_classification;
         self
     }
-}
-
-fn first_policy_category(policy_categories: &[String], fallback: &str) -> String {
-    policy_categories
-        .first()
-        .cloned()
-        .unwrap_or_else(|| fallback.to_string())
 }
 
 fn env_policy_name(env_policy: &HostEnvPolicy) -> &'static str {

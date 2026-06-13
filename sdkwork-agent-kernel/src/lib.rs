@@ -19,6 +19,7 @@ mod package;
 mod planning;
 mod policy;
 mod protocol;
+mod provider;
 mod runtime;
 mod runtime_host;
 mod skill;
@@ -47,8 +48,8 @@ pub use conformance::{
     KernelConformanceReport,
 };
 pub use context_memory::{
-    ContextFrame, ContextProvider, MemoryProvider, MemoryRecord, MemoryScope,
-    RedactionClassification, TrustLevel,
+    ContextExplanation, ContextFrame, ContextProvider, ContextRanking, MemoryProvider,
+    MemoryRecord, MemoryScope, RedactionClassification, TrustLevel,
 };
 pub use definition::{
     AgentDefinition, AgentProviderBinding, AgentProviderBindingMode, AgentProviderFamily,
@@ -65,9 +66,10 @@ pub use execution::{
     AgentExecutionResumeRequest, AgentExecutionService, AgentExecutionStatus, AgentObservation,
 };
 pub use host::{
-    EnvironmentRequest, ExecutorRequest, FilesystemOperation, FilesystemRequest, FilesystemResult,
-    HostEnvPolicy, HostPathPolicy, HostProvider, NetworkRequest, NetworkResult, ProcessRequest,
-    ProcessResult, SecretRef, SecretValue, StorageRequest, TimeRequest,
+    EnvironmentRequest, EnvironmentResult, ExecutorRequest, ExecutorResult, ExecutorStatus,
+    FilesystemOperation, FilesystemRequest, FilesystemResult, HostEnvPolicy, HostPathPolicy,
+    HostProvider, NetworkRequest, NetworkResult, ProcessRequest, ProcessResult, SecretRef,
+    SecretValue, StorageRequest, StorageResult, TimeRequest, TimeResult,
 };
 pub use installation::{
     AgentInstallPlan, AgentInstallReport, AgentInstallRequest, AgentInstallStatus,
@@ -106,14 +108,18 @@ pub use package::{
 };
 pub use planning::{Action, ActionKind, ActionStatus, Observation, Plan, PlanningProvider};
 pub use policy::{
-    PolicyCategory, PolicyDecision, PolicyDecisionConstraint, PolicyDecisionValue, PolicyProvider,
-    PolicyRequest, PolicySubject,
+    PolicyCategory, PolicyDecision, PolicyDecisionConstraint, PolicyDecisionValue, PolicyExplanation,
+    PolicyProvider, PolicyRequest, PolicySubject,
 };
 pub use protocol::{
     ProtocolAdapter, ProtocolAdapterAuthMode, ProtocolAdapterManifest, ProtocolAdapterRequest,
     ProtocolAdapterResponse, ProtocolAdapterStreamingSupport, ProtocolError, ProtocolFamily,
     ProtocolObjectEnvelope, ProtocolObjectKind, ProtocolObjectMapper, ProtocolSseEvent,
     ProtocolStreamUpdate, ProtocolTransport, StandardProtocolObjectMapper,
+};
+pub use provider::{
+    AgentProvider, BatchOperations, Cancellable, Lifecycle, Listable, PolicyGated,
+    ProviderError, ProviderRegistration, ProviderSource, Streaming,
 };
 pub use runtime::{
     AgentProviderDiagnostic, AgentRuntime, AgentRuntimeDiagnostics, RuntimeBootstrapReport,

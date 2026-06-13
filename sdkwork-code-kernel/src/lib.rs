@@ -4,6 +4,7 @@ mod conformance;
 mod knowledge;
 mod language;
 mod patch;
+mod policy_utils;
 mod protocol;
 mod review;
 mod runtime;
@@ -57,6 +58,7 @@ pub use workspace::{
     WorkspaceFileStat, WorkspaceProvider, WorkspaceWatchEvent, WorkspaceWatchEventKind,
     WorkspaceWriteRequest, WorkspaceWriteResult,
 };
+pub use policy_utils::first_policy_category;
 
 pub const CODE_KERNEL_SPEC_VERSION: &str = "0.1.0";
 pub const CODE_CAPABILITY_MANIFEST_SCHEMA: &str =

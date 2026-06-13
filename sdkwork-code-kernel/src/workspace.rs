@@ -1,3 +1,4 @@
+use crate::first_policy_category;
 use sdkwork_agent_kernel::{
     KernelResult, PolicyCategory, PolicyRequest, ProviderHealth, SideEffectLevel,
 };
@@ -344,11 +345,4 @@ impl WorkspaceWatchEvent {
             previous_path: Some(previous_path.into()),
         }
     }
-}
-
-fn first_policy_category(policy_categories: &[String], fallback: &str) -> String {
-    policy_categories
-        .first()
-        .cloned()
-        .unwrap_or_else(|| fallback.to_string())
 }

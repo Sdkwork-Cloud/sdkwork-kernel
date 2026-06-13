@@ -1632,11 +1632,11 @@ impl McpProvider for CountingMcpProvider {
         ProviderHealth::available()
     }
 
-    fn list_servers(&self) -> Vec<McpServerDescriptor> {
-        vec![
+    fn list_servers(&self) -> KernelResult<Vec<McpServerDescriptor>> {
+        Ok(vec![
             McpServerDescriptor::new("mcp.execution", "provider.mcp.execution", "sdkwork.test")
                 .with_capability("mcp.tools"),
-        ]
+        ])
     }
 
     fn list_tools(&self, _server_id: &str) -> KernelResult<Vec<ToolDescriptor>> {

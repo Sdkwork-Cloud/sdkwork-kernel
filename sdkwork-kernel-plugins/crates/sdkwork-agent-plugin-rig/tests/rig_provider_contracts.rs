@@ -102,7 +102,7 @@ fn rig_mcp_provider_exposes_tools_resources_and_prompts_without_leaking_transpor
     );
     assert_eq!(provider.health().status, "degraded");
 
-    let server = provider.list_servers()[0].clone();
+    let server = provider.list_servers().expect("list_servers")[0].clone();
     assert_eq!(server.provider_id, ids::MCP_PROVIDER_ID);
     assert_eq!(server.transport, "sdkwork.rig.adapter");
     assert!(server.capabilities.contains(&"mcp.tools".to_string()));

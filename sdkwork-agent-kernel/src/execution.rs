@@ -1045,7 +1045,7 @@ impl AgentExecutionService {
             .clone()
             .unwrap_or_else(|| format!("run.{}", request.execution_id));
         let summary = request.messages.join("\n");
-        let plan = planning_provider.create_plan(&task_id, &run_id, &summary);
+        let plan = planning_provider.create_plan(&task_id, &run_id, &summary)?;
         planning_provider.validate_plan(&plan)?;
 
         Ok(Some(plan))

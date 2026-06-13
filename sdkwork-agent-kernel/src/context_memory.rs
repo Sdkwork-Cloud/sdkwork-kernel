@@ -123,9 +123,48 @@ pub trait ContextProvider {
 
     fn collect(&self, session_id: &str) -> KernelResult<Vec<ContextFrame>>;
 
+    fn rank(&self, frames: &[ContextFrame]) -> KernelResult<Vec<ContextRanking>> {
+        Ok(frames
+            .iter()
+            .enumerate()
+            .map(|(i, f)| ContextRanking {
+                frame_id: f.context_frame_id.clone(),
+                relevance_score: 1.0 - (i as f64 * 0.01),
+                reason: None,
+            })
+            .collect())
+    }
+
+    fn trim(&self, frames: Vec<ContextFrame>, max_tokens: usize) -> KernelResult<Vec<ContextFrame>> {
+        let _ = max_tokens;
+        Ok(frames)
+    }
+
+    fn explain(&self, frame: &ContextFrame) -> KernelResult<ContextExplanation> {
+        Ok(ContextExplanation {
+            frame_id: frame.context_frame_id.clone(),
+            reason: "default context explanation".to_string(),
+            source_factors: Vec::new(),
+        })
+    }
+
     fn health(&self) -> ProviderHealth {
         ProviderHealth::available()
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContextRanking {
+    pub frame_id: String,
+    pub relevance_score: f64,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContextExplanation {
+    pub frame_id: String,
+    pub reason: String,
+    pub source_factors: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

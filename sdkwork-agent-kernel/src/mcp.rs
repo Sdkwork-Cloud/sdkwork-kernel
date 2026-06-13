@@ -239,7 +239,7 @@ pub trait McpProvider {
 
     fn health(&self) -> ProviderHealth;
 
-    fn list_servers(&self) -> Vec<McpServerDescriptor>;
+    fn list_servers(&self) -> KernelResult<Vec<McpServerDescriptor>>;
 
     fn list_tools(&self, _server_id: &str) -> KernelResult<Vec<ToolDescriptor>> {
         Err(KernelError::CapabilityMissing {

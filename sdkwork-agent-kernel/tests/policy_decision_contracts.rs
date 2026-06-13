@@ -1,7 +1,7 @@
 use sdkwork_agent_kernel::{
     KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelEventSource, PolicyCategory,
     PolicyDecision, PolicyDecisionConstraint, PolicyDecisionValue, PolicyExplanation,
-    PolicyProvider, PolicyRequest, PolicySubject, SideEffectLevel,
+    PolicyProvider, PolicyRequest, PolicySubject, ProviderHealth, SideEffectLevel,
 };
 
 #[test]
@@ -253,5 +253,9 @@ impl PolicyProvider for FakePolicyProvider {
             &request.policy_request_id,
             "provider.policy.fake",
         ))
+    }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
     }
 }

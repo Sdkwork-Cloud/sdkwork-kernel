@@ -25,6 +25,7 @@ SDKWork integration should happen through the existing kernel boundaries:
 | `external/opencode` | `https://github.com/opencode-ai/opencode.git` | Code-agent runtime, provider abstraction, terminal/workspace orchestration |
 | `external/gemini-cli` | `https://github.com/google-gemini/gemini-cli.git` | Code-agent CLI behavior, model/tool integration, command workflow |
 | `external/rig` | `https://github.com/0xPlaygrounds/rig.git` | Rust-native agent framework patterns for model/tool/provider composition |
+| `external/mimo-code` | `https://github.com/XiaomiMiMo/MiMo-Code.git` | MiMo Code agent, code-agent runtime, tool orchestration, workspace management |
 
 ## Usage
 
@@ -44,6 +45,7 @@ git submodule update --remote --merge external/claude-code
 git submodule update --remote --merge external/opencode
 git submodule update --remote --merge external/gemini-cli
 git submodule update --remote --merge external/rig
+git submodule update --remote --merge external/mimo-code
 ```
 
 When a submodule is updated, review the changed upstream code and record the

@@ -292,12 +292,169 @@ impl AgentHandoffResult {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentDelegationRequest {
+    pub delegation_id: String,
+    pub source_agent_id: String,
+    pub target_agent_id: String,
+    pub capability_id: String,
+    pub task_description: String,
+    pub policy_context_id: Option<String>,
+    pub timeout_ms: Option<u64>,
+    pub redaction_classification: RedactionClassification,
+    pub metadata: Vec<(String, String)>,
+}
+
+impl AgentDelegationRequest {
+    pub fn new(
+        delegation_id: impl Into<String>,
+        source_agent_id: impl Into<String>,
+        target_agent_id: impl Into<String>,
+        capability_id: impl Into<String>,
+        task_description: impl Into<String>,
+    ) -> Self {
+        Self {
+            delegation_id: delegation_id.into(),
+            source_agent_id: source_agent_id.into(),
+            target_agent_id: target_agent_id.into(),
+            capability_id: capability_id.into(),
+            task_description: task_description.into(),
+            policy_context_id: None,
+            timeout_ms: None,
+            redaction_classification: RedactionClassification::Internal,
+            metadata: Vec::new(),
+        }
+    }
+
+    pub fn with_policy_context(mut self, policy_context_id: impl Into<String>) -> Self {
+        self.policy_context_id = Some(policy_context_id.into());
+        self
+    }
+
+    pub fn with_timeout_ms(mut self, timeout_ms: u64) -> Self {
+        self.timeout_ms = Some(timeout_ms);
+        self
+    }
+
+    pub fn with_redaction(mut self, redaction_classification: RedactionClassification) -> Self {
+        self.redaction_classification = redaction_classification;
+        self
+    }
+
+    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.push((key.into(), value.into()));
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentDelegationResult {
+    pub delegation_id: String,
+    pub delegation: AgentDelegation,
+    pub status: AgentDelegationStatus,
+    pub result: Option<String>,
+    pub messages: Vec<AgentMessage>,
+    pub artifact_ids: Vec<String>,
+    pub trace_context: Option<TraceContext>,
+    pub metadata: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentDelegationStatus {
+    Accepted,
+    Completed,
+    Failed,
+    Rejected,
+    TimedOut,
+    Cancelled,
+}
+
+impl AgentDelegationStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Rejected => "rejected",
+            Self::TimedOut => "timed_out",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
+impl AgentDelegationResult {
+    pub fn accepted(delegation_id: impl Into<String>, delegation: AgentDelegation) -> Self {
+        Self {
+            delegation_id: delegation_id.into(),
+            delegation,
+            status: AgentDelegationStatus::Accepted,
+            result: None,
+            messages: Vec::new(),
+            artifact_ids: Vec::new(),
+            trace_context: None,
+            metadata: Vec::new(),
+        }
+    }
+
+    pub fn completed(
+        delegation_id: impl Into<String>,
+        delegation: AgentDelegation,
+        result: impl Into<String>,
+    ) -> Self {
+        Self {
+            delegation_id: delegation_id.into(),
+            delegation,
+            status: AgentDelegationStatus::Completed,
+            result: Some(result.into()),
+            messages: Vec::new(),
+            artifact_ids: Vec::new(),
+            trace_context: None,
+            metadata: Vec::new(),
+        }
+    }
+
+    pub fn failed(
+        delegation_id: impl Into<String>,
+        delegation: AgentDelegation,
+        error: impl Into<String>,
+    ) -> Self {
+        Self {
+            delegation_id: delegation_id.into(),
+            delegation,
+            status: AgentDelegationStatus::Failed,
+            result: Some(error.into()),
+            messages: Vec::new(),
+            artifact_ids: Vec::new(),
+            trace_context: None,
+            metadata: Vec::new(),
+        }
+    }
+
+    pub fn with_message(mut self, message: AgentMessage) -> Self {
+        self.messages.push(message);
+        self
+    }
+
+    pub fn with_artifact(mut self, artifact_id: impl Into<String>) -> Self {
+        self.artifact_ids.push(artifact_id.into());
+        self
+    }
+
+    pub fn with_trace_context(mut self, trace_context: TraceContext) -> Self {
+        self.trace_context = Some(trace_context);
+        self
+    }
+
+    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.push((key.into(), value.into()));
+        self
+    }
+}
+
 pub trait AgentCollaborationProvider {
     fn provider_manifest(&self) -> ProviderManifest;
 
-    fn health(&self) -> ProviderHealth {
-        ProviderHealth::available()
-    }
+    fn health(&self) -> ProviderHealth;
 
     fn list_agents(&self) -> Vec<AgentCard>;
 
@@ -311,4 +468,6 @@ pub trait AgentCollaborationProvider {
     }
 
     fn handoff(&self, request: AgentHandoffRequest) -> KernelResult<AgentHandoffResult>;
+
+    fn delegate(&self, request: AgentDelegationRequest) -> KernelResult<AgentDelegationResult>;
 }

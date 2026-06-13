@@ -19,3 +19,6 @@
 [submodule "external/rig"]
 	path = external/rig
 	url = https://github.com/0xPlaygrounds/rig.git
+[submodule "external/mimo-code"]
+	path = external/mimo-code
+	url = https://github.com/XiaomiMiMo/MiMo-Code.git

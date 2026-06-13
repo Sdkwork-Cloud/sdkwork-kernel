@@ -207,9 +207,7 @@ pub trait PolicyProvider {
         Ok(())
     }
 
-    fn health(&self) -> ProviderHealth {
-        ProviderHealth::available()
-    }
+    fn health(&self) -> ProviderHealth;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

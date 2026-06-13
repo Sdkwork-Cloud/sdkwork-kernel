@@ -148,9 +148,7 @@ pub trait ContextProvider {
         })
     }
 
-    fn health(&self) -> ProviderHealth {
-        ProviderHealth::available()
-    }
+    fn health(&self) -> ProviderHealth;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -291,7 +289,5 @@ pub trait MemoryProvider {
 
     fn export(&self, scope: MemoryScope, owner_context: &str) -> KernelResult<Vec<MemoryRecord>>;
 
-    fn health(&self) -> ProviderHealth {
-        ProviderHealth::available()
-    }
+    fn health(&self) -> ProviderHealth;
 }

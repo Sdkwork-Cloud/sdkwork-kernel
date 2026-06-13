@@ -1,8 +1,8 @@
 use sdkwork_agent_kernel::{
-    AgentCard, AgentCollaborationProvider, AgentDelegation, AgentHandoffRequest,
-    AgentHandoffResult, AgentManifest, AgentMessage, AgentMessageRole, AgentPart, KernelResult,
-    ProviderHealth, ProviderManifest, RedactionClassification, RuntimeBuilder, RuntimeState,
-    TraceContext, TrustLevel,
+    AgentCard, AgentCollaborationProvider, AgentDelegation, AgentDelegationRequest,
+    AgentDelegationResult, AgentHandoffRequest, AgentHandoffResult, AgentManifest, AgentMessage,
+    AgentMessageRole, AgentPart, KernelResult, ProviderHealth, ProviderManifest,
+    RedactionClassification, RuntimeBuilder, RuntimeState, TraceContext, TrustLevel,
 };
 
 const COLLABORATIVE_AGENT_MANIFEST_JSON: &str = r#"
@@ -315,5 +315,19 @@ impl AgentCollaborationProvider for FakeCollaborationProvider {
             vec![AgentPart::text("part.accepted", "Review accepted")],
         ))
         .with_trace_context(TraceContext::new("trace.1", "span.handoff.accepted")))
+    }
+
+    fn delegate(&self, request: AgentDelegationRequest) -> KernelResult<AgentDelegationResult> {
+        Ok(AgentDelegationResult::accepted(
+            request.delegation_id.clone(),
+            AgentDelegation::new(
+                "delegation.1",
+                request.source_agent_id,
+                request.target_agent_id,
+                "code.review",
+            )
+            .with_policy_context("policy.delegate.1")
+            .with_redaction(RedactionClassification::Internal),
+        ))
     }
 }

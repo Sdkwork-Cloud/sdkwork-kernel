@@ -1,6 +1,6 @@
 use sdkwork_agent_kernel::{
     Action, ActionKind, ActionStatus, KernelResult, Observation, Plan, PlanningProvider,
-    SideEffectLevel,
+    ProviderHealth, SideEffectLevel,
 };
 
 #[test]
@@ -99,5 +99,9 @@ impl PlanningProvider for FakePlanningProvider {
             ActionKind::Internal,
             "internal action",
         )))
+    }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
     }
 }

@@ -32,7 +32,8 @@ pub use chat::{
     AgentChatService,
 };
 pub use collaboration::{
-    AgentCard, AgentCollaborationProvider, AgentDelegation, AgentHandoffRequest, AgentHandoffResult,
+    AgentCard, AgentCollaborationProvider, AgentDelegation, AgentDelegationRequest,
+    AgentDelegationResult, AgentDelegationStatus, AgentHandoffRequest, AgentHandoffResult,
 };
 pub use configuration::{
     AgentConfigEntry, AgentConfigField, AgentConfigSection, AgentConfigSectionKind,
@@ -82,7 +83,8 @@ pub use knowledge::{
     KnowledgeRetrievalMethod, KnowledgeSearchRequest, KnowledgeSearchResult,
 };
 pub use lifecycle::{
-    AgentRun, AgentSession, AgentStep, AgentTask, RunState, SessionState, StepState, TaskState,
+    AgentRun, AgentSession, AgentStep, AgentTask, RunState, SessionChangeSummary, SessionKind,
+    SessionSource, SessionState, SessionTokenUsage, StepState, TaskState,
 };
 pub use manifest::{
     AgentManifest, Capability, CapabilityManifest, CapabilityRequirement, ProviderHealth,

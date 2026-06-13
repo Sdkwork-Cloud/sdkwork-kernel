@@ -1129,6 +1129,10 @@ impl PolicyProvider for FakePolicyProvider {
             self.provider_id,
         ))
     }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
+    }
 }
 
 struct FakeContextProvider;
@@ -1153,6 +1157,10 @@ impl ContextProvider for FakeContextProvider {
             TrustLevel::TrustedHost,
             RedactionClassification::Public,
         )])
+    }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
     }
 }
 
@@ -1187,6 +1195,10 @@ impl ContextProvider for NamedContextProvider {
             RedactionClassification::Public,
         )])
     }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
+    }
 }
 
 struct FakeMemoryProvider;
@@ -1213,6 +1225,10 @@ impl MemoryProvider for FakeMemoryProvider {
 
     fn export(&self, scope: MemoryScope, owner_context: &str) -> KernelResult<Vec<MemoryRecord>> {
         self.query(scope, owner_context)
+    }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
     }
 }
 
@@ -1253,6 +1269,10 @@ impl KnowledgeProvider for FakeKnowledgeProvider {
             "knowledge document",
         )])
     }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
+    }
 }
 
 struct NamedMemoryProvider {
@@ -1288,6 +1308,10 @@ impl MemoryProvider for NamedMemoryProvider {
     fn export(&self, scope: MemoryScope, owner_context: &str) -> KernelResult<Vec<MemoryRecord>> {
         self.query(scope, owner_context)
     }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
+    }
 }
 
 struct FakePlanningProvider;
@@ -1305,6 +1329,10 @@ impl PlanningProvider for FakePlanningProvider {
 
     fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> KernelResult<Plan> {
         Ok(Plan::new("plan.core", task_id, run_id, summary))
+    }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
     }
 }
 
@@ -1331,6 +1359,10 @@ impl PlanningProvider for NamedPlanningProvider {
 
     fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> KernelResult<Plan> {
         Ok(Plan::new(self.plan_id, task_id, run_id, summary))
+    }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
     }
 }
 

@@ -1,0 +1,11 @@
+[package]
+name = "sdkwork-agent-adapter-mimo-code"
+version = "0.1.0"
+edition = "2021"
+description = "Adapter for converting MiMo Code session models to SDKWork AgentSession"
+
+[dependencies]
+sdkwork-agent-kernel = { path = "../../../sdkwork-agent-kernel" }
+sdkwork-agent-adapter-core = { path = "../sdkwork-agent-adapter-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -8,6 +8,14 @@ members = [
     "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig",
     "sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive",
     "sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase",
+    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-core",
+    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-hermes",
+    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-openclaw",
+    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-codex",
+    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-claude-code",
+    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-opencode",
+    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-gemini-cli",
+    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-mimo-code",
 ]
 
 [workspace.package]
@@ -23,6 +31,14 @@ sdkwork-agent-plugin-core = { path = "sdkwork-kernel-plugins/crates/sdkwork-agen
 sdkwork-agent-plugin-rig = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig" }
 sdkwork-kernel-plugin-drive = { path = "sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive" }
 sdkwork-kernel-plugin-knowledgebase = { path = "sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase" }
+sdkwork-agent-adapter-core = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-core" }
+sdkwork-agent-adapter-hermes = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-hermes" }
+sdkwork-agent-adapter-openclaw = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-openclaw" }
+sdkwork-agent-adapter-codex = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-codex" }
+sdkwork-agent-adapter-claude-code = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-claude-code" }
+sdkwork-agent-adapter-opencode = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-opencode" }
+sdkwork-agent-adapter-gemini-cli = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-gemini-cli" }
+sdkwork-agent-adapter-mimo-code = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-mimo-code" }
 sdkwork-drive-storage-contract = { path = "../sdkwork-drive/crates/sdkwork-drive-storage-contract" }
 sdkwork-knowledgebase-contract = { path = "../sdkwork-knowledgebase/crates/sdkwork-knowledgebase-contract" }
-sdkwork_id = { path = "../sdkwork-appbase/packages/native-rust/foundation/sdkwork-id-rust" }
+sdkwork_platform_id_service = { package = "sdkwork-platform-id-service", path = "../sdkwork-appbase/crates/sdkwork-platform-id-service" }

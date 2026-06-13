@@ -1,0 +1,8 @@
+[package]
+name = "sdkwork-agent-adapter-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core adapter traits for converting external agent session models to SDKWork AgentSession"
+
+[dependencies]
+sdkwork-agent-kernel = { path = "../../../sdkwork-agent-kernel" }

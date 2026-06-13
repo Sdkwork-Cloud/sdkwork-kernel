@@ -243,6 +243,10 @@ impl PolicyProvider for FakePolicyProvider {
             "provider.policy.fake",
         ))
     }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
+    }
 }
 
 fn capability_manifest(

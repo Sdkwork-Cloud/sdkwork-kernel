@@ -205,7 +205,5 @@ pub trait PlanningProvider {
         Ok(plan.revise_as(new_plan_id, new_summary))
     }
 
-    fn health(&self) -> ProviderHealth {
-        ProviderHealth::available()
-    }
+    fn health(&self) -> ProviderHealth;
 }

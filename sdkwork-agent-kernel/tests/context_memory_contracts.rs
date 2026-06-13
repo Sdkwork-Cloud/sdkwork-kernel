@@ -1,6 +1,6 @@
 use sdkwork_agent_kernel::{
     ContextExplanation, ContextFrame, ContextProvider, ContextRanking, KernelResult, MemoryProvider,
-    MemoryRecord, MemoryScope, RedactionClassification, TrustLevel,
+    MemoryRecord, MemoryScope, ProviderHealth, RedactionClassification, TrustLevel,
 };
 
 #[test]
@@ -150,6 +150,10 @@ impl ContextProvider for FakeContextProvider {
             RedactionClassification::Internal,
         )])
     }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
+    }
 }
 
 #[derive(Default)]
@@ -180,5 +184,9 @@ impl MemoryProvider for FakeMemoryProvider {
 
     fn export(&self, scope: MemoryScope, owner_context: &str) -> KernelResult<Vec<MemoryRecord>> {
         self.query(scope, owner_context)
+    }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
     }
 }

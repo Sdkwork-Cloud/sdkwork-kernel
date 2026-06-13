@@ -460,7 +460,5 @@ pub trait KnowledgeProvider {
 
     fn list(&self, filter: KnowledgeDocumentFilter) -> KernelResult<Vec<KnowledgeDocument>>;
 
-    fn health(&self) -> ProviderHealth {
-        ProviderHealth::available()
-    }
+    fn health(&self) -> ProviderHealth;
 }

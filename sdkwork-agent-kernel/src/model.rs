@@ -457,6 +457,12 @@ pub trait ModelProvider {
         })
     }
 
+    fn prepare(&self, _model_id: &str) -> KernelResult<()> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "model.prepare".to_string(),
+        })
+    }
+
     fn validate_structured_output(
         &self,
         _request: &ModelRequest,

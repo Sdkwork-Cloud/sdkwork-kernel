@@ -1845,6 +1845,10 @@ impl PolicyProvider for AllowAllPolicyProvider {
             )),
         }
     }
+
+    fn health(&self) -> sdkwork_agent_kernel::ProviderHealth {
+        sdkwork_agent_kernel::ProviderHealth::available()
+    }
 }
 
 #[cfg(test)]

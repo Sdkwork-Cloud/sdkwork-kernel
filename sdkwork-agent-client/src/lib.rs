@@ -1,5 +1,6 @@
 pub mod bridge;
 mod chat;
+pub mod plugins;
 mod sse;
 mod types;
 

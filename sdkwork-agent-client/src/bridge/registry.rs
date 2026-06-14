@@ -48,7 +48,16 @@ impl AgentBridgePluginRegistry {
         let plugin = self.plugins.get(plugin_id)
             .ok_or_else(|| format!("Plugin not found: {}", plugin_id))?;
         
+        // Validate config before creating provider
+        plugin.validate_config(&config)?;
+        
         let bridge_id = config.bridge_id.clone();
+        
+        // Check for duplicate bridge_id
+        if self.providers.contains_key(&bridge_id) {
+            return Err(format!("Provider already exists: {}", bridge_id));
+        }
+        
         let provider = plugin.create_provider(bridge_type, config)?;
         self.providers.insert(bridge_id.clone(), provider);
         Ok(bridge_id)
@@ -57,6 +66,12 @@ impl AgentBridgePluginRegistry {
     /// Get provider instance
     pub fn get_provider(&self, bridge_id: &str) -> Option<Arc<dyn AgentBridgeProvider>> {
         self.providers.get(bridge_id).cloned()
+    }
+    
+    /// Remove provider instance
+    pub fn remove_provider(&mut self, bridge_id: &str) -> Result<Arc<dyn AgentBridgeProvider>, String> {
+        self.providers.remove(bridge_id)
+            .ok_or_else(|| format!("Provider not found: {}", bridge_id))
     }
     
     /// List all registered plugins

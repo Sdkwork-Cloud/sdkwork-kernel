@@ -110,6 +110,48 @@ impl AgentClient {
         self.local_provider = local_provider;
         Ok(())
     }
+
+    /// Helper: dispatch with fallback based on FallbackStrategy
+    fn dispatch_with_fallback<T>(
+        &self,
+        fallback_strategy: &FallbackStrategy,
+        local_fn: impl Fn(&dyn ChatClient) -> Result<T, String>,
+        remote_fn: impl Fn(&dyn ChatClient) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let local_provider = self.local_provider.as_ref()
+            .ok_or_else(|| "Local provider not initialized".to_string())?;
+
+        let local_result = local_fn(local_provider.as_ref());
+
+        match local_result {
+            Ok(result) => Ok(result),
+            Err(local_error) => {
+                let remote_client = self.remote_client.as_ref()
+                    .ok_or_else(|| "Remote client not initialized for fallback".to_string())?;
+
+                match fallback_strategy {
+                    FallbackStrategy::Immediate => {
+                        remote_fn(remote_client.as_ref())
+                    }
+                    FallbackStrategy::RetryThenFallback { max_retries } => {
+                        for attempt in 1..=*max_retries {
+                            let delay_ms = 100 * 2_u64.pow(attempt - 1);
+                            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+
+                            match local_fn(local_provider.as_ref()) {
+                                Ok(result) => return Ok(result),
+                                Err(_) => continue,
+                            }
+                        }
+                        remote_fn(remote_client.as_ref())
+                    }
+                    FallbackStrategy::LocalOnly => {
+                        Err(local_error)
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Helper function to create remote client based on protocol
@@ -145,40 +187,11 @@ impl ChatClient for AgentClient {
                     .send_message(request)
             }
             AgentClientMode::Hybrid { fallback_strategy, .. } => {
-                let local_result = self.local_provider.as_ref()
-                    .ok_or_else(|| "Local provider not initialized".to_string())?
-                    .send_message(request.clone());
-
-                match local_result {
-                    Ok(response) => Ok(response),
-                    Err(local_error) => {
-                        let remote_client = self.remote_client.as_ref()
-                            .ok_or_else(|| "Remote client not initialized for fallback".to_string())?;
-
-                        match fallback_strategy {
-                            FallbackStrategy::Immediate => {
-                                remote_client.send_message(request)
-                            }
-                            FallbackStrategy::RetryThenFallback { max_retries } => {
-                                for attempt in 0..*max_retries {
-                                    if attempt > 0 {
-                                        let delay_ms = 100 * 2_u64.pow(attempt - 1);
-                                        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-                                    }
-
-                                    match self.local_provider.as_ref().unwrap().send_message(request.clone()) {
-                                        Ok(response) => return Ok(response),
-                                        Err(_) => continue,
-                                    }
-                                }
-                                remote_client.send_message(request)
-                            }
-                            FallbackStrategy::LocalOnly => {
-                                Err(local_error)
-                            }
-                        }
-                    }
-                }
+                self.dispatch_with_fallback(
+                    fallback_strategy,
+                    |client| client.send_message(request.clone()),
+                    |client| client.send_message(request),
+                )
             }
         }
     }
@@ -199,19 +212,12 @@ impl ChatClient for AgentClient {
                     .ok_or_else(|| "Local provider not initialized".to_string())?
                     .get_messages(session_id, limit)
             }
-            AgentClientMode::Hybrid { .. } => {
-                let local_result = self.local_provider.as_ref()
-                    .ok_or_else(|| "Local provider not initialized".to_string())?
-                    .get_messages(session_id, limit);
-
-                match local_result {
-                    Ok(messages) => Ok(messages),
-                    Err(_) => {
-                        self.remote_client.as_ref()
-                            .ok_or_else(|| "Remote client not initialized for fallback".to_string())?
-                            .get_messages(session_id, limit)
-                    }
-                }
+            AgentClientMode::Hybrid { fallback_strategy, .. } => {
+                self.dispatch_with_fallback(
+                    fallback_strategy,
+                    |client| client.get_messages(session_id, limit),
+                    |client| client.get_messages(session_id, limit),
+                )
             }
         }
     }
@@ -228,19 +234,12 @@ impl ChatClient for AgentClient {
                     .ok_or_else(|| "Local provider not initialized".to_string())?
                     .create_session(config)
             }
-            AgentClientMode::Hybrid { .. } => {
-                let local_result = self.local_provider.as_ref()
-                    .ok_or_else(|| "Local provider not initialized".to_string())?
-                    .create_session(config.clone());
-
-                match local_result {
-                    Ok(session) => Ok(session),
-                    Err(_) => {
-                        self.remote_client.as_ref()
-                            .ok_or_else(|| "Remote client not initialized for fallback".to_string())?
-                            .create_session(config)
-                    }
-                }
+            AgentClientMode::Hybrid { fallback_strategy, .. } => {
+                self.dispatch_with_fallback(
+                    fallback_strategy,
+                    |client| client.create_session(config.clone()),
+                    |client| client.create_session(config),
+                )
             }
         }
     }
@@ -257,19 +256,12 @@ impl ChatClient for AgentClient {
                     .ok_or_else(|| "Local provider not initialized".to_string())?
                     .close_session(session_id)
             }
-            AgentClientMode::Hybrid { .. } => {
-                let local_result = self.local_provider.as_ref()
-                    .ok_or_else(|| "Local provider not initialized".to_string())?
-                    .close_session(session_id);
-
-                match local_result {
-                    Ok(()) => Ok(()),
-                    Err(_) => {
-                        self.remote_client.as_ref()
-                            .ok_or_else(|| "Remote client not initialized for fallback".to_string())?
-                            .close_session(session_id)
-                    }
-                }
+            AgentClientMode::Hybrid { fallback_strategy, .. } => {
+                self.dispatch_with_fallback(
+                    fallback_strategy,
+                    |client| client.close_session(session_id),
+                    |client| client.close_session(session_id),
+                )
             }
         }
     }
@@ -287,6 +279,7 @@ impl ChatClient for AgentClient {
                     .health()
             }
             AgentClientMode::Hybrid { .. } => {
+                // For health, check both and return healthy if either is healthy
                 let local_health = self.local_provider.as_ref()
                     .ok_or_else(|| "Local provider not initialized".to_string())?
                     .health();

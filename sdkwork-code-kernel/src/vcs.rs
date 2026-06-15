@@ -1,5 +1,5 @@
-use crate::Workspace;
 use crate::first_policy_category;
+use crate::Workspace;
 use sdkwork_agent_kernel::{
     KernelResult, PolicyCategory, PolicyRequest, ProviderHealth, SideEffectLevel,
 };

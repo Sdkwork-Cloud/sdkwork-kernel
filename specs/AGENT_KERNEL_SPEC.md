@@ -24,10 +24,10 @@
   - [`AGENT_EVENT_TELEMETRY_SPEC.md`](./AGENT_EVENT_TELEMETRY_SPEC.md)
   - [`AGENT_UI_CONTRACT_SPEC.md`](./AGENT_UI_CONTRACT_SPEC.md)
   - [`AGENT_CONFORMANCE_SPEC.md`](./AGENT_CONFORMANCE_SPEC.md)
-  - [`DOMAIN_SPEC.md`](../../../../specs/DOMAIN_SPEC.md)
-  - [`MODULE_SPEC.md`](../../../../specs/MODULE_SPEC.md)
-  - [`RUST_RPC_SPEC.md`](../../../../specs/RUST_RPC_SPEC.md)
-  - [`SDK_SPEC.md`](../../../../specs/SDK_SPEC.md)
+  - [`DOMAIN_SPEC.md`](../../sdkwork-specs/DOMAIN_SPEC.md)
+  - [`MODULE_SPEC.md`](../../sdkwork-specs/MODULE_SPEC.md)
+  - [`RUST_RPC_SPEC.md`](../../sdkwork-specs/RUST_RPC_SPEC.md)
+  - [`SDK_SPEC.md`](../../sdkwork-specs/SDK_SPEC.md)
 
 This specification defines the SDKWork Agent Kernel. It is an industry-level
 agent runtime standard intended for code agents, workflow agents, operations

@@ -724,7 +724,7 @@ dependencies = [
  "postgres",
  "sdkwork-agent-kernel",
  "sdkwork-code-kernel",
- "sdkwork_id",
+ "sdkwork-platform-id-service",
  "serde",
  "serde_json",
  "time",
@@ -744,7 +744,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "sdkwork_id"
+name = "sdkwork-platform-id-service"
 version = "0.1.0"
 
 [[package]]

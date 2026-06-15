@@ -71,7 +71,9 @@ fn plan_revision_increments_revision_and_preserves_previous_plan_id() {
 #[test]
 fn planning_provider_trait_can_create_and_validate_plan() {
     let provider = FakePlanningProvider;
-    let plan = provider.create_plan("task.1", "run.1", "do work").expect("plan creation succeeds");
+    let plan = provider
+        .create_plan("task.1", "run.1", "do work")
+        .expect("plan creation succeeds");
 
     provider.validate_plan(&plan).expect("plan validates");
     assert_eq!(plan.task_id, "task.1");
@@ -80,7 +82,9 @@ fn planning_provider_trait_can_create_and_validate_plan() {
 #[test]
 fn planning_provider_revise_plan_delegates_to_plan_revise_as() {
     let provider = FakePlanningProvider;
-    let plan = provider.create_plan("task.1", "run.1", "initial plan").expect("plan creation succeeds");
+    let plan = provider
+        .create_plan("task.1", "run.1", "initial plan")
+        .expect("plan creation succeeds");
     let revised = provider
         .revise_plan(&plan, "revised plan")
         .expect("revision succeeds");
@@ -94,11 +98,13 @@ struct FakePlanningProvider;
 
 impl PlanningProvider for FakePlanningProvider {
     fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> KernelResult<Plan> {
-        Ok(Plan::new("plan.fake", task_id, run_id, summary).add_action(Action::new(
-            "action.fake",
-            ActionKind::Internal,
-            "internal action",
-        )))
+        Ok(
+            Plan::new("plan.fake", task_id, run_id, summary).add_action(Action::new(
+                "action.fake",
+                ActionKind::Internal,
+                "internal action",
+            )),
+        )
     }
 
     fn health(&self) -> ProviderHealth {

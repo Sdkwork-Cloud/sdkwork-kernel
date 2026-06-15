@@ -1408,20 +1408,44 @@ impl HostProvider for FakeHostProvider {
         Ok(SecretValue::new(secret_ref.secret_ref_id, "secret"))
     }
 
-    fn storage(&self, request: sdkwork_agent_kernel::StorageRequest) -> KernelResult<sdkwork_agent_kernel::StorageResult> {
-        Ok(sdkwork_agent_kernel::StorageResult::stored(request.operation_id))
+    fn storage(
+        &self,
+        request: sdkwork_agent_kernel::StorageRequest,
+    ) -> KernelResult<sdkwork_agent_kernel::StorageResult> {
+        Ok(sdkwork_agent_kernel::StorageResult::stored(
+            request.operation_id,
+        ))
     }
 
-    fn time(&self, request: sdkwork_agent_kernel::TimeRequest) -> KernelResult<sdkwork_agent_kernel::TimeResult> {
-        Ok(sdkwork_agent_kernel::TimeResult::now(request.operation_id, "2026-01-01T00:00:00Z"))
+    fn time(
+        &self,
+        request: sdkwork_agent_kernel::TimeRequest,
+    ) -> KernelResult<sdkwork_agent_kernel::TimeResult> {
+        Ok(sdkwork_agent_kernel::TimeResult::now(
+            request.operation_id,
+            "2026-01-01T00:00:00Z",
+        ))
     }
 
-    fn environment(&self, request: sdkwork_agent_kernel::EnvironmentRequest) -> KernelResult<sdkwork_agent_kernel::EnvironmentResult> {
-        Ok(sdkwork_agent_kernel::EnvironmentResult::not_found(request.operation_id, request.variable_name))
+    fn environment(
+        &self,
+        request: sdkwork_agent_kernel::EnvironmentRequest,
+    ) -> KernelResult<sdkwork_agent_kernel::EnvironmentResult> {
+        Ok(sdkwork_agent_kernel::EnvironmentResult::not_found(
+            request.operation_id,
+            request.variable_name,
+        ))
     }
 
-    fn executor(&self, request: sdkwork_agent_kernel::ExecutorRequest) -> KernelResult<sdkwork_agent_kernel::ExecutorResult> {
-        Ok(sdkwork_agent_kernel::ExecutorResult::completed(request.operation_id, request.action_id, ""))
+    fn executor(
+        &self,
+        request: sdkwork_agent_kernel::ExecutorRequest,
+    ) -> KernelResult<sdkwork_agent_kernel::ExecutorResult> {
+        Ok(sdkwork_agent_kernel::ExecutorResult::completed(
+            request.operation_id,
+            request.action_id,
+            "",
+        ))
     }
 }
 
@@ -1491,20 +1515,44 @@ impl HostProvider for NamedHostProvider {
         Ok(SecretValue::new(secret_ref.secret_ref_id, "secret"))
     }
 
-    fn storage(&self, request: sdkwork_agent_kernel::StorageRequest) -> KernelResult<sdkwork_agent_kernel::StorageResult> {
-        Ok(sdkwork_agent_kernel::StorageResult::stored(request.operation_id))
+    fn storage(
+        &self,
+        request: sdkwork_agent_kernel::StorageRequest,
+    ) -> KernelResult<sdkwork_agent_kernel::StorageResult> {
+        Ok(sdkwork_agent_kernel::StorageResult::stored(
+            request.operation_id,
+        ))
     }
 
-    fn time(&self, request: sdkwork_agent_kernel::TimeRequest) -> KernelResult<sdkwork_agent_kernel::TimeResult> {
-        Ok(sdkwork_agent_kernel::TimeResult::now(request.operation_id, "2026-01-01T00:00:00Z"))
+    fn time(
+        &self,
+        request: sdkwork_agent_kernel::TimeRequest,
+    ) -> KernelResult<sdkwork_agent_kernel::TimeResult> {
+        Ok(sdkwork_agent_kernel::TimeResult::now(
+            request.operation_id,
+            "2026-01-01T00:00:00Z",
+        ))
     }
 
-    fn environment(&self, request: sdkwork_agent_kernel::EnvironmentRequest) -> KernelResult<sdkwork_agent_kernel::EnvironmentResult> {
-        Ok(sdkwork_agent_kernel::EnvironmentResult::not_found(request.operation_id, request.variable_name))
+    fn environment(
+        &self,
+        request: sdkwork_agent_kernel::EnvironmentRequest,
+    ) -> KernelResult<sdkwork_agent_kernel::EnvironmentResult> {
+        Ok(sdkwork_agent_kernel::EnvironmentResult::not_found(
+            request.operation_id,
+            request.variable_name,
+        ))
     }
 
-    fn executor(&self, request: sdkwork_agent_kernel::ExecutorRequest) -> KernelResult<sdkwork_agent_kernel::ExecutorResult> {
-        Ok(sdkwork_agent_kernel::ExecutorResult::completed(request.operation_id, request.action_id, ""))
+    fn executor(
+        &self,
+        request: sdkwork_agent_kernel::ExecutorRequest,
+    ) -> KernelResult<sdkwork_agent_kernel::ExecutorResult> {
+        Ok(sdkwork_agent_kernel::ExecutorResult::completed(
+            request.operation_id,
+            request.action_id,
+            "",
+        ))
     }
 }
 

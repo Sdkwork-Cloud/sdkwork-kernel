@@ -1,13 +1,14 @@
 use sdkwork_agent_adapter_core::{
-    create_session_from_config, now_iso, uuid_simple, ConversationManager, InMemoryConversationManager,
-    MessageAdapter, SessionAdapter, SessionConfig, SessionLifecycleProvider,
+    create_session_from_config, now_iso, uuid_simple, ConversationManager,
+    InMemoryConversationManager, MessageAdapter, SessionAdapter, SessionConfig,
+    SessionLifecycleProvider,
 };
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
-    ModelStatus, ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind,
-    SessionSource, SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor,
-    ToolProvider, ToolResult, ToolSchema,
+    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
+    ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
+    SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
+    ToolResult, ToolSchema,
 };
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -94,9 +95,7 @@ impl SessionAdapter for MiMoCodeAdapter {
             SessionKind::Main
         };
 
-        let mut config = SessionConfig::new()
-            .with_source(source)
-            .with_kind(kind);
+        let mut config = SessionConfig::new().with_source(source).with_kind(kind);
 
         if let Some(ref model) = external.model {
             config = config.with_model(model);
@@ -176,10 +175,8 @@ impl MessageAdapter for MiMoCodeMessageAdapter {
 
         if let Some(tool_calls) = &external.tool_calls {
             for tc in tool_calls {
-                let mut part = AgentPart::tool_call_ref(
-                    format!("mimo.tool_call.{}", tc.id),
-                    &tc.id,
-                );
+                let mut part =
+                    AgentPart::tool_call_ref(format!("mimo.tool_call.{}", tc.id), &tc.id);
                 part.name = Some(tc.function_name.clone());
                 part.json = Some(tc.arguments.clone());
                 parts.push(part);
@@ -190,11 +187,7 @@ impl MessageAdapter for MiMoCodeMessageAdapter {
             parts.push(AgentPart::text("mimo.empty", ""));
         }
 
-        let mut message = AgentMessage::new(
-            format!("mimo.msg.{}", uuid_simple()),
-            role,
-            parts,
-        );
+        let mut message = AgentMessage::new(format!("mimo.msg.{}", uuid_simple()), role, parts);
 
         if external.context_chain.is_some() {
             message = message.with_metadata("mimo.has_context_chain", "true");
@@ -290,10 +283,7 @@ impl ModelProvider for MiMoCodeModelProvider {
     }
 
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
-        let model_id = request
-            .model_id
-            .as_deref()
-            .unwrap_or(&self.default_model);
+        let model_id = request.model_id.as_deref().unwrap_or(&self.default_model);
         let prompt = request.messages.join("\n");
 
         Ok(ModelResponse::text(
@@ -315,11 +305,7 @@ impl ModelProvider for MiMoCodeModelProvider {
             .into_iter()
             .enumerate()
             .map(|(i, word)| {
-                ModelStreamChunk::output(
-                    &request.model_request_id,
-                    i as u64,
-                    format!("{} ", word),
-                )
+                ModelStreamChunk::output(&request.model_request_id, i as u64, format!("{} ", word))
             })
             .collect();
 
@@ -416,9 +402,7 @@ impl ToolProvider for MiMoCodeToolProvider {
             "mimo.search" => {
                 format!("[MiMo Search] Mock search: {}", call.arguments)
             }
-            "mimo.analyze" => {
-                "[MiMo Analyze] Code quality: 95/100, no issues found".to_string()
-            }
+            "mimo.analyze" => "[MiMo Analyze] Code quality: 95/100, no issues found".to_string(),
             _ => {
                 return Err(KernelError::CapabilityMissing {
                     capability_id: call.tool_id.clone(),
@@ -468,16 +452,16 @@ impl SessionLifecycleProvider for MiMoCodeLifecycleProvider {
             config,
             now_iso(),
         );
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         sessions.insert(session_id.clone(), session.clone());
         Ok(session)
     }
 
     fn resume_session(&self, session_id: &str) -> KernelResult<AgentSession> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         let session = sessions
             .get_mut(session_id)
@@ -487,8 +471,8 @@ impl SessionLifecycleProvider for MiMoCodeLifecycleProvider {
     }
 
     fn close_session(&self, session_id: &str) -> KernelResult<AgentSession> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         let session = sessions
             .get_mut(session_id)
@@ -498,8 +482,8 @@ impl SessionLifecycleProvider for MiMoCodeLifecycleProvider {
     }
 
     fn list_active_sessions(&self) -> KernelResult<Vec<AgentSession>> {
-        let sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         Ok(sessions
             .values()
@@ -603,7 +587,9 @@ mod tests {
         let config = SessionConfig::new()
             .with_source(SessionSource::Cli)
             .with_kind(SessionKind::Main);
-        let created = provider.create_session("agent.1", Some("user.1"), config).unwrap();
+        let created = provider
+            .create_session("agent.1", Some("user.1"), config)
+            .unwrap();
 
         let resumed = provider.resume_session(&created.session_id).unwrap();
         assert_eq!(resumed.state, SessionState::Active);
@@ -764,9 +750,8 @@ mod tests {
     #[test]
     fn model_provider_invoke() {
         let provider = MiMoCodeModelProvider::new();
-        let request =
-            ModelRequest::new("req.1", vec!["Explain lifetimes".to_string()])
-                .with_model_id("mimo-v2.5-pro");
+        let request = ModelRequest::new("req.1", vec!["Explain lifetimes".to_string()])
+            .with_model_id("mimo-v2.5-pro");
         let response = provider.invoke(request).unwrap();
         assert_eq!(response.status, ModelStatus::Succeeded);
         assert_eq!(response.provider_id, "provider.model.mimo");
@@ -887,14 +872,21 @@ mod tests {
                     AgentMessage::new(
                         format!("m.{}", i),
                         AgentMessageRole::User,
-                        vec![AgentPart::text(format!("p.{}", i), format!("Message {}", i))],
+                        vec![AgentPart::text(
+                            format!("p.{}", i),
+                            format!("Message {}", i),
+                        )],
                     ),
                 )
                 .unwrap();
         }
         let compressed = manager.compress_history("s1", 100).unwrap();
         assert_eq!(compressed.role, AgentMessageRole::System);
-        assert!(compressed.parts[0].text.as_ref().unwrap().contains("Compressed"));
+        assert!(compressed.parts[0]
+            .text
+            .as_ref()
+            .unwrap()
+            .contains("Compressed"));
         let remaining = manager.get_history("s1").unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].role, AgentMessageRole::System);

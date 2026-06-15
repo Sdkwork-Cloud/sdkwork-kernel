@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
-const root = process.cwd().endsWith('sdkwork-kernel-ui')
-  ? process.cwd()
-  : path.resolve(process.cwd(), 'kernel', 'sdkwork-kernel-ui');
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+const root = resolveKernelUiRoot();
 
 const packagesRoot = path.join(root, 'packages');
 const expectedPackages = [
@@ -36,6 +36,34 @@ const errors = [];
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+}
+
+function resolveKernelUiRoot() {
+  const candidates = [
+    process.cwd(),
+    path.join(process.cwd(), 'sdkwork-kernel-ui'),
+    path.resolve(scriptDir, '..')
+  ];
+  const visited = new Set();
+
+  for (const candidate of candidates) {
+    const resolved = path.resolve(candidate);
+    if (visited.has(resolved)) {
+      continue;
+    }
+    visited.add(resolved);
+
+    if (
+      fs.existsSync(path.join(resolved, 'package.json')) &&
+      fs.existsSync(path.join(resolved, 'pnpm-workspace.yaml')) &&
+      fs.existsSync(path.join(resolved, 'packages'))
+    ) {
+      return resolved;
+    }
+  }
+
+  console.error('Unable to resolve sdkwork-kernel-ui root. Run from sdkwork-kernel or sdkwork-kernel-ui.');
+  process.exit(1);
 }
 
 for (const packageDir of expectedPackages) {

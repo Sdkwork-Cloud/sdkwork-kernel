@@ -86,6 +86,7 @@ Primary business table for managed agents.
 | `default_code_task_intent_json` | `TEXT` | Y | Optional default code-task intent snapshot. |
 | `implementation_provider_id` | `VARCHAR(128)` | Y | Default implementation provider id selected at agent creation, for example `provider.model.rig-rust`. |
 | `implementation_kind` | `VARCHAR(64)` | Y | Implementation kind (`manifest-only`, `typed-local-provider`, `process-adapter`, `protocol-adapter`). |
+| `implementation_type` | `VARCHAR(64)` | N | Implementation framework/runtime family (`sdkwork-native`, `rig-rust`, `openai-agents`, `langchain`, `langgraph`, `crewai`, `autogen`, `semantic-kernel`, `custom`); defaults to `sdkwork-native` for legacy rows. |
 | `status` | `SMALLINT` | N | Lifecycle status enum (`0 draft`, `1 active`, `2 disabled`, `3 archived`, `4 deleted`). |
 | `visibility` | `SMALLINT` | N | Visibility enum (`0 private`, `1 organization`, `2 tenant`, `3 public`). |
 | `tags_json` | `TEXT` | N | JSON array of tags. |
@@ -100,6 +101,7 @@ Constraints:
 - Unique: `(tenant_id, agent_id)`
 - Unique: `(tenant_id, code)`
 - Check: `implementation_kind is null or in ('manifest-only','typed-local-provider','process-adapter','protocol-adapter')`
+- Check: `implementation_type in ('sdkwork-native','rig-rust','openai-agents','langchain','langgraph','crewai','autogen','semantic-kernel','custom')`
 - Check: `implementation_provider_id is null or matches ^provider\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$`
 - Check: `status in (0,1,2,3,4)`
 - Check: `visibility in (0,1,2,3)`

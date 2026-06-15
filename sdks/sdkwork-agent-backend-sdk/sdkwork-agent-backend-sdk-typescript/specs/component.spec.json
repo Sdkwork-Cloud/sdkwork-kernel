@@ -9,6 +9,7 @@
     "root": "sdkwork-kernel/sdks/sdkwork-agent-backend-sdk/sdkwork-agent-backend-sdk-typescript",
     "domain": "intelligence",
     "capability": "agent-backend-sdk",
+    "surface": "backend-admin",
     "languages": [
       "typescript"
     ],
@@ -70,6 +71,22 @@
     ],
     "runtimeEntrypoints": [],
     "routeManifest": null,
+    "sdkDependencies": [
+      {
+        "workspace": "sdkwork-appbase-backend-sdk",
+        "role": "appbase-backend-management-capability",
+        "required": true,
+        "dependencyMode": "consumer-sdk",
+        "apiPrefix": "/backend/v3/api",
+        "apiAuthority": "sdkwork-appbase-backend-api",
+        "generatedTransportImportPolicy": "forbidden",
+        "packageByLanguage": {
+          "typescript": "@sdkwork/appbase-backend-sdk"
+        }
+      }
+    ],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
     "configKeys": []

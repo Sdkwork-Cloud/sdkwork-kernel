@@ -6,11 +6,12 @@
     "displayName": "SDKWork Agent Kernel",
     "version": "0.1.0",
     "type": "rust-crate",
-    "root": "sdkwork-birdcoder/kernel/sdkwork-agent-kernel",
+    "root": "sdkwork-kernel/sdkwork-agent-kernel",
     "domain": "intelligence",
     "declaredDomain": null,
     "capability": "agent-kernel",
     "status": "standardizing",
+    "surfaceNotRequiredReason": "This repository-internal Rust kernel library has no HTTP, SDK, app, console, or backend-admin surface; exports define integration.",
     "languages": [
       "rust"
     ],
@@ -117,6 +118,9 @@
       "agent_chat_rpc_adapter_manifest",
       "Cargo.toml"
     ],
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [
       "agent.execution.completed",
@@ -137,7 +141,7 @@
   },
   "verification": {
     "commands": [
-      "cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-kernel/Cargo.toml"
+      "cargo test --manifest-path sdkwork-agent-kernel/Cargo.toml"
     ]
   },
   "metadata": {

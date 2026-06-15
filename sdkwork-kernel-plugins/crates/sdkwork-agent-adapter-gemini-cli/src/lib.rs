@@ -1,13 +1,14 @@
 use sdkwork_agent_adapter_core::{
-    create_session_from_config, now_iso, uuid_simple, ConversationManager, InMemoryConversationManager,
-    MessageAdapter, SessionAdapter, SessionConfig, SessionLifecycleProvider,
+    create_session_from_config, now_iso, uuid_simple, ConversationManager,
+    InMemoryConversationManager, MessageAdapter, SessionAdapter, SessionConfig,
+    SessionLifecycleProvider,
 };
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
-    ModelStatus, ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind,
-    SessionSource, SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor,
-    ToolProvider, ToolResult, ToolSchema,
+    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
+    ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
+    SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
+    ToolResult, ToolSchema,
 };
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -276,10 +277,7 @@ impl ModelProvider for GeminiModelProvider {
     }
 
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
-        let model_id = request
-            .model_id
-            .as_deref()
-            .unwrap_or(&self.default_model);
+        let model_id = request.model_id.as_deref().unwrap_or(&self.default_model);
         let prompt = request.messages.join("\n");
 
         Ok(ModelResponse::text(
@@ -301,11 +299,7 @@ impl ModelProvider for GeminiModelProvider {
             .into_iter()
             .enumerate()
             .map(|(i, word)| {
-                ModelStreamChunk::output(
-                    &request.model_request_id,
-                    i as u64,
-                    format!("{} ", word),
-                )
+                ModelStreamChunk::output(&request.model_request_id, i as u64, format!("{} ", word))
             })
             .collect();
 
@@ -454,16 +448,16 @@ impl SessionLifecycleProvider for GeminiCliLifecycleProvider {
             config,
             now_iso(),
         );
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         sessions.insert(session_id.clone(), session.clone());
         Ok(session)
     }
 
     fn resume_session(&self, session_id: &str) -> KernelResult<AgentSession> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         let session = sessions
             .get_mut(session_id)
@@ -473,8 +467,8 @@ impl SessionLifecycleProvider for GeminiCliLifecycleProvider {
     }
 
     fn close_session(&self, session_id: &str) -> KernelResult<AgentSession> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         let session = sessions
             .get_mut(session_id)
@@ -484,8 +478,8 @@ impl SessionLifecycleProvider for GeminiCliLifecycleProvider {
     }
 
     fn list_active_sessions(&self) -> KernelResult<Vec<AgentSession>> {
-        let sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         Ok(sessions
             .values()
@@ -551,9 +545,10 @@ mod tests {
         let ext = sample_gemini_record();
         let session = adapter.to_agent_session(&ext).unwrap();
 
-        assert!(session.metadata.iter().any(|(k, v)| {
-            k == "memory_scratchpad" && v == "remember: use traits"
-        }));
+        assert!(session
+            .metadata
+            .iter()
+            .any(|(k, v)| { k == "memory_scratchpad" && v == "remember: use traits" }));
     }
 
     #[test]
@@ -712,9 +707,8 @@ mod tests {
     #[test]
     fn model_provider_invoke() {
         let provider = GeminiModelProvider::new();
-        let request =
-            ModelRequest::new("req.1", vec!["Explain Rust".to_string()])
-                .with_model_id("gemini-2.5-pro");
+        let request = ModelRequest::new("req.1", vec!["Explain Rust".to_string()])
+            .with_model_id("gemini-2.5-pro");
         let response = provider.invoke(request).unwrap();
         assert_eq!(response.status, ModelStatus::Succeeded);
         assert_eq!(response.provider_id, "provider.model.gemini");
@@ -752,9 +746,15 @@ mod tests {
         assert!(tools.iter().any(|t| t.tool_id == "gemini.write_file"));
         assert!(tools.iter().any(|t| t.tool_id == "gemini.search_web"));
 
-        let read = tools.iter().find(|t| t.tool_id == "gemini.read_file").unwrap();
+        let read = tools
+            .iter()
+            .find(|t| t.tool_id == "gemini.read_file")
+            .unwrap();
         assert_eq!(read.side_effect_level, SideEffectLevel::ReadOnly);
-        let search = tools.iter().find(|t| t.tool_id == "gemini.search_web").unwrap();
+        let search = tools
+            .iter()
+            .find(|t| t.tool_id == "gemini.search_web")
+            .unwrap();
         assert_eq!(search.side_effect_level, SideEffectLevel::ExternalSend);
     }
 
@@ -837,14 +837,21 @@ mod tests {
                     AgentMessage::new(
                         format!("m.{}", i),
                         AgentMessageRole::User,
-                        vec![AgentPart::text(format!("p.{}", i), format!("Message {}", i))],
+                        vec![AgentPart::text(
+                            format!("p.{}", i),
+                            format!("Message {}", i),
+                        )],
                     ),
                 )
                 .unwrap();
         }
         let compressed = manager.compress_history("s1", 100).unwrap();
         assert_eq!(compressed.role, AgentMessageRole::System);
-        assert!(compressed.parts[0].text.as_ref().unwrap().contains("Compressed"));
+        assert!(compressed.parts[0]
+            .text
+            .as_ref()
+            .unwrap()
+            .contains("Compressed"));
         let remaining = manager.get_history("s1").unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].role, AgentMessageRole::System);

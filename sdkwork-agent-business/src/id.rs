@@ -1,5 +1,5 @@
 use sdkwork_agent_kernel::{KernelError, KernelErrorSource, KernelResult};
-use sdkwork_id::{
+use sdkwork_platform_id_service::{
     default_snowflake_epoch_millis, max_snowflake_node_id, SnowflakeIdError, SnowflakeIdGenerator,
 };
 

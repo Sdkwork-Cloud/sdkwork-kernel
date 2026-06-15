@@ -1,3 +1,5 @@
+import type { AgentImplementationKind } from './agent-implementation-kind';
+import type { AgentImplementationType } from './agent-implementation-type';
 import type { AgentManagementProfile } from './agent-management-profile';
 import type { AgentVisibility } from './agent-visibility';
 import type { Int64String } from './int64-string';
@@ -10,6 +12,9 @@ export interface UpdateAgentRequest {
   tags?: string[];
   defaultCodeTaskIntent?: Record<string, unknown>;
   managementProfile?: AgentManagementProfile | null;
+  implementationProviderId?: string | null;
+  implementationKind?: AgentImplementationKind | null;
+  implementationType?: AgentImplementationType;
   expectedVersion?: Int64String;
   requestedAt: string;
 }

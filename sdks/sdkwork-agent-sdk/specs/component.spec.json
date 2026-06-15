@@ -9,6 +9,7 @@
     "root": "sdks/sdkwork-agent-sdk",
     "domain": "agent",
     "capability": "agent-open-sdk",
+    "surface": "open-api",
     "status": "standardized",
     "languages": [
       "typescript"
@@ -19,6 +20,33 @@
       ".sdkwork-assembly.json"
     ]
   },
+  "canonicalSpecs": [
+    {
+      "file": "SDK_SPEC.md",
+      "path": "../../../sdkwork-specs/SDK_SPEC.md",
+      "purpose": "SDK family naming, generation, dependency, and consumer integration rules."
+    },
+    {
+      "file": "SDK_WORKSPACE_GENERATION_SPEC.md",
+      "path": "../../../sdkwork-specs/SDK_WORKSPACE_GENERATION_SPEC.md",
+      "purpose": "SDK workspace layout, authority OpenAPI, derived input, and generated output rules."
+    },
+    {
+      "file": "API_SPEC.md",
+      "path": "../../../sdkwork-specs/API_SPEC.md",
+      "purpose": "OpenAPI authority, API surface, schema, and SDK-generation contract rules."
+    },
+    {
+      "file": "TEST_SPEC.md",
+      "path": "../../../sdkwork-specs/TEST_SPEC.md",
+      "purpose": "SDK generation, contract, and workspace verification rules."
+    },
+    {
+      "file": "DOCUMENTATION_SPEC.md",
+      "path": "../../../sdkwork-specs/DOCUMENTATION_SPEC.md",
+      "purpose": "SDK README, examples, changelog, and generated artifact documentation rules."
+    }
+  ],
   "sdk": {
     "family": "sdkwork-agent-sdk",
     "authority": "sdkwork-agent-open-api",
@@ -48,7 +76,10 @@
     "runtimeEntrypoints": [
       ".sdkwork-assembly.json"
     ],
+    "routeManifest": null,
     "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [
       "SdkworkAgentClient"
     ],

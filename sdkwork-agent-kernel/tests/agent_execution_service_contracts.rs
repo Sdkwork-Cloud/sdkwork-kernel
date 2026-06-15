@@ -1768,15 +1768,17 @@ impl PlanningProvider for ExecutionPlanningProvider {
     }
 
     fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> KernelResult<Plan> {
-        Ok(Plan::new("plan.execution", task_id, run_id, summary).add_action(
-            Action::new(
-                "action.execution.model",
-                ActionKind::ModelCall,
-                "invoke selected model provider",
-            )
-            .with_required_capabilities(vec!["model.chat".to_string()])
-            .with_side_effect_level(SideEffectLevel::ReadOnly),
-        ))
+        Ok(
+            Plan::new("plan.execution", task_id, run_id, summary).add_action(
+                Action::new(
+                    "action.execution.model",
+                    ActionKind::ModelCall,
+                    "invoke selected model provider",
+                )
+                .with_required_capabilities(vec!["model.chat".to_string()])
+                .with_side_effect_level(SideEffectLevel::ReadOnly),
+            ),
+        )
     }
 
     fn health(&self) -> ProviderHealth {
@@ -1926,10 +1928,12 @@ impl McpProvider for RecordingMcpProvider {
     }
 
     fn list_servers(&self) -> KernelResult<Vec<McpServerDescriptor>> {
-        Ok(vec![
-            McpServerDescriptor::new("mcp.execution", "provider.mcp.execution", "sdkwork.test")
-                .with_capability("mcp.tools"),
-        ])
+        Ok(vec![McpServerDescriptor::new(
+            "mcp.execution",
+            "provider.mcp.execution",
+            "sdkwork.test",
+        )
+        .with_capability("mcp.tools")])
     }
 
     fn list_tools(&self, _server_id: &str) -> KernelResult<Vec<ToolDescriptor>> {
@@ -1975,10 +1979,12 @@ impl McpProvider for CapturingMcpProvider {
     }
 
     fn list_servers(&self) -> KernelResult<Vec<McpServerDescriptor>> {
-        Ok(vec![
-            McpServerDescriptor::new("mcp.execution", "provider.mcp.execution", "sdkwork.test")
-                .with_capability("mcp.tools"),
-        ])
+        Ok(vec![McpServerDescriptor::new(
+            "mcp.execution",
+            "provider.mcp.execution",
+            "sdkwork.test",
+        )
+        .with_capability("mcp.tools")])
     }
 
     fn list_tools(&self, _server_id: &str) -> KernelResult<Vec<ToolDescriptor>> {
@@ -2025,10 +2031,12 @@ impl McpProvider for CountingMcpProvider {
     }
 
     fn list_servers(&self) -> KernelResult<Vec<McpServerDescriptor>> {
-        Ok(vec![
-            McpServerDescriptor::new("mcp.execution", "provider.mcp.execution", "sdkwork.test")
-                .with_capability("mcp.tools"),
-        ])
+        Ok(vec![McpServerDescriptor::new(
+            "mcp.execution",
+            "provider.mcp.execution",
+            "sdkwork.test",
+        )
+        .with_capability("mcp.tools")])
     }
 
     fn list_tools(&self, _server_id: &str) -> KernelResult<Vec<ToolDescriptor>> {

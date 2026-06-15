@@ -15,6 +15,34 @@ const ROOT_METADATA_KEYS = [
   'x-sdkwork-standard-version'
 ];
 
+const SDK_FAMILY_CANONICAL_SPECS = [
+  {
+    file: 'SDK_SPEC.md',
+    path: '../../../sdkwork-specs/SDK_SPEC.md',
+    purpose: 'SDK family naming, generation, dependency, and consumer integration rules.'
+  },
+  {
+    file: 'SDK_WORKSPACE_GENERATION_SPEC.md',
+    path: '../../../sdkwork-specs/SDK_WORKSPACE_GENERATION_SPEC.md',
+    purpose: 'SDK workspace layout, authority OpenAPI, derived input, and generated output rules.'
+  },
+  {
+    file: 'API_SPEC.md',
+    path: '../../../sdkwork-specs/API_SPEC.md',
+    purpose: 'OpenAPI authority, API surface, schema, and SDK-generation contract rules.'
+  },
+  {
+    file: 'TEST_SPEC.md',
+    path: '../../../sdkwork-specs/TEST_SPEC.md',
+    purpose: 'SDK generation, contract, and workspace verification rules.'
+  },
+  {
+    file: 'DOCUMENTATION_SPEC.md',
+    path: '../../../sdkwork-specs/DOCUMENTATION_SPEC.md',
+    purpose: 'SDK README, examples, changelog, and generated artifact documentation rules.'
+  }
+];
+
 export function annotateAgentOpenApiOwnership(openapi, family) {
   const withoutRootMetadata = openapi
     .split(/\r?\n/)
@@ -123,12 +151,14 @@ export function buildAgentComponentSpec(family) {
       root: `sdks/${family.familyDir}`,
       domain: 'agent',
       capability: family.capability,
+      surface: componentSurfaceFor(family),
       status: 'standardized',
       languages: ['typescript'],
       generated: true,
       private: false,
       manifests: ['.sdkwork-assembly.json']
     },
+    canonicalSpecs: SDK_FAMILY_CANONICAL_SPECS,
     sdk: {
       family: family.familyDir,
       authority: family.authority,
@@ -154,7 +184,10 @@ export function buildAgentComponentSpec(family) {
       },
       publicExports: [],
       runtimeEntrypoints: ['.sdkwork-assembly.json'],
+      routeManifest: null,
       sdkDependencies: cloneDependencies(family),
+      dependencyApiExports: [],
+      dependencyApiSurfaces: [],
       sdkClients: [primaryClientFor(family)],
       events: [],
       configKeys: ['.sdkwork-assembly.json']
@@ -288,6 +321,20 @@ function primaryClientFor(family) {
       return 'SdkworkBackendClient';
     default:
       return 'SdkworkClient';
+  }
+}
+
+function componentSurfaceFor(family) {
+  switch (family.sdkSurface) {
+    case 'open':
+    case 'custom':
+      return 'open-api';
+    case 'app':
+      return 'app-api';
+    case 'backend':
+      return 'backend-admin';
+    default:
+      return 'open-api';
   }
 }
 

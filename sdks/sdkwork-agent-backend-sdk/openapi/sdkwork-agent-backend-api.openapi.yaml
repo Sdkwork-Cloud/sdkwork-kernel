@@ -2953,6 +2953,9 @@ components:
     AgentImplementationKind:
       type: string
       enum: [manifest-only, typed-local-provider, process-adapter, protocol-adapter]
+    AgentImplementationType:
+      type: string
+      enum: [sdkwork-native, rig-rust, openai-agents, langchain, langgraph, crewai, autogen, semantic-kernel, custom]
     DeploymentStatus:
       type: string
       enum: [created, active, failed, archived]
@@ -3020,7 +3023,7 @@ components:
     AgentRecord:
       type: object
       additionalProperties: false
-      required: [id, agentId, tenantId, organizationId, ownerUserId, code, displayName, manifest, status, visibility, tags, version, createdAt, updatedAt]
+      required: [id, agentId, tenantId, organizationId, ownerUserId, code, displayName, manifest, implementationType, status, visibility, tags, version, createdAt, updatedAt]
       properties:
         id:
           $ref: '#/components/schemas/Int64String'
@@ -3065,6 +3068,8 @@ components:
           oneOf:
             - $ref: '#/components/schemas/AgentImplementationKind'
             - type: 'null'
+        implementationType:
+          $ref: '#/components/schemas/AgentImplementationType'
         status:
           $ref: '#/components/schemas/AgentStatus'
         visibility:
@@ -4771,6 +4776,8 @@ components:
           oneOf:
             - $ref: '#/components/schemas/AgentImplementationKind'
             - type: 'null'
+        implementationType:
+          $ref: '#/components/schemas/AgentImplementationType'
         visibility:
           $ref: '#/components/schemas/AgentVisibility'
         tags:
@@ -4877,6 +4884,17 @@ components:
           oneOf:
             - $ref: '#/components/schemas/AgentManagementProfile'
             - type: 'null'
+        implementationProviderId:
+          type: [string, 'null']
+          minLength: 1
+          maxLength: 128
+          pattern: '^provider\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
+        implementationKind:
+          oneOf:
+            - $ref: '#/components/schemas/AgentImplementationKind'
+            - type: 'null'
+        implementationType:
+          $ref: '#/components/schemas/AgentImplementationType'
         expectedVersion:
           $ref: '#/components/schemas/Int64String'
         requestedAt:

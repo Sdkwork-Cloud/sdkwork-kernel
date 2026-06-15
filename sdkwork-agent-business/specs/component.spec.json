@@ -6,11 +6,12 @@
     "displayName": "SDKWork Agent Business",
     "version": "0.1.0",
     "type": "rust-crate",
-    "root": "sdkwork-birdcoder/kernel/sdkwork-agent-business",
+    "root": "sdkwork-kernel/sdkwork-agent-business",
     "domain": "intelligence",
     "declaredDomain": null,
     "capability": "agent-business",
     "status": "standardizing",
+    "surfaceNotRequiredReason": "This multi-surface Rust service exposes open, app, and backend router builders; surface-specific SDK families declare component.surface.",
     "languages": [
       "rust"
     ],
@@ -131,6 +132,9 @@
     "runtimeEntrypoints": [
       "Cargo.toml"
     ],
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [
       "sdkwork-agent-sdk: sdkwork-agent-open-api -> @sdkwork/agent-sdk",
       "sdkwork-agent-app-sdk: sdkwork-agent-app-api -> @sdkwork/agent-app-sdk",

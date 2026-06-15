@@ -15,7 +15,7 @@ their provider and security companion specs.
 | --- | --- |
 | Name | `sdkwork-kernel-plugins` |
 | Type | `standard-assets` |
-| Root | `sdkwork-birdcoder/kernel/sdkwork-kernel-plugins` |
+| Root | `sdkwork-kernel/sdkwork-kernel-plugins` |
 | Domain | `intelligence` |
 | Capability | `kernel.plugin` |
 | Languages | `markdown`, `json`, `javascript` |

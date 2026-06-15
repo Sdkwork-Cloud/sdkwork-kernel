@@ -6,11 +6,12 @@
     "displayName": "SDKWork Agent Plugins",
     "version": "0.1.0",
     "type": "node-package",
-    "root": "sdkwork-birdcoder/kernel/sdkwork-kernel-plugins",
+    "root": "sdkwork-kernel/sdkwork-kernel-plugins",
     "domain": "intelligence",
     "declaredDomain": null,
     "capability": "kernel.plugin",
     "status": "standardizing",
+    "surfaceNotRequiredReason": "This repository-internal plugin workspace documents plugin crates and has no single app, open-api, backend-admin, or generated SDK surface.",
     "languages": [
       "markdown",
       "json",
@@ -103,6 +104,9 @@
       "crates/sdkwork-kernel-plugin-drive",
       "crates/sdkwork-kernel-plugin-knowledgebase"
     ],
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [
       "sdkwork-drive-storage-contract",
       "sdkwork-knowledgebase-contract"

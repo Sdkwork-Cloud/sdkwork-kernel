@@ -5,7 +5,7 @@ Capability: `agent-kernel`, `agent-business`, `code-kernel`, `kernel-ui`
 Package type: industry kernel standard
 Status: standard candidate
 
-`kernel/` defines the SDKWork kernel standard for agent and code-agent systems.
+`sdkwork-kernel/` defines the SDKWork kernel standard for agent and code-agent systems.
 It is not a BirdCoder-private implementation detail. BirdCoder is the first
 application scenario used to validate, pressure-test, and refine the standard.
 The contracts defined here must remain reusable by other SDKWork applications,
@@ -20,13 +20,14 @@ concerns.
 
 ## Canonical References
 
-- SDKWork standards entry: [`../../../specs/README.md`](../../../specs/README.md)
-- SDKWork domain standard: [`../../../specs/DOMAIN_SPEC.md`](../../../specs/DOMAIN_SPEC.md)
-- SDKWork module standard: [`../../../specs/MODULE_SPEC.md`](../../../specs/MODULE_SPEC.md)
-- SDKWork documentation standard: [`../../../specs/DOCUMENTATION_SPEC.md`](../../../specs/DOCUMENTATION_SPEC.md)
-- SDKWork Rust RPC standard: [`../../../specs/RUST_RPC_SPEC.md`](../../../specs/RUST_RPC_SPEC.md)
-- SDKWork frontend architecture standard for TypeScript/Vite/React workspaces:
-  [`../../docs/ARCHITECT.md`](../../docs/ARCHITECT.md)
+- SDKWork standards entry: [`../sdkwork-specs/README.md`](../sdkwork-specs/README.md)
+- SDKWork workspace standard: [`../sdkwork-specs/SDKWORK_WORKSPACE_SPEC.md`](../sdkwork-specs/SDKWORK_WORKSPACE_SPEC.md)
+- SDKWork domain standard: [`../sdkwork-specs/DOMAIN_SPEC.md`](../sdkwork-specs/DOMAIN_SPEC.md)
+- SDKWork module standard: [`../sdkwork-specs/MODULE_SPEC.md`](../sdkwork-specs/MODULE_SPEC.md)
+- SDKWork documentation standard: [`../sdkwork-specs/DOCUMENTATION_SPEC.md`](../sdkwork-specs/DOCUMENTATION_SPEC.md)
+- SDKWork Rust RPC standard: [`../sdkwork-specs/RUST_RPC_SPEC.md`](../sdkwork-specs/RUST_RPC_SPEC.md)
+- SDKWork UI architecture standard for TypeScript/Vite/React workspaces:
+  [`../sdkwork-specs/UI_ARCHITECTURE_SPEC.md`](../sdkwork-specs/UI_ARCHITECTURE_SPEC.md)
 - Kernel-local specs index: [`./specs/README.md`](./specs/README.md)
 
 Local kernel documents may extend these standards, but they must not contradict
@@ -81,16 +82,36 @@ adapter contracts must remain versioned, explicit, and testable.
 ## Directory Model
 
 ```text
-kernel/
+sdkwork-kernel/
 |-- README.md
+|-- AGENTS.md
+|-- .sdkwork/
+|-- apis/
+|-- apps/
+|-- crates/
 |-- external/
 |-- specs/
+|-- sdks/
+|-- jobs/
+|-- tools/
+|-- plugins/
+|-- examples/
+|-- configs/
+|-- deployments/
+|-- scripts/
+|-- docs/
+|-- tests/
 |-- sdkwork-kernel-plugins/
 |-- sdkwork-agent-kernel/
 |-- sdkwork-agent-business/
 |-- sdkwork-code-kernel/
 `-- sdkwork-kernel-ui/
 ```
+
+The standard top-level directories follow `../sdkwork-specs/SDKWORK_WORKSPACE_SPEC.md`.
+Several established kernel component roots remain at the repository root for compatibility;
+new cross-cutting API, app, crate, plugin, config, deployment, example, job, tool, and test
+content should use the standard directory dictionary unless a component-local spec narrows it.
 
 ### `external`
 
@@ -237,7 +258,9 @@ reusable UI packages, service adapters, hooks, and components that any SDKWork
 application can embed to present and control agent/code-agent kernel behavior.
 
 The UI architecture and package standard must follow
-[`../../docs/ARCHITECT.md`](../../docs/ARCHITECT.md):
+[`../sdkwork-specs/UI_ARCHITECTURE_SPEC.md`](../sdkwork-specs/UI_ARCHITECTURE_SPEC.md)
+and the selected PC React UI rules in
+[`../sdkwork-specs/APP_PC_REACT_UI_SPEC.md`](../sdkwork-specs/APP_PC_REACT_UI_SPEC.md):
 
 - Use `pnpm` workspace semantics.
 - Use TypeScript for types, React for UI, and Vite for development/build.
@@ -255,7 +278,7 @@ The UI architecture and package standard must follow
 Recommended kernel UI package family:
 
 ```text
-kernel/sdkwork-kernel-ui/
+sdkwork-kernel-ui/
 |-- src/                              # thin demo/composition shell only
 |-- packages/
 |   |-- sdkwork-kernel-ui-types/
@@ -368,7 +391,7 @@ Compatibility rules:
 - Providers must fail closed when a required capability is missing.
 - UI packages must degrade gracefully when a kernel capability is unavailable.
 - Generated clients, event schemas, and manifests must not be hand-edited.
-- Kernel-local specs under `kernel/specs/` must record contract decisions that
+- Kernel-local specs under `specs/` must record contract decisions that
   affect external plugins and adapters.
 
 ## Runtime And Event Model
@@ -616,19 +639,19 @@ documented by each subsystem:
 pnpm lint
 
 # Kernel standard conformance
-node kernel/scripts/check-kernel-standards.mjs
-node kernel/sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs
+node scripts/check-kernel-standards.mjs
+node sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs
 
 # Rust kernel checks, paths may be refined by concrete crate layout
-cargo test --manifest-path kernel/sdkwork-agent-kernel/Cargo.toml
-cargo test --manifest-path kernel/sdkwork-agent-business/Cargo.toml
-cargo test --manifest-path kernel/sdkwork-code-kernel/Cargo.toml
+cargo test --manifest-path sdkwork-agent-kernel/Cargo.toml
+cargo test --manifest-path sdkwork-agent-business/Cargo.toml
+cargo test --manifest-path sdkwork-code-kernel/Cargo.toml
 
 # Kernel UI checks
-pnpm --dir kernel/sdkwork-kernel-ui install --frozen-lockfile
-pnpm --dir kernel/sdkwork-kernel-ui build
-pnpm --dir kernel/sdkwork-kernel-ui typecheck
-pnpm --dir kernel/sdkwork-kernel-ui test
+pnpm --dir sdkwork-kernel-ui install --frozen-lockfile
+pnpm --dir sdkwork-kernel-ui build
+pnpm --dir sdkwork-kernel-ui typecheck
+pnpm --dir sdkwork-kernel-ui test
 ```
 
 If a command is not yet available, the owning subsystem README must state what
@@ -636,7 +659,7 @@ is missing and which contract is being implemented first.
 
 ## Acceptance Checklist
 
-- [ ] `kernel/` is documented as an industry-level SDKWork kernel standard, not
+- [ ] `sdkwork-kernel/` is documented as an industry-level SDKWork kernel standard, not
       a BirdCoder-private directory.
 - [ ] BirdCoder is described as a proving application, not the owner of the SPI.
 - [ ] `sdkwork-agent-kernel` is the Rust base SPI for all agents.
@@ -644,7 +667,7 @@ is missing and which contract is being implemented first.
       agent kernel.
 - [ ] `sdkwork-kernel-ui` is a first-class TypeScript + Vite + React kernel UI
       standard subsystem.
-- [ ] Kernel UI package structure follows `apps/docs/ARCHITECT.md`.
+- [ ] Kernel UI package structure follows `UI_ARCHITECTURE_SPEC.md` and `APP_PC_REACT_UI_SPEC.md`.
 - [ ] Rust kernel does not depend on React/Vite/product UI.
 - [ ] Kernel UI talks to Rust kernel through typed service adapters, IPC/RPC,
       SDK ports, or event streams.

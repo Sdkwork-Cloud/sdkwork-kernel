@@ -60,6 +60,7 @@ fn create_rig_agent(
             default_code_task_intent: None,
             implementation_provider_id: Some("provider.model.rig-rust".to_string()),
             implementation_kind: Some(AgentImplementationKind::TypedLocalProvider),
+            implementation_type: None,
             requested_by: subject(),
             requested_at: "2026-06-04T00:00:00Z".to_string(),
         })
@@ -115,6 +116,7 @@ fn create_agent_records_implementation_provider_metadata() {
             default_code_task_intent: None,
             implementation_provider_id: Some("provider.model.rig-rust".to_string()),
             implementation_kind: Some(AgentImplementationKind::TypedLocalProvider),
+            implementation_type: None,
             requested_by: subject(),
             requested_at: "2026-06-04T00:00:00Z".to_string(),
         })
@@ -149,6 +151,7 @@ fn create_agent_rejects_non_standard_implementation_provider_id() {
             default_code_task_intent: None,
             implementation_provider_id: Some("model.rig-rust".to_string()),
             implementation_kind: Some(AgentImplementationKind::TypedLocalProvider),
+            implementation_type: None,
             requested_by: subject(),
             requested_at: "2026-06-04T00:00:00Z".to_string(),
         })

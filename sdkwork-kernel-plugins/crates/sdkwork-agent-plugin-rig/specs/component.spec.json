@@ -9,6 +9,7 @@
     "root": "sdkwork-kernel/sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig",
     "domain": "intelligence",
     "capability": "agent-plugin-rig",
+    "surfaceNotRequiredReason": "This repository-internal Rig plugin crate is loaded through kernel plugin contracts and has no app, open-api, or backend-admin surface.",
     "languages": [
       "rust"
     ],
@@ -20,7 +21,7 @@
   "canonicalSpecs": [
     {
       "file": "KERNEL_PLUGIN_SPEC.md",
-      "path": "../../../../specs/KERNEL_PLUGIN_SPEC.md",
+      "path": "../../../specs/KERNEL_PLUGIN_SPEC.md",
       "purpose": "Canonical plugin manifest, contribution, dependency, lifecycle, security, conformance, and plugin naming rules."
     },
     {
@@ -68,6 +69,9 @@
       "rig_kernel_plugin_manifest"
     ],
     "routeManifest": null,
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
     "configKeys": []

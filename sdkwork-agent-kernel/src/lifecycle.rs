@@ -602,11 +602,7 @@ impl AgentSession {
     }
 
     pub fn record_cost(&mut self, cents: u64) {
-        self.cost_cents = Some(
-            self.cost_cents
-                .unwrap_or(0)
-                .saturating_add(cents),
-        );
+        self.cost_cents = Some(self.cost_cents.unwrap_or(0).saturating_add(cents));
     }
 
     pub fn add_child_session(&mut self, child_session_id: impl Into<String>) {

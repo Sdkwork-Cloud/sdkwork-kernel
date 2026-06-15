@@ -47,17 +47,16 @@ pub trait MessageAdapter {
     fn to_agent_message(&self, external: &Self::ExternalMessage) -> KernelResult<AgentMessage>;
 
     fn from_agent_message(&self, message: &AgentMessage) -> KernelResult<Self::ExternalMessage> {
-        Err(KernelError::validation("reverse message conversion not supported"))
+        Err(KernelError::validation(
+            "reverse message conversion not supported",
+        ))
     }
 
     fn to_agent_messages(
         &self,
         externals: &[Self::ExternalMessage],
     ) -> KernelResult<Vec<AgentMessage>> {
-        externals
-            .iter()
-            .map(|m| self.to_agent_message(m))
-            .collect()
+        externals.iter().map(|m| self.to_agent_message(m)).collect()
     }
 }
 
@@ -101,10 +100,7 @@ pub trait ToolAdapter {
     type ExternalToolCall;
     type ExternalToolResult;
 
-    fn to_tool_descriptor(
-        &self,
-        external: &Self::ExternalToolDef,
-    ) -> KernelResult<ToolDescriptor>;
+    fn to_tool_descriptor(&self, external: &Self::ExternalToolDef) -> KernelResult<ToolDescriptor>;
 
     fn to_tool_call(&self, external: &Self::ExternalToolCall) -> KernelResult<ToolCall>;
 
@@ -133,10 +129,8 @@ pub trait ToolAdapter {
 pub trait PolicyAdapter {
     type ExternalPermission;
 
-    fn to_policy_request(
-        &self,
-        external: &Self::ExternalPermission,
-    ) -> KernelResult<PolicyRequest>;
+    fn to_policy_request(&self, external: &Self::ExternalPermission)
+        -> KernelResult<PolicyRequest>;
 
     fn map_policy_decision(
         &self,
@@ -195,11 +189,7 @@ pub trait ConversationManager {
     fn get_history(&self, session_id: &str) -> KernelResult<Vec<AgentMessage>>;
 
     /// Append a message to the conversation
-    fn append_message(
-        &mut self,
-        session_id: &str,
-        message: AgentMessage,
-    ) -> KernelResult<()>;
+    fn append_message(&mut self, session_id: &str, message: AgentMessage) -> KernelResult<()>;
 
     /// Get the current turn number
     fn current_turn(&self, session_id: &str) -> KernelResult<u32>;
@@ -416,18 +406,10 @@ impl ConversationManager for InMemoryConversationManager {
     }
 
     fn get_history(&self, session_id: &str) -> KernelResult<Vec<AgentMessage>> {
-        Ok(self
-            .messages
-            .get(session_id)
-            .cloned()
-            .unwrap_or_default())
+        Ok(self.messages.get(session_id).cloned().unwrap_or_default())
     }
 
-    fn append_message(
-        &mut self,
-        session_id: &str,
-        message: AgentMessage,
-    ) -> KernelResult<()> {
+    fn append_message(&mut self, session_id: &str, message: AgentMessage) -> KernelResult<()> {
         self.messages
             .entry(session_id.to_string())
             .or_default()
@@ -450,11 +432,7 @@ impl ConversationManager for InMemoryConversationManager {
         session_id: &str,
         max_tokens: usize,
     ) -> KernelResult<AgentMessage> {
-        let messages = self
-            .messages
-            .get(session_id)
-            .cloned()
-            .unwrap_or_default();
+        let messages = self.messages.get(session_id).cloned().unwrap_or_default();
 
         let mut system_prefix: Option<AgentMessage> = None;
         let compressible: Vec<AgentMessage> = messages
@@ -473,7 +451,11 @@ impl ConversationManager for InMemoryConversationManager {
         let mut total_chars = 0;
         let mut kept = Vec::new();
         for msg in compressible.iter().rev() {
-            let msg_chars: usize = msg.parts.iter().map(|p| p.text.as_ref().map_or(0, |t| t.len())).sum();
+            let msg_chars: usize = msg
+                .parts
+                .iter()
+                .map(|p| p.text.as_ref().map_or(0, |t| t.len()))
+                .sum();
             if total_chars + msg_chars > max_tokens * 4 {
                 break;
             }
@@ -505,11 +487,14 @@ impl ConversationManager for InMemoryConversationManager {
         Ok(AgentMessage::new(
             format!("compressed.summary.{}", session_id),
             AgentMessageRole::System,
-            vec![AgentPart::text("compressed.result", format!(
-                "Compressed {} messages ({} chars) into summary",
-                kept.len(),
-                total_chars
-            ))],
+            vec![AgentPart::text(
+                "compressed.result",
+                format!(
+                    "Compressed {} messages ({} chars) into summary",
+                    kept.len(),
+                    total_chars
+                ),
+            )],
         ))
     }
 }
@@ -646,7 +631,10 @@ mod tests {
             let msg = AgentMessage::new(
                 format!("msg.{}", i),
                 AgentMessageRole::User,
-                vec![AgentPart::text(format!("p.{}", i), format!("Message {}", i))],
+                vec![AgentPart::text(
+                    format!("p.{}", i),
+                    format!("Message {}", i),
+                )],
             );
             manager.append_message("session.1", msg).unwrap();
         }
@@ -656,7 +644,11 @@ mod tests {
         let remaining = manager.get_history("session.1").unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].role, AgentMessageRole::System);
-        assert!(remaining[0].parts[0].text.as_ref().unwrap().contains("Compressed"));
+        assert!(remaining[0].parts[0]
+            .text
+            .as_ref()
+            .unwrap()
+            .contains("Compressed"));
     }
 
     #[test]
@@ -674,7 +666,10 @@ mod tests {
             let msg = AgentMessage::new(
                 format!("msg.{}", i),
                 AgentMessageRole::User,
-                vec![AgentPart::text(format!("p.{}", i), format!("Message {}", i))],
+                vec![AgentPart::text(
+                    format!("p.{}", i),
+                    format!("Message {}", i),
+                )],
             );
             manager.append_message("session.1", msg).unwrap();
         }
@@ -686,7 +681,11 @@ mod tests {
         assert_eq!(remaining[0].role, AgentMessageRole::System);
         assert_eq!(remaining[0].message_id, "sys.1");
         assert_eq!(remaining[1].role, AgentMessageRole::System);
-        assert!(remaining[1].parts[0].text.as_ref().unwrap().contains("Compressed"));
+        assert!(remaining[1].parts[0]
+            .text
+            .as_ref()
+            .unwrap()
+            .contains("Compressed"));
     }
 
     #[test]

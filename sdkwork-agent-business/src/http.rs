@@ -1282,6 +1282,7 @@ struct CreateAgentBody {
     management_profile: Option<AgentManagementProfileBody>,
     implementation_provider_id: Option<String>,
     implementation_kind: Option<String>,
+    implementation_type: Option<String>,
     visibility: String,
     tags: Option<Vec<String>>,
     requested_at: String,
@@ -1345,6 +1346,9 @@ struct UpdateAgentBody {
     tags: Option<Vec<String>>,
     default_code_task_intent: Option<CodeTaskIntentBody>,
     management_profile: Option<AgentManagementProfileBody>,
+    implementation_provider_id: Option<Option<String>>,
+    implementation_kind: Option<Option<String>>,
+    implementation_type: Option<String>,
     expected_version: Option<String>,
     requested_at: String,
 }
@@ -1835,6 +1839,7 @@ struct AgentRecordResponse {
     management_profile: Option<AgentManagementProfileResponse>,
     implementation_provider_id: Option<String>,
     implementation_kind: Option<String>,
+    implementation_type: String,
     status: String,
     visibility: String,
     tags: Vec<String>,
@@ -6940,6 +6945,7 @@ async fn execute_create(
         default_code_task_intent,
         implementation_provider_id: body.implementation_provider_id,
         implementation_kind: body.implementation_kind,
+        implementation_type: body.implementation_type,
         requested_at: body.requested_at,
     }
     .into_command(scope.subject)
@@ -7008,6 +7014,9 @@ async fn execute_update(
         visibility: body.visibility,
         tags: body.tags,
         default_code_task_intent,
+        implementation_provider_id: body.implementation_provider_id,
+        implementation_kind: body.implementation_kind,
+        implementation_type: body.implementation_type,
         requested_at: body.requested_at,
     }
     .into_command(scope.subject)
@@ -7308,6 +7317,7 @@ fn map_agent_record(record: &AgentRecordDto) -> Result<AgentRecordResponse, ApiP
             .map(map_agent_management_profile),
         implementation_provider_id: record.implementation_provider_id.clone(),
         implementation_kind: record.implementation_kind.clone(),
+        implementation_type: record.implementation_type.clone(),
         status: record.status.clone(),
         visibility: record.visibility.clone(),
         tags: record.tags.clone(),

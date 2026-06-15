@@ -16,16 +16,17 @@ use crate::application::{
 };
 use crate::domain::{
     AgentBusinessRecord, AgentBusinessStatus, AgentDeploymentRecord, AgentImplementationKind,
-    AgentKnowledgeBaseKind, AgentKnowledgeBaseRecord, AgentKnowledgeBindingRecord,
-    AgentKnowledgeBindingScopeKind, AgentKnowledgeChunkRecord, AgentKnowledgeDocumentKind,
-    AgentKnowledgeDocumentRecord, AgentKnowledgeIndexKind, AgentKnowledgeIndexRecord,
-    AgentKnowledgeSearchResult, AgentKnowledgeSourceKind, AgentKnowledgeSourceRecord,
-    AgentKnowledgeSyncJobKind, AgentKnowledgeSyncJobRecord, AgentMemoryBindingRecord,
-    AgentMemoryBindingScopeKind, AgentMemoryIndexKind, AgentMemoryNamespaceKind,
-    AgentMemoryNamespaceRecord, AgentMemoryProfileRecord, AgentMemoryRecord, AgentMemoryRecordKind,
-    AgentMemoryRelationKind, AgentMemoryRelationRecord, AgentMemoryRetrievalIndexRecord,
-    AgentMemorySourceKind, AgentMemorySourceRecord, AgentMemoryStoreKind, AgentMemoryStoreRecord,
-    AgentProviderBindingRecord, AgentRuntimeExecutionRecord, AgentVisibility,
+    AgentImplementationType, AgentKnowledgeBaseKind, AgentKnowledgeBaseRecord,
+    AgentKnowledgeBindingRecord, AgentKnowledgeBindingScopeKind, AgentKnowledgeChunkRecord,
+    AgentKnowledgeDocumentKind, AgentKnowledgeDocumentRecord, AgentKnowledgeIndexKind,
+    AgentKnowledgeIndexRecord, AgentKnowledgeSearchResult, AgentKnowledgeSourceKind,
+    AgentKnowledgeSourceRecord, AgentKnowledgeSyncJobKind, AgentKnowledgeSyncJobRecord,
+    AgentMemoryBindingRecord, AgentMemoryBindingScopeKind, AgentMemoryIndexKind,
+    AgentMemoryNamespaceKind, AgentMemoryNamespaceRecord, AgentMemoryProfileRecord,
+    AgentMemoryRecord, AgentMemoryRecordKind, AgentMemoryRelationKind, AgentMemoryRelationRecord,
+    AgentMemoryRetrievalIndexRecord, AgentMemorySourceKind, AgentMemorySourceRecord,
+    AgentMemoryStoreKind, AgentMemoryStoreRecord, AgentProviderBindingRecord,
+    AgentRuntimeExecutionRecord, AgentVisibility,
 };
 use crate::ports::{AgentListQuery, AgentMarketplaceListQuery};
 use crate::validation::{
@@ -84,6 +85,7 @@ pub struct CreateAgentRequestDto {
     pub default_code_task_intent: Option<CodeTaskIntent>,
     pub implementation_provider_id: Option<String>,
     pub implementation_kind: Option<String>,
+    pub implementation_type: Option<String>,
     pub requested_at: String,
 }
 
@@ -107,6 +109,11 @@ impl CreateAgentRequestDto {
                 .implementation_kind
                 .as_deref()
                 .map(parse_implementation_kind)
+                .transpose()?,
+            implementation_type: self
+                .implementation_type
+                .as_deref()
+                .map(parse_implementation_type)
                 .transpose()?,
             requested_by,
             requested_at: self.requested_at,
@@ -273,6 +280,9 @@ pub struct UpdateAgentRequestDto {
     pub visibility: Option<String>,
     pub tags: Option<Vec<String>>,
     pub default_code_task_intent: Option<CodeTaskIntent>,
+    pub implementation_provider_id: Option<Option<String>>,
+    pub implementation_kind: Option<Option<String>>,
+    pub implementation_type: Option<String>,
     pub requested_at: String,
 }
 
@@ -299,6 +309,16 @@ impl UpdateAgentRequestDto {
             visibility,
             tags: self.tags,
             default_code_task_intent: self.default_code_task_intent,
+            implementation_provider_id: self.implementation_provider_id,
+            implementation_kind: self
+                .implementation_kind
+                .map(|value| value.as_deref().map(parse_implementation_kind).transpose())
+                .transpose()?,
+            implementation_type: self
+                .implementation_type
+                .as_deref()
+                .map(parse_implementation_type)
+                .transpose()?,
             requested_by,
             requested_at: self.requested_at,
         })
@@ -419,6 +439,7 @@ pub struct AgentRecordDto {
     pub management_profile: Option<AgentManagementProfileDto>,
     pub implementation_provider_id: Option<String>,
     pub implementation_kind: Option<String>,
+    pub implementation_type: String,
     pub status: String,
     pub visibility: String,
     pub tags: Vec<String>,
@@ -448,6 +469,7 @@ impl AgentRecordDto {
             implementation_kind: record
                 .implementation_kind
                 .map(|kind| kind.as_str().to_string()),
+            implementation_type: record.implementation_type.as_str().to_string(),
             status: record.status.as_str().to_string(),
             visibility: record.visibility.as_str().to_string(),
             tags: record.tags.clone(),
@@ -2572,6 +2594,14 @@ fn parse_implementation_kind(value: &str) -> KernelResult<AgentImplementationKin
     })
 }
 
+fn parse_implementation_type(value: &str) -> KernelResult<AgentImplementationType> {
+    AgentImplementationType::from_code(value).ok_or_else(|| {
+        KernelError::validation(format!(
+            "implementationType must be one of sdkwork-native, rig-rust, openai-agents, langchain, langgraph, crewai, autogen, semantic-kernel, custom: {value}"
+        ))
+    })
+}
+
 fn parse_knowledge_base_kind(value: &str) -> KernelResult<AgentKnowledgeBaseKind> {
     AgentKnowledgeBaseKind::from_code(value).ok_or_else(|| {
         KernelError::validation(format!(
@@ -2789,6 +2819,7 @@ mod tests {
             default_code_task_intent: Some(CodeTaskIntent::new("Refactor runtime")),
             implementation_provider_id: None,
             implementation_kind: None,
+            implementation_type: None,
             requested_at: "2026-06-01T00:00:00Z".to_string(),
         }
         .into_command(sample_subject())
@@ -2851,6 +2882,7 @@ mod tests {
             default_code_task_intent: Some(CodeTaskIntent::new("Refactor runtime")),
             implementation_provider_id: None,
             implementation_kind: None,
+            implementation_type: None,
             requested_at: "2026-06-01".to_string(),
         }
         .into_command(sample_subject())
@@ -2890,6 +2922,9 @@ mod tests {
             visibility: None,
             tags: None,
             default_code_task_intent: None,
+            implementation_provider_id: None,
+            implementation_kind: None,
+            implementation_type: None,
             requested_at: "2026-06-01T00:00:00Z".to_string(),
         }
         .into_command(sample_subject())
@@ -2898,6 +2933,36 @@ mod tests {
         match update_error {
             KernelError::Validation { message } => {
                 assert!(message.contains("expectedVersion"));
+            }
+            _ => panic!("expected validation error"),
+        }
+    }
+
+    #[test]
+    fn invalid_implementation_type_is_rejected_for_agent_requests() {
+        let error = CreateAgentRequestDto {
+            agent_id: "agent.alpha".to_string(),
+            tenant_id: "1".to_string(),
+            organization_id: "10".to_string(),
+            owner_user_id: "100".to_string(),
+            code: "alpha".to_string(),
+            display_name: "Alpha".to_string(),
+            description: Some("alpha".to_string()),
+            manifest: sample_manifest("agent.alpha"),
+            visibility: "organization".to_string(),
+            tags: vec!["starter".to_string()],
+            default_code_task_intent: None,
+            implementation_provider_id: None,
+            implementation_kind: None,
+            implementation_type: Some("not-a-framework".to_string()),
+            requested_at: "2026-06-01T00:00:00Z".to_string(),
+        }
+        .into_command(sample_subject())
+        .expect_err("invalid implementationType should fail");
+
+        match error {
+            KernelError::Validation { message } => {
+                assert!(message.contains("implementationType"));
             }
             _ => panic!("expected validation error"),
         }
@@ -2918,6 +2983,7 @@ mod tests {
             default_code_task_intent: None,
             implementation_provider_id: None,
             implementation_kind: None,
+            implementation_type: AgentImplementationType::SdkworkNative,
             status: AgentBusinessStatus::Draft,
             visibility: AgentVisibility::Private,
             tags: vec!["starter".to_string()],
@@ -2958,6 +3024,7 @@ mod tests {
             ),
             implementation_provider_id: None,
             implementation_kind: Some(AgentImplementationKind::ManifestOnly),
+            implementation_type: AgentImplementationType::SdkworkNative,
             status: AgentBusinessStatus::Draft,
             visibility: AgentVisibility::Private,
             tags: vec!["assistant".to_string()],

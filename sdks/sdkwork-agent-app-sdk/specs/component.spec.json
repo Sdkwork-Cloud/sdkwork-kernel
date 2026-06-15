@@ -9,6 +9,7 @@
     "root": "sdks/sdkwork-agent-app-sdk",
     "domain": "agent",
     "capability": "agent-app-sdk",
+    "surface": "app-api",
     "status": "standardized",
     "languages": [
       "typescript"
@@ -19,6 +20,33 @@
       ".sdkwork-assembly.json"
     ]
   },
+  "canonicalSpecs": [
+    {
+      "file": "SDK_SPEC.md",
+      "path": "../../../sdkwork-specs/SDK_SPEC.md",
+      "purpose": "SDK family naming, generation, dependency, and consumer integration rules."
+    },
+    {
+      "file": "SDK_WORKSPACE_GENERATION_SPEC.md",
+      "path": "../../../sdkwork-specs/SDK_WORKSPACE_GENERATION_SPEC.md",
+      "purpose": "SDK workspace layout, authority OpenAPI, derived input, and generated output rules."
+    },
+    {
+      "file": "API_SPEC.md",
+      "path": "../../../sdkwork-specs/API_SPEC.md",
+      "purpose": "OpenAPI authority, API surface, schema, and SDK-generation contract rules."
+    },
+    {
+      "file": "TEST_SPEC.md",
+      "path": "../../../sdkwork-specs/TEST_SPEC.md",
+      "purpose": "SDK generation, contract, and workspace verification rules."
+    },
+    {
+      "file": "DOCUMENTATION_SPEC.md",
+      "path": "../../../sdkwork-specs/DOCUMENTATION_SPEC.md",
+      "purpose": "SDK README, examples, changelog, and generated artifact documentation rules."
+    }
+  ],
   "sdk": {
     "family": "sdkwork-agent-app-sdk",
     "authority": "sdkwork-agent-app-api",
@@ -47,6 +75,7 @@
     "runtimeEntrypoints": [
       ".sdkwork-assembly.json"
     ],
+    "routeManifest": null,
     "sdkDependencies": [
       {
         "workspace": "sdkwork-appbase-app-sdk",
@@ -54,13 +83,15 @@
         "required": true,
         "dependencyMode": "consumer-sdk",
         "apiPrefix": "/app/v3/api",
-        "apiAuthority": "sdkwork-appbase.app",
+        "apiAuthority": "sdkwork-appbase-app-api",
         "generatedTransportImportPolicy": "forbidden",
         "packageByLanguage": {
           "typescript": "@sdkwork/appbase-app-sdk"
         }
       }
     ],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [
       "SdkworkAppClient"
     ],

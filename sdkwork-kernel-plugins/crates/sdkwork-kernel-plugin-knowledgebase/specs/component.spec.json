@@ -9,6 +9,7 @@
     "root": "sdkwork-kernel/sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase",
     "domain": "intelligence",
     "capability": "kernel-plugin-knowledgebase",
+    "surfaceNotRequiredReason": "This repository-internal Knowledgebase plugin crate is loaded through provider manifests and has no app, open-api, or backend-admin surface.",
     "languages": [
       "rust"
     ],
@@ -20,12 +21,12 @@
   "canonicalSpecs": [
     {
       "file": "KERNEL_PLUGIN_SPEC.md",
-      "path": "../../../../specs/KERNEL_PLUGIN_SPEC.md",
+      "path": "../../../specs/KERNEL_PLUGIN_SPEC.md",
       "purpose": "Canonical plugin manifest, contribution, dependency, lifecycle, security, conformance, and plugin naming rules."
     },
     {
       "file": "AGENT_KNOWLEDGE_PROVIDER_SPI_SPEC.md",
-      "path": "../../../../specs/AGENT_KNOWLEDGE_PROVIDER_SPI_SPEC.md",
+      "path": "../../../specs/AGENT_KNOWLEDGE_PROVIDER_SPI_SPEC.md",
       "purpose": "Provider-neutral knowledge search, read, list, provenance, and policy rules."
     },
     {
@@ -61,6 +62,9 @@
       "sdkwork_knowledgebase_provider_manifests"
     ],
     "routeManifest": null,
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [
       "sdkwork-knowledgebase-contract"
     ],

@@ -1,13 +1,14 @@
 use sdkwork_agent_adapter_core::{
-    create_session_from_config, now_iso, uuid_simple, ConversationManager, InMemoryConversationManager,
-    MessageAdapter, SessionAdapter, SessionConfig, SessionLifecycleProvider,
+    create_session_from_config, now_iso, uuid_simple, ConversationManager,
+    InMemoryConversationManager, MessageAdapter, SessionAdapter, SessionConfig,
+    SessionLifecycleProvider,
 };
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
-    ModelStatus, ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind,
-    SessionSource, SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor,
-    ToolProvider, ToolResult, ToolSchema,
+    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
+    ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
+    SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
+    ToolResult, ToolSchema,
 };
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -160,17 +161,11 @@ impl MessageAdapter for ClaudeMessageAdapter {
             match content {
                 ClaudeContent::Text { text } => {
                     if !text.is_empty() {
-                        parts.push(AgentPart::text(
-                            format!("claude.text.{}", i),
-                            text,
-                        ));
+                        parts.push(AgentPart::text(format!("claude.text.{}", i), text));
                     }
                 }
                 ClaudeContent::ToolUse { id, name, input } => {
-                    let mut part = AgentPart::tool_call_ref(
-                        format!("claude.tool_use.{}", i),
-                        id,
-                    );
+                    let mut part = AgentPart::tool_call_ref(format!("claude.tool_use.{}", i), id);
                     part.name = Some(name.clone());
                     part.json = Some(input.to_string());
                     parts.push(part);
@@ -179,10 +174,7 @@ impl MessageAdapter for ClaudeMessageAdapter {
                     tool_use_id,
                     content,
                 } => {
-                    let mut part = AgentPart::text(
-                        format!("claude.tool_result.{}", i),
-                        content,
-                    );
+                    let mut part = AgentPart::text(format!("claude.tool_result.{}", i), content);
                     part.tool_call_id = Some(tool_use_id.clone());
                     part.kind = sdkwork_agent_kernel::AgentPartKind::ToolCallRef;
                     parts.push(part);
@@ -201,11 +193,7 @@ impl MessageAdapter for ClaudeMessageAdapter {
             parts.push(AgentPart::text("claude.empty", ""));
         }
 
-        let mut message = AgentMessage::new(
-            format!("claude.msg.{}", uuid_simple()),
-            role,
-            parts,
-        );
+        let mut message = AgentMessage::new(format!("claude.msg.{}", uuid_simple()), role, parts);
 
         if has_thinking {
             message = message.with_metadata("claude.has_thinking", "true");
@@ -318,10 +306,7 @@ impl ModelProvider for ClaudeModelProvider {
     }
 
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
-        let model_id = request
-            .model_id
-            .as_deref()
-            .unwrap_or(&self.default_model);
+        let model_id = request.model_id.as_deref().unwrap_or(&self.default_model);
         let prompt = request.messages.join("\n");
 
         Ok(ModelResponse::text(
@@ -329,10 +314,7 @@ impl ModelProvider for ClaudeModelProvider {
             "provider.model.claude",
             format!("[Claude {}] Mock response to: {}", model_id, prompt),
         )
-        .with_usage(ModelUsage::new(
-            prompt.len() as u32 / 4,
-            256,
-        ))
+        .with_usage(ModelUsage::new(prompt.len() as u32 / 4, 256))
         .with_finish_reason("end_turn"))
     }
 
@@ -346,11 +328,7 @@ impl ModelProvider for ClaudeModelProvider {
             .into_iter()
             .enumerate()
             .map(|(i, word)| {
-                ModelStreamChunk::output(
-                    &request.model_request_id,
-                    i as u64,
-                    format!("{} ", word),
-                )
+                ModelStreamChunk::output(&request.model_request_id, i as u64, format!("{} ", word))
             })
             .collect();
 
@@ -477,9 +455,7 @@ impl ToolProvider for ClaudeToolProvider {
             "claude.bash" => {
                 format!("[Claude Bash] Mock execution: {}", call.arguments)
             }
-            "claude.glob" => {
-                "[Claude Glob] src/main.rs\nsrc/lib.rs\nCargo.toml".to_string()
-            }
+            "claude.glob" => "[Claude Glob] src/main.rs\nsrc/lib.rs\nCargo.toml".to_string(),
             "claude.grep" => {
                 format!("[Claude Grep] Mock search: {}", call.arguments)
             }
@@ -538,16 +514,16 @@ impl SessionLifecycleProvider for ClaudeCodeLifecycleProvider {
             config,
             now_iso(),
         );
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         sessions.insert(session_id.clone(), session.clone());
         Ok(session)
     }
 
     fn resume_session(&self, session_id: &str) -> KernelResult<AgentSession> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         let session = sessions
             .get_mut(session_id)
@@ -557,8 +533,8 @@ impl SessionLifecycleProvider for ClaudeCodeLifecycleProvider {
     }
 
     fn close_session(&self, session_id: &str) -> KernelResult<AgentSession> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         let session = sessions
             .get_mut(session_id)
@@ -568,8 +544,8 @@ impl SessionLifecycleProvider for ClaudeCodeLifecycleProvider {
     }
 
     fn list_active_sessions(&self) -> KernelResult<Vec<AgentSession>> {
-        let sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         Ok(sessions
             .values()
@@ -657,10 +633,7 @@ mod tests {
         let result = adapter.to_agent_message(&msg).unwrap();
         assert_eq!(result.role, AgentMessageRole::User);
         assert_eq!(result.parts.len(), 1);
-        assert_eq!(
-            result.parts[0].text,
-            Some("Hello Claude".to_string())
-        );
+        assert_eq!(result.parts[0].text, Some("Hello Claude".to_string()));
     }
 
     #[test]
@@ -713,14 +686,8 @@ mod tests {
 
         let result = adapter.to_agent_message(&msg).unwrap();
         assert_eq!(result.parts.len(), 1);
-        assert_eq!(
-            result.parts[0].tool_call_id,
-            Some("toolu_123".to_string())
-        );
-        assert_eq!(
-            result.parts[0].text,
-            Some("file contents here".to_string())
-        );
+        assert_eq!(result.parts[0].tool_call_id, Some("toolu_123".to_string()));
+        assert_eq!(result.parts[0].text, Some("file contents here".to_string()));
     }
 
     #[test]
@@ -814,7 +781,9 @@ mod tests {
         assert_eq!(manifest.provider_id, "provider.model.claude");
         assert_eq!(manifest.provider_family, "model");
         assert!(manifest.capabilities.contains(&"model.chat".to_string()));
-        assert!(manifest.capabilities.contains(&"model.thinking".to_string()));
+        assert!(manifest
+            .capabilities
+            .contains(&"model.thinking".to_string()));
     }
 
     #[test]
@@ -836,9 +805,7 @@ mod tests {
     #[test]
     fn model_provider_describe_model() {
         let provider = ClaudeModelProvider::new();
-        let model = provider
-            .describe_model("claude-opus-4-20250514")
-            .unwrap();
+        let model = provider.describe_model("claude-opus-4-20250514").unwrap();
         assert_eq!(model.display_name, "Claude Opus 4");
         assert_eq!(model.family, "claude");
         assert!(model.supports_capability("chat"));
@@ -1012,14 +979,21 @@ mod tests {
             let msg = AgentMessage::new(
                 format!("msg.{}", i),
                 AgentMessageRole::User,
-                vec![AgentPart::text(format!("p.{}", i), format!("Message {}", i))],
+                vec![AgentPart::text(
+                    format!("p.{}", i),
+                    format!("Message {}", i),
+                )],
             );
             manager.append_message("session.1", msg).unwrap();
         }
 
         let compressed = manager.compress_history("session.1", 100).unwrap();
         assert_eq!(compressed.role, AgentMessageRole::System);
-        assert!(compressed.parts[0].text.as_ref().unwrap().contains("Compressed"));
+        assert!(compressed.parts[0]
+            .text
+            .as_ref()
+            .unwrap()
+            .contains("Compressed"));
 
         let remaining = manager.get_history("session.1").unwrap();
         assert_eq!(remaining.len(), 1);

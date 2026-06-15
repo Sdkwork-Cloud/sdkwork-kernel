@@ -1,8 +1,8 @@
 # SDKWork Workspace
 
-This .sdkwork/ directory is source-controlled workspace metadata for $name.
+This `.sdkwork/` directory is source-controlled workspace metadata for `sdkwork-kernel`.
 
-It is governed by $specPath/SDKWORK_WORKSPACE_SPEC.md and follows the standards entrypoint at $specPath/README.md.
+It is governed by `../sdkwork-specs/SDKWORK_WORKSPACE_SPEC.md` and follows the standards entrypoint at `../sdkwork-specs/README.md`.
 
 Authoritative local entries:
 

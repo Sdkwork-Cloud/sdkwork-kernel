@@ -1499,17 +1499,12 @@ impl AgentRepository for InMemoryAgentRepository {
         Ok(())
     }
 
-    fn update_memory_namespace(
-        &mut self,
-        record: AgentMemoryNamespaceRecord,
-    ) -> KernelResult<()> {
+    fn update_memory_namespace(&mut self, record: AgentMemoryNamespaceRecord) -> KernelResult<()> {
         let Some(index) = self.memory_namespaces.iter().position(|existing| {
             existing.tenant_id == record.tenant_id
                 && existing.memory_namespace_id == record.memory_namespace_id
         }) else {
-            return Err(KernelError::validation(
-                "agent memory namespace not found",
-            ));
+            return Err(KernelError::validation("agent memory namespace not found"));
         };
         let expected_version = self.memory_namespaces[index].version.saturating_add(1);
         if record.version != expected_version {

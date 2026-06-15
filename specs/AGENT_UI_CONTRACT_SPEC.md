@@ -122,7 +122,7 @@ Rules:
 
 ## 7. TypeScript Package Boundary
 
-`sdkwork-kernel-ui` packages must follow `apps/docs/ARCHITECT.md`.
+`sdkwork-kernel-ui` packages must follow `../sdkwork-specs/UI_ARCHITECTURE_SPEC.md`.
 
 Rules:
 
@@ -154,6 +154,6 @@ Required cases:
 - [ ] Permission responses become policy decisions.
 - [ ] Event ids and trace metadata are preserved.
 - [ ] Diagnostics are redacted.
-- [ ] TypeScript package layering follows `apps/docs/ARCHITECT.md`.
+- [ ] TypeScript package layering follows `../sdkwork-specs/UI_ARCHITECTURE_SPEC.md`.
 - [ ] Conformance tests cover manifest, task, event, permission, capability, and
       error behavior.

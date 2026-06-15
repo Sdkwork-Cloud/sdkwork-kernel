@@ -409,15 +409,15 @@ A compliant code-kernel implementation must prove:
 Required crate verification commands:
 
 ```bash
-cargo test --manifest-path kernel/sdkwork-code-kernel/Cargo.toml
-cargo clippy --manifest-path kernel/sdkwork-code-kernel/Cargo.toml --all-targets -- -D warnings
-cargo fmt --manifest-path kernel/sdkwork-code-kernel/Cargo.toml --check
+cargo test --manifest-path sdkwork-code-kernel/Cargo.toml
+cargo clippy --manifest-path sdkwork-code-kernel/Cargo.toml --all-targets -- -D warnings
+cargo fmt --manifest-path sdkwork-code-kernel/Cargo.toml --check
 ```
 
 The agent kernel should also be verified because this crate extends it:
 
 ```bash
-cargo test --manifest-path kernel/sdkwork-agent-kernel/Cargo.toml
+cargo test --manifest-path sdkwork-agent-kernel/Cargo.toml
 ```
 
 ## SDKWork Documentation Contract
@@ -453,7 +453,7 @@ Extension points are limited to declared public exports, runtime entrypoints, SD
 
 ### Verification
 
-- `cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-code-kernel/Cargo.toml`
+- `cargo test --manifest-path sdkwork-code-kernel/Cargo.toml`
 
 ### Owner And Status
 

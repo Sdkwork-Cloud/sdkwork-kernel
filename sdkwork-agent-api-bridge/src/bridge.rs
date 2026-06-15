@@ -1,0 +1,345 @@
+use crate::{
+    BridgeEvent, BridgeEventSeverity, BridgeMessageResponse, BridgeModelResult,
+    BridgeSessionConfig, BridgeSnapshot, BridgeToolCall, BridgeToolResult, ContextBridge,
+    EventBridge, ModelBridge, SessionBridge, ToolBridge,
+};
+use sdkwork_agent_kernel::{
+    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult, ModelRequest, ToolCall,
+};
+
+/// Main bridge connecting kernel runtime to business API layer
+pub struct AgentRuntimeBridge {
+    session_bridge: SessionBridge,
+    model_bridge: ModelBridge,
+    tool_bridge: ToolBridge,
+    context_bridge: ContextBridge,
+    event_bridge: EventBridge,
+}
+
+impl AgentRuntimeBridge {
+    /// Create a new bridge instance
+    pub fn new() -> Self {
+        Self {
+            session_bridge: SessionBridge::new(),
+            model_bridge: ModelBridge::new(),
+            tool_bridge: ToolBridge::new(),
+            context_bridge: ContextBridge::new(),
+            event_bridge: EventBridge::new(),
+        }
+    }
+
+    // =========================================================================
+    // Session Management
+    // =========================================================================
+
+    /// Create a new agent session
+    pub fn create_session(&mut self, config: BridgeSessionConfig) -> KernelResult<AgentSession> {
+        self.session_bridge.create_session(config)
+    }
+
+    /// Get an existing session by ID
+    pub fn get_session(&self, session_id: &str) -> KernelResult<AgentSession> {
+        self.session_bridge.get_session(session_id)
+    }
+
+    /// List all active sessions
+    pub fn list_sessions(&self) -> KernelResult<Vec<AgentSession>> {
+        self.session_bridge.list_sessions()
+    }
+
+    /// Close a session
+    pub fn close_session(&mut self, session_id: &str) -> KernelResult<AgentSession> {
+        self.session_bridge.close_session(session_id)
+    }
+
+    // =========================================================================
+    // Message Handling
+    // =========================================================================
+
+    /// Send a user message and get the complete response (including model + tool calls)
+    pub fn send_message(
+        &mut self,
+        session_id: &str,
+        content: &str,
+    ) -> KernelResult<BridgeMessageResponse> {
+        let session = self.session_bridge.get_session(session_id)?;
+
+        // Create user message
+        let user_message = AgentMessage::new(
+            format!("msg.{}", crate::types::generate_id()),
+            AgentMessageRole::User,
+            vec![AgentPart::text(
+                format!("part.{}", crate::types::generate_id()),
+                content,
+            )],
+        );
+
+        // Store user message
+        self.session_bridge
+            .append_message(session_id, user_message.clone())?;
+
+        // Build model request with context
+        let context = self.context_bridge.collect_context(session_id)?;
+        let model_request = self.model_bridge.build_request(
+            session_id,
+            &session,
+            &self.session_bridge.get_history(session_id)?,
+            &context,
+        );
+
+        // Invoke model
+        let model_result = self.model_bridge.invoke(&model_request)?;
+
+        // Create assistant message from model response
+        let assistant_message = AgentMessage::new(
+            format!("msg.{}", crate::types::generate_id()),
+            AgentMessageRole::Agent,
+            vec![AgentPart::text(
+                format!("part.{}", crate::types::generate_id()),
+                model_result
+                    .response
+                    .messages
+                    .first()
+                    .cloned()
+                    .unwrap_or_default(),
+            )],
+        );
+
+        // Store assistant message
+        self.session_bridge
+            .append_message(session_id, assistant_message.clone())?;
+
+        // Collect events
+        let mut events = model_result.events.clone();
+        events.push(BridgeEvent {
+            event_type: "agent.message.user".to_string(),
+            session_id: Some(session_id.to_string()),
+            task_id: None,
+            payload: format!("content_length={}", content.len()),
+            severity: BridgeEventSeverity::Info,
+        });
+        events.push(BridgeEvent {
+            event_type: "agent.message.assistant".to_string(),
+            session_id: Some(session_id.to_string()),
+            task_id: None,
+            payload: format!(
+                "content_length={}",
+                model_result
+                    .response
+                    .messages
+                    .first()
+                    .map(|m| m.len())
+                    .unwrap_or(0)
+            ),
+            severity: BridgeEventSeverity::Info,
+        });
+
+        self.event_bridge.record_events(&events);
+
+        Ok(BridgeMessageResponse {
+            session_id: session_id.to_string(),
+            message: assistant_message,
+            model_response: Some(model_result.response),
+            tool_results: Vec::new(),
+            events,
+        })
+    }
+
+    /// Get message history for a session
+    pub fn get_messages(&self, session_id: &str) -> KernelResult<Vec<AgentMessage>> {
+        self.session_bridge.get_history(session_id)
+    }
+
+    // =========================================================================
+    // Model Invocation
+    // =========================================================================
+
+    /// Invoke the model directly (without conversation context)
+    pub fn invoke_model(&self, request: ModelRequest) -> KernelResult<BridgeModelResult> {
+        self.model_bridge.invoke(&request)
+    }
+
+    /// Stream model response
+    pub fn stream_model(
+        &self,
+        request: ModelRequest,
+    ) -> KernelResult<Vec<sdkwork_agent_kernel::ModelStreamChunk>> {
+        self.model_bridge.stream(&request)
+    }
+
+    // =========================================================================
+    // Tool Execution
+    // =========================================================================
+
+    /// List available tools
+    pub fn list_tools(&self) -> KernelResult<Vec<sdkwork_agent_kernel::ToolDescriptor>> {
+        self.tool_bridge.list_tools()
+    }
+
+    /// Execute a tool call
+    pub fn execute_tool(
+        &mut self,
+        session_id: &str,
+        tool_name: &str,
+        arguments: &str,
+    ) -> KernelResult<BridgeToolResult> {
+        let call = ToolCall::new(
+            format!("call.{}", crate::types::generate_id()),
+            tool_name,
+            arguments,
+        );
+
+        let result = self.tool_bridge.execute(&call)?;
+
+        let events = vec![BridgeEvent {
+            event_type: "agent.tool.executed".to_string(),
+            session_id: Some(session_id.to_string()),
+            task_id: None,
+            payload: format!("tool={};status={}", tool_name, result.status),
+            severity: BridgeEventSeverity::Info,
+        }];
+
+        self.event_bridge.record_events(&events);
+
+        Ok(BridgeToolResult {
+            call_id: call.tool_call_id,
+            result,
+            events,
+        })
+    }
+
+    // =========================================================================
+    // Snapshot
+    // =========================================================================
+
+    /// Get a complete snapshot of the bridge state for UI consumption
+    pub fn get_snapshot(&self, session_id: &str) -> KernelResult<BridgeSnapshot> {
+        let session = self.session_bridge.get_session(session_id)?;
+        let messages = self.session_bridge.get_history(session_id)?;
+        let tools = self.tool_bridge.list_tools()?;
+        let events = self.event_bridge.get_events(session_id);
+
+        Ok(BridgeSnapshot {
+            session_id: session_id.to_string(),
+            session,
+            messages,
+            available_tools: tools,
+            pending_tool_calls: Vec::new(),
+            events,
+        })
+    }
+
+    // =========================================================================
+    // Accessors
+    // =========================================================================
+
+    /// Get reference to session bridge
+    pub fn session_bridge(&self) -> &SessionBridge {
+        &self.session_bridge
+    }
+
+    /// Get mutable reference to session bridge
+    pub fn session_bridge_mut(&mut self) -> &mut SessionBridge {
+        &mut self.session_bridge
+    }
+
+    /// Get reference to model bridge
+    pub fn model_bridge(&self) -> &ModelBridge {
+        &self.model_bridge
+    }
+
+    /// Get reference to tool bridge
+    pub fn tool_bridge(&self) -> &ToolBridge {
+        &self.tool_bridge
+    }
+
+    /// Get reference to context bridge
+    pub fn context_bridge(&self) -> &ContextBridge {
+        &self.context_bridge
+    }
+
+    /// Get reference to event bridge
+    pub fn event_bridge(&self) -> &EventBridge {
+        &self.event_bridge
+    }
+}
+
+impl Default for AgentRuntimeBridge {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bridge_create_session() {
+        let mut bridge = AgentRuntimeBridge::new();
+        let config = BridgeSessionConfig {
+            agent_id: "agent.test".to_string(),
+            tenant_id: 1,
+            user_ref: Some("user.1".to_string()),
+            model: Some("gpt-4".to_string()),
+            instructions: None,
+            cwd: None,
+            metadata: Vec::new(),
+        };
+
+        let session = bridge.create_session(config).expect("session created");
+        assert_eq!(session.agent_id, Some("agent.test".to_string()));
+        assert_eq!(session.model, Some("gpt-4".to_string()));
+    }
+
+    #[test]
+    fn bridge_send_message() {
+        let mut bridge = AgentRuntimeBridge::new();
+        let config = BridgeSessionConfig {
+            agent_id: "agent.test".to_string(),
+            tenant_id: 1,
+            user_ref: Some("user.1".to_string()),
+            model: Some("gpt-4".to_string()),
+            instructions: None,
+            cwd: None,
+            metadata: Vec::new(),
+        };
+
+        let session = bridge.create_session(config).expect("session created");
+        let response = bridge
+            .send_message(&session.session_id, "Hello")
+            .expect("message sent");
+
+        assert_eq!(response.session_id, session.session_id);
+        assert!(response.model_response.is_some());
+    }
+
+    #[test]
+    fn bridge_list_tools() {
+        let bridge = AgentRuntimeBridge::new();
+        let tools = bridge.list_tools().expect("tools listed");
+        assert!(!tools.is_empty());
+    }
+
+    #[test]
+    fn bridge_get_snapshot() {
+        let mut bridge = AgentRuntimeBridge::new();
+        let config = BridgeSessionConfig {
+            agent_id: "agent.test".to_string(),
+            tenant_id: 1,
+            user_ref: None,
+            model: None,
+            instructions: None,
+            cwd: None,
+            metadata: Vec::new(),
+        };
+
+        let session = bridge.create_session(config).expect("session created");
+        let snapshot = bridge
+            .get_snapshot(&session.session_id)
+            .expect("snapshot created");
+
+        assert_eq!(snapshot.session_id, session.session_id);
+        assert!(!snapshot.available_tools.is_empty());
+    }
+}

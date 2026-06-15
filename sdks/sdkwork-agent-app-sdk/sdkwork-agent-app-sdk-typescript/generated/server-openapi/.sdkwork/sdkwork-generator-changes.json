@@ -9,24 +9,16 @@
     "protocol": "http",
     "packageName": "@sdkwork/agent-app-sdk"
   },
-  "changeFingerprint": "fde099fe858389ba21a911e462cef6e9915c4c26a8101f467bd925347745ee61",
+  "changeFingerprint": "54a744a2c9d29be9b0183dde5c7abaf1158dc57899053e0b9fecf55735b8e9dd",
   "changes": {
-    "createdGeneratedFiles": [],
+    "createdGeneratedFiles": [
+      "src/types/agent-implementation-type.ts"
+    ],
     "updatedGeneratedFiles": [
-      "README.md",
-      "src/api/ai.ts",
+      "src/types/agent-record.ts",
       "src/types/create-agent-request.ts",
-      "src/types/create-knowledge-base-request.ts",
-      "src/types/create-knowledge-binding-request.ts",
-      "src/types/create-knowledge-chunk-request.ts",
-      "src/types/create-knowledge-document-request.ts",
-      "src/types/create-knowledge-source-request.ts",
-      "src/types/create-knowledge-sync-job-request.ts",
-      "src/types/create-memory-binding-request.ts",
-      "src/types/create-memory-namespace-request.ts",
-      "src/types/create-memory-profile-request.ts",
-      "src/types/create-memory-record-request.ts",
-      "src/types/create-memory-store-request.ts"
+      "src/types/index.ts",
+      "src/types/update-agent-request.ts"
     ],
     "unchangedGeneratedFiles": [
       "bin/publish-core.mjs",
@@ -37,7 +29,9 @@
       "CHANGELOG.md",
       "LICENSE",
       "package.json",
+      "README.md",
       "sdkwork-sdk.json",
+      "src/api/ai.ts",
       "src/api/base.ts",
       "src/api/index.ts",
       "src/api/paths.ts",
@@ -56,7 +50,6 @@
       "src/types/agent-provider-binding-list-response.ts",
       "src/types/agent-provider-binding-record.ts",
       "src/types/agent-provider-binding-response.ts",
-      "src/types/agent-record.ts",
       "src/types/agent-response.ts",
       "src/types/agent-runtime-execution-record.ts",
       "src/types/agent-runtime-execution-response.ts",
@@ -69,13 +62,23 @@
       "src/types/create-agent-preview-response-request.ts",
       "src/types/create-agent-prompt-optimization-request.ts",
       "src/types/create-agent-provider-binding-request.ts",
+      "src/types/create-knowledge-base-request.ts",
+      "src/types/create-knowledge-binding-request.ts",
+      "src/types/create-knowledge-chunk-request.ts",
+      "src/types/create-knowledge-document-request.ts",
+      "src/types/create-knowledge-source-request.ts",
+      "src/types/create-knowledge-sync-job-request.ts",
+      "src/types/create-memory-binding-request.ts",
+      "src/types/create-memory-namespace-request.ts",
+      "src/types/create-memory-profile-request.ts",
+      "src/types/create-memory-record-request.ts",
       "src/types/create-memory-relation-request.ts",
       "src/types/create-memory-source-request.ts",
+      "src/types/create-memory-store-request.ts",
       "src/types/delete-agent-request.ts",
       "src/types/deployment-status.ts",
       "src/types/fail-knowledge-sync-job-request.ts",
       "src/types/field-error.ts",
-      "src/types/index.ts",
       "src/types/int64-string.ts",
       "src/types/knowledge-base-kind.ts",
       "src/types/knowledge-base-list-response.ts",
@@ -140,7 +143,6 @@
       "src/types/restore-agent-request.ts",
       "src/types/search-knowledge-request.ts",
       "src/types/start-knowledge-sync-job-request.ts",
-      "src/types/update-agent-request.ts",
       "src/types/update-knowledge-base-request.ts",
       "src/types/update-knowledge-document-request.ts",
       "src/types/update-knowledge-source-request.ts",
@@ -160,54 +162,33 @@
   "impact": {
     "schemaVersion": 1,
     "areas": [
-      "api-surface",
-      "models",
-      "documentation"
+      "models"
     ],
     "details": [
       {
-        "area": "api-surface",
-        "paths": [
-          "src/api/ai.ts"
-        ]
-      },
-      {
         "area": "models",
         "paths": [
+          "src/types/agent-implementation-type.ts",
+          "src/types/agent-record.ts",
           "src/types/create-agent-request.ts",
-          "src/types/create-knowledge-base-request.ts",
-          "src/types/create-knowledge-binding-request.ts",
-          "src/types/create-knowledge-chunk-request.ts",
-          "src/types/create-knowledge-document-request.ts",
-          "src/types/create-knowledge-source-request.ts",
-          "src/types/create-knowledge-sync-job-request.ts",
-          "src/types/create-memory-binding-request.ts",
-          "src/types/create-memory-namespace-request.ts",
-          "src/types/create-memory-profile-request.ts",
-          "src/types/create-memory-record-request.ts",
-          "src/types/create-memory-store-request.ts"
-        ]
-      },
-      {
-        "area": "documentation",
-        "paths": [
-          "README.md"
+          "src/types/index.ts",
+          "src/types/update-agent-request.ts"
         ]
       }
     ],
     "requiresVerification": true,
-    "summary": "Detected impact areas: api-surface, models, documentation. Verification is required."
+    "summary": "Detected impact areas: models. Verification is required."
   },
   "verificationPlan": {
     "shouldRun": true,
     "runPhase": "now",
-    "summary": "Detected impact areas: api-surface, models, documentation. Verification is required. Run the required verification commands now against the generated SDK output.",
+    "summary": "Detected impact areas: models. Verification is required. Run the required verification commands now against the generated SDK output.",
     "steps": [
       {
         "id": "check",
         "title": "Unified package check",
         "required": true,
-        "rationale": "Validate the generated package with the unified publish helper. Triggered by: api-surface, models, documentation.",
+        "rationale": "Validate the generated package with the unified publish helper. Triggered by: models.",
         "workingDirectory": "E:\\sdkwork-space\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
         "command": "node",
         "args": [
@@ -225,7 +206,7 @@
         "id": "build",
         "title": "Unified package build",
         "required": true,
-        "rationale": "Run the full package build because this language uses a lighter check path than the final build. Triggered by: api-surface, models, documentation.",
+        "rationale": "Run the full package build because this language uses a lighter check path than the final build. Triggered by: models.",
         "workingDirectory": "E:\\sdkwork-space\\sdkwork-kernel\\sdks\\sdkwork-agent-app-sdk\\sdkwork-agent-app-sdk-typescript\\generated\\server-openapi",
         "command": "node",
         "args": [

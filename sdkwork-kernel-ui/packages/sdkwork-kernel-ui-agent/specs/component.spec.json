@@ -6,11 +6,12 @@
     "displayName": "SDKWork Kernel UI Agent",
     "version": "0.1.0",
     "type": "react-package",
-    "root": "sdkwork-birdcoder/kernel/sdkwork-kernel-ui/packages/sdkwork-kernel-ui-agent",
+    "root": "sdkwork-kernel/sdkwork-kernel-ui/packages/sdkwork-kernel-ui-agent",
     "domain": "intelligence",
     "declaredDomain": null,
     "capability": "agent",
     "status": "standardizing",
+    "surfaceNotRequiredReason": "This repository-internal kernel UI package is not an app, console, or backend-admin application surface; package exports define integration.",
     "languages": [
       "typescript",
       "react"
@@ -115,6 +116,9 @@
     "runtimeEntrypoints": [
       "package.json#scripts.typecheck"
     ],
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
     "configKeys": [],

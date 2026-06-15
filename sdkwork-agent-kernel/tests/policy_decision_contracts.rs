@@ -247,7 +247,10 @@ fn policy_provider_record_decision_is_no_op_by_default() {
 struct FakePolicyProvider;
 
 impl PolicyProvider for FakePolicyProvider {
-    fn evaluate(&self, request: PolicyRequest) -> sdkwork_agent_kernel::KernelResult<PolicyDecision> {
+    fn evaluate(
+        &self,
+        request: PolicyRequest,
+    ) -> sdkwork_agent_kernel::KernelResult<PolicyDecision> {
         Ok(PolicyDecision::allow(
             "decision.fake",
             &request.policy_request_id,

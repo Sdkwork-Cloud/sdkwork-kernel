@@ -9,6 +9,7 @@
     "root": "sdkwork-kernel/sdks/sdkwork-agent-app-sdk/sdkwork-agent-app-sdk-typescript",
     "domain": "intelligence",
     "capability": "agent-app-sdk",
+    "surface": "app-api",
     "languages": [
       "typescript"
     ],
@@ -70,6 +71,22 @@
     ],
     "runtimeEntrypoints": [],
     "routeManifest": null,
+    "sdkDependencies": [
+      {
+        "workspace": "sdkwork-appbase-app-sdk",
+        "role": "appbase-identity-and-session-capability",
+        "required": true,
+        "dependencyMode": "consumer-sdk",
+        "apiPrefix": "/app/v3/api",
+        "apiAuthority": "sdkwork-appbase-app-api",
+        "generatedTransportImportPolicy": "forbidden",
+        "packageByLanguage": {
+          "typescript": "@sdkwork/appbase-app-sdk"
+        }
+      }
+    ],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
     "configKeys": []

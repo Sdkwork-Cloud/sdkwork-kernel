@@ -1,4 +1,5 @@
 import type { AgentImplementationKind } from './agent-implementation-kind';
+import type { AgentImplementationType } from './agent-implementation-type';
 import type { AgentManagementProfile } from './agent-management-profile';
 import type { AgentStatus } from './agent-status';
 import type { AgentVisibility } from './agent-visibility';
@@ -18,6 +19,7 @@ export interface AgentRecord {
   managementProfile?: AgentManagementProfile | null;
   implementationProviderId?: string | null;
   implementationKind?: AgentImplementationKind | null;
+  implementationType: AgentImplementationType;
   status: AgentStatus;
   visibility: AgentVisibility;
   tags: string[];

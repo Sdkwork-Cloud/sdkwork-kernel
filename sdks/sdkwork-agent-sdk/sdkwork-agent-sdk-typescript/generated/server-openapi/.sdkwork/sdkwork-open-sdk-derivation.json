@@ -122,6 +122,10 @@
       "sha256": "ce965a44bea5e00f5c9444a2c0db1268c0e726080a9c1bce760cac5381e0bae4"
     },
     {
+      "path": "src/types/agent-implementation-type.ts",
+      "sha256": "b31024a158f134c77acbe755d0c2cc84d7a7f9aceea57a8b21439f314b79ce3e"
+    },
+    {
       "path": "src/types/agent-list-response.ts",
       "sha256": "90127ff66046d9f7b787bf1b148a4ccd4088b648f32e8dd3612cff3cc719fdbc"
     },
@@ -143,7 +147,7 @@
     },
     {
       "path": "src/types/agent-record.ts",
-      "sha256": "452cb8d97f1b12d99288482b7126007dccc0609600d4b0695c783c63e655b2b7"
+      "sha256": "77db7eebe8e6827e2514527b7f2c91fdfce747fcb60ebce1c7426dfac967e647"
     },
     {
       "path": "src/types/agent-response.ts",
@@ -195,7 +199,7 @@
     },
     {
       "path": "src/types/create-agent-request.ts",
-      "sha256": "dcc693533dcfee9957a656f4d2a2f919a6e63afe3cbfe6d87c8d72f0db2ff07d"
+      "sha256": "890f78d550e09c94eb43e06014156c5e9c2e4c0e64c94d0bc464a0a233154425"
     },
     {
       "path": "src/types/create-knowledge-base-request.ts",
@@ -267,7 +271,7 @@
     },
     {
       "path": "src/types/index.ts",
-      "sha256": "5418c67a517ee877755c6511f048b4b535117dc3ddaa98d7c2e7785ea8d13db9"
+      "sha256": "15c7d8b0f8a56c5b0fe4ec09eb5a5771c395a4787401191fc69b6964eed7067d"
     },
     {
       "path": "src/types/int64-string.ts",
@@ -527,7 +531,7 @@
     },
     {
       "path": "src/types/update-agent-request.ts",
-      "sha256": "65258dd312a707d14f6b6ada13bbda23f36e697a0e71c39a9b1b1519cbffa1c6"
+      "sha256": "1ef0cd4e0340e94eb8057919b79394a33347e1573a2fb00db6f5f7705c1f715e"
     },
     {
       "path": "src/types/update-knowledge-base-request.ts",

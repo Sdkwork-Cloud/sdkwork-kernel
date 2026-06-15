@@ -1,13 +1,14 @@
 use sdkwork_agent_adapter_core::{
-    create_session_from_config, now_iso, uuid_simple, ConversationManager, InMemoryConversationManager,
-    MessageAdapter, SessionAdapter, SessionConfig, SessionLifecycleProvider,
+    create_session_from_config, now_iso, uuid_simple, ConversationManager,
+    InMemoryConversationManager, MessageAdapter, SessionAdapter, SessionConfig,
+    SessionLifecycleProvider,
 };
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
-    ModelStatus, ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind,
-    SessionSource, SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor,
-    ToolProvider, ToolResult, ToolSchema,
+    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
+    ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
+    SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
+    ToolResult, ToolSchema,
 };
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -147,10 +148,8 @@ impl MessageAdapter for OpenCodeMessageAdapter {
 
         if let Some(tool_calls) = &external.tool_calls {
             for tc in tool_calls {
-                let mut part = AgentPart::tool_call_ref(
-                    format!("opencode.tool_call.{}", tc.id),
-                    &tc.id,
-                );
+                let mut part =
+                    AgentPart::tool_call_ref(format!("opencode.tool_call.{}", tc.id), &tc.id);
                 part.name = Some(tc.function_name.clone());
                 part.json = Some(tc.arguments.clone());
                 parts.push(part);
@@ -161,11 +160,7 @@ impl MessageAdapter for OpenCodeMessageAdapter {
             parts.push(AgentPart::text("opencode.empty", ""));
         }
 
-        let mut message = AgentMessage::new(
-            format!("opencode.msg.{}", uuid_simple()),
-            role,
-            parts,
-        );
+        let mut message = AgentMessage::new(format!("opencode.msg.{}", uuid_simple()), role, parts);
 
         if let Some(tool_call_id) = &external.tool_call_id {
             message = message.with_metadata("opencode.tool_call_id", tool_call_id);
@@ -222,30 +217,25 @@ impl ModelProvider for OpenCodeModelProvider {
     }
 
     fn list_models(&self) -> Vec<ModelDescriptor> {
-        vec![
-            ModelDescriptor::new(
-                "opencode-default",
-                "provider.model.opencode",
-                "OpenCode Default",
-                "opencode",
-            )
-            .with_version("1.0")
-            .with_capability("chat")
-            .with_capability("tool_call")
-            .with_context_window_tokens(128000)
-            .with_max_output_tokens(8192)
-            .with_input_mode("text")
-            .with_output_mode("text")
-            .with_response_format(ModelResponseFormat::Text)
-            .with_tool_capability("function_calling"),
-        ]
+        vec![ModelDescriptor::new(
+            "opencode-default",
+            "provider.model.opencode",
+            "OpenCode Default",
+            "opencode",
+        )
+        .with_version("1.0")
+        .with_capability("chat")
+        .with_capability("tool_call")
+        .with_context_window_tokens(128000)
+        .with_max_output_tokens(8192)
+        .with_input_mode("text")
+        .with_output_mode("text")
+        .with_response_format(ModelResponseFormat::Text)
+        .with_tool_capability("function_calling")]
     }
 
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
-        let model_id = request
-            .model_id
-            .as_deref()
-            .unwrap_or(&self.default_model);
+        let model_id = request.model_id.as_deref().unwrap_or(&self.default_model);
         let prompt = request.messages.join("\n");
 
         Ok(ModelResponse::text(
@@ -267,11 +257,7 @@ impl ModelProvider for OpenCodeModelProvider {
             .into_iter()
             .enumerate()
             .map(|(i, word)| {
-                ModelStreamChunk::output(
-                    &request.model_request_id,
-                    i as u64,
-                    format!("{} ", word),
-                )
+                ModelStreamChunk::output(&request.model_request_id, i as u64, format!("{} ", word))
             })
             .collect();
 
@@ -407,16 +393,16 @@ impl SessionLifecycleProvider for OpenCodeLifecycleProvider {
             config,
             now_iso(),
         );
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         sessions.insert(session_id.clone(), session.clone());
         Ok(session)
     }
 
     fn resume_session(&self, session_id: &str) -> KernelResult<AgentSession> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         let session = sessions
             .get_mut(session_id)
@@ -426,8 +412,8 @@ impl SessionLifecycleProvider for OpenCodeLifecycleProvider {
     }
 
     fn close_session(&self, session_id: &str) -> KernelResult<AgentSession> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         let session = sessions
             .get_mut(session_id)
@@ -437,8 +423,8 @@ impl SessionLifecycleProvider for OpenCodeLifecycleProvider {
     }
 
     fn list_active_sessions(&self) -> KernelResult<Vec<AgentSession>> {
-        let sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         Ok(sessions
             .values()
@@ -512,7 +498,9 @@ mod tests {
         let config = SessionConfig::new()
             .with_source(SessionSource::Cli)
             .with_kind(SessionKind::Main);
-        let session = provider.create_session("agent.1", Some("user.1"), config).unwrap();
+        let session = provider
+            .create_session("agent.1", Some("user.1"), config)
+            .unwrap();
         assert_eq!(session.agent_id, Some("agent.1".to_string()));
 
         provider.resume_session(&session.session_id).unwrap();
@@ -636,9 +624,8 @@ mod tests {
     #[test]
     fn model_provider_invoke() {
         let provider = OpenCodeModelProvider::new();
-        let request =
-            ModelRequest::new("req.1", vec!["Explain async".to_string()])
-                .with_model_id("opencode-default");
+        let request = ModelRequest::new("req.1", vec!["Explain async".to_string()])
+            .with_model_id("opencode-default");
         let response = provider.invoke(request).unwrap();
         assert_eq!(response.status, ModelStatus::Succeeded);
         assert_eq!(response.provider_id, "provider.model.opencode");
@@ -673,7 +660,10 @@ mod tests {
         assert!(tools.iter().any(|t| t.tool_id == "opencode.terminal"));
         assert!(tools.iter().any(|t| t.tool_id == "opencode.search"));
 
-        let search = tools.iter().find(|t| t.tool_id == "opencode.search").unwrap();
+        let search = tools
+            .iter()
+            .find(|t| t.tool_id == "opencode.search")
+            .unwrap();
         assert_eq!(search.side_effect_level, SideEffectLevel::ReadOnly);
     }
 
@@ -736,14 +726,21 @@ mod tests {
                     AgentMessage::new(
                         format!("m.{}", i),
                         AgentMessageRole::User,
-                        vec![AgentPart::text(format!("p.{}", i), format!("Message {}", i))],
+                        vec![AgentPart::text(
+                            format!("p.{}", i),
+                            format!("Message {}", i),
+                        )],
                     ),
                 )
                 .unwrap();
         }
         let compressed = manager.compress_history("s1", 100).unwrap();
         assert_eq!(compressed.role, AgentMessageRole::System);
-        assert!(compressed.parts[0].text.as_ref().unwrap().contains("Compressed"));
+        assert!(compressed.parts[0]
+            .text
+            .as_ref()
+            .unwrap()
+            .contains("Compressed"));
         let remaining = manager.get_history("s1").unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].role, AgentMessageRole::System);

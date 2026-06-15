@@ -91,6 +91,192 @@ export interface ReviewFindingView {
   missingTest?: string;
 }
 
+// ============================================================================
+// Session Types
+// ============================================================================
+
+export type SessionState = 'created' | 'active' | 'paused' | 'waiting' | 'working' | 'closed' | 'failed' | 'archived';
+
+export type SessionKind = 'main' | 'subagent' | 'background' | 'direct' | 'group' | 'task' | 'ephemeral';
+
+export type SessionSource = 'cli' | 'api' | 'web' | 'telegram' | 'slack' | 'discord' | 'ide' | 'desktop' | 'mobile' | 'scheduled' | 'unknown';
+
+export interface SessionTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+}
+
+export interface SessionChangeSummary {
+  additions: number;
+  deletions: number;
+  filesChanged: number;
+}
+
+export interface SessionView {
+  sessionId: string;
+  parentSessionId?: string;
+  forkedFromId?: string;
+  slug?: string;
+  source: SessionSource;
+  kind: SessionKind;
+  agentId?: string;
+  userRef?: string;
+  tenantId?: string;
+  title?: string;
+  preview?: string;
+  goal?: string;
+  summary?: string;
+  state: SessionState;
+  createdAt?: string;
+  updatedAt?: string;
+  endedAt?: string;
+  archivedAt?: string;
+  model?: string;
+  modelProvider?: string;
+  cwd?: string;
+  workspaceRoots: string[];
+  instructions?: string;
+  tokenUsage: SessionTokenUsage;
+  messageCount: number;
+  toolCallCount: number;
+  compressionCount: number;
+  costCents?: number;
+  changeSummary: SessionChangeSummary;
+  childSessionIds: string[];
+  timeoutMs?: number;
+  metadata: Record<string, string>;
+}
+
+export interface SessionConfig {
+  agentId: string;
+  tenantId?: number;
+  userRef?: string;
+  model?: string;
+  modelProvider?: string;
+  title?: string;
+  goal?: string;
+  instructions?: string;
+  cwd?: string;
+  workspaceRoots?: string[];
+  source?: SessionSource;
+  kind?: SessionKind;
+  timeoutMs?: number;
+  metadata?: Record<string, string>;
+}
+
+// ============================================================================
+// Message Types
+// ============================================================================
+
+export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
+
+export interface MessagePartView {
+  partId: string;
+  kind: 'text' | 'tool_call_ref' | 'artifact_ref' | 'code_block' | 'image';
+  content: string;
+  toolCallId?: string;
+  artifactId?: string;
+  mimeType?: string;
+}
+
+export interface MessageView {
+  messageId: string;
+  sessionId: string;
+  role: MessageRole;
+  parts: MessagePartView[];
+  createdAt?: string;
+  metadata: Record<string, string>;
+}
+
+// ============================================================================
+// Task Types
+// ============================================================================
+
+export type TaskState = 'created' | 'accepted' | 'planned' | 'running' | 'awaiting_permission' | 'paused' | 'completed' | 'failed' | 'cancelled';
+
+export interface TaskView {
+  taskId: string;
+  sessionId: string;
+  instruction: string;
+  state: TaskState;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// ============================================================================
+// Tool Types
+// ============================================================================
+
+export interface ToolDescriptorView {
+  toolId: string;
+  providerId: string;
+  name?: string;
+  displayName: string;
+  description?: string;
+  sideEffectLevel: 'read_only' | 'side_effectful' | 'destructive';
+  policyCategories: string[];
+  timeoutMs?: number;
+}
+
+export interface ToolCallView {
+  toolCallId: string;
+  toolId: string;
+  input: string;
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  output?: string;
+  error?: string;
+  durationMs?: number;
+}
+
+// ============================================================================
+// Model Types
+// ============================================================================
+
+export interface ModelDescriptorView {
+  modelId: string;
+  providerId: string;
+  displayName: string;
+  family: string;
+  contextWindowTokens?: number;
+  maxOutputTokens?: number;
+  capabilities: string[];
+}
+
+export interface ModelResponseView {
+  modelRequestId: string;
+  providerId: string;
+  status: 'succeeded' | 'failed' | 'cancelled';
+  messages: string[];
+  toolCalls: ToolCallView[];
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+  };
+}
+
+// ============================================================================
+// Streaming Types
+// ============================================================================
+
+export interface StreamEventView {
+  eventId: string;
+  eventType: string;
+  sequence: number;
+  payload: string;
+  timestamp?: string;
+}
+
+export type EventSubscription = {
+  unsubscribe: () => void;
+};
+
+// ============================================================================
+// Snapshot
+// ============================================================================
+
 export interface KernelUiSnapshot {
   runtime: KernelRuntimeSnapshot;
   events: KernelEventView[];
@@ -103,10 +289,43 @@ export interface KernelUiSnapshot {
   reviewFindings: ReviewFindingView[];
 }
 
+// ============================================================================
+// Client Interface
+// ============================================================================
+
 export interface KernelUiClient {
+  // Existing
   loadSnapshot(): Promise<KernelUiSnapshot>;
   decidePermission(
     permissionRequestId: string,
     decision: PermissionDecisionValue
   ): Promise<PermissionRequestView>;
+
+  // Session management
+  createSession(config: SessionConfig): Promise<SessionView>;
+  getSession(sessionId: string): Promise<SessionView>;
+  listSessions(): Promise<SessionView[]>;
+  closeSession(sessionId: string): Promise<SessionView>;
+  deleteSession(sessionId: string): Promise<void>;
+
+  // Message operations
+  sendMessage(sessionId: string, content: string): Promise<MessageView>;
+  getMessages(sessionId: string, limit?: number, offset?: number): Promise<MessageView[]>;
+
+  // Task operations
+  submitTask(sessionId: string, instruction: string): Promise<TaskView>;
+  getTask(taskId: string): Promise<TaskView>;
+  listTasks(sessionId: string): Promise<TaskView[]>;
+  cancelTask(taskId: string): Promise<TaskView>;
+
+  // Model operations
+  listModels(): Promise<ModelDescriptorView[]>;
+  invokeModel(sessionId: string, modelId?: string): Promise<ModelResponseView>;
+
+  // Tool operations
+  listTools(sessionId: string): Promise<ToolDescriptorView[]>;
+  executeTool(sessionId: string, toolName: string, args: string): Promise<ToolCallView>;
+
+  // Streaming
+  subscribeEvents(sessionId: string, callback: (event: StreamEventView) => void): EventSubscription;
 }

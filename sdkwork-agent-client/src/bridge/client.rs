@@ -190,7 +190,7 @@ impl ChatClient for AgentClient {
                 self.dispatch_with_fallback(
                     fallback_strategy,
                     |client| client.send_message(request.clone()),
-                    |client| client.send_message(request),
+                    |client| client.send_message(request.clone()),
                 )
             }
         }
@@ -238,7 +238,7 @@ impl ChatClient for AgentClient {
                 self.dispatch_with_fallback(
                     fallback_strategy,
                     |client| client.create_session(config.clone()),
-                    |client| client.create_session(config),
+                    |client| client.create_session(config.clone()),
                 )
             }
         }

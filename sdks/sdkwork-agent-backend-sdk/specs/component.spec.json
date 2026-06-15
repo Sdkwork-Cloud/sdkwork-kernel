@@ -9,6 +9,7 @@
     "root": "sdks/sdkwork-agent-backend-sdk",
     "domain": "agent",
     "capability": "agent-backend-sdk",
+    "surface": "backend-admin",
     "status": "standardized",
     "languages": [
       "typescript"
@@ -19,6 +20,33 @@
       ".sdkwork-assembly.json"
     ]
   },
+  "canonicalSpecs": [
+    {
+      "file": "SDK_SPEC.md",
+      "path": "../../../sdkwork-specs/SDK_SPEC.md",
+      "purpose": "SDK family naming, generation, dependency, and consumer integration rules."
+    },
+    {
+      "file": "SDK_WORKSPACE_GENERATION_SPEC.md",
+      "path": "../../../sdkwork-specs/SDK_WORKSPACE_GENERATION_SPEC.md",
+      "purpose": "SDK workspace layout, authority OpenAPI, derived input, and generated output rules."
+    },
+    {
+      "file": "API_SPEC.md",
+      "path": "../../../sdkwork-specs/API_SPEC.md",
+      "purpose": "OpenAPI authority, API surface, schema, and SDK-generation contract rules."
+    },
+    {
+      "file": "TEST_SPEC.md",
+      "path": "../../../sdkwork-specs/TEST_SPEC.md",
+      "purpose": "SDK generation, contract, and workspace verification rules."
+    },
+    {
+      "file": "DOCUMENTATION_SPEC.md",
+      "path": "../../../sdkwork-specs/DOCUMENTATION_SPEC.md",
+      "purpose": "SDK README, examples, changelog, and generated artifact documentation rules."
+    }
+  ],
   "sdk": {
     "family": "sdkwork-agent-backend-sdk",
     "authority": "sdkwork-agent-backend-api",
@@ -47,6 +75,7 @@
     "runtimeEntrypoints": [
       ".sdkwork-assembly.json"
     ],
+    "routeManifest": null,
     "sdkDependencies": [
       {
         "workspace": "sdkwork-appbase-backend-sdk",
@@ -54,13 +83,15 @@
         "required": true,
         "dependencyMode": "consumer-sdk",
         "apiPrefix": "/backend/v3/api",
-        "apiAuthority": "sdkwork-appbase.backend",
+        "apiAuthority": "sdkwork-appbase-backend-api",
         "generatedTransportImportPolicy": "forbidden",
         "packageByLanguage": {
           "typescript": "@sdkwork/appbase-backend-sdk"
         }
       }
     ],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [
       "SdkworkBackendClient"
     ],

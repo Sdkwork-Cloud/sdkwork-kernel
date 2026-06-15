@@ -135,7 +135,11 @@ pub trait ContextProvider {
             .collect())
     }
 
-    fn trim(&self, frames: Vec<ContextFrame>, max_tokens: usize) -> KernelResult<Vec<ContextFrame>> {
+    fn trim(
+        &self,
+        frames: Vec<ContextFrame>,
+        max_tokens: usize,
+    ) -> KernelResult<Vec<ContextFrame>> {
         let _ = max_tokens;
         Ok(frames)
     }

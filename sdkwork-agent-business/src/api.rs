@@ -1689,8 +1689,11 @@ mod tests {
                 "AgentDeploymentResponse:".to_string(),
                 "AgentDeploymentListResponse:".to_string(),
                 "CreateAgentDeploymentRequest:".to_string(),
+                "AgentImplementationType:".to_string(),
+                "enum: [sdkwork-native, rig-rust, openai-agents, langchain, langgraph, crewai, autogen, semantic-kernel, custom]".to_string(),
                 "implementationProviderId:".to_string(),
                 "implementationKind:".to_string(),
+                "implementationType:".to_string(),
                 "required: [items, pageInfo]".to_string(),
                 "pattern: '^binding\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'".to_string(),
                 "pattern: '^provider\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'".to_string(),
@@ -1860,10 +1863,32 @@ mod tests {
             assert_schema_property_block_contains(
                 label,
                 openapi,
+                "AgentRecord:",
+                "implementationKind:",
+                "status:",
+                &[
+                    "implementationType:",
+                    "$ref: '#/components/schemas/AgentImplementationType'",
+                ],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
                 "CreateAgentRequest:",
                 "implementationProviderId:",
                 "implementationKind:",
                 &["pattern: '^provider\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'"],
+            );
+            assert_schema_property_block_contains(
+                label,
+                openapi,
+                "CreateAgentRequest:",
+                "implementationKind:",
+                "visibility:",
+                &[
+                    "implementationType:",
+                    "$ref: '#/components/schemas/AgentImplementationType'",
+                ],
             );
             assert_schema_property_block_contains(
                 label,
@@ -1879,7 +1904,15 @@ mod tests {
                 "UpdateAgentRequest:",
                 "managementProfile:",
                 "expectedVersion:",
-                &["$ref: '#/components/schemas/AgentManagementProfile'"],
+                &[
+                    "$ref: '#/components/schemas/AgentManagementProfile'",
+                    "implementationProviderId:",
+                    "pattern: '^provider\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
+                    "implementationKind:",
+                    "$ref: '#/components/schemas/AgentImplementationKind'",
+                    "implementationType:",
+                    "$ref: '#/components/schemas/AgentImplementationType'",
+                ],
             );
             assert_schema_property_block_contains(
                 label,

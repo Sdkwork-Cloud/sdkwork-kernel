@@ -1,13 +1,14 @@
 use sdkwork_agent_adapter_core::{
-    create_session_from_config, now_iso, uuid_simple, ConversationManager, InMemoryConversationManager,
-    MessageAdapter, SessionAdapter, SessionConfig, SessionLifecycleProvider,
+    create_session_from_config, now_iso, uuid_simple, ConversationManager,
+    InMemoryConversationManager, MessageAdapter, SessionAdapter, SessionConfig,
+    SessionLifecycleProvider,
 };
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
-    ModelStatus, ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind,
-    SessionSource, SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor,
-    ToolProvider, ToolResult, ToolSchema,
+    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
+    ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
+    SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
+    ToolResult, ToolSchema,
 };
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -202,10 +203,8 @@ impl MessageAdapter for CodexMessageAdapter {
 
         if let Some(tool_calls) = &external.tool_calls {
             for tc in tool_calls {
-                let mut part = AgentPart::tool_call_ref(
-                    format!("codex.tool_call.{}", tc.id),
-                    &tc.id,
-                );
+                let mut part =
+                    AgentPart::tool_call_ref(format!("codex.tool_call.{}", tc.id), &tc.id);
                 part.name = Some(tc.function_name.clone());
                 part.json = Some(tc.arguments.clone());
                 parts.push(part);
@@ -216,11 +215,7 @@ impl MessageAdapter for CodexMessageAdapter {
             parts.push(AgentPart::text("codex.empty", ""));
         }
 
-        let mut message = AgentMessage::new(
-            format!("codex.msg.{}", uuid_simple()),
-            role,
-            parts,
-        );
+        let mut message = AgentMessage::new(format!("codex.msg.{}", uuid_simple()), role, parts);
 
         if external.reasoning_content.is_some() {
             message = message.with_metadata("codex.has_reasoning", "true");
@@ -282,38 +277,28 @@ impl ModelProvider for CodexModelProvider {
 
     fn list_models(&self) -> Vec<ModelDescriptor> {
         vec![
-            ModelDescriptor::new(
-                "codex-mini",
-                "provider.model.codex",
-                "Codex Mini",
-                "codex",
-            )
-            .with_version("mini")
-            .with_capability("chat")
-            .with_capability("tool_call")
-            .with_context_window_tokens(128000)
-            .with_max_output_tokens(16000)
-            .with_input_mode("text")
-            .with_output_mode("text")
-            .with_response_format(ModelResponseFormat::Text)
-            .with_tool_capability("function_calling"),
-            ModelDescriptor::new(
-                "codex-1",
-                "provider.model.codex",
-                "Codex 1",
-                "codex",
-            )
-            .with_version("1.0")
-            .with_capability("chat")
-            .with_capability("tool_call")
-            .with_capability("reasoning")
-            .with_context_window_tokens(200000)
-            .with_max_output_tokens(32000)
-            .with_input_mode("text")
-            .with_output_mode("text")
-            .with_response_format(ModelResponseFormat::Text)
-            .with_response_format(ModelResponseFormat::Json)
-            .with_tool_capability("function_calling"),
+            ModelDescriptor::new("codex-mini", "provider.model.codex", "Codex Mini", "codex")
+                .with_version("mini")
+                .with_capability("chat")
+                .with_capability("tool_call")
+                .with_context_window_tokens(128000)
+                .with_max_output_tokens(16000)
+                .with_input_mode("text")
+                .with_output_mode("text")
+                .with_response_format(ModelResponseFormat::Text)
+                .with_tool_capability("function_calling"),
+            ModelDescriptor::new("codex-1", "provider.model.codex", "Codex 1", "codex")
+                .with_version("1.0")
+                .with_capability("chat")
+                .with_capability("tool_call")
+                .with_capability("reasoning")
+                .with_context_window_tokens(200000)
+                .with_max_output_tokens(32000)
+                .with_input_mode("text")
+                .with_output_mode("text")
+                .with_response_format(ModelResponseFormat::Text)
+                .with_response_format(ModelResponseFormat::Json)
+                .with_tool_capability("function_calling"),
             ModelDescriptor::new(
                 "codex-1-pro",
                 "provider.model.codex",
@@ -335,10 +320,7 @@ impl ModelProvider for CodexModelProvider {
     }
 
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
-        let model_id = request
-            .model_id
-            .as_deref()
-            .unwrap_or(&self.default_model);
+        let model_id = request.model_id.as_deref().unwrap_or(&self.default_model);
         let prompt = request.messages.join("\n");
 
         Ok(ModelResponse::text(
@@ -360,11 +342,7 @@ impl ModelProvider for CodexModelProvider {
             .into_iter()
             .enumerate()
             .map(|(i, word)| {
-                ModelStreamChunk::output(
-                    &request.model_request_id,
-                    i as u64,
-                    format!("{} ", word),
-                )
+                ModelStreamChunk::output(&request.model_request_id, i as u64, format!("{} ", word))
             })
             .collect();
 
@@ -524,16 +502,16 @@ impl SessionLifecycleProvider for CodexLifecycleProvider {
             config,
             now_iso(),
         );
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         sessions.insert(session_id.clone(), session.clone());
         Ok(session)
     }
 
     fn resume_session(&self, session_id: &str) -> KernelResult<AgentSession> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         let session = sessions
             .get_mut(session_id)
@@ -543,8 +521,8 @@ impl SessionLifecycleProvider for CodexLifecycleProvider {
     }
 
     fn close_session(&self, session_id: &str) -> KernelResult<AgentSession> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         let session = sessions
             .get_mut(session_id)
@@ -554,8 +532,8 @@ impl SessionLifecycleProvider for CodexLifecycleProvider {
     }
 
     fn list_active_sessions(&self) -> KernelResult<Vec<AgentSession>> {
-        let sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         Ok(sessions
             .values()
@@ -618,7 +596,10 @@ mod tests {
         let session = adapter.to_agent_session(&ext).unwrap();
 
         assert_eq!(session.kind, SessionKind::Subagent);
-        assert_eq!(session.parent_session_id, Some("thread.parent.1".to_string()));
+        assert_eq!(
+            session.parent_session_id,
+            Some("thread.parent.1".to_string())
+        );
     }
 
     #[test]
@@ -636,8 +617,14 @@ mod tests {
         let ext = sample_codex_meta();
         let session = adapter.to_agent_session(&ext).unwrap();
 
-        assert!(session.metadata.iter().any(|(k, v)| k == "reasoning_effort" && v == "high"));
-        assert!(session.metadata.iter().any(|(k, v)| k == "approval_policy" && v == "suggest"));
+        assert!(session
+            .metadata
+            .iter()
+            .any(|(k, v)| k == "reasoning_effort" && v == "high"));
+        assert!(session
+            .metadata
+            .iter()
+            .any(|(k, v)| k == "approval_policy" && v == "suggest"));
     }
 
     #[test]
@@ -655,7 +642,9 @@ mod tests {
         let config = SessionConfig::new()
             .with_source(SessionSource::Cli)
             .with_kind(SessionKind::Main);
-        let created = provider.create_session("agent.1", Some("user.1"), config).unwrap();
+        let created = provider
+            .create_session("agent.1", Some("user.1"), config)
+            .unwrap();
 
         let resumed = provider.resume_session(&created.session_id).unwrap();
         assert_eq!(resumed.state, SessionState::Active);
@@ -692,9 +681,18 @@ mod tests {
         let result = adapter.to_agent_message(&msg).unwrap();
         assert_eq!(result.role, AgentMessageRole::Agent);
         assert_eq!(result.parts.len(), 2);
-        assert_eq!(result.parts[0].text, Some("Let me analyze the code...".to_string()));
-        assert_eq!(result.parts[0].metadata_value("codex.content_type"), Some("reasoning"));
-        assert_eq!(result.parts[1].text, Some("Here is the explanation".to_string()));
+        assert_eq!(
+            result.parts[0].text,
+            Some("Let me analyze the code...".to_string())
+        );
+        assert_eq!(
+            result.parts[0].metadata_value("codex.content_type"),
+            Some("reasoning")
+        );
+        assert_eq!(
+            result.parts[1].text,
+            Some("Here is the explanation".to_string())
+        );
         assert_eq!(result.metadata_value("codex.has_reasoning"), Some("true"));
     }
 
@@ -705,18 +703,19 @@ mod tests {
             role: "assistant".to_string(),
             content: String::new(),
             reasoning_content: None,
-            tool_calls: Some(vec![
-                CodexToolCall {
-                    id: "call.1".to_string(),
-                    function_name: "execute_command".to_string(),
-                    arguments: r#"{"cmd":"ls"}"#.to_string(),
-                },
-            ]),
+            tool_calls: Some(vec![CodexToolCall {
+                id: "call.1".to_string(),
+                function_name: "execute_command".to_string(),
+                arguments: r#"{"cmd":"ls"}"#.to_string(),
+            }]),
             tool_call_id: None,
         };
         let result = adapter.to_agent_message(&msg).unwrap();
         assert_eq!(result.parts.len(), 1);
-        assert_eq!(result.parts[0].kind, sdkwork_agent_kernel::AgentPartKind::ToolCallRef);
+        assert_eq!(
+            result.parts[0].kind,
+            sdkwork_agent_kernel::AgentPartKind::ToolCallRef
+        );
         assert_eq!(result.parts[0].tool_call_id, Some("call.1".to_string()));
         assert_eq!(result.parts[0].name, Some("execute_command".to_string()));
     }
@@ -768,7 +767,9 @@ mod tests {
         let manifest = provider.provider_manifest();
         assert_eq!(manifest.provider_id, "provider.model.codex");
         assert_eq!(manifest.provider_family, "model");
-        assert!(manifest.capabilities.contains(&"model.reasoning".to_string()));
+        assert!(manifest
+            .capabilities
+            .contains(&"model.reasoning".to_string()));
     }
 
     #[test]
@@ -841,7 +842,10 @@ mod tests {
         assert!(tools.iter().any(|t| t.tool_id == "codex.apply_patch"));
         assert!(tools.iter().any(|t| t.tool_id == "codex.run_tests"));
 
-        let read = tools.iter().find(|t| t.tool_id == "codex.read_file").unwrap();
+        let read = tools
+            .iter()
+            .find(|t| t.tool_id == "codex.read_file")
+            .unwrap();
         assert_eq!(read.side_effect_level, SideEffectLevel::ReadOnly);
     }
 
@@ -866,7 +870,11 @@ mod tests {
     #[test]
     fn tool_provider_invoke_apply_patch() {
         let provider = CodexToolProvider::new();
-        let call = ToolCall::new("call.3", "codex.apply_patch", r#"{"patch":"--- a/foo\n+++ b/foo"}"#);
+        let call = ToolCall::new(
+            "call.3",
+            "codex.apply_patch",
+            r#"{"patch":"--- a/foo\n+++ b/foo"}"#,
+        );
         let result = provider.invoke_tool(call).unwrap();
         assert_eq!(result.normalized_status, ToolCallStatus::Succeeded);
         assert!(result.output.contains("Mock patch applied"));
@@ -936,13 +944,20 @@ mod tests {
             let msg = AgentMessage::new(
                 format!("msg.{}", i),
                 AgentMessageRole::User,
-                vec![AgentPart::text(format!("p.{}", i), format!("Message {}", i))],
+                vec![AgentPart::text(
+                    format!("p.{}", i),
+                    format!("Message {}", i),
+                )],
             );
             manager.append_message("session.1", msg).unwrap();
         }
         let compressed = manager.compress_history("session.1", 100).unwrap();
         assert_eq!(compressed.role, AgentMessageRole::System);
-        assert!(compressed.parts[0].text.as_ref().unwrap().contains("Compressed"));
+        assert!(compressed.parts[0]
+            .text
+            .as_ref()
+            .unwrap()
+            .contains("Compressed"));
         let remaining = manager.get_history("session.1").unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].role, AgentMessageRole::System);

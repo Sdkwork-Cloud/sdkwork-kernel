@@ -49,10 +49,10 @@ hooks, event streams, observability, and conformance testing.
   [`../specs/AGENT_UI_CONTRACT_SPEC.md`](../specs/AGENT_UI_CONTRACT_SPEC.md)
 - Agent conformance spec:
   [`../specs/AGENT_CONFORMANCE_SPEC.md`](../specs/AGENT_CONFORMANCE_SPEC.md)
-- SDKWork domain standard: [`../../../../specs/DOMAIN_SPEC.md`](../../../../specs/DOMAIN_SPEC.md)
-- SDKWork module standard: [`../../../../specs/MODULE_SPEC.md`](../../../../specs/MODULE_SPEC.md)
-- SDKWork documentation standard: [`../../../../specs/DOCUMENTATION_SPEC.md`](../../../../specs/DOCUMENTATION_SPEC.md)
-- SDKWork Rust RPC standard: [`../../../../specs/RUST_RPC_SPEC.md`](../../../../specs/RUST_RPC_SPEC.md)
+- SDKWork domain standard: [`../../../../specs/DOMAIN_SPEC.md`](../../sdkwork-specs/DOMAIN_SPEC.md)
+- SDKWork module standard: [`../../../../specs/MODULE_SPEC.md`](../../sdkwork-specs/MODULE_SPEC.md)
+- SDKWork documentation standard: [`../../../../specs/DOCUMENTATION_SPEC.md`](../../sdkwork-specs/DOCUMENTATION_SPEC.md)
+- SDKWork Rust RPC standard: [`../../../../specs/RUST_RPC_SPEC.md`](../../sdkwork-specs/RUST_RPC_SPEC.md)
 
 External standards are reference inputs, not direct kernel ownership:
 
@@ -558,9 +558,9 @@ matures.
 Required crate verification commands:
 
 ```bash
-cargo test --manifest-path kernel/sdkwork-agent-kernel/Cargo.toml
-cargo clippy --manifest-path kernel/sdkwork-agent-kernel/Cargo.toml --all-targets -- -D warnings
-cargo fmt --manifest-path kernel/sdkwork-agent-kernel/Cargo.toml --check
+cargo test --manifest-path sdkwork-agent-kernel/Cargo.toml
+cargo clippy --manifest-path sdkwork-agent-kernel/Cargo.toml --all-targets -- -D warnings
+cargo fmt --manifest-path sdkwork-agent-kernel/Cargo.toml --check
 ```
 
 ## Acceptance Checklist
@@ -608,7 +608,7 @@ Extension points are limited to declared public exports, runtime entrypoints, SD
 
 ### Verification
 
-- `cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-agent-kernel/Cargo.toml`
+- `cargo test --manifest-path sdkwork-agent-kernel/Cargo.toml`
 
 ### Owner And Status
 

@@ -1,5 +1,5 @@
-use crate::{CommandResult, Workspace};
 use crate::first_policy_category;
+use crate::{CommandResult, Workspace};
 use sdkwork_agent_kernel::{
     HostEnvPolicy, KernelEventRedaction, KernelResult, PolicyCategory, PolicyRequest,
     ProviderHealth, SideEffectLevel,

@@ -9,11 +9,16 @@
     "protocol": "http",
     "packageName": "@sdkwork/agent-backend-sdk"
   },
-  "changeFingerprint": "62b7e2e4bb8c8909b60c1dceaa447d98b67d6bac17a31d3c94971d86dbefb087",
+  "changeFingerprint": "1aa57877ce29e77319bc2daa5863aff4344e2ab48a06983e6891d6648bf801f1",
   "changes": {
-    "createdGeneratedFiles": [],
+    "createdGeneratedFiles": [
+      "src/types/agent-implementation-type.ts"
+    ],
     "updatedGeneratedFiles": [
-      "src/types/knowledge-base-record.ts"
+      "src/types/agent-record.ts",
+      "src/types/create-agent-request.ts",
+      "src/types/index.ts",
+      "src/types/update-agent-request.ts"
     ],
     "unchangedGeneratedFiles": [
       "bin/publish-core.mjs",
@@ -47,7 +52,6 @@
       "src/types/agent-provider-binding-list-response.ts",
       "src/types/agent-provider-binding-record.ts",
       "src/types/agent-provider-binding-response.ts",
-      "src/types/agent-record.ts",
       "src/types/agent-response.ts",
       "src/types/agent-status.ts",
       "src/types/agent-visibility.ts",
@@ -57,7 +61,6 @@
       "src/types/complete-knowledge-sync-job-request.ts",
       "src/types/create-agent-deployment-request.ts",
       "src/types/create-agent-provider-binding-request.ts",
-      "src/types/create-agent-request.ts",
       "src/types/create-knowledge-base-request.ts",
       "src/types/create-knowledge-binding-request.ts",
       "src/types/create-knowledge-chunk-request.ts",
@@ -75,10 +78,10 @@
       "src/types/deployment-status.ts",
       "src/types/fail-knowledge-sync-job-request.ts",
       "src/types/field-error.ts",
-      "src/types/index.ts",
       "src/types/int64-string.ts",
       "src/types/knowledge-base-kind.ts",
       "src/types/knowledge-base-list-response.ts",
+      "src/types/knowledge-base-record.ts",
       "src/types/knowledge-base-response.ts",
       "src/types/knowledge-binding-list-response.ts",
       "src/types/knowledge-binding-record.ts",
@@ -139,7 +142,6 @@
       "src/types/restore-agent-request.ts",
       "src/types/search-knowledge-request.ts",
       "src/types/start-knowledge-sync-job-request.ts",
-      "src/types/update-agent-request.ts",
       "src/types/update-agent-status-request.ts",
       "src/types/update-knowledge-base-request.ts",
       "src/types/update-knowledge-document-request.ts",
@@ -166,7 +168,11 @@
       {
         "area": "models",
         "paths": [
-          "src/types/knowledge-base-record.ts"
+          "src/types/agent-implementation-type.ts",
+          "src/types/agent-record.ts",
+          "src/types/create-agent-request.ts",
+          "src/types/index.ts",
+          "src/types/update-agent-request.ts"
         ]
       }
     ],

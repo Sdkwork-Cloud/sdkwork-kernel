@@ -9,6 +9,7 @@
     "root": "sdkwork-kernel/sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core",
     "domain": "intelligence",
     "capability": "agent-plugin-core",
+    "surfaceNotRequiredReason": "This repository-internal plugin support crate is loaded through kernel plugin contracts and has no app, open-api, or backend-admin surface.",
     "languages": [
       "rust"
     ],
@@ -20,7 +21,7 @@
   "canonicalSpecs": [
     {
       "file": "KERNEL_PLUGIN_SPEC.md",
-      "path": "../../../../specs/KERNEL_PLUGIN_SPEC.md",
+      "path": "../../../specs/KERNEL_PLUGIN_SPEC.md",
       "purpose": "Canonical plugin manifest, contribution, dependency, lifecycle, security, conformance, and plugin naming rules."
     },
     {
@@ -67,6 +68,9 @@
       "SdkworkKernelPlugin"
     ],
     "routeManifest": null,
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
     "configKeys": []

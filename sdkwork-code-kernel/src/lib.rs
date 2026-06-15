@@ -35,6 +35,7 @@ pub use patch::{
     PatchApplyResult, PatchExplanation, PatchOperation, PatchPreview, PatchProvider,
     PatchRejection, PatchRollbackResult, PatchSet,
 };
+pub use policy_utils::first_policy_category;
 pub use protocol::{CodeProtocolObjectMapper, StandardCodeProtocolObjectMapper};
 pub use review::{ReviewFinding, ReviewProvider, ReviewReport, ReviewSeverity};
 pub use runtime::{
@@ -58,7 +59,6 @@ pub use workspace::{
     WorkspaceFileStat, WorkspaceProvider, WorkspaceWatchEvent, WorkspaceWatchEventKind,
     WorkspaceWriteRequest, WorkspaceWriteResult,
 };
-pub use policy_utils::first_policy_category;
 
 pub const CODE_KERNEL_SPEC_VERSION: &str = "0.1.0";
 pub const CODE_CAPABILITY_MANIFEST_SCHEMA: &str =

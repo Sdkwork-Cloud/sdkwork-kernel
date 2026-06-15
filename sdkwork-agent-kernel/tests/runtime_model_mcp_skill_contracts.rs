@@ -134,7 +134,10 @@ fn runtime_registry_supports_multiple_llm_providers_mcp_and_agent_skills() {
         .runtime
         .mcp_provider()
         .expect("mcp provider is registered");
-    assert_eq!(mcp.list_servers().expect("mcp servers list")[0].server_id, "mcp.github");
+    assert_eq!(
+        mcp.list_servers().expect("mcp servers list")[0].server_id,
+        "mcp.github"
+    );
     assert_eq!(
         mcp.list_tools("mcp.github").expect("mcp tools list")[0].tool_id,
         "mcp.github.search"
@@ -159,7 +162,10 @@ fn runtime_registry_supports_multiple_llm_providers_mcp_and_agent_skills() {
         .runtime
         .mcp_provider_by_id("provider.mcp.gitlab")
         .expect("gitlab mcp provider is registered");
-    assert_eq!(gitlab_mcp.list_servers().expect("gitlab mcp servers list")[0].server_id, "mcp.gitlab");
+    assert_eq!(
+        gitlab_mcp.list_servers().expect("gitlab mcp servers list")[0].server_id,
+        "mcp.gitlab"
+    );
     assert_eq!(
         gitlab_mcp
             .list_tools("mcp.gitlab")
@@ -359,12 +365,14 @@ impl McpProvider for FakeMcpProvider {
     }
 
     fn list_servers(&self) -> KernelResult<Vec<McpServerDescriptor>> {
-        Ok(vec![
-            McpServerDescriptor::new(self.server_id, self.provider_id, "stdio")
-                .with_capability("tools")
-                .with_capability("resources")
-                .with_capability("prompts"),
-        ])
+        Ok(vec![McpServerDescriptor::new(
+            self.server_id,
+            self.provider_id,
+            "stdio",
+        )
+        .with_capability("tools")
+        .with_capability("resources")
+        .with_capability("prompts")])
     }
 
     fn list_tools(&self, server_id: &str) -> KernelResult<Vec<ToolDescriptor>> {

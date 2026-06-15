@@ -6,11 +6,12 @@
     "displayName": "SDKWork Drive Kernel Plugin",
     "version": "0.1.0",
     "type": "rust-crate",
-    "root": "sdkwork-birdcoder/kernel/sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive",
+    "root": "sdkwork-kernel/sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive",
     "domain": "intelligence",
     "declaredDomain": null,
     "capability": "kernel.plugin.drive",
     "status": "standardizing",
+    "surfaceNotRequiredReason": "This repository-internal Drive plugin crate is loaded through provider manifests and has no app, open-api, or backend-admin surface.",
     "languages": [
       "rust",
       "markdown",
@@ -26,17 +27,32 @@
   "canonicalSpecs": [
     {
       "file": "KERNEL_PLUGIN_SPEC.md",
-      "path": "../../../../specs/KERNEL_PLUGIN_SPEC.md",
+      "path": "../../../specs/KERNEL_PLUGIN_SPEC.md",
       "purpose": "Plugin manifest, foundation plugin dependency, naming, and conformance authority."
     },
     {
       "file": "AGENT_HOST_PROVIDER_SPI_SPEC.md",
-      "path": "../../../../specs/AGENT_HOST_PROVIDER_SPI_SPEC.md",
+      "path": "../../../specs/AGENT_HOST_PROVIDER_SPI_SPEC.md",
       "purpose": "Storage host provider family and capability negotiation authority."
     },
     {
+      "file": "COMPONENT_SPEC.md",
+      "path": "../../../../sdkwork-specs/COMPONENT_SPEC.md",
+      "purpose": "Component-local contract and discovery rules."
+    },
+    {
+      "file": "CODE_STYLE_SPEC.md",
+      "path": "../../../../sdkwork-specs/CODE_STYLE_SPEC.md",
+      "purpose": "Authored source structure and generated code boundaries."
+    },
+    {
+      "file": "NAMING_SPEC.md",
+      "path": "../../../../sdkwork-specs/NAMING_SPEC.md",
+      "purpose": "Canonical SDKWork naming rules."
+    },
+    {
       "file": "RUST_CODE_SPEC.md",
-      "path": "../../../../../sdkwork-specs/RUST_CODE_SPEC.md",
+      "path": "../../../../sdkwork-specs/RUST_CODE_SPEC.md",
       "purpose": "Rust crate and module structure."
     }
   ],
@@ -52,6 +68,9 @@
     "runtimeEntrypoints": [
       "SdkworkDriveStorageProvider"
     ],
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [
       "sdkwork-drive-storage-contract"
     ],

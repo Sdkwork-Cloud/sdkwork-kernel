@@ -2177,6 +2177,97 @@ async fn provider_bindings_and_deployments_should_work_over_http() {
 }
 
 #[tokio::test]
+async fn app_create_agent_should_accept_implementation_type() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    let mut body = create_body(
+        "agent.implementation.http.langgraph",
+        "ImplementationHttpLangGraph",
+        "2026-06-01T00:20:00Z",
+    );
+    body["implementationProviderId"] = json!("provider.agent.langgraph");
+    body["implementationKind"] = json!("protocol-adapter");
+    body["implementationType"] = json!("langgraph");
+
+    let response = post_json(&app, "/app/v3/api/ai/agents", body, StatusCode::CREATED).await;
+
+    assert_eq!(
+        response["data"]["implementationProviderId"],
+        "provider.agent.langgraph"
+    );
+    assert_eq!(response["data"]["implementationKind"], "protocol-adapter");
+    assert_eq!(response["data"]["implementationType"], "langgraph");
+}
+
+#[tokio::test]
+async fn backend_update_agent_should_change_implementation_type() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    create_agent(
+        &app,
+        "agent.implementation.http.update",
+        "ImplementationHttpUpdate",
+    )
+    .await;
+
+    let response = patch_json(
+        &app,
+        "/backend/v3/api/ai/agents/agent.implementation.http.update?tenant_id=1",
+        json!({
+            "implementationProviderId": "provider.agent.openai",
+            "implementationKind": "process-adapter",
+            "implementationType": "openai-agents",
+            "requestedAt": "2026-06-01T00:21:00Z"
+        }),
+        StatusCode::OK,
+    )
+    .await;
+
+    assert_eq!(
+        response["data"]["implementationProviderId"],
+        "provider.agent.openai"
+    );
+    assert_eq!(response["data"]["implementationKind"], "process-adapter");
+    assert_eq!(response["data"]["implementationType"], "openai-agents");
+}
+
+#[tokio::test]
+async fn app_create_agent_with_invalid_implementation_type_should_return_bad_request() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_test_app(state);
+
+    let mut body = create_body(
+        "agent.invalid.implementation-type",
+        "InvalidImplementationType",
+        "2026-06-01T00:22:00Z",
+    );
+    body["implementationType"] = json!("unsupported-framework");
+
+    let response = post_json(&app, "/app/v3/api/ai/agents", body, StatusCode::BAD_REQUEST).await;
+
+    assert_eq!(response["code"], "validation_error");
+    assert_eq!(response["errorCategory"], "validation");
+    assert!(response["detail"]
+        .as_str()
+        .expect("detail should exist")
+        .contains("implementationType must be one of"));
+}
+
+#[tokio::test]
 async fn provider_bindings_and_deployments_should_apply_pagination_contract() {
     let state = AgentHttpState::new(
         InMemoryAgentRepository::new(),

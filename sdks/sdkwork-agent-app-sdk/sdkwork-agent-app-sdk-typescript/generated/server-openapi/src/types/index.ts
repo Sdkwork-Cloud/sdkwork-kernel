@@ -3,6 +3,7 @@ export type { Int64String } from './int64-string';
 export type { AgentStatus } from './agent-status';
 export type { AgentVisibility } from './agent-visibility';
 export type { AgentImplementationKind } from './agent-implementation-kind';
+export type { AgentImplementationType } from './agent-implementation-type';
 export type { DeploymentStatus } from './deployment-status';
 export type { KnowledgeBaseKind } from './knowledge-base-kind';
 export type { KnowledgeIndexKind } from './knowledge-index-kind';

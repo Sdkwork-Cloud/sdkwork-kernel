@@ -9,9 +9,9 @@
 - Related:
   - [`AGENT_KERNEL_SPEC.md`](./AGENT_KERNEL_SPEC.md)
   - [`sdkwork-agent-kernel/README.md`](../sdkwork-agent-kernel/README.md)
-  - [`DOMAIN_SPEC.md`](../../../../specs/DOMAIN_SPEC.md)
-  - [`MODULE_SPEC.md`](../../../../specs/MODULE_SPEC.md)
-  - [`SDK_SPEC.md`](../../../../specs/SDK_SPEC.md)
+  - [`DOMAIN_SPEC.md`](../../sdkwork-specs/DOMAIN_SPEC.md)
+  - [`MODULE_SPEC.md`](../../sdkwork-specs/MODULE_SPEC.md)
+  - [`SDK_SPEC.md`](../../sdkwork-specs/SDK_SPEC.md)
 
 This specification defines how SDKWork-compatible agents, runtimes, providers,
 and protocol adapters declare identity, capabilities, compatibility, security

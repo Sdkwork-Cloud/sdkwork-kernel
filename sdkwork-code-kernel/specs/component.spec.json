@@ -6,11 +6,12 @@
     "displayName": "SDKWork Code Kernel",
     "version": "0.1.0",
     "type": "rust-crate",
-    "root": "sdkwork-birdcoder/kernel/sdkwork-code-kernel",
+    "root": "sdkwork-kernel/sdkwork-code-kernel",
     "domain": "intelligence",
     "declaredDomain": null,
     "capability": "code-kernel",
     "status": "standardizing",
+    "surfaceNotRequiredReason": "This repository-internal Rust code kernel library has no HTTP, SDK, app, console, or backend-admin surface; exports define integration.",
     "languages": [
       "rust"
     ],
@@ -97,6 +98,9 @@
     "runtimeEntrypoints": [
       "Cargo.toml"
     ],
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
     "configKeys": [],
@@ -110,7 +114,7 @@
   },
   "verification": {
     "commands": [
-      "cargo test --manifest-path apps/sdkwork-birdcoder/kernel/sdkwork-code-kernel/Cargo.toml"
+      "cargo test --manifest-path sdkwork-code-kernel/Cargo.toml"
     ]
   },
   "metadata": {

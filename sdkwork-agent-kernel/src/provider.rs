@@ -198,26 +198,18 @@ pub enum ProviderError {
         resource_type: String,
     },
     /// 操作被取消
-    OperationCancelled {
-        operation_id: String,
-    },
+    OperationCancelled { operation_id: String },
     /// 操作超时
     OperationTimeout {
         operation_id: String,
         timeout_ms: u64,
     },
     /// 策略被拒绝
-    PolicyDenied {
-        reason: String,
-    },
+    PolicyDenied { reason: String },
     /// 配置错误
-    ConfigurationError {
-        message: String,
-    },
+    ConfigurationError { message: String },
     /// 内部错误
-    InternalError {
-        message: String,
-    },
+    InternalError { message: String },
 }
 
 impl ProviderError {
@@ -294,11 +286,7 @@ impl std::fmt::Display for ProviderError {
             Self::ResourceNotFound {
                 resource_id,
                 resource_type,
-            } => write!(
-                f,
-                "{} '{}' not found",
-                resource_type, resource_id
-            ),
+            } => write!(f, "{} '{}' not found", resource_type, resource_id),
             Self::OperationCancelled { operation_id } => {
                 write!(f, "Operation '{}' cancelled", operation_id)
             }
@@ -323,14 +311,12 @@ impl std::error::Error for ProviderError {}
 impl From<ProviderError> for KernelError {
     fn from(error: ProviderError) -> Self {
         match error {
-            ProviderError::CapabilityNotSupported {
-                capability_id,
-                ..
-            } => KernelError::CapabilityMissing { capability_id },
-            ProviderError::ResourceNotFound {
-                resource_id,
-                ..
-            } => KernelError::validation(format!("Resource not found: {}", resource_id)),
+            ProviderError::CapabilityNotSupported { capability_id, .. } => {
+                KernelError::CapabilityMissing { capability_id }
+            }
+            ProviderError::ResourceNotFound { resource_id, .. } => {
+                KernelError::validation(format!("Resource not found: {}", resource_id))
+            }
             ProviderError::OperationCancelled { operation_id } => {
                 KernelError::cancelled(format!("Operation '{}' cancelled", operation_id))
             }

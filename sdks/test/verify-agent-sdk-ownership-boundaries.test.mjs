@@ -26,7 +26,7 @@ const families = [
     manifest: "sdk-manifest.json",
     generatedPackage: "sdkwork-agent-app-sdk-typescript/generated/server-openapi/package.json",
     generatedMetadata: "sdkwork-agent-app-sdk-typescript/generated/server-openapi/sdkwork-sdk.json",
-    dependencies: [["sdkwork-appbase-app-sdk", "sdkwork-appbase.app"]],
+    dependencies: [["sdkwork-appbase-app-sdk", "sdkwork-appbase-app-api"]],
   },
   {
     root: "sdkwork-agent-backend-sdk",
@@ -35,7 +35,7 @@ const families = [
     manifest: "sdk-manifest.json",
     generatedPackage: "sdkwork-agent-backend-sdk-typescript/generated/server-openapi/package.json",
     generatedMetadata: "sdkwork-agent-backend-sdk-typescript/generated/server-openapi/sdkwork-sdk.json",
-    dependencies: [["sdkwork-appbase-backend-sdk", "sdkwork-appbase.backend"]],
+    dependencies: [["sdkwork-appbase-backend-sdk", "sdkwork-appbase-backend-api"]],
   },
 ];
 

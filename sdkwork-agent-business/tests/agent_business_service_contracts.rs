@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use sdkwork_agent_business::{
     ActivateAgentProviderBindingCommand, AgentAuditSink, AgentBusinessService, AgentBusinessStatus,
-    AgentImplementationKind, AgentListQuery, AgentPreviewResponseCommand,
+    AgentImplementationKind, AgentImplementationType, AgentListQuery, AgentPreviewResponseCommand,
     AgentPromptOptimizationCommand, AgentProviderBindingCommand, AgentProviderDeploymentCommand,
     AgentVisibility, AllowAllPolicyProvider, ChangeAgentStatusCommand, CreateAgentCommand,
     DeleteAgentCommand, GetAgentCommand, InMemoryAgentRepository, ListAgentsCommand, PolicyMode,
@@ -103,6 +103,7 @@ fn create_agent_cmd(
         default_code_task_intent: Some(CodeTaskIntent::new("Refactor runtime")),
         implementation_provider_id: None,
         implementation_kind: None,
+        implementation_type: None,
         requested_by: sample_subject(),
         requested_at: requested_at.to_string(),
     }
@@ -176,6 +177,9 @@ fn create_update_status_delete_restore_and_list_agents() {
             visibility: Some(AgentVisibility::Tenant),
             tags: Some(vec!["starter".to_string(), "v2".to_string()]),
             default_code_task_intent: Some(CodeTaskIntent::new("Write tests first")),
+            implementation_provider_id: None,
+            implementation_kind: None,
+            implementation_type: None,
             requested_by: sample_subject(),
             requested_at: "2026-06-01T00:10:00Z".to_string(),
         })
@@ -340,6 +344,9 @@ fn agent_resource_entry_points_validate_standard_agent_id_before_authorization()
                 visibility: None,
                 tags: None,
                 default_code_task_intent: None,
+                implementation_provider_id: None,
+                implementation_kind: None,
+                implementation_type: None,
                 requested_by: sample_subject(),
                 requested_at: "2026-06-01T01:31:00Z".to_string(),
             })
@@ -477,6 +484,118 @@ fn agent_resource_entry_points_validate_standard_agent_id_before_authorization()
 }
 
 #[test]
+fn create_agent_records_implementation_type() {
+    let repository = InMemoryAgentRepository::new();
+    let (audit_sink, _events) = RecordingAuditSink::new();
+    let policy_provider = AllowAllPolicyProvider::allow("policy.memory");
+    let mut service = AgentBusinessService::new(repository, audit_sink, policy_provider);
+
+    let record = service
+        .create_agent(CreateAgentCommand {
+            implementation_provider_id: Some("provider.agent.langgraph".to_string()),
+            implementation_kind: Some(AgentImplementationKind::ProtocolAdapter),
+            implementation_type: Some(AgentImplementationType::LangGraph),
+            ..create_agent_cmd(
+                "agent.implementation.langgraph",
+                1,
+                10,
+                100,
+                "implementation-langgraph",
+                "Implementation LangGraph",
+                "2026-06-01T01:10:00Z",
+            )
+        })
+        .expect("create should preserve implementation type");
+
+    assert_eq!(
+        record.implementation_type,
+        AgentImplementationType::LangGraph
+    );
+    assert_eq!(
+        record.implementation_provider_id.as_deref(),
+        Some("provider.agent.langgraph")
+    );
+    assert_eq!(
+        record.implementation_kind,
+        Some(AgentImplementationKind::ProtocolAdapter)
+    );
+}
+
+#[test]
+fn create_agent_defaults_implementation_type_to_sdkwork_native() {
+    let repository = InMemoryAgentRepository::new();
+    let (audit_sink, _events) = RecordingAuditSink::new();
+    let policy_provider = AllowAllPolicyProvider::allow("policy.memory");
+    let mut service = AgentBusinessService::new(repository, audit_sink, policy_provider);
+
+    let record = service
+        .create_agent(create_agent_cmd(
+            "agent.implementation.default",
+            1,
+            10,
+            100,
+            "implementation-default",
+            "Implementation Default",
+            "2026-06-01T01:11:00Z",
+        ))
+        .expect("create should default implementation type");
+
+    assert_eq!(
+        record.implementation_type,
+        AgentImplementationType::SdkworkNative
+    );
+}
+
+#[test]
+fn update_agent_changes_implementation_contract() {
+    let repository = InMemoryAgentRepository::new();
+    let (audit_sink, _events) = RecordingAuditSink::new();
+    let policy_provider = AllowAllPolicyProvider::allow("policy.memory");
+    let mut service = AgentBusinessService::new(repository, audit_sink, policy_provider);
+
+    service
+        .create_agent(create_agent_cmd(
+            "agent.implementation.update",
+            1,
+            10,
+            100,
+            "implementation-update",
+            "Implementation Update",
+            "2026-06-01T01:12:00Z",
+        ))
+        .expect("create should succeed");
+
+    let updated = service
+        .update_agent(UpdateAgentCommand {
+            tenant_id: 1,
+            agent_id: "agent.implementation.update".to_string(),
+            expected_version: None,
+            display_name: None,
+            description: None,
+            manifest: None,
+            visibility: None,
+            tags: None,
+            default_code_task_intent: None,
+            implementation_provider_id: Some(Some("provider.agent.crewai".to_string())),
+            implementation_kind: Some(Some(AgentImplementationKind::ProcessAdapter)),
+            implementation_type: Some(AgentImplementationType::CrewAi),
+            requested_by: sample_subject(),
+            requested_at: "2026-06-01T01:13:00Z".to_string(),
+        })
+        .expect("update should change implementation contract");
+
+    assert_eq!(updated.implementation_type, AgentImplementationType::CrewAi);
+    assert_eq!(
+        updated.implementation_provider_id.as_deref(),
+        Some("provider.agent.crewai")
+    );
+    assert_eq!(
+        updated.implementation_kind,
+        Some(AgentImplementationKind::ProcessAdapter)
+    );
+}
+
+#[test]
 fn stale_expected_version_is_rejected_for_update() {
     let repository = InMemoryAgentRepository::new();
     let (audit_sink, _events) = RecordingAuditSink::new();
@@ -506,6 +625,9 @@ fn stale_expected_version_is_rejected_for_update() {
             visibility: None,
             tags: None,
             default_code_task_intent: None,
+            implementation_provider_id: None,
+            implementation_kind: None,
+            implementation_type: None,
             requested_by: sample_subject(),
             requested_at: "2026-06-01T01:01:00Z".to_string(),
         })
@@ -523,6 +645,9 @@ fn stale_expected_version_is_rejected_for_update() {
             visibility: None,
             tags: None,
             default_code_task_intent: None,
+            implementation_provider_id: None,
+            implementation_kind: None,
+            implementation_type: None,
             requested_by: sample_subject(),
             requested_at: "2026-06-01T01:02:00Z".to_string(),
         })
@@ -570,6 +695,9 @@ fn deleted_agent_cannot_be_updated() {
         visibility: None,
         tags: None,
         default_code_task_intent: None,
+        implementation_provider_id: None,
+        implementation_kind: None,
+        implementation_type: None,
         requested_by: sample_subject(),
         requested_at: "2026-06-01T02:06:00Z".to_string(),
     });
@@ -780,6 +908,9 @@ fn audit_events_are_recorded_for_state_mutations() {
             visibility: None,
             tags: None,
             default_code_task_intent: None,
+            implementation_provider_id: None,
+            implementation_kind: None,
+            implementation_type: None,
             requested_by: sample_subject(),
             requested_at: "2026-06-01T05:01:00Z".to_string(),
         })

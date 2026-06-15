@@ -615,10 +615,7 @@ pub trait AgentRepository {
         })
     }
 
-    fn update_memory_namespace(
-        &mut self,
-        _record: AgentMemoryNamespaceRecord,
-    ) -> KernelResult<()> {
+    fn update_memory_namespace(&mut self, _record: AgentMemoryNamespaceRecord) -> KernelResult<()> {
         Err(KernelError::CapabilityMissing {
             capability_id: "agent.business.memory.namespace".to_string(),
         })

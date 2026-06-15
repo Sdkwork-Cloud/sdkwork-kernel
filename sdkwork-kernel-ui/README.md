@@ -10,8 +10,7 @@ code-kernel runtimes. It is not a BirdCoder application UI. Product
 applications may embed these packages and add product-specific navigation,
 branding, persistence, and deployment concerns around them.
 
-The workspace follows the SDKWork frontend architecture standard in
-`apps/docs/ARCHITECT.md`:
+The workspace follows `../sdkwork-specs/UI_ARCHITECTURE_SPEC.md` and the selected PC React UI rules in `../sdkwork-specs/APP_PC_REACT_UI_SPEC.md`:
 
 - `src/` is a thin demo/integration shell only.
 - `packages/` owns reusable modules and kernel UI capabilities.
@@ -107,16 +106,16 @@ operations belong to Rust host providers and protocol adapters.
 ## Verification
 
 ```bash
-pnpm.cmd --dir kernel/sdkwork-kernel-ui install --frozen-lockfile
-pnpm.cmd --dir kernel/sdkwork-kernel-ui lint
-pnpm.cmd --dir kernel/sdkwork-kernel-ui build
+pnpm.cmd --dir sdkwork-kernel-ui install --frozen-lockfile
+pnpm.cmd --dir sdkwork-kernel-ui lint
+pnpm.cmd --dir sdkwork-kernel-ui build
 ```
 
 When dependency installation is unavailable, the architecture script can still
 be run with Node:
 
 ```bash
-node kernel/sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs
+node sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs
 ```
 
 ## SDKWork Documentation Contract

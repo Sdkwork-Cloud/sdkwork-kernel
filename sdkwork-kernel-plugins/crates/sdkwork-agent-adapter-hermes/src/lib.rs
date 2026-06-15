@@ -1,13 +1,14 @@
 use sdkwork_agent_adapter_core::{
-    create_session_from_config, now_iso, uuid_simple, ConversationManager, InMemoryConversationManager,
-    MessageAdapter, SessionAdapter, SessionConfig, SessionLifecycleProvider,
+    create_session_from_config, now_iso, uuid_simple, ConversationManager,
+    InMemoryConversationManager, MessageAdapter, SessionAdapter, SessionConfig,
+    SessionLifecycleProvider,
 };
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
-    ModelStatus, ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind,
-    SessionSource, SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor,
-    ToolProvider, ToolResult, ToolSchema,
+    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
+    ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
+    SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
+    ToolResult, ToolSchema,
 };
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -96,9 +97,7 @@ impl SessionAdapter for HermesAdapter {
             SessionKind::Main
         };
 
-        let mut config = SessionConfig::new()
-            .with_source(source)
-            .with_kind(kind);
+        let mut config = SessionConfig::new().with_source(source).with_kind(kind);
 
         if let Some(ref model) = external.model {
             config = config.with_model(model);
@@ -173,10 +172,8 @@ impl MessageAdapter for HermesMessageAdapter {
 
         if let Some(tool_calls) = &external.tool_calls {
             for tc in tool_calls {
-                let mut part = AgentPart::tool_call_ref(
-                    format!("hermes.tool_call.{}", tc.id),
-                    &tc.id,
-                );
+                let mut part =
+                    AgentPart::tool_call_ref(format!("hermes.tool_call.{}", tc.id), &tc.id);
                 part.name = Some(tc.function_name.clone());
                 part.json = Some(tc.arguments.clone());
                 parts.push(part);
@@ -187,11 +184,7 @@ impl MessageAdapter for HermesMessageAdapter {
             parts.push(AgentPart::text("hermes.empty", ""));
         }
 
-        let mut message = AgentMessage::new(
-            format!("hermes.msg.{}", uuid_simple()),
-            role,
-            parts,
-        );
+        let mut message = AgentMessage::new(format!("hermes.msg.{}", uuid_simple()), role, parts);
 
         if let Some(tool_call_id) = &external.tool_call_id {
             message = message.with_metadata("hermes.tool_call_id", tool_call_id);
@@ -302,10 +295,7 @@ impl ModelProvider for HermesModelProvider {
     }
 
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
-        let model_id = request
-            .model_id
-            .as_deref()
-            .unwrap_or(&self.default_model);
+        let model_id = request.model_id.as_deref().unwrap_or(&self.default_model);
         let prompt = request.messages.join("\n");
 
         Ok(ModelResponse::text(
@@ -313,10 +303,7 @@ impl ModelProvider for HermesModelProvider {
             "provider.model.hermes",
             format!("[Hermes {}] Mock response to: {}", model_id, prompt),
         )
-        .with_usage(ModelUsage::new(
-            prompt.len() as u32 / 4,
-            128,
-        ))
+        .with_usage(ModelUsage::new(prompt.len() as u32 / 4, 128))
         .with_finish_reason("stop"))
     }
 
@@ -330,11 +317,7 @@ impl ModelProvider for HermesModelProvider {
             .into_iter()
             .enumerate()
             .map(|(i, word)| {
-                ModelStreamChunk::output(
-                    &request.model_request_id,
-                    i as u64,
-                    format!("{} ", word),
-                )
+                ModelStreamChunk::output(&request.model_request_id, i as u64, format!("{} ", word))
             })
             .collect();
 
@@ -433,24 +416,17 @@ impl ToolProvider for HermesToolProvider {
     fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
         let output = match call.tool_id.as_str() {
             "hermes.bash" => {
-                format!(
-                    "[Hermes Bash] Mock execution of: {}",
-                    call.arguments
-                )
+                format!("[Hermes Bash] Mock execution of: {}", call.arguments)
             }
             "hermes.read_file" => {
-                format!(
-                    "[Hermes ReadFile] Mock read of: {}",
-                    call.arguments
-                )
+                format!("[Hermes ReadFile] Mock read of: {}", call.arguments)
             }
             "hermes.write_file" => {
-                format!(
-                    "[Hermes WriteFile] Mock write to: {}",
-                    call.arguments
-                )
+                format!("[Hermes WriteFile] Mock write to: {}", call.arguments)
             }
-            "hermes.list_directory" => "[Hermes ListDirectory] file1.txt\nfile2.rs\ndir/".to_string(),
+            "hermes.list_directory" => {
+                "[Hermes ListDirectory] file1.txt\nfile2.rs\ndir/".to_string()
+            }
             "hermes.web_search" => {
                 format!(
                     "[Hermes WebSearch] Mock search results for: {}",
@@ -506,16 +482,16 @@ impl SessionLifecycleProvider for HermesLifecycleProvider {
             config,
             now_iso(),
         );
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         sessions.insert(session_id.clone(), session.clone());
         Ok(session)
     }
 
     fn resume_session(&self, session_id: &str) -> KernelResult<AgentSession> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         let session = sessions
             .get_mut(session_id)
@@ -525,8 +501,8 @@ impl SessionLifecycleProvider for HermesLifecycleProvider {
     }
 
     fn close_session(&self, session_id: &str) -> KernelResult<AgentSession> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         let session = sessions
             .get_mut(session_id)
@@ -536,8 +512,8 @@ impl SessionLifecycleProvider for HermesLifecycleProvider {
     }
 
     fn list_active_sessions(&self) -> KernelResult<Vec<AgentSession>> {
-        let sessions = self.sessions.lock().map_err(|e| {
-            KernelError::Internal { message: format!("lock poisoned: {e}") }
+        let sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
+            message: format!("lock poisoned: {e}"),
         })?;
         Ok(sessions
             .values()
@@ -621,9 +597,18 @@ mod tests {
         let ext = sample_hermes_session();
         let session = adapter.to_agent_session(&ext).unwrap();
 
-        assert!(session.metadata.iter().any(|(k, v)| k == "skill" && v == "coding"));
-        assert!(session.metadata.iter().any(|(k, v)| k == "tool" && v == "bash"));
-        assert!(session.metadata.iter().any(|(k, v)| k == "tool" && v == "read"));
+        assert!(session
+            .metadata
+            .iter()
+            .any(|(k, v)| k == "skill" && v == "coding"));
+        assert!(session
+            .metadata
+            .iter()
+            .any(|(k, v)| k == "tool" && v == "bash"));
+        assert!(session
+            .metadata
+            .iter()
+            .any(|(k, v)| k == "tool" && v == "read"));
     }
 
     // --- Message Adapter Tests ---
@@ -726,7 +711,10 @@ mod tests {
         let result = adapter.to_agent_message(&msg).unwrap();
         assert_eq!(result.role, AgentMessageRole::Agent);
         assert_eq!(result.parts.len(), 2);
-        assert_eq!(result.parts[0].kind, sdkwork_agent_kernel::AgentPartKind::ToolCallRef);
+        assert_eq!(
+            result.parts[0].kind,
+            sdkwork_agent_kernel::AgentPartKind::ToolCallRef
+        );
         assert_eq!(result.parts[0].tool_call_id, Some("call.1".to_string()));
         assert_eq!(result.parts[0].name, Some("bash".to_string()));
         assert_eq!(result.parts[1].tool_call_id, Some("call.2".to_string()));
@@ -844,10 +832,16 @@ mod tests {
         assert_eq!(bash.display_name, "Bash");
         assert_eq!(bash.side_effect_level, SideEffectLevel::SideEffectful);
 
-        let read = tools.iter().find(|t| t.tool_id == "hermes.read_file").unwrap();
+        let read = tools
+            .iter()
+            .find(|t| t.tool_id == "hermes.read_file")
+            .unwrap();
         assert_eq!(read.side_effect_level, SideEffectLevel::ReadOnly);
 
-        let write = tools.iter().find(|t| t.tool_id == "hermes.write_file").unwrap();
+        let write = tools
+            .iter()
+            .find(|t| t.tool_id == "hermes.write_file")
+            .unwrap();
         assert_eq!(write.side_effect_level, SideEffectLevel::SideEffectful);
     }
 
@@ -946,14 +940,21 @@ mod tests {
             let msg = AgentMessage::new(
                 format!("msg.{}", i),
                 AgentMessageRole::User,
-                vec![AgentPart::text(format!("p.{}", i), format!("Message {}", i))],
+                vec![AgentPart::text(
+                    format!("p.{}", i),
+                    format!("Message {}", i),
+                )],
             );
             manager.append_message("session.1", msg).unwrap();
         }
 
         let compressed = manager.compress_history("session.1", 100).unwrap();
         assert_eq!(compressed.role, AgentMessageRole::System);
-        assert!(compressed.parts[0].text.as_ref().unwrap().contains("Compressed"));
+        assert!(compressed.parts[0]
+            .text
+            .as_ref()
+            .unwrap()
+            .contains("Compressed"));
 
         let remaining = manager.get_history("session.1").unwrap();
         assert_eq!(remaining.len(), 1);
@@ -970,7 +971,9 @@ mod tests {
             .with_source(SessionSource::Cli)
             .with_kind(SessionKind::Main);
 
-        let session = provider.create_session("agent.1", Some("user.1"), config).unwrap();
+        let session = provider
+            .create_session("agent.1", Some("user.1"), config)
+            .unwrap();
         assert_eq!(session.agent_id, Some("agent.1".to_string()));
         assert_eq!(session.user_ref, Some("user.1".to_string()));
 

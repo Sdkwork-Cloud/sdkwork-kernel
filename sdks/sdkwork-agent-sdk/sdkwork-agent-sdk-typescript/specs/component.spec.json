@@ -9,6 +9,7 @@
     "root": "sdkwork-kernel/sdks/sdkwork-agent-sdk/sdkwork-agent-sdk-typescript",
     "domain": "intelligence",
     "capability": "agent-sdk",
+    "surface": "open-api",
     "languages": [
       "typescript"
     ],
@@ -70,6 +71,9 @@
     ],
     "runtimeEntrypoints": [],
     "routeManifest": null,
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
     "configKeys": []

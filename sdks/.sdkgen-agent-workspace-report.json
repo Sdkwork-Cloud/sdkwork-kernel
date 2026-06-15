@@ -4,7 +4,7 @@
   "mode": "dry-run",
   "standardProfile": "sdkwork-v3",
   "sdkgenPath": "../sdkwork-sdk-generator/bin/sdkgen.js",
-  "startedAt": "2026-06-10T11:01:38.679Z",
+  "startedAt": "2026-06-12T01:48:05.735Z",
   "families": [
     {
       "key": "open",
@@ -23,7 +23,7 @@
       "derivedFrom": "sdkwork-agent-app-sdk",
       "derivedGenerated": false,
       "derivedHasChanges": false,
-      "derivationFileCount": 136
+      "derivationFileCount": 137
     },
     {
       "key": "app",
@@ -43,7 +43,7 @@
           "required": true,
           "dependencyMode": "consumer-sdk",
           "apiPrefix": "/app/v3/api",
-          "apiAuthority": "sdkwork-appbase.app",
+          "apiAuthority": "sdkwork-appbase-app-api",
           "generatedTransportImportPolicy": "forbidden",
           "packageByLanguage": {
             "typescript": "@sdkwork/appbase-app-sdk"
@@ -51,7 +51,7 @@
         }
       ],
       "version": "0.1.0",
-      "fingerprint": "5c4fe626e9e830ccf1f0ec7beac491ec6c6272de21be31435e6b7d32655762a1",
+      "fingerprint": "afef90ac87d718d3b479e78ad1fccb7ed73f5ad9efc3137a80bb71fc96503219",
       "hasChanges": false,
       "riskLevel": "low",
       "generated": false
@@ -74,7 +74,7 @@
           "required": true,
           "dependencyMode": "consumer-sdk",
           "apiPrefix": "/backend/v3/api",
-          "apiAuthority": "sdkwork-appbase.backend",
+          "apiAuthority": "sdkwork-appbase-backend-api",
           "generatedTransportImportPolicy": "forbidden",
           "packageByLanguage": {
             "typescript": "@sdkwork/appbase-backend-sdk"
@@ -82,7 +82,7 @@
         }
       ],
       "version": "0.1.0",
-      "fingerprint": "5f0a5affcada8830eb24cacc9682aaac34dfee721b4ecec2b128bc5c8885cbe2",
+      "fingerprint": "945d4d48e809aa277fecb919cde01d1d912d63e89d9b0b8bca68224db5f320de",
       "hasChanges": false,
       "riskLevel": "low",
       "generated": false
@@ -105,8 +105,8 @@
       "updated": [],
       "deleted": []
     },
-    "fileCount": 136,
+    "fileCount": 137,
     "generated": false
   },
-  "finishedAt": "2026-06-10T11:01:39.192Z"
+  "finishedAt": "2026-06-12T01:48:06.324Z"
 }

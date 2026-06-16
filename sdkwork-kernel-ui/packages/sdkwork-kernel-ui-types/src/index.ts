@@ -329,3 +329,5 @@ export interface KernelUiClient {
   // Streaming
   subscribeEvents(sessionId: string, callback: (event: StreamEventView) => void): EventSubscription;
 }
+
+export type { KernelUiAuthProvider, KernelUiAuthSession } from './auth/kernel-ui-auth.types';

@@ -46,7 +46,8 @@ pub struct InMemoryAgentRepository {
 impl InMemoryAgentRepository {
     pub fn new() -> Self {
         Self {
-            id_generator: AgentBusinessIdGenerator::default(),
+            id_generator: AgentBusinessIdGenerator::new_default()
+                .expect("default agent business snowflake node id is valid"),
             records: Vec::new(),
             provider_bindings: Vec::new(),
             deployments: Vec::new(),

@@ -102,7 +102,15 @@
       "crates/sdkwork-agent-plugin-core",
       "crates/sdkwork-agent-plugin-rig",
       "crates/sdkwork-kernel-plugin-drive",
-      "crates/sdkwork-kernel-plugin-knowledgebase"
+      "crates/sdkwork-kernel-plugin-knowledgebase",
+      "crates/sdkwork-agent-adapter-core",
+      "crates/sdkwork-agent-adapter-hermes",
+      "crates/sdkwork-agent-adapter-openclaw",
+      "crates/sdkwork-agent-adapter-codex",
+      "crates/sdkwork-agent-adapter-claude-code",
+      "crates/sdkwork-agent-adapter-opencode",
+      "crates/sdkwork-agent-adapter-gemini-cli",
+      "crates/sdkwork-agent-adapter-mimo-code"
     ],
     "sdkDependencies": [],
     "dependencyApiExports": [],
@@ -140,7 +148,15 @@
       "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core/Cargo.toml",
       "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/Cargo.toml",
       "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive/Cargo.toml",
-      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml"
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml",
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-core/Cargo.toml",
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-hermes/Cargo.toml",
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-openclaw/Cargo.toml",
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-codex/Cargo.toml",
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-claude-code/Cargo.toml",
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-opencode/Cargo.toml",
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-gemini-cli/Cargo.toml",
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-mimo-code/Cargo.toml"
     ]
   },
   "metadata": {

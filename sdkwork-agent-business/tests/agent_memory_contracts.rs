@@ -684,6 +684,14 @@ fn memory_child_resources_require_active_parent_records() {
             })
             .expect("memory record should be created");
     }
+    let parent_record = service
+        .get_memory_record(GetAgentMarketplaceItemCommand {
+            tenant_id: 1,
+            item_id: "memory.record.deleted.parent".to_string(),
+            requested_by: subject(),
+        })
+        .expect("memory record should exist");
+
     let index = service
         .upsert_memory_retrieval_index(AgentMemoryRetrievalIndexUpsertCommand {
             tenant_id: 1,
@@ -705,7 +713,7 @@ fn memory_child_resources_require_active_parent_records() {
         .delete_memory_record(DeleteAgentMarketplaceItemCommand {
             tenant_id: 1,
             item_id: "memory.record.deleted.parent".to_string(),
-            expected_version: None,
+            expected_version: Some(parent_record.version),
             requested_by: subject(),
             requested_at: "2026-06-04T05:03:00Z".to_string(),
         })

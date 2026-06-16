@@ -1,13 +1,13 @@
 mod runtime;
 
-use std::sync::{Arc, Mutex};
-use crate::chat::ChatClient;
-use crate::types::{ChatRequest, ChatResponse, ChatMessage, SessionConfig, SessionInfo};
 use crate::bridge::{
-    AgentBridgeProvider, AgentBridgeType, AgentBridgeHealth, AgentBridgeStatus,
-    AgentBridgeMetadata, AgentBridgeConfig, AgentBridgePlugin,
+    AgentBridgeConfig, AgentBridgeHealth, AgentBridgeMetadata, AgentBridgePlugin,
+    AgentBridgeProvider, AgentBridgeStatus, AgentBridgeType,
 };
+use crate::chat::ChatClient;
+use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
 use runtime::OpenClawRuntime;
+use std::sync::{Arc, Mutex};
 
 pub struct OpenClawProvider {
     config: AgentBridgeConfig,
@@ -192,7 +192,10 @@ mod tests {
         assert_eq!(plugin.plugin_id(), "builtin.openclaw");
         assert_eq!(plugin.name(), "OpenClaw Bridge Plugin");
         assert_eq!(plugin.version(), "1.0.0");
-        assert_eq!(plugin.supported_bridge_types(), vec![AgentBridgeType::OpenClaw]);
+        assert_eq!(
+            plugin.supported_bridge_types(),
+            vec![AgentBridgeType::OpenClaw]
+        );
     }
 
     #[test]

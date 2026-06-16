@@ -163,7 +163,7 @@ fn create_update_status_delete_restore_and_list_agents() {
         .update_agent(UpdateAgentCommand {
             tenant_id: 1,
             agent_id: "agent.alpha".to_string(),
-            expected_version: None,
+            expected_version: Some(create.version),
             display_name: Some("Alpha v2".to_string()),
             description: Some("updated".to_string()),
             manifest: Some(AgentManifest {
@@ -196,7 +196,7 @@ fn create_update_status_delete_restore_and_list_agents() {
         .change_status(ChangeAgentStatusCommand {
             tenant_id: 1,
             agent_id: "agent.alpha".to_string(),
-            expected_version: None,
+            expected_version: Some(updated.version),
             target_status: AgentBusinessStatus::Active,
             requested_by: sample_subject(),
             requested_at: "2026-06-01T00:15:00Z".to_string(),
@@ -208,7 +208,7 @@ fn create_update_status_delete_restore_and_list_agents() {
         .delete_agent(DeleteAgentCommand {
             tenant_id: 1,
             agent_id: "agent.alpha".to_string(),
-            expected_version: None,
+            expected_version: Some(activated.version),
             requested_by: sample_subject(),
             requested_at: "2026-06-01T00:16:00Z".to_string(),
         })
@@ -220,7 +220,7 @@ fn create_update_status_delete_restore_and_list_agents() {
         .restore_agent(RestoreAgentCommand {
             tenant_id: 1,
             agent_id: "agent.alpha".to_string(),
-            expected_version: None,
+            expected_version: Some(deleted.version),
             requested_by: sample_subject(),
             requested_at: "2026-06-01T00:17:00Z".to_string(),
         })
@@ -337,7 +337,7 @@ fn agent_resource_entry_points_validate_standard_agent_id_before_authorization()
             .update_agent(UpdateAgentCommand {
                 tenant_id: 1,
                 agent_id: invalid_agent_id.to_string(),
-                expected_version: None,
+                expected_version: Some(1),
                 display_name: Some("Invalid".to_string()),
                 description: None,
                 manifest: None,
@@ -357,7 +357,7 @@ fn agent_resource_entry_points_validate_standard_agent_id_before_authorization()
             .change_status(ChangeAgentStatusCommand {
                 tenant_id: 1,
                 agent_id: invalid_agent_id.to_string(),
-                expected_version: None,
+                expected_version: Some(1),
                 target_status: AgentBusinessStatus::Active,
                 requested_by: sample_subject(),
                 requested_at: "2026-06-01T01:32:00Z".to_string(),
@@ -369,7 +369,7 @@ fn agent_resource_entry_points_validate_standard_agent_id_before_authorization()
             .delete_agent(DeleteAgentCommand {
                 tenant_id: 1,
                 agent_id: invalid_agent_id.to_string(),
-                expected_version: None,
+                expected_version: Some(1),
                 requested_by: sample_subject(),
                 requested_at: "2026-06-01T01:33:00Z".to_string(),
             })
@@ -380,7 +380,7 @@ fn agent_resource_entry_points_validate_standard_agent_id_before_authorization()
             .restore_agent(RestoreAgentCommand {
                 tenant_id: 1,
                 agent_id: invalid_agent_id.to_string(),
-                expected_version: None,
+                expected_version: Some(1),
                 requested_by: sample_subject(),
                 requested_at: "2026-06-01T01:34:00Z".to_string(),
             })
@@ -553,7 +553,7 @@ fn update_agent_changes_implementation_contract() {
     let policy_provider = AllowAllPolicyProvider::allow("policy.memory");
     let mut service = AgentBusinessService::new(repository, audit_sink, policy_provider);
 
-    service
+    let created = service
         .create_agent(create_agent_cmd(
             "agent.implementation.update",
             1,
@@ -569,7 +569,7 @@ fn update_agent_changes_implementation_contract() {
         .update_agent(UpdateAgentCommand {
             tenant_id: 1,
             agent_id: "agent.implementation.update".to_string(),
-            expected_version: None,
+            expected_version: Some(created.version),
             display_name: None,
             description: None,
             manifest: None,
@@ -663,7 +663,7 @@ fn deleted_agent_cannot_be_updated() {
     let policy_provider = AllowAllPolicyProvider::allow("policy.memory");
     let mut service = AgentBusinessService::new(repository, audit_sink, policy_provider);
 
-    service
+    let created = service
         .create_agent(create_agent_cmd(
             "agent.delta",
             1,
@@ -675,11 +675,11 @@ fn deleted_agent_cannot_be_updated() {
         ))
         .expect("create should succeed");
 
-    service
+    let deleted = service
         .delete_agent(DeleteAgentCommand {
             tenant_id: 1,
             agent_id: "agent.delta".to_string(),
-            expected_version: None,
+            expected_version: Some(created.version),
             requested_by: sample_subject(),
             requested_at: "2026-06-01T02:05:00Z".to_string(),
         })
@@ -688,7 +688,7 @@ fn deleted_agent_cannot_be_updated() {
     let result = service.update_agent(UpdateAgentCommand {
         tenant_id: 1,
         agent_id: "agent.delta".to_string(),
-        expected_version: None,
+        expected_version: Some(deleted.version),
         display_name: Some("Delta v2".to_string()),
         description: None,
         manifest: None,
@@ -733,7 +733,7 @@ fn restore_requires_deleted_status() {
     let result = service.restore_agent(RestoreAgentCommand {
         tenant_id: 1,
         agent_id: "agent.epsilon".to_string(),
-        expected_version: None,
+        expected_version: Some(1),
         requested_by: sample_subject(),
         requested_at: "2026-06-01T03:01:00Z".to_string(),
     });
@@ -765,7 +765,7 @@ fn list_filters_by_owner_organization_and_deleted_flag() {
             "2026-06-01T04:00:00Z",
         ))
         .expect("create owner a should succeed");
-    service
+    let owner_b = service
         .create_agent(create_agent_cmd(
             "agent.owner.b",
             1,
@@ -781,7 +781,7 @@ fn list_filters_by_owner_organization_and_deleted_flag() {
         .delete_agent(DeleteAgentCommand {
             tenant_id: 1,
             agent_id: "agent.owner.b".to_string(),
-            expected_version: None,
+            expected_version: Some(owner_b.version),
             requested_by: sample_subject(),
             requested_at: "2026-06-01T04:02:00Z".to_string(),
         })
@@ -897,11 +897,18 @@ fn audit_events_are_recorded_for_state_mutations() {
             "2026-06-01T05:00:00Z",
         ))
         .expect("create should succeed");
-    service
+    let created = service
+        .get_agent(GetAgentCommand {
+            tenant_id: 1,
+            agent_id: "agent.audit".to_string(),
+            requested_by: sample_subject(),
+        })
+        .expect("retrieve should succeed");
+    let updated = service
         .update_agent(UpdateAgentCommand {
             tenant_id: 1,
             agent_id: "agent.audit".to_string(),
-            expected_version: None,
+            expected_version: Some(created.version),
             display_name: Some("Audit v2".to_string()),
             description: None,
             manifest: None,
@@ -915,21 +922,21 @@ fn audit_events_are_recorded_for_state_mutations() {
             requested_at: "2026-06-01T05:01:00Z".to_string(),
         })
         .expect("update should succeed");
-    service
+    let activated = service
         .change_status(ChangeAgentStatusCommand {
             tenant_id: 1,
             agent_id: "agent.audit".to_string(),
-            expected_version: None,
+            expected_version: Some(updated.version),
             target_status: AgentBusinessStatus::Active,
             requested_by: sample_subject(),
             requested_at: "2026-06-01T05:02:00Z".to_string(),
         })
         .expect("status update should succeed");
-    service
+    let deleted = service
         .delete_agent(DeleteAgentCommand {
             tenant_id: 1,
             agent_id: "agent.audit".to_string(),
-            expected_version: None,
+            expected_version: Some(activated.version),
             requested_by: sample_subject(),
             requested_at: "2026-06-01T05:03:00Z".to_string(),
         })
@@ -938,7 +945,7 @@ fn audit_events_are_recorded_for_state_mutations() {
         .restore_agent(RestoreAgentCommand {
             tenant_id: 1,
             agent_id: "agent.audit".to_string(),
-            expected_version: None,
+            expected_version: Some(deleted.version),
             requested_by: sample_subject(),
             requested_at: "2026-06-01T05:04:00Z".to_string(),
         })
@@ -1004,7 +1011,7 @@ fn invalid_status_transition_is_rejected() {
     let policy_provider = AllowAllPolicyProvider::allow("policy.memory");
     let mut service = AgentBusinessService::new(repository, audit_sink, policy_provider);
 
-    service
+    let created = service
         .create_agent(create_agent_cmd(
             "agent.gamma",
             1,
@@ -1019,7 +1026,7 @@ fn invalid_status_transition_is_rejected() {
     let result = service.change_status(ChangeAgentStatusCommand {
         tenant_id: 1,
         agent_id: "agent.gamma".to_string(),
-        expected_version: None,
+        expected_version: Some(created.version),
         target_status: AgentBusinessStatus::Disabled,
         requested_by: sample_subject(),
         requested_at: "2026-06-01T02:10:00Z".to_string(),
@@ -1048,7 +1055,7 @@ fn list_agent_audit_events_returns_events_for_agent() {
     let policy_provider = AllowAllPolicyProvider::allow("policy.memory");
     let mut service = AgentBusinessService::new(repository, audit_sink, policy_provider);
 
-    service
+    let created = service
         .create_agent(create_agent_cmd(
             "agent.audit.list",
             1,
@@ -1064,7 +1071,7 @@ fn list_agent_audit_events_returns_events_for_agent() {
         .change_status(ChangeAgentStatusCommand {
             tenant_id: 1,
             agent_id: "agent.audit.list".to_string(),
-            expected_version: None,
+            expected_version: Some(created.version),
             target_status: AgentBusinessStatus::Active,
             requested_by: sample_subject(),
             requested_at: "2026-06-01T04:05:00Z".to_string(),

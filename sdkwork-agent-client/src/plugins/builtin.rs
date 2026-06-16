@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use super::{HermesPlugin, OpenClawPlugin, ZeroClawPlugin};
 use crate::bridge::{AgentBridgePlugin, AgentBridgePluginRegistry};
-use super::{OpenClawPlugin, ZeroClawPlugin, HermesPlugin};
+use std::sync::Arc;
 
 pub struct BuiltinPlugins {
     plugins: Vec<Arc<dyn AgentBridgePlugin>>,

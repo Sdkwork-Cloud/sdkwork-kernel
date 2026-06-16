@@ -1,34 +1,44 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AgentRuntimePanel } from '@sdkwork/kernel-ui-agent';
 import { CodeKernelPanel } from '@sdkwork/kernel-ui-code';
+import { translateKernelUi } from '@sdkwork/kernel-ui-commons';
 import { createKernelUiRuntime } from '@sdkwork/kernel-ui-core';
 import { PermissionQueue } from '@sdkwork/kernel-ui-permissions';
-import { createKernelUiClient, createMockKernelUiClient } from '@sdkwork/kernel-ui-services';
-import type { KernelUiClient } from '@sdkwork/kernel-ui-types';
 import { TerminalKernelPanel } from '@sdkwork/kernel-ui-terminal';
 import { TelemetryEventStream } from '@sdkwork/kernel-ui-telemetry';
 import type { KernelUiSnapshot, PermissionDecisionValue } from '@sdkwork/kernel-ui-types';
 import { WorkspaceKernelPanel } from '@sdkwork/kernel-ui-workspace';
+import { KernelUiSessionPanel } from './KernelUiSessionPanel';
+import { createKernelUiShellClient, needsKernelUiSessionGate } from './kernel-ui-client';
 import './styles.css';
 
-function createClient(): KernelUiClient {
-  const apiUrl = import.meta.env.VITE_KERNEL_API_URL as string | undefined;
-  if (apiUrl) {
-    return createKernelUiClient({ baseUrl: apiUrl });
-  }
-  return createMockKernelUiClient();
-}
-
 export function App() {
-  const runtime = useMemo(() => createKernelUiRuntime(createClient()), []);
+  const [sessionGateOpen, setSessionGateOpen] = useState(() => needsKernelUiSessionGate());
+  const [clientVersion, setClientVersion] = useState(0);
+  const client = useMemo(() => createKernelUiShellClient(), [clientVersion]);
+  const runtime = useMemo(() => createKernelUiRuntime(client), [client]);
   const [snapshot, setSnapshot] = useState<KernelUiSnapshot | null>(null);
 
   useEffect(() => {
+    if (sessionGateOpen) {
+      return;
+    }
     void runtime.loadSnapshot().then(setSnapshot);
-  }, [runtime]);
+  }, [runtime, sessionGateOpen]);
+
+  if (sessionGateOpen) {
+    return (
+      <KernelUiSessionPanel
+        onSessionSaved={() => {
+          setSessionGateOpen(false);
+          setClientVersion((version) => version + 1);
+        }}
+      />
+    );
+  }
 
   if (!snapshot) {
-    return <main className="kernel-ui-shell">Loading kernel UI</main>;
+    return <main className="kernel-ui-shell">{translateKernelUi('app.loading')}</main>;
   }
 
   const handleDecision = (permissionRequestId: string, decision: PermissionDecisionValue) => {
@@ -42,7 +52,7 @@ export function App() {
       <header className="kernel-ui-shell__header">
         <div>
           <p>SDKWork Kernel Standard</p>
-          <h1>Agent And Code Kernel UI</h1>
+          <h1>{translateKernelUi('app.title')}</h1>
         </div>
       </header>
       <section className="kernel-ui-shell__grid">

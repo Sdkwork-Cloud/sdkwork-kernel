@@ -1,6 +1,7 @@
 import type {
   KernelUiClient,
   KernelUiSnapshot,
+  KernelUiAuthProvider,
   PermissionDecisionValue,
   PermissionRequestView,
   SessionConfig,
@@ -14,10 +15,12 @@ import type {
   StreamEventView,
   EventSubscription
 } from '@sdkwork/kernel-ui-types';
+import { buildKernelUiAuthHeaders } from './kernel-ui-auth.provider';
 
 export interface KernelUiClientConfig {
   baseUrl: string;
   fetch?: typeof globalThis.fetch;
+  auth?: KernelUiAuthProvider;
 }
 
 export function createKernelUiClient(config: KernelUiClientConfig): KernelUiClient {
@@ -216,7 +219,8 @@ class HttpKernelUiClient implements KernelUiClient {
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      Accept: 'application/json'
+      Accept: 'application/json',
+      ...(await buildKernelUiAuthHeaders(this.config.auth))
     };
 
     const init: RequestInit = { method, headers };

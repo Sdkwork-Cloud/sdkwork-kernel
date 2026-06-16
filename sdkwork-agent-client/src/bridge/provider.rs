@@ -1,5 +1,5 @@
+use super::types::{AgentBridgeHealth, AgentBridgeMetadata, AgentBridgeType};
 use crate::chat::ChatClient;
-use super::types::{AgentBridgeType, AgentBridgeHealth, AgentBridgeMetadata};
 
 /// Unified Agent Bridge Provider trait
 /// Inherits from ChatClient — the ChatClient implementation IS the bridge logic

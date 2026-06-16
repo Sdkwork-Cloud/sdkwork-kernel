@@ -1,0 +1,60 @@
+name: Kernel verification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  audit-remediation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install UI dependencies
+        run: pnpm --dir sdkwork-kernel-ui install --frozen-lockfile
+
+      - name: Run kernel audit verification
+        run: node scripts/verify-kernel-audit-remediation.mjs
+
+  postgres-live:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sdkwork_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Run live PostgreSQL memory contract
+        env:
+          SDKWORK_AGENT_BUSINESS_POSTGRES_URI: postgres://postgres:postgres@localhost:5432/sdkwork_test
+        run: >
+          cargo test --features postgres-sync
+          --test agent_postgres_sync_contracts
+          --manifest-path sdkwork-agent-business/Cargo.toml
+          live_postgres_memory_relation_get_roundtrip_when_uri_configured
+          -- --nocapture

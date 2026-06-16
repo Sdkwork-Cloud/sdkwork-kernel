@@ -24,6 +24,8 @@ use sdkwork_agent_kernel::{
 use sdkwork_code_kernel::CodeTaskIntent;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "postgres-sync")]
+use time::{OffsetDateTime, PrimitiveDateTime};
+#[cfg(feature = "postgres-sync")]
 use std::sync::Mutex;
 
 #[cfg(feature = "postgres-sync")]
@@ -3073,9 +3075,19 @@ pub trait PostgresAgentRepositoryAdapter {
         memory_namespace_id: &str,
     ) -> Vec<AgentMemoryRecordRow>;
     fn insert_memory_source_row(&mut self, row: AgentMemorySourceRow) -> KernelResult<()>;
+    fn get_memory_source_row(
+        &self,
+        tenant_id: u64,
+        memory_source_id: &str,
+    ) -> Option<AgentMemorySourceRow>;
     fn list_memory_source_rows(&self, tenant_id: u64, memory_id: &str)
         -> Vec<AgentMemorySourceRow>;
     fn insert_memory_relation_row(&mut self, row: AgentMemoryRelationRow) -> KernelResult<()>;
+    fn get_memory_relation_row(
+        &self,
+        tenant_id: u64,
+        memory_relation_id: &str,
+    ) -> Option<AgentMemoryRelationRow>;
     fn list_memory_relation_rows(
         &self,
         tenant_id: u64,
@@ -3085,6 +3097,11 @@ pub trait PostgresAgentRepositoryAdapter {
         &mut self,
         row: AgentMemoryRetrievalIndexRow,
     ) -> KernelResult<()>;
+    fn get_memory_retrieval_index_row(
+        &self,
+        tenant_id: u64,
+        memory_index_id: &str,
+    ) -> Option<AgentMemoryRetrievalIndexRow>;
     fn list_memory_retrieval_index_rows(
         &self,
         tenant_id: u64,
@@ -3609,6 +3626,16 @@ where
             .collect()
     }
 
+    fn get_memory_source(
+        &self,
+        tenant_id: u64,
+        memory_source_id: &str,
+    ) -> Option<AgentMemorySourceRecord> {
+        self.adapter
+            .get_memory_source_row(tenant_id, memory_source_id)
+            .and_then(|row| row.into_record().ok())
+    }
+
     fn insert_memory_relation(&mut self, record: AgentMemoryRelationRecord) -> KernelResult<()> {
         self.adapter
             .insert_memory_relation_row(AgentMemoryRelationRow::from_record(&record)?)
@@ -3624,6 +3651,16 @@ where
             .into_iter()
             .filter_map(|row| row.into_record().ok())
             .collect()
+    }
+
+    fn get_memory_relation(
+        &self,
+        tenant_id: u64,
+        memory_relation_id: &str,
+    ) -> Option<AgentMemoryRelationRecord> {
+        self.adapter
+            .get_memory_relation_row(tenant_id, memory_relation_id)
+            .and_then(|row| row.into_record().ok())
     }
 
     fn upsert_memory_retrieval_index(
@@ -3644,6 +3681,16 @@ where
             .into_iter()
             .filter_map(|row| row.into_record().ok())
             .collect()
+    }
+
+    fn get_memory_retrieval_index(
+        &self,
+        tenant_id: u64,
+        retrieval_index_id: &str,
+    ) -> Option<AgentMemoryRetrievalIndexRecord> {
+        self.adapter
+            .get_memory_retrieval_index_row(tenant_id, retrieval_index_id)
+            .and_then(|row| row.into_record().ok())
     }
 }
 
@@ -3672,14 +3719,16 @@ impl SyncPostgresAdapter {
         let client = Client::connect(connection_uri, NoTls).map_err(map_postgres_error)?;
         Ok(Self {
             client: Mutex::new(client),
-            id_generator: AgentBusinessIdGenerator::default(),
+            id_generator: AgentBusinessIdGenerator::new_default()
+                .expect("default agent business snowflake node id is valid"),
         })
     }
 
     pub fn with_client(client: Client) -> Self {
         Self {
             client: Mutex::new(client),
-            id_generator: AgentBusinessIdGenerator::default(),
+            id_generator: AgentBusinessIdGenerator::new_default()
+                .expect("default agent business snowflake node id is valid"),
         }
     }
 
@@ -3691,6 +3740,14 @@ impl SyncPostgresAdapter {
             client: Mutex::new(client),
             id_generator,
         }
+    }
+
+    pub fn apply_business_schema(&self) -> KernelResult<()> {
+        let ddl = include_str!("../specs/sql/agent_business_postgres.sql");
+        self.with_locked_client(|client| {
+            client.batch_execute(ddl).map_err(map_postgres_error)?;
+            Ok(())
+        })
     }
 
     fn with_locked_client<T>(
@@ -5565,6 +5622,9 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let source_count = i64::from(row.source_count);
         let use_count = u64_to_i64(row.use_count, "use_count")?;
         let version = u64_to_i64(row.version, "version")?;
+        let salience_score = row.salience_score;
+        let confidence_score = row.confidence_score;
+        let freshness_score = row.freshness_score;
         self.with_locked_client(|client| {
             client
                 .execute(
@@ -5581,9 +5641,9 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
                         &row.content_format,
                         &row.content_json,
                         &row.summary,
-                        &row.salience_score,
-                        &row.confidence_score,
-                        &row.freshness_score,
+                        &salience_score,
+                        &confidence_score,
+                        &freshness_score,
                         &row.sensitivity_level,
                         &source_count,
                         &row.effective_at,
@@ -5610,6 +5670,9 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let version = u64_to_i64(row.version, "version")?;
         let previous_version =
             u64_to_i64(expected_previous_version(row.version)?, "previous_version")?;
+        let salience_score = row.salience_score;
+        let confidence_score = row.confidence_score;
+        let freshness_score = row.freshness_score;
         self.with_locked_client(|client| {
             let updated_rows = client
                 .execute(
@@ -5618,9 +5681,9 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
                         &row.content_format,
                         &row.content_json,
                         &row.summary,
-                        &row.salience_score,
-                        &row.confidence_score,
-                        &row.freshness_score,
+                        &salience_score,
+                        &confidence_score,
+                        &freshness_score,
                         &row.sensitivity_level,
                         &source_count,
                         &row.effective_at,
@@ -5728,6 +5791,25 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         })
     }
 
+    fn get_memory_source_row(
+        &self,
+        tenant_id: u64,
+        memory_source_id: &str,
+    ) -> Option<AgentMemorySourceRow> {
+        let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
+        self.with_locked_client(|client| {
+            let row = client
+                .query_opt(
+                    SQL_SELECT_AGENT_MEMORY_SOURCE,
+                    &[&tenant_id, &memory_source_id],
+                )
+                .map_err(map_postgres_error)?;
+            row.map(pg_row_to_agent_memory_source_row).transpose()
+        })
+        .ok()
+        .flatten()
+    }
+
     fn list_memory_source_rows(
         &self,
         tenant_id: u64,
@@ -5751,6 +5833,10 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
     fn insert_memory_relation_row(&mut self, row: AgentMemoryRelationRow) -> KernelResult<()> {
         let id = u64_to_i64(row.id, "id")?;
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
+        let weight = row.weight;
+        let valid_from = optional_rfc3339_timestamp(&row.valid_from)?;
+        let valid_until = optional_rfc3339_timestamp(&row.valid_until)?;
+        let created_at = parse_rfc3339_timestamp(row.created_at.as_str())?;
         self.with_locked_client(|client| {
             client
                 .execute(
@@ -5763,15 +5849,34 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
                         &row.from_memory_id,
                         &row.to_memory_id,
                         &row.relation_kind,
-                        &row.weight,
-                        &row.valid_from,
-                        &row.valid_until,
-                        &row.created_at,
+                        &weight,
+                        &valid_from,
+                        &valid_until,
+                        &created_at,
                     ],
                 )
                 .map_err(map_postgres_error)?;
             Ok(())
         })
+    }
+
+    fn get_memory_relation_row(
+        &self,
+        tenant_id: u64,
+        memory_relation_id: &str,
+    ) -> Option<AgentMemoryRelationRow> {
+        let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
+        self.with_locked_client(|client| {
+            let row = client
+                .query_opt(
+                    SQL_SELECT_AGENT_MEMORY_RELATION,
+                    &[&tenant_id, &memory_relation_id],
+                )
+                .map_err(map_postgres_error)?;
+            row.map(pg_row_to_agent_memory_relation_row).transpose()
+        })
+        .ok()
+        .flatten()
     }
 
     fn list_memory_relation_rows(
@@ -5824,6 +5929,26 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
                 .map_err(map_postgres_error)?;
             Ok(())
         })
+    }
+
+    fn get_memory_retrieval_index_row(
+        &self,
+        tenant_id: u64,
+        memory_index_id: &str,
+    ) -> Option<AgentMemoryRetrievalIndexRow> {
+        let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
+        self.with_locked_client(|client| {
+            let row = client
+                .query_opt(
+                    SQL_SELECT_AGENT_MEMORY_RETRIEVAL_INDEX,
+                    &[&tenant_id, &memory_index_id],
+                )
+                .map_err(map_postgres_error)?;
+            row.map(pg_row_to_agent_memory_retrieval_index_row)
+                .transpose()
+        })
+        .ok()
+        .flatten()
     }
 
     fn list_memory_retrieval_index_rows(
@@ -6327,6 +6452,23 @@ fn expected_previous_version(next_version: u64) -> KernelResult<u64> {
     next_version
         .checked_sub(1)
         .ok_or_else(|| KernelError::validation("agent version must be >= 1 for update"))
+}
+
+#[cfg(feature = "postgres-sync")]
+fn parse_rfc3339_timestamp(value: &str) -> KernelResult<PrimitiveDateTime> {
+    let parsed = OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
+        .map_err(|error| {
+            KernelError::validation(format!("invalid RFC3339 timestamp `{value}`: {error}"))
+        })?;
+    Ok(PrimitiveDateTime::new(parsed.date(), parsed.time()))
+}
+
+#[cfg(feature = "postgres-sync")]
+fn optional_rfc3339_timestamp(value: &Option<String>) -> KernelResult<Option<PrimitiveDateTime>> {
+    value
+        .as_deref()
+        .map(parse_rfc3339_timestamp)
+        .transpose()
 }
 
 #[cfg(feature = "postgres-sync")]

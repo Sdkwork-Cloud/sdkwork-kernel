@@ -1,13 +1,13 @@
 mod runtime;
 
-use std::sync::{Arc, Mutex};
-use crate::chat::ChatClient;
-use crate::types::{ChatRequest, ChatResponse, ChatMessage, SessionConfig, SessionInfo};
 use crate::bridge::{
-    AgentBridgeProvider, AgentBridgeType, AgentBridgeHealth, AgentBridgeStatus,
-    AgentBridgeMetadata, AgentBridgeConfig, AgentBridgePlugin,
+    AgentBridgeConfig, AgentBridgeHealth, AgentBridgeMetadata, AgentBridgePlugin,
+    AgentBridgeProvider, AgentBridgeStatus, AgentBridgeType,
 };
+use crate::chat::ChatClient;
+use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
 use runtime::ZeroClawRuntime;
+use std::sync::{Arc, Mutex};
 
 pub struct ZeroClawProvider {
     config: AgentBridgeConfig,
@@ -17,10 +17,7 @@ pub struct ZeroClawProvider {
 
 impl ZeroClawProvider {
     pub fn new(config: AgentBridgeConfig) -> Result<Self, String> {
-        let capabilities = vec![
-            "chat".to_string(),
-            "tool_call".to_string(),
-        ];
+        let capabilities = vec!["chat".to_string(), "tool_call".to_string()];
         Ok(Self {
             config,
             runtime: Mutex::new(None),
@@ -190,7 +187,10 @@ mod tests {
         assert_eq!(plugin.plugin_id(), "builtin.zeroclaw");
         assert_eq!(plugin.name(), "ZeroClaw Bridge Plugin");
         assert_eq!(plugin.version(), "1.0.0");
-        assert_eq!(plugin.supported_bridge_types(), vec![AgentBridgeType::ZeroClaw]);
+        assert_eq!(
+            plugin.supported_bridge_types(),
+            vec![AgentBridgeType::ZeroClaw]
+        );
     }
 
     #[test]

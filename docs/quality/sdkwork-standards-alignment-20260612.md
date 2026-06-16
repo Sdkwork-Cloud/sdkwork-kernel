@@ -393,3 +393,79 @@ generated source metadata blocks.
 
 - The worktree contains pre-existing and earlier-phase changes. No destructive cleanup or unrelated
   revert was performed.
+
+## Kernel Audit Remediation Follow-up (2026-06-17)
+
+Scope: close audit findings from the SDKWork kernel application system review against
+`sdkwork-specs` (security, contracts, standards coverage, UI services, optimistic concurrency).
+
+### Security and trust boundary (P0)
+
+- Tenant reconciliation: `reconcile_resource_tenant_with_subject_header()` enforces matching
+  resource `tenant_id` and subject tenant headers before policy extraction.
+- Trust boundary spec: `sdkwork-agent-business/specs/AGENT_BUSINESS_HTTP_TRUST_BOUNDARY.md`.
+- Trusted request context: `AgentRequestContext::from_gateway_subject_headers()` and
+  `RequestScope::from_trusted_extension()`; legacy header path delegates to the trusted builder.
+- HTTP negative/positive contract tests in `http_axum_contracts.rs` (tenant mismatch 403, match 200).
+
+### Functional and concurrency (P1)
+
+- PostgreSQL memory get paths implemented; `postgres-sync` contract tests in
+  `tests/agent_postgres_sync_contracts.rs`.
+- `AgentBusinessIdGenerator`: removed panicking `Default`; explicit `new_default()`.
+- Optimistic concurrency: `ensure_expected_version()` requires `expectedVersion` on mutations;
+  HTTP and service contract tests updated (including `agent_memory_contracts.rs`).
+- HTTP service lock: `postgres-sync` uses `std::sync::Mutex` with `tokio::task::spawn_blocking`
+  in `with_service_mut`; default `http-axum` path uses `tokio::sync::Mutex`.
+
+### Standards coverage (P1)
+
+- Six agent runtime crates received `specs/component.spec.json` (and README where missing):
+  `sdkwork-agent-api-bridge`, `sdkwork-agent-client`, `sdkwork-agent-database`,
+  `sdkwork-agent-server`, `sdkwork-agent-session`, `sdkwork-agent-streaming`.
+- Eight adapter crates under `sdkwork-kernel-plugins/crates/` have component specs, READMEs, and `AGENTS.md`.
+- `tools/validators/kernel-standards/kernel-contracts.mjs` requires the six runtime crates.
+
+### Kernel UI (P1)
+
+- Auth provider surface: `kernel-ui-auth.types.ts`, `kernel-ui-auth.provider.ts`,
+  optional auth injection in `kernel-ui.real.ts`.
+- Session bootstrap panel: `KernelUiSessionPanel` + `kernel-ui-client.ts` gate when
+  `VITE_KERNEL_API_URL` is set without static env tokens or stored session.
+- i18n baseline: `kernel-ui.en.ts` with `translateKernelUi`.
+- Contract tests: `sdkwork-kernel-ui/tests/kernel-ui-services.contract.test.mjs`.
+
+### Verification commands and outcomes (2026-06-17)
+
+- `node scripts/check-kernel-standards.mjs` -> exit 0; kernel standards conformance check passed.
+- `node scripts/check-agent-sdk-workspace.mjs` -> exit 0; agent SDK workspace check passed.
+- `node sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs` -> exit 0; 10 packages passed.
+- `node --test tests/*.test.mjs` -> exit 0; 20 tests pass.
+- `node --test sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs` -> exit 0 (included in
+  combined plugin/UI contract runs).
+- `node --test sdkwork-kernel-ui/tests/kernel-ui-services.contract.test.mjs` -> exit 0; 3 tests pass.
+- `pnpm --dir sdkwork-kernel-ui install --frozen-lockfile` -> exit 0.
+- `pnpm --dir sdkwork-kernel-ui typecheck` -> exit 0.
+- `cargo test --manifest-path sdkwork-agent-business/Cargo.toml` -> exit 0; all contract suites pass.
+- `cargo test --features http-axum --test http_axum_contracts --manifest-path sdkwork-agent-business/Cargo.toml`
+  -> exit 0; 75 tests pass.
+- `cargo test --features postgres-sync --test agent_postgres_sync_contracts --manifest-path sdkwork-agent-business/Cargo.toml`
+  -> exit 0; 3 tests pass (including live roundtrip when `SDKWORK_AGENT_BUSINESS_POSTGRES_URI` is set).
+- `cargo test --doc --manifest-path sdkwork-agent-kernel/Cargo.toml` -> exit 0; 2 doctests pass.
+- `cargo test --manifest-path sdkwork-agent-kernel/Cargo.toml` -> exit 0.
+- `cargo test --manifest-path sdkwork-code-kernel/Cargo.toml` -> exit 0.
+- `cargo test --features "http-axum,postgres-sync" --manifest-path sdkwork-agent-business/Cargo.toml`
+  -> exit 0; combined HTTP + postgres-sync suites pass.
+- `node scripts/verify-kernel-audit-remediation.mjs` -> exit 0; full audit verification matrix passes.
+- `.github/workflows/kernel-verification.yml` -> audit remediation job + PostgreSQL live contract job.
+
+### Audit remediation status (2026-06-17 closeout)
+
+All P0/P1 audit items tracked in this document are implemented and verified locally.
+CI runs the audit matrix on every push/PR to `main` and executes the live PostgreSQL memory
+contract against a service container. Live Postgres memory relation inserts bind `TIMESTAMP`
+columns with `time::PrimitiveDateTime` (not `OffsetDateTime`, which only accepts
+`TIMESTAMPTZ`) and `REAL` scores with native `f32`. Kernel UI remote mode supports env tokens, browser
+session persistence, and an interactive session bootstrap panel when neither is present.
+
+Enterprise IdP OAuth redirect flows remain future product work outside this audit scope.

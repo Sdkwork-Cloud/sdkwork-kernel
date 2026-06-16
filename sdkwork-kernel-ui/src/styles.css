@@ -82,6 +82,58 @@ button {
   font-size: 14px;
 }
 
+.kernel-ui-auth {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.kernel-ui-auth__panel {
+  width: min(100%, 420px);
+}
+
+.kernel-ui-auth__description {
+  margin: 0 0 16px;
+  color: #5b6670;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.kernel-ui-auth__field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.kernel-ui-auth__field input {
+  border: 1px solid #cad3cc;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.kernel-ui-auth__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.kernel-ui-auth__button {
+  border: 1px solid #0d5c3d;
+  border-radius: 6px;
+  padding: 10px 14px;
+  background: #0d5c3d;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.kernel-ui-auth__button--secondary {
+  border-color: #cad3cc;
+  background: #ffffff;
+  color: #263039;
+}
+
 .status-badge {
   display: inline-flex;
   align-items: center;

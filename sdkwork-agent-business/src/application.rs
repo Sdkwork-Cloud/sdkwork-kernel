@@ -5489,14 +5489,7 @@ where
         if record.is_deleted() {
             return Err(KernelError::validation("deleted agent cannot be updated"));
         }
-        if let Some(expected_version) = command.expected_version {
-            if record.version != expected_version {
-                return Err(KernelError::conflict(format!(
-                    "agent version mismatch: expected={expected_version}, actual={}",
-                    record.version
-                )));
-            }
-        }
+        ensure_expected_version(record.version, command.expected_version, "agent")?;
 
         if let Some(display_name) = command.display_name {
             if display_name.trim().is_empty() {
@@ -5568,14 +5561,7 @@ where
                 "deleted agent status cannot be changed",
             ));
         }
-        if let Some(expected_version) = command.expected_version {
-            if record.version != expected_version {
-                return Err(KernelError::conflict(format!(
-                    "agent version mismatch: expected={expected_version}, actual={}",
-                    record.version
-                )));
-            }
-        }
+        ensure_expected_version(record.version, command.expected_version, "agent")?;
 
         if !is_valid_status_transition(record.status, command.target_status) {
             return Err(KernelError::validation("invalid agent status transition"));
@@ -5614,14 +5600,7 @@ where
         if record.is_deleted() {
             return Err(KernelError::validation("agent already deleted"));
         }
-        if let Some(expected_version) = command.expected_version {
-            if record.version != expected_version {
-                return Err(KernelError::conflict(format!(
-                    "agent version mismatch: expected={expected_version}, actual={}",
-                    record.version
-                )));
-            }
-        }
+        ensure_expected_version(record.version, command.expected_version, "agent")?;
 
         record.mark_deleted(command.requested_at.clone());
         self.repository.update(record.clone())?;
@@ -5655,14 +5634,7 @@ where
         if !record.is_deleted() {
             return Err(KernelError::validation("agent is not deleted"));
         }
-        if let Some(expected_version) = command.expected_version {
-            if record.version != expected_version {
-                return Err(KernelError::conflict(format!(
-                    "agent version mismatch: expected={expected_version}, actual={}",
-                    record.version
-                )));
-            }
-        }
+        ensure_expected_version(record.version, command.expected_version, "agent")?;
 
         record.mark_restored(command.requested_at.clone());
         self.repository.update(record.clone())?;
@@ -6669,12 +6641,13 @@ fn ensure_expected_version(
     expected_version: Option<u64>,
     entity_name: &str,
 ) -> KernelResult<()> {
-    if let Some(expected_version) = expected_version {
-        if actual_version != expected_version {
-            return Err(KernelError::conflict(format!(
-                "{entity_name} version mismatch: expected={expected_version}, actual={actual_version}"
-            )));
-        }
+    let expected_version = expected_version.ok_or_else(|| {
+        KernelError::validation(format!("{entity_name} mutation requires expectedVersion"))
+    })?;
+    if actual_version != expected_version {
+        return Err(KernelError::conflict(format!(
+            "{entity_name} version mismatch: expected={expected_version}, actual={actual_version}"
+        )));
     }
     Ok(())
 }

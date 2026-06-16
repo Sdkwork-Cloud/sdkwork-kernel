@@ -1,5 +1,5 @@
-use crate::types::{ChatRequest, ChatResponse, ChatMessage, SessionConfig, SessionInfo};
 use crate::bridge::{AgentBridgeConfig, AgentBridgeHealth, AgentBridgeStatus};
+use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
 
 pub struct OpenClawRuntime {
     config: AgentBridgeConfig,

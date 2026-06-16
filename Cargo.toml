@@ -47,4 +47,4 @@ sdkwork-agent-adapter-gemini-cli = { path = "sdkwork-kernel-plugins/crates/sdkwo
 sdkwork-agent-adapter-mimo-code = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-mimo-code" }
 sdkwork-drive-storage-contract = { path = "../sdkwork-drive/crates/sdkwork-drive-storage-contract" }
 sdkwork-knowledgebase-contract = { path = "../sdkwork-knowledgebase/crates/sdkwork-knowledgebase-contract" }
-sdkwork_platform_id_service = { package = "sdkwork-platform-id-service", path = "../sdkwork-appbase/crates/sdkwork-platform-id-service" }
+

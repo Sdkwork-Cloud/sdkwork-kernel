@@ -140,13 +140,12 @@ pub trait BatchOperations<T> {
 /// ```rust
 /// use sdkwork_agent_kernel::provider_capabilities;
 ///
-/// provider_capabilities! {
-///     ModelProvider {
-///         "model.chat" => "模型对话",
-///         "model.stream" => "流式输出",
-///         "model.cancel" => "取消调用",
-///     }
-/// }
+/// let capabilities = provider_capabilities! {
+///     "model.chat" => "模型对话",
+///     "model.stream" => "流式输出",
+///     "model.cancel" => "取消调用",
+/// };
+/// assert_eq!(capabilities.len(), 3);
 /// ```
 #[macro_export]
 macro_rules! provider_capabilities {
@@ -167,8 +166,10 @@ macro_rules! provider_capabilities {
 /// use sdkwork_agent_kernel::provider_health;
 ///
 /// let health = provider_health!("available");
-/// let health = provider_health!("degraded", "部分服务不可用");
-/// let health = provider_health!("failed", "服务不可用");
+/// assert_eq!(health.status, "available");
+///
+/// let degraded = provider_health!("degraded");
+/// assert_eq!(degraded.status, "degraded");
 /// ```
 #[macro_export]
 macro_rules! provider_health {

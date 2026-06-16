@@ -24,6 +24,8 @@ or document this component, but they must not contradict
   contract.
 - [sdkgen/commands.md](./sdkgen/commands.md) defines canonical app/backend SDK
   generation commands from OpenAPI.
+- [AGENT_BUSINESS_HTTP_TRUST_BOUNDARY.md](./AGENT_BUSINESS_HTTP_TRUST_BOUNDARY.md)
+  documents backend/open route trust boundaries and tenant reconciliation rules.
 - Consumers should integrate through public exports, runtime entrypoints, SDK
   clients, or adapters declared in the manifest.
 - Generated SDK language outputs are represented at their SDK family root

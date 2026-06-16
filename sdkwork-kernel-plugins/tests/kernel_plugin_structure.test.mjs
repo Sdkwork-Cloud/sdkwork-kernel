@@ -13,7 +13,19 @@ const upstreams = [
   'claude-code',
   'opencode',
   'gemini-cli',
-  'rig'
+  'rig',
+  'mimo-code'
+];
+
+const adapterCrates = [
+  'sdkwork-agent-adapter-core',
+  'sdkwork-agent-adapter-hermes',
+  'sdkwork-agent-adapter-openclaw',
+  'sdkwork-agent-adapter-codex',
+  'sdkwork-agent-adapter-claude-code',
+  'sdkwork-agent-adapter-opencode',
+  'sdkwork-agent-adapter-gemini-cli',
+  'sdkwork-agent-adapter-mimo-code'
 ];
 
 const requiredFiles = [
@@ -48,6 +60,13 @@ const requiredFiles = [
   'crates/sdkwork-kernel-plugin-knowledgebase/src/lib.rs',
   'scripts/check-kernel-plugins.mjs'
 ];
+
+for (const adapterCrate of adapterCrates) {
+  requiredFiles.push(`crates/${adapterCrate}/Cargo.toml`);
+  requiredFiles.push(`crates/${adapterCrate}/README.md`);
+  requiredFiles.push(`crates/${adapterCrate}/specs/component.spec.json`);
+  requiredFiles.push(`crates/${adapterCrate}/src/lib.rs`);
+}
 
 for (const upstream of upstreams) {
   requiredFiles.push(`specs/mappings/${upstream}.md`);
@@ -169,7 +188,8 @@ test('plugin crates do not require external reference sources for default Cargo 
     'crates/sdkwork-agent-plugin-core/Cargo.toml',
     'crates/sdkwork-agent-plugin-rig/Cargo.toml',
     'crates/sdkwork-kernel-plugin-drive/Cargo.toml',
-    'crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml'
+    'crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml',
+    ...adapterCrates.map((crateName) => `crates/${crateName}/Cargo.toml`)
   ];
 
   for (const relativePath of crateManifests) {

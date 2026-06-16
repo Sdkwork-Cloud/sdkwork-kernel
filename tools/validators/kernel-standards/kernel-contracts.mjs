@@ -62,6 +62,15 @@ const requiredRustCrates = [
   ]
 ];
 
+const requiredWorkspaceRustCrates = [
+  'sdkwork-agent-api-bridge',
+  'sdkwork-agent-client',
+  'sdkwork-agent-database',
+  'sdkwork-agent-server',
+  'sdkwork-agent-session',
+  'sdkwork-agent-streaming'
+];
+
 const requiredKernelPluginFiles = [
   'README.md',
   'specs/component.spec.json',
@@ -91,6 +100,12 @@ export function validateKernelContracts({ kernelRoot, errors, ensureFile, readJs
 
   for (const [crateDir, files] of requiredRustCrates) {
     for (const file of files) {
+      ensureFile(path.join(crateDir, file));
+    }
+  }
+
+  for (const crateDir of requiredWorkspaceRustCrates) {
+    for (const file of ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']) {
       ensureFile(path.join(crateDir, file));
     }
   }

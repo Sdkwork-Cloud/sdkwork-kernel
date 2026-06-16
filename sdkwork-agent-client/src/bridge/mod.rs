@@ -1,11 +1,11 @@
-mod types;
-mod provider;
-mod plugin;
-mod registry;
 mod client;
+mod plugin;
+mod provider;
+mod registry;
+mod types;
 
-pub use types::*;
-pub use provider::AgentBridgeProvider;
-pub use plugin::AgentBridgePlugin;
-pub use registry::AgentBridgePluginRegistry;
 pub use client::{AgentClient, AgentClientMode};
+pub use plugin::AgentBridgePlugin;
+pub use provider::AgentBridgeProvider;
+pub use registry::AgentBridgePluginRegistry;
+pub use types::*;

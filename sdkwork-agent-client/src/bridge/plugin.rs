@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use super::types::{AgentBridgeType, AgentBridgeConfig};
 use super::provider::AgentBridgeProvider;
+use super::types::{AgentBridgeConfig, AgentBridgeType};
+use std::sync::Arc;
 
 /// Agent Bridge Plugin trait
 /// Supports runtime dynamic loading via dynamic libraries

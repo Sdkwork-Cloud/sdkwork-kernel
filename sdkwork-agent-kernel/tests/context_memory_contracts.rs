@@ -1,6 +1,6 @@
 use sdkwork_agent_kernel::{
-    ContextExplanation, ContextFrame, ContextProvider, ContextRanking, KernelResult,
-    MemoryProvider, MemoryRecord, MemoryScope, ProviderHealth, RedactionClassification, TrustLevel,
+    ContextFrame, ContextProvider, KernelResult, MemoryProvider, MemoryRecord, MemoryScope,
+    ProviderHealth, RedactionClassification, TrustLevel,
 };
 
 #[test]

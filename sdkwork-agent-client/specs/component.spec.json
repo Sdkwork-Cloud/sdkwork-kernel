@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "kind": "sdkwork.component.spec",
+  "component": {
+    "name": "sdkwork-agent-client",
+    "displayName": "SDKWork Agent Client",
+    "version": "0.1.0",
+    "type": "rust-crate",
+    "root": "sdkwork-kernel/sdkwork-agent-client",
+    "domain": "intelligence",
+    "capability": "agent-client",
+    "surfaceNotRequiredReason": "This repository-internal Rust runtime crate exposes library or binary integration surfaces only and has no app, open-api, or backend-admin HTTP contract of its own.",
+    "languages": [
+      "rust"
+    ],
+    "generated": false,
+    "manifests": [
+      "Cargo.toml"
+    ]
+  },
+  "canonicalSpecs": [
+    {
+      "file": "AGENT_KERNEL_SPEC.md",
+      "path": "../specs/AGENT_KERNEL_SPEC.md",
+      "purpose": "Agent runtime, provider SPI, event, policy, and manifest authority."
+    },
+    {
+      "file": "AGENT_RUNTIME_SPEC.md",
+      "path": "../specs/AGENT_RUNTIME_SPEC.md",
+      "purpose": "Runtime lifecycle, execution, and host integration rules."
+    },
+    {
+      "file": "COMPONENT_SPEC.md",
+      "path": "../../sdkwork-specs/COMPONENT_SPEC.md",
+      "purpose": "Component-local contract and discovery rules."
+    },
+    {
+      "file": "CODE_STYLE_SPEC.md",
+      "path": "../../sdkwork-specs/CODE_STYLE_SPEC.md",
+      "purpose": "Authored source structure and generated code boundaries."
+    },
+    {
+      "file": "NAMING_SPEC.md",
+      "path": "../../sdkwork-specs/NAMING_SPEC.md",
+      "purpose": "Canonical SDKWork naming rules."
+    },
+    {
+      "file": "RUST_CODE_SPEC.md",
+      "path": "../../sdkwork-specs/RUST_CODE_SPEC.md",
+      "purpose": "Rust crate and module rules."
+    },
+    {
+      "file": "TEST_SPEC.md",
+      "path": "../../sdkwork-specs/TEST_SPEC.md",
+      "purpose": "Verification and contract testing expectations."
+    }
+  ],
+  "contracts": {
+    "publicExports": [
+      "AgentClient",
+      "AgentClientMode",
+      "AgentBridgePlugin",
+      "AgentBridgePluginRegistry",
+      "AgentBridgeProvider",
+      "ChatClient",
+      "SseChatClient",
+      "WebSocketChatClient"
+    ],
+    "runtimeEntrypoints": [],
+    "routeManifest": null,
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
+    "sdkClients": [],
+    "events": [],
+    "configKeys": []
+  },
+  "verification": {
+    "commands": [
+      "cargo test --manifest-path sdkwork-agent-client/Cargo.toml"
+    ]
+  }
+}

@@ -14,7 +14,7 @@ use tower::ServiceExt;
 fn auth_headers(mut request: Request<Body>) -> Request<Body> {
     let headers = request.headers_mut();
     headers.insert("x-subject-id", HeaderValue::from_static("u-1"));
-    headers.insert("x-subject-tenant-id", HeaderValue::from_static("t-1"));
+    headers.insert("x-subject-tenant-id", HeaderValue::from_static("1"));
     request
 }
 
@@ -125,9 +125,14 @@ async fn post_json(
 async fn patch_json(
     app: &axum::Router,
     uri: &str,
-    body: Value,
+    mut body: Value,
     expected_status: StatusCode,
 ) -> Value {
+    if body.get("expectedVersion").is_none() {
+        if let Some(object) = body.as_object_mut() {
+            object.insert("expectedVersion".to_string(), json!("1"));
+        }
+    }
     let request = Request::builder()
         .method("PATCH")
         .uri(uri)
@@ -683,6 +688,7 @@ async fn app_update_agent_management_profile_should_preserve_existing_intent_con
                 "voiceIds": ["voice.product.host"],
                 "welcomeMessage": "Ask me about the product."
             },
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T00:04:00Z"
             })
             .to_string(),
@@ -1651,6 +1657,7 @@ async fn app_update_knowledge_document_profile_should_preserve_existing_metadata
                     "mimeType": "application/pdf",
                     "driveUri": "drive://knowledge/updated-manual.pdf"
                 },
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T00:09:00Z"
             })
             .to_string(),
@@ -2005,6 +2012,7 @@ async fn app_update_agent_should_replace_manifest_when_manifest_is_present() {
             json!({
                 "displayName": "Update Manifest v2",
                 "manifest": test_manifest("agent.update.manifest", "Manifest v2"),
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T00:30:00Z"
             })
             .to_string(),
@@ -2084,6 +2092,7 @@ async fn provider_bindings_and_deployments_should_work_over_http() {
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T00:11:00Z"
             })
             .to_string(),
@@ -2618,6 +2627,7 @@ async fn provider_binding_activation_missing_agent_should_return_not_found() {
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T00:11:00Z"
             })
             .to_string(),
@@ -3322,6 +3332,7 @@ async fn restore_with_invalid_requested_at_should_return_bad_request() {
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T04:00:00Z"
             })
             .to_string(),
@@ -3340,6 +3351,7 @@ async fn restore_with_invalid_requested_at_should_return_bad_request() {
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01"
             })
             .to_string(),
@@ -3377,6 +3389,7 @@ async fn app_restore_should_restore_deleted_agent() {
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T03:00:00Z"
             })
             .to_string(),
@@ -3395,6 +3408,7 @@ async fn app_restore_should_restore_deleted_agent() {
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
+                "expectedVersion": "2",
                 "requestedAt": "2026-06-01T03:01:00Z"
             })
             .to_string(),
@@ -3432,6 +3446,7 @@ async fn backend_restore_should_restore_deleted_agent() {
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T04:00:00Z"
             })
             .to_string(),
@@ -3450,6 +3465,7 @@ async fn backend_restore_should_restore_deleted_agent() {
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
+                "expectedVersion": "2",
                 "requestedAt": "2026-06-01T04:01:00Z"
             })
             .to_string(),
@@ -3666,6 +3682,7 @@ async fn backend_audit_events_should_return_recorded_items() {
         .body(Body::from(
             json!({
                 "targetStatus": "active",
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T02:00:00Z"
             })
             .to_string(),
@@ -3720,6 +3737,7 @@ async fn backend_audit_events_action_filter_should_work() {
         .body(Body::from(
             json!({
                 "targetStatus": "active",
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T02:00:00Z"
             })
             .to_string(),
@@ -3909,6 +3927,7 @@ async fn backend_audit_events_time_range_filter_should_work() {
         .body(Body::from(
             json!({
                 "targetStatus": "active",
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T02:00:00Z"
             })
             .to_string(),
@@ -4083,6 +4102,7 @@ async fn backend_audit_events_should_support_combined_filters_with_pagination() 
         .body(Body::from(
             json!({
                 "targetStatus": "active",
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T00:20:00Z"
             })
             .to_string(),
@@ -4102,6 +4122,7 @@ async fn backend_audit_events_should_support_combined_filters_with_pagination() 
         .body(Body::from(
             json!({
                 "targetStatus": "disabled",
+                "expectedVersion": "2",
                 "requestedAt": "2026-06-01T00:30:00Z"
             })
             .to_string(),
@@ -4167,6 +4188,7 @@ async fn backend_audit_events_should_sort_by_instant_desc_across_timezones() {
         .body(Body::from(
             json!({
                 "targetStatus": "active",
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T01:00:00Z"
             })
             .to_string(),
@@ -4339,6 +4361,7 @@ async fn delete_missing_agent_should_return_not_found_problem_detail() {
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T08:00:00Z"
             })
             .to_string(),
@@ -4378,6 +4401,7 @@ async fn status_missing_agent_should_return_not_found_problem_detail() {
         .body(Body::from(
             json!({
                 "targetStatus": "active",
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T08:01:00Z"
             })
             .to_string(),
@@ -4416,6 +4440,7 @@ async fn restore_missing_agent_should_return_not_found_problem_detail() {
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
+                "expectedVersion": "1",
                 "requestedAt": "2026-06-01T08:02:00Z"
             })
             .to_string(),
@@ -4917,6 +4942,7 @@ async fn app_knowledge_sync_jobs_support_runtime_transitions_over_http() {
         &app,
         "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.complete.1/start",
         json!({
+            "expectedVersion": "1",
             "requestedAt": "2026-06-01T12:03:00Z"
         }),
         StatusCode::OK,
@@ -4944,6 +4970,7 @@ async fn app_knowledge_sync_jobs_support_runtime_transitions_over_http() {
         &app,
         "/app/v3/api/ai/knowledge_sync_jobs/knowledge.sync.http.fail.1/start",
         json!({
+            "expectedVersion": "1",
             "requestedAt": "2026-06-01T12:06:00Z"
         }),
         StatusCode::OK,
@@ -5961,4 +5988,71 @@ async fn app_memory_stack_should_work_over_http_for_generated_sdk_contracts() {
             serde_json::from_slice(&body_bytes).expect("response body should be valid json");
         assert_eq!(body_json["data"]["items"][0][field], expected);
     }
+}
+
+#[tokio::test]
+async fn backend_route_should_reject_subject_tenant_mismatch() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/ai/agents?tenant_id=1")
+        .header("x-subject-id", "u-1")
+        .header("x-subject-tenant-id", "2")
+        .body(Body::empty())
+        .expect("request should be built");
+    let response = app.oneshot(request).await.expect("request should succeed");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["title"], "permission_required");
+}
+
+#[tokio::test]
+async fn backend_route_should_accept_matching_subject_tenant_header() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    get_json(
+        &app,
+        "/backend/v3/api/ai/agents?tenant_id=1",
+        StatusCode::OK,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn backend_route_should_reject_missing_subject_headers() {
+    let state = AgentHttpState::new(
+        InMemoryAgentRepository::new(),
+        InMemoryAgentAuditSink::default(),
+        AllowAllPolicyProvider::allow("policy.memory"),
+    );
+    let app = build_combined_router(state);
+
+    let request = Request::builder()
+        .method("GET")
+        .uri("/backend/v3/api/ai/agents?tenant_id=1")
+        .body(Body::empty())
+        .expect("request should be built");
+    let response = app.oneshot(request).await.expect("request should succeed");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body should be readable");
+    let body_json: Value =
+        serde_json::from_slice(&body_bytes).expect("response body should be valid json");
+    assert_eq!(body_json["title"], "validation_error");
 }

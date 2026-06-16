@@ -1,5 +1,5 @@
 use sdkwork_agent_kernel::{KernelError, KernelErrorSource, KernelResult};
-use sdkwork_platform_id_service::{
+use sdkwork_id_core::{
     default_snowflake_epoch_millis, max_snowflake_node_id, SnowflakeIdError, SnowflakeIdGenerator,
 };
 
@@ -55,11 +55,9 @@ impl AgentBusinessIdGenerator {
     pub fn decode_timestamp_delta_millis(id: u64) -> u64 {
         id >> TIMESTAMP_SHIFT
     }
-}
 
-impl Default for AgentBusinessIdGenerator {
-    fn default() -> Self {
-        Self::new().expect("default agent business snowflake node id is valid")
+    pub fn new_default() -> KernelResult<Self> {
+        Self::with_node_id(DEFAULT_AGENT_BUSINESS_NODE_ID)
     }
 }
 

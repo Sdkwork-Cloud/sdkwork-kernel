@@ -5,6 +5,12 @@ use sdkwork_agent_kernel::{
 };
 use std::collections::HashMap;
 
+mod provider_session_store;
+
+pub use provider_session_store::{
+    sort_sessions_by_updated_at, InMemoryProviderSessionStore, SessionListQuery,
+};
+
 // ============================================================================
 // Session Adapter
 // ============================================================================
@@ -34,6 +40,42 @@ pub trait SessionLifecycleProvider {
     fn close_session(&self, session_id: &str) -> KernelResult<AgentSession>;
 
     fn list_active_sessions(&self) -> KernelResult<Vec<AgentSession>>;
+
+    /// List persisted sessions for this provider, sorted by `updated_at` descending.
+    fn list_sessions(&self, query: &SessionListQuery) -> KernelResult<Vec<AgentSession>> {
+        let mut sessions = self.list_active_sessions()?;
+        if query.active_only {
+            sessions.retain(|session| session.state.is_active());
+        }
+        if let Some(agent_id) = query.agent_id.as_deref() {
+            sessions.retain(|session| session.agent_id.as_deref() == Some(agent_id));
+        }
+        sort_sessions_by_updated_at(&mut sessions);
+        if let Some(limit) = query.limit {
+            sessions.truncate(limit);
+        }
+        Ok(sessions)
+    }
+
+    /// Load conversation history for a persisted session.
+    fn get_conversation_history(&self, session_id: &str) -> KernelResult<Vec<AgentMessage>> {
+        let _ = session_id;
+        Err(KernelError::validation(
+            "conversation history not supported for this provider",
+        ))
+    }
+
+    /// Append a message to a persisted session conversation.
+    fn append_conversation_message(
+        &self,
+        session_id: &str,
+        message: AgentMessage,
+    ) -> KernelResult<()> {
+        let _ = (session_id, message);
+        Err(KernelError::validation(
+            "conversation append not supported for this provider",
+        ))
+    }
 }
 
 // ============================================================================
@@ -701,4 +743,86 @@ mod tests {
         assert!(ts.contains('T'));
         assert_eq!(ts.len(), 20);
     }
+}
+
+/// Defines a provider lifecycle wrapper backed by [`InMemoryProviderSessionStore`].
+#[macro_export]
+macro_rules! define_provider_lifecycle_provider {
+    ($wrapper:ident, $provider_id:expr) => {
+        pub struct $wrapper {
+            store: $crate::InMemoryProviderSessionStore,
+        }
+
+        impl $wrapper {
+            pub fn new() -> Self {
+                Self {
+                    store: $crate::InMemoryProviderSessionStore::new($provider_id),
+                }
+            }
+
+            pub fn session_store(&self) -> &$crate::InMemoryProviderSessionStore {
+                &self.store
+            }
+        }
+
+        impl Default for $wrapper {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        impl $crate::SessionLifecycleProvider for $wrapper {
+            fn create_session(
+                &self,
+                agent_id: &str,
+                user_ref: Option<&str>,
+                config: $crate::SessionConfig,
+            ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
+                self.store.create_session(agent_id, user_ref, config)
+            }
+
+            fn resume_session(
+                &self,
+                session_id: &str,
+            ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
+                self.store.resume_session(session_id)
+            }
+
+            fn close_session(
+                &self,
+                session_id: &str,
+            ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
+                self.store.close_session(session_id)
+            }
+
+            fn list_active_sessions(
+                &self,
+            ) -> sdkwork_agent_kernel::KernelResult<Vec<sdkwork_agent_kernel::AgentSession>>
+            {
+                self.store.list_active_sessions()
+            }
+
+            fn list_sessions(
+                &self,
+                query: &$crate::SessionListQuery,
+            ) -> sdkwork_agent_kernel::KernelResult<Vec<sdkwork_agent_kernel::AgentSession>> {
+                self.store.list_sessions(query)
+            }
+
+            fn get_conversation_history(
+                &self,
+                session_id: &str,
+            ) -> sdkwork_agent_kernel::KernelResult<Vec<sdkwork_agent_kernel::AgentMessage>> {
+                self.store.get_conversation_history(session_id)
+            }
+
+            fn append_conversation_message(
+                &self,
+                session_id: &str,
+                message: sdkwork_agent_kernel::AgentMessage,
+            ) -> sdkwork_agent_kernel::KernelResult<()> {
+                self.store.append_conversation_message(session_id, message)
+            }
+        }
+    };
 }

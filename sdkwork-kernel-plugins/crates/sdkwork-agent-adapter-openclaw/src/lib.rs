@@ -10,8 +10,6 @@ use sdkwork_agent_kernel::{
     SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
     ToolResult, ToolSchema,
 };
-use std::collections::HashMap;
-use std::sync::Mutex;
 
 // ============================================================================
 // OpenClaw Message Types
@@ -418,83 +416,9 @@ impl ToolProvider for OpenClawToolProvider {
 // OpenClaw Lifecycle Provider (existing, preserved)
 // ============================================================================
 
-pub struct OpenClawLifecycleProvider {
-    sessions: Mutex<HashMap<String, AgentSession>>,
-}
+sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(OpenClawLifecycleProvider, "openclaw");
 
-impl OpenClawLifecycleProvider {
-    pub fn new() -> Self {
-        Self {
-            sessions: Mutex::new(HashMap::new()),
-        }
-    }
-}
-
-impl Default for OpenClawLifecycleProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SessionLifecycleProvider for OpenClawLifecycleProvider {
-    fn create_session(
-        &self,
-        agent_id: &str,
-        user_ref: Option<&str>,
-        config: SessionConfig,
-    ) -> KernelResult<AgentSession> {
-        let session_id = format!("openclaw.{}", uuid_simple());
-        let session = create_session_from_config(
-            &session_id,
-            Some(agent_id.to_string()),
-            user_ref.map(String::from),
-            None,
-            config,
-            now_iso(),
-        );
-        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
-            message: format!("lock poisoned: {e}"),
-        })?;
-        sessions.insert(session_id.clone(), session.clone());
-        Ok(session)
-    }
-
-    fn resume_session(&self, session_id: &str) -> KernelResult<AgentSession> {
-        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
-            message: format!("lock poisoned: {e}"),
-        })?;
-        let session = sessions
-            .get_mut(session_id)
-            .ok_or_else(|| KernelError::validation(format!("session not found: {session_id}")))?;
-        session.state = SessionState::Active;
-        Ok(session.clone())
-    }
-
-    fn close_session(&self, session_id: &str) -> KernelResult<AgentSession> {
-        let mut sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
-            message: format!("lock poisoned: {e}"),
-        })?;
-        let session = sessions
-            .get_mut(session_id)
-            .ok_or_else(|| KernelError::validation(format!("session not found: {session_id}")))?;
-        session.state = SessionState::Closed;
-        Ok(session.clone())
-    }
-
-    fn list_active_sessions(&self) -> KernelResult<Vec<AgentSession>> {
-        let sessions = self.sessions.lock().map_err(|e| KernelError::Internal {
-            message: format!("lock poisoned: {e}"),
-        })?;
-        Ok(sessions
-            .values()
-            .filter(|s| s.state.is_active())
-            .cloned()
-            .collect())
-    }
-}
-
-// ============================================================================
-// Tests
+// ============================================================================`r`n// Tests
 // ============================================================================
 
 #[cfg(test)]

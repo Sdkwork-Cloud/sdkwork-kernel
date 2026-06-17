@@ -1,4 +1,4 @@
-use super::{HermesPlugin, OpenClawPlugin, ZeroClawPlugin};
+use super::{CodexPlugin, HermesPlugin, OpenClawPlugin, ZeroClawPlugin};
 use crate::bridge::{AgentBridgePlugin, AgentBridgePluginRegistry};
 use std::sync::Arc;
 
@@ -13,6 +13,7 @@ impl BuiltinPlugins {
                 Arc::new(OpenClawPlugin::new()),
                 Arc::new(ZeroClawPlugin::new()),
                 Arc::new(HermesPlugin::new()),
+                Arc::new(CodexPlugin::new()),
             ],
         }
     }

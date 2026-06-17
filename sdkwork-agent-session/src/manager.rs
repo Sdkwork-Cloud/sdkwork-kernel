@@ -53,10 +53,12 @@ where
             title: config.title,
             model: config.model,
             cwd: config.cwd,
+            provider_id: None,
+            bridge_id: None,
             token_usage_json: None,
             message_count: 0,
-            created_at: now,
-            updated_at: None,
+            created_at: now.clone(),
+            updated_at: Some(now),
             metadata_json: config.metadata.map(|v| v.to_string()),
         };
 
@@ -84,6 +86,8 @@ where
             agent_id: query.agent_id,
             state: query.state,
             kind: query.kind,
+            provider_id: query.provider_id,
+            bridge_id: query.bridge_id,
             limit: query.limit,
             offset: query.offset,
         };

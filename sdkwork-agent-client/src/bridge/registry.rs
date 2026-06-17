@@ -1,6 +1,8 @@
 use super::plugin::AgentBridgePlugin;
 use super::provider::AgentBridgeProvider;
 use super::types::{AgentBridgeConfig, AgentBridgeHealth, AgentBridgeType};
+use crate::session::{sort_bridge_sessions, BridgeSessionQuery};
+use crate::types::SessionInfo;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -96,6 +98,21 @@ impl AgentBridgePluginRegistry {
             .iter()
             .map(|(id, provider)| (id.clone(), provider.health_check()))
             .collect()
+    }
+
+    /// List sessions across all bridge providers, sorted by `updated_at` descending.
+    pub fn list_all_sessions(&self, query: &BridgeSessionQuery) -> Vec<SessionInfo> {
+        let mut sessions = Vec::new();
+        for provider in self.providers.values() {
+            if let Ok(mut provider_sessions) = provider.list_sessions(query) {
+                sessions.append(&mut provider_sessions);
+            }
+        }
+        sort_bridge_sessions(&mut sessions);
+        if let Some(limit) = query.limit {
+            sessions.truncate(limit as usize);
+        }
+        sessions
     }
 }
 

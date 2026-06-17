@@ -1,6 +1,7 @@
 pub mod bridge;
 mod chat;
 pub mod plugins;
+pub mod session;
 mod sse;
 mod types;
 
@@ -9,6 +10,7 @@ mod websocket;
 
 pub use bridge::*;
 pub use chat::{ChatClient, MockChatClient};
+pub use session::{sort_bridge_sessions, BridgeSessionQuery, BridgeSessionStore};
 pub use sse::SseChatClient;
 pub use types::*;
 

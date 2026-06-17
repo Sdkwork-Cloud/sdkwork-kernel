@@ -33,6 +33,8 @@ impl SchemaManager {
                 title TEXT,
                 model TEXT,
                 cwd TEXT,
+                provider_id TEXT,
+                bridge_id TEXT,
                 token_usage_json TEXT,
                 message_count INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL,
@@ -41,6 +43,17 @@ impl SchemaManager {
             )
         ";
         self.db.execute(sql, &[])?;
+        self.ensure_sessions_provider_columns()?;
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(COALESCE(updated_at, created_at) DESC)",
+            &[],
+        )?;
+        Ok(())
+    }
+
+    fn ensure_sessions_provider_columns(&self) -> DatabaseResult<()> {
+        let _ = self.db.execute("ALTER TABLE sessions ADD COLUMN provider_id TEXT", &[]);
+        let _ = self.db.execute("ALTER TABLE sessions ADD COLUMN bridge_id TEXT", &[]);
         Ok(())
     }
 

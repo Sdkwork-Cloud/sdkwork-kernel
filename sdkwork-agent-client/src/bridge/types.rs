@@ -7,6 +7,7 @@ pub enum AgentBridgeType {
     OpenClaw,
     ZeroClaw,
     Hermes,
+    Codex,
     Custom(String),
 }
 
@@ -16,6 +17,7 @@ impl fmt::Display for AgentBridgeType {
             Self::OpenClaw => write!(f, "openclaw"),
             Self::ZeroClaw => write!(f, "zeroclaw"),
             Self::Hermes => write!(f, "hermes"),
+            Self::Codex => write!(f, "codex"),
             Self::Custom(name) => write!(f, "{}", name),
         }
     }

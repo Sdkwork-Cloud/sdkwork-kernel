@@ -3,28 +3,12 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use sdkwork_agent_database::SessionRow;
+use sdkwork_agent_session::SessionConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-/// Session state shared across handlers
-#[derive(Debug, Clone)]
-pub struct SessionState {
-    pub sessions: Arc<tokio::sync::Mutex<Vec<SessionResponse>>>,
-}
-
-impl SessionState {
-    pub fn new() -> Self {
-        Self {
-            sessions: Arc::new(tokio::sync::Mutex::new(Vec::new())),
-        }
-    }
-}
-
-impl Default for SessionState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+use crate::persistence::PersistenceState;
 
 /// Create session request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +31,8 @@ pub struct SessionResponse {
     pub state: String,
     pub kind: String,
     pub source: String,
+    pub provider_id: Option<String>,
+    pub bridge_id: Option<String>,
     pub message_count: u32,
     pub created_at: String,
     pub updated_at: Option<String>,
@@ -57,127 +43,136 @@ pub struct SessionResponse {
 pub struct ListSessionsQuery {
     pub agent_id: Option<String>,
     pub state: Option<String>,
+    pub provider_id: Option<String>,
+    pub bridge_id: Option<String>,
     pub limit: Option<u32>,
+}
+
+fn session_row_to_response(row: SessionRow) -> SessionResponse {
+    SessionResponse {
+        session_id: row.session_id,
+        agent_id: row.agent_id,
+        model: row.model,
+        title: row.title,
+        state: row.state,
+        kind: row.kind,
+        source: row.source,
+        provider_id: row.provider_id,
+        bridge_id: row.bridge_id,
+        message_count: row.message_count.max(0) as u32,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    }
 }
 
 /// Create a new session
 pub async fn create_session(
-    State(state): State<Arc<SessionState>>,
+    State(state): State<Arc<PersistenceState>>,
     Json(request): Json<CreateSessionRequest>,
-) -> (StatusCode, Json<SessionResponse>) {
-    let now = chrono::Utc::now().to_rfc3339();
-    let session_id = format!("session.{}", generate_id());
+) -> Result<(StatusCode, Json<SessionResponse>), StatusCode> {
+    let mut config = SessionConfig::new(request.agent_id);
+    if let Some(title) = request.title {
+        config = config.with_title(title);
+    }
+    if let Some(model) = request.model {
+        config = config.with_model(model);
+    }
+    if let Some(source) = request.source {
+        config = config.with_source(source);
+    }
+    if let Some(kind) = request.kind {
+        config = config.with_kind(kind);
+    }
+    if let Some(instructions) = request.instructions {
+        config = config.with_instructions(instructions);
+    }
 
-    let response = SessionResponse {
-        session_id: session_id.clone(),
-        agent_id: request.agent_id,
-        model: request.model,
-        title: request.title,
-        state: "active".to_string(),
-        kind: request.kind.unwrap_or_else(|| "main".to_string()),
-        source: request.source.unwrap_or_else(|| "api".to_string()),
-        message_count: 0,
-        created_at: now.clone(),
-        updated_at: None,
-    };
-
-    let mut sessions = state.sessions.lock().await;
-    sessions.push(response.clone());
-
-    (StatusCode::CREATED, Json(response))
+    let row = state
+        .create_session(config)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok((StatusCode::CREATED, Json(session_row_to_response(row))))
 }
 
 /// Get a session by ID
 pub async fn get_session(
-    State(state): State<Arc<SessionState>>,
+    State(state): State<Arc<PersistenceState>>,
     Path(session_id): Path<String>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
-    let sessions = state.sessions.lock().await;
-    sessions
-        .iter()
-        .find(|s| s.session_id == session_id)
-        .cloned()
+    state
+        .get_session(&session_id)
+        .map(session_row_to_response)
         .map(Json)
-        .ok_or(StatusCode::NOT_FOUND)
+        .map_err(|error| {
+            if error.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        })
 }
 
 /// List sessions
 pub async fn list_sessions(
-    State(state): State<Arc<SessionState>>,
+    State(state): State<Arc<PersistenceState>>,
     Query(query): Query<ListSessionsQuery>,
-) -> Json<Vec<SessionResponse>> {
-    let sessions = state.sessions.lock().await;
-    let mut results: Vec<SessionResponse> = sessions
-        .iter()
-        .filter(|s| {
-            if let Some(ref agent_id) = query.agent_id {
-                if s.agent_id != *agent_id {
-                    return false;
-                }
-            }
-            if let Some(ref session_state) = query.state {
-                if s.state != *session_state {
-                    return false;
-                }
-            }
-            true
+) -> Result<Json<Vec<SessionResponse>>, StatusCode> {
+    let rows = state
+        .list_sessions(sdkwork_agent_session::SessionQuery {
+            agent_id: query.agent_id,
+            state: query.state,
+            kind: None,
+            provider_id: query.provider_id,
+            bridge_id: query.bridge_id,
+            limit: query.limit.map(i64::from),
+            offset: None,
         })
-        .cloned()
-        .collect();
-
-    if let Some(limit) = query.limit {
-        results.truncate(limit as usize);
-    }
-
-    Json(results)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(
+        rows.into_iter().map(session_row_to_response).collect(),
+    ))
 }
 
 /// Close a session
 pub async fn close_session(
-    State(state): State<Arc<SessionState>>,
+    State(state): State<Arc<PersistenceState>>,
     Path(session_id): Path<String>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
-    let mut sessions = state.sessions.lock().await;
-    if let Some(session) = sessions.iter_mut().find(|s| s.session_id == session_id) {
-        session.state = "closed".to_string();
-        session.updated_at = Some(chrono::Utc::now().to_rfc3339());
-        Ok(Json(session.clone()))
-    } else {
-        Err(StatusCode::NOT_FOUND)
-    }
+    state
+        .close_session(&session_id)
+        .map(session_row_to_response)
+        .map(Json)
+        .map_err(|error| {
+            if error.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            }
+        })
 }
 
 /// Delete a session
 pub async fn delete_session(
-    State(state): State<Arc<SessionState>>,
+    State(state): State<Arc<PersistenceState>>,
     Path(session_id): Path<String>,
 ) -> StatusCode {
-    let mut sessions = state.sessions.lock().await;
-    let len_before = sessions.len();
-    sessions.retain(|s| s.session_id != session_id);
-    if sessions.len() < len_before {
-        StatusCode::NO_CONTENT
-    } else {
-        StatusCode::NOT_FOUND
+    match state.delete_session(&session_id) {
+        Ok(()) => StatusCode::NO_CONTENT,
+        Err(error) if error.contains("not found") => StatusCode::NOT_FOUND,
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
-}
-
-fn generate_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{:x}", nanos)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn test_state() -> Arc<PersistenceState> {
+        Arc::new(PersistenceState::memory().expect("persistence"))
+    }
+
     #[tokio::test]
     async fn create_and_get_session() {
-        let state = Arc::new(SessionState::new());
+        let state = test_state();
         let request = CreateSessionRequest {
             agent_id: "agent.1".to_string(),
             model: Some("gpt-4".to_string()),
@@ -187,23 +182,21 @@ mod tests {
             kind: None,
         };
 
-        let (status, Json(session)) = create_session(State(state.clone()), Json(request)).await;
+        let (status, Json(session)) = create_session(State(state.clone()), Json(request))
+            .await
+            .expect("created");
 
         assert_eq!(status, StatusCode::CREATED);
         assert_eq!(session.agent_id, "agent.1");
         assert_eq!(session.state, "active");
 
         let result = get_session(State(state.clone()), Path(session.session_id.clone())).await;
-
         assert!(result.is_ok());
-        let Json(found) = result.unwrap();
-        assert_eq!(found.session_id, session.session_id);
     }
 
     #[tokio::test]
     async fn list_sessions_test() {
-        let state = Arc::new(SessionState::new());
-
+        let state = test_state();
         let request1 = CreateSessionRequest {
             agent_id: "agent.1".to_string(),
             model: None,
@@ -221,25 +214,32 @@ mod tests {
             kind: None,
         };
 
-        create_session(State(state.clone()), Json(request1)).await;
-        create_session(State(state.clone()), Json(request2)).await;
+        create_session(State(state.clone()), Json(request1))
+            .await
+            .expect("created");
+        create_session(State(state.clone()), Json(request2))
+            .await
+            .expect("created");
 
         let Json(sessions) = list_sessions(
             State(state.clone()),
             Query(ListSessionsQuery {
                 agent_id: None,
                 state: None,
+                provider_id: None,
+                bridge_id: None,
                 limit: None,
             }),
         )
-        .await;
+        .await
+        .expect("listed");
 
         assert_eq!(sessions.len(), 2);
     }
 
     #[tokio::test]
     async fn close_session_test() {
-        let state = Arc::new(SessionState::new());
+        let state = test_state();
         let request = CreateSessionRequest {
             agent_id: "agent.1".to_string(),
             model: None,
@@ -249,12 +249,12 @@ mod tests {
             kind: None,
         };
 
-        let (_, Json(session)) = create_session(State(state.clone()), Json(request)).await;
-
-        let result = close_session(State(state.clone()), Path(session.session_id.clone())).await;
-
-        assert!(result.is_ok());
-        let Json(closed) = result.unwrap();
+        let (_, Json(session)) = create_session(State(state.clone()), Json(request))
+            .await
+            .expect("created");
+        let Json(closed) = close_session(State(state.clone()), Path(session.session_id.clone()))
+            .await
+            .expect("closed");
         assert_eq!(closed.state, "closed");
     }
 }

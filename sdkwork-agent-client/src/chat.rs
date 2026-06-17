@@ -1,3 +1,4 @@
+use crate::session::BridgeSessionQuery;
 use crate::types::*;
 
 /// Core chat client trait
@@ -17,6 +18,12 @@ pub trait ChatClient: Send + Sync {
 
     /// Close a session
     fn close_session(&self, session_id: &str) -> Result<(), String>;
+
+    /// List persisted sessions for this bridge provider.
+    fn list_sessions(&self, query: &BridgeSessionQuery) -> Result<Vec<SessionInfo>, String> {
+        let _ = query;
+        Ok(Vec::new())
+    }
 
     /// Health check
     fn health(&self) -> Result<bool, String>;
@@ -80,13 +87,23 @@ impl ChatClient for MockChatClient {
     }
 
     fn create_session(&self, config: SessionConfig) -> Result<SessionInfo, String> {
+        let now = chrono_now();
         Ok(SessionInfo {
             session_id: format!("session.{}", generate_id()),
             agent_id: config.agent_id,
+            provider_id: "mock".to_string(),
+            bridge_id: "mock".to_string(),
             model: config.model,
+            title: config.title,
             state: "active".to_string(),
-            created_at: chrono_now(),
+            message_count: 0,
+            created_at: now.clone(),
+            updated_at: now,
         })
+    }
+
+    fn list_sessions(&self, _query: &BridgeSessionQuery) -> Result<Vec<SessionInfo>, String> {
+        Ok(Vec::new())
     }
 
     fn close_session(&self, _session_id: &str) -> Result<(), String> {
@@ -108,7 +125,7 @@ fn generate_id() -> String {
 }
 
 fn chrono_now() -> String {
-    "2026-01-01T00:00:00Z".to_string()
+    chrono::Utc::now().to_rfc3339()
 }
 
 #[cfg(test)]

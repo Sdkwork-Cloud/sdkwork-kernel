@@ -10,22 +10,20 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 use sdkwork_agent_server::{
     api::{chat, messages, sessions, sse},
     config::ServerConfig,
-    health, middleware, preflight, shutdown,
+    health, middleware, persistence::PersistenceState, preflight, shutdown,
 };
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // 1. Load configuration
     let config = ServerConfig::from_env()?;
 
-    // 2. Initialize logging
     init_logging(&config.log_level)?;
 
     info!("SDKWork Agent Server starting...");
     info!("Version: {}", env!("CARGO_PKG_VERSION"));
     info!("Bind address: {}", config.bind_addr());
+    info!("Database path: {}", config.database_path);
 
-    // 3. Run preflight checks
     let preflight_result = preflight::validate(&config);
     preflight::print_results(&preflight_result);
 
@@ -33,24 +31,13 @@ async fn main() -> anyhow::Result<()> {
         anyhow::bail!("Preflight checks failed");
     }
 
-    // 4. Build shared state
     let health_state = Arc::new(health::HealthState::new());
-    let session_state = Arc::new(sessions::SessionState::new());
-    let message_state = Arc::new(messages::MessageState::new());
+    let persistence = Arc::new(PersistenceState::open(&config.database_path)?);
     let chat_state = Arc::new(chat::ChatState::new());
     let sse_state = Arc::new(sse::SseState::new());
 
-    // 5. Build Axum app
-    let app = build_app(
-        health_state,
-        session_state,
-        message_state,
-        chat_state,
-        sse_state,
-        &config,
-    );
+    let app = build_app(health_state, persistence, chat_state, sse_state, &config);
 
-    // 6. Start server
     let bind_addr = config.bind_addr();
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
@@ -79,23 +66,19 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Build the Axum application
 fn build_app(
     health_state: Arc<health::HealthState>,
-    session_state: Arc<sessions::SessionState>,
-    message_state: Arc<messages::MessageState>,
+    persistence: Arc<PersistenceState>,
     chat_state: Arc<chat::ChatState>,
     sse_state: Arc<sse::SseState>,
     config: &ServerConfig,
 ) -> Router {
-    // Health routes
     let health_routes = Router::new()
         .route(&config.health_path, get(health::health_check))
         .route("/ready", get(health::readiness_check))
         .route("/live", get(health::liveness_check))
         .with_state(health_state);
 
-    // Session routes
     let session_routes = Router::new()
         .route(
             "/api/sessions",
@@ -109,9 +92,8 @@ fn build_app(
             "/api/sessions/{session_id}/close",
             post(sessions::close_session),
         )
-        .with_state(session_state);
+        .with_state(persistence.clone());
 
-    // Message routes
     let message_routes = Router::new()
         .route(
             "/api/sessions/{session_id}/messages",
@@ -125,9 +107,8 @@ fn build_app(
             "/api/sessions/{session_id}/messages",
             axum::routing::delete(messages::delete_messages),
         )
-        .with_state(message_state);
+        .with_state(persistence);
 
-    // Chat routes
     let chat_routes = Router::new()
         .route("/api/chat/send", post(chat::send_chat))
         .route(
@@ -136,7 +117,6 @@ fn build_app(
         )
         .with_state(chat_state);
 
-    // SSE routes
     let sse_routes = Router::new()
         .route("/api/chat/stream", post(sse::stream_chat))
         .route(
@@ -145,7 +125,6 @@ fn build_app(
         )
         .with_state(sse_state);
 
-    // Combine routes
     Router::new()
         .merge(health_routes)
         .merge(session_routes)
@@ -156,7 +135,6 @@ fn build_app(
         .layer(middleware::cors_layer())
 }
 
-/// Initialize logging
 fn init_logging(level: &str) -> anyhow::Result<()> {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
 
@@ -176,17 +154,9 @@ mod tests {
     fn build_app_does_not_panic() {
         let config = ServerConfig::default();
         let health_state = Arc::new(health::HealthState::new());
-        let session_state = Arc::new(sessions::SessionState::new());
-        let message_state = Arc::new(messages::MessageState::new());
+        let persistence = Arc::new(PersistenceState::memory().expect("persistence"));
         let chat_state = Arc::new(chat::ChatState::new());
         let sse_state = Arc::new(sse::SseState::new());
-        let _app = build_app(
-            health_state,
-            session_state,
-            message_state,
-            chat_state,
-            sse_state,
-            &config,
-        );
+        let _app = build_app(health_state, persistence, chat_state, sse_state, &config);
     }
 }

@@ -14,6 +14,8 @@ sdkwork-code-kernel = { path = "../sdkwork-code-kernel" }
 sdkwork-agent-business = { path = "../sdkwork-agent-business", features = ["http-axum"] }
 sdkwork-agent-api-bridge = { path = "../sdkwork-agent-api-bridge" }
 sdkwork-agent-streaming = { path = "../sdkwork-agent-streaming" }
+sdkwork-agent-database = { path = "../sdkwork-agent-database", features = ["sqlite"] }
+sdkwork-agent-session = { path = "../sdkwork-agent-session" }
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"

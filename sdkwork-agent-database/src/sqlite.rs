@@ -1,13 +1,13 @@
 use crate::error::{DatabaseError, DatabaseResult};
 use crate::traits::*;
-use crate::types::*;
 use rusqlite::Connection;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 /// SQLite database implementation
+#[derive(Clone)]
 pub struct SqliteDatabase {
-    conn: Arc<Mutex<Connection>>,
+    pub(crate) conn: Arc<Mutex<Connection>>,
 }
 
 impl SqliteDatabase {

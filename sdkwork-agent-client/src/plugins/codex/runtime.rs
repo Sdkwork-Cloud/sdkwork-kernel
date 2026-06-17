@@ -2,15 +2,14 @@ use crate::bridge::{AgentBridgeConfig, AgentBridgeHealth};
 use crate::session::BridgeSessionRuntime;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
 
-/// Hermes runtime handle backed by the shared bridge session store.
-pub struct HermesRuntime {
+pub struct CodexRuntime {
     inner: BridgeSessionRuntime,
 }
 
-impl HermesRuntime {
+impl CodexRuntime {
     pub fn new(config: &AgentBridgeConfig) -> Result<Self, String> {
         Ok(Self {
-            inner: BridgeSessionRuntime::new("hermes", &config.bridge_id, "Hermes")?,
+            inner: BridgeSessionRuntime::new("codex", &config.bridge_id, "Codex")?,
         })
     }
 
@@ -34,15 +33,15 @@ impl HermesRuntime {
         self.inner.close_session(session_id)
     }
 
-    pub fn health_check(&self) -> AgentBridgeHealth {
-        self.inner.health_check()
-    }
-
     pub fn list_sessions(
         &self,
         query: &crate::session::BridgeSessionQuery,
     ) -> Result<Vec<SessionInfo>, String> {
         self.inner.list_sessions(query)
+    }
+
+    pub fn health_check(&self) -> AgentBridgeHealth {
+        self.inner.health_check()
     }
 
     pub fn shutdown(&mut self) -> Result<(), String> {

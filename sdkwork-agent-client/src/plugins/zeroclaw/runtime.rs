@@ -1,48 +1,48 @@
-use crate::bridge::{AgentBridgeConfig, AgentBridgeHealth, AgentBridgeStatus};
+use crate::bridge::{AgentBridgeConfig, AgentBridgeHealth};
+use crate::session::BridgeSessionRuntime;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
 
-/// ZeroClaw runtime handle (uses PyO3)
+/// ZeroClaw runtime handle backed by the shared bridge session store.
 pub struct ZeroClawRuntime {
-    config: AgentBridgeConfig,
+    inner: BridgeSessionRuntime,
 }
 
 impl ZeroClawRuntime {
     pub fn new(config: &AgentBridgeConfig) -> Result<Self, String> {
         Ok(Self {
-            config: config.clone(),
+            inner: BridgeSessionRuntime::new("zeroclaw", &config.bridge_id, "ZeroClaw")?,
         })
     }
 
-    pub fn send_message(&self, _request: ChatRequest) -> Result<ChatResponse, String> {
-        // TODO: Implement ZeroClaw Python API call via PyO3
-        Err("ZeroClaw runtime not implemented".to_string())
+    pub fn send_message(&self, request: ChatRequest) -> Result<ChatResponse, String> {
+        self.inner.send_message(request)
     }
 
     pub fn get_messages(
         &self,
-        _session_id: &str,
-        _limit: Option<u32>,
+        session_id: &str,
+        limit: Option<u32>,
     ) -> Result<Vec<ChatMessage>, String> {
-        // TODO: Implement ZeroClaw Python API call via PyO3
-        Err("ZeroClaw runtime not implemented".to_string())
+        self.inner.get_messages(session_id, limit)
     }
 
-    pub fn create_session(&self, _config: SessionConfig) -> Result<SessionInfo, String> {
-        // TODO: Implement ZeroClaw Python API call via PyO3
-        Err("ZeroClaw runtime not implemented".to_string())
+    pub fn create_session(&self, config: SessionConfig) -> Result<SessionInfo, String> {
+        self.inner.create_session(config)
     }
 
-    pub fn close_session(&self, _session_id: &str) -> Result<(), String> {
-        // TODO: Implement ZeroClaw Python API call via PyO3
-        Err("ZeroClaw runtime not implemented".to_string())
+    pub fn close_session(&self, session_id: &str) -> Result<(), String> {
+        self.inner.close_session(session_id)
+    }
+
+    pub fn list_sessions(
+        &self,
+        query: &crate::session::BridgeSessionQuery,
+    ) -> Result<Vec<SessionInfo>, String> {
+        self.inner.list_sessions(query)
     }
 
     pub fn health_check(&self) -> AgentBridgeHealth {
-        AgentBridgeHealth {
-            status: AgentBridgeStatus::Unknown,
-            message: Some("ZeroClaw runtime not implemented".to_string()),
-            last_check: chrono::Utc::now(),
-        }
+        self.inner.health_check()
     }
 
     pub fn shutdown(&mut self) -> Result<(), String> {

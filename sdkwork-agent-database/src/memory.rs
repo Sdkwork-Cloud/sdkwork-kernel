@@ -78,12 +78,37 @@ impl SessionRepository for InMemoryDatabase {
                         return false;
                     }
                 }
+                if let Some(ref kind) = query.kind {
+                    if s.kind != *kind {
+                        return false;
+                    }
+                }
+                if let Some(ref provider_id) = query.provider_id {
+                    if s.provider_id.as_ref() != Some(provider_id) {
+                        return false;
+                    }
+                }
+                if let Some(ref bridge_id) = query.bridge_id {
+                    if s.bridge_id.as_ref() != Some(bridge_id) {
+                        return false;
+                    }
+                }
                 true
             })
             .cloned()
             .collect();
 
-        results.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        results.sort_by(|left, right| {
+            let left_ts = left
+                .updated_at
+                .as_deref()
+                .unwrap_or(left.created_at.as_str());
+            let right_ts = right
+                .updated_at
+                .as_deref()
+                .unwrap_or(right.created_at.as_str());
+            right_ts.cmp(left_ts)
+        });
 
         if let Some(limit) = query.limit {
             results.truncate(limit as usize);
@@ -244,6 +269,8 @@ mod tests {
             title: Some("Test".to_string()),
             model: Some("gpt-4".to_string()),
             cwd: None,
+            provider_id: None,
+            bridge_id: None,
             token_usage_json: None,
             message_count: 0,
             created_at: "2026-01-01T00:00:00Z".to_string(),
@@ -269,6 +296,8 @@ mod tests {
             title: None,
             model: None,
             cwd: None,
+            provider_id: None,
+            bridge_id: None,
             token_usage_json: None,
             message_count: 0,
             created_at: "2026-01-01T00:00:00Z".to_string(),

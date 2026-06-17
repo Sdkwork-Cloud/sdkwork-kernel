@@ -11,6 +11,8 @@ pub struct SessionRow {
     pub title: Option<String>,
     pub model: Option<String>,
     pub cwd: Option<String>,
+    pub provider_id: Option<String>,
+    pub bridge_id: Option<String>,
     pub token_usage_json: Option<String>,
     pub message_count: i64,
     pub created_at: String,
@@ -69,6 +71,8 @@ pub struct SessionQuery {
     pub agent_id: Option<String>,
     pub state: Option<String>,
     pub kind: Option<String>,
+    pub provider_id: Option<String>,
+    pub bridge_id: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }

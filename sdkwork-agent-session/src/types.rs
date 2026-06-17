@@ -64,6 +64,8 @@ pub struct SessionQuery {
     pub agent_id: Option<String>,
     pub state: Option<String>,
     pub kind: Option<String>,
+    pub provider_id: Option<String>,
+    pub bridge_id: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }

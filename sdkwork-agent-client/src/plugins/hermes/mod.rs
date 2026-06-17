@@ -5,6 +5,7 @@ use crate::bridge::{
     AgentBridgeProvider, AgentBridgeStatus, AgentBridgeType,
 };
 use crate::chat::ChatClient;
+use crate::session::BridgeSessionQuery;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
 use runtime::HermesRuntime;
 use std::sync::{Arc, Mutex};
@@ -57,6 +58,12 @@ impl ChatClient for HermesProvider {
         let runtime = self.runtime.lock().unwrap();
         let rt = runtime.as_ref().ok_or("Runtime not initialized")?;
         rt.close_session(session_id)
+    }
+
+    fn list_sessions(&self, query: &BridgeSessionQuery) -> Result<Vec<SessionInfo>, String> {
+        let runtime = self.runtime.lock().unwrap();
+        let rt = runtime.as_ref().ok_or("Runtime not initialized")?;
+        rt.list_sessions(query)
     }
 
     fn health(&self) -> Result<bool, String> {
@@ -269,11 +276,8 @@ mod tests {
         let provider = HermesProvider::new(test_config()).unwrap();
         provider.initialize().expect("init");
         let health = provider.health_check();
-        assert_eq!(health.status, AgentBridgeStatus::Unknown);
-        assert_eq!(
-            health.message.as_deref(),
-            Some("Hermes runtime not implemented")
-        );
+        assert_eq!(health.status, AgentBridgeStatus::Healthy);
+        assert!(health.message.is_none());
     }
 
     #[test]

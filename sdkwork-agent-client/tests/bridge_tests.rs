@@ -3,6 +3,8 @@ use sdkwork_agent_client::bridge::{
     AgentBridgeType, AgentClient, AgentClientMode, FallbackStrategy,
 };
 use sdkwork_agent_client::plugins::BuiltinPlugins;
+use sdkwork_agent_client::session::BridgeSessionQuery;
+use sdkwork_agent_client::{ChatRequest, SessionConfig};
 use std::sync::Arc;
 
 #[test]
@@ -10,6 +12,7 @@ fn test_bridge_type_display() {
     assert_eq!(AgentBridgeType::OpenClaw.to_string(), "openclaw");
     assert_eq!(AgentBridgeType::ZeroClaw.to_string(), "zeroclaw");
     assert_eq!(AgentBridgeType::Hermes.to_string(), "hermes");
+    assert_eq!(AgentBridgeType::Codex.to_string(), "codex");
     assert_eq!(
         AgentBridgeType::Custom("test".to_string()).to_string(),
         "test"
@@ -67,7 +70,7 @@ fn test_plugin_registry_new() {
 #[test]
 fn test_builtin_plugins_create_all() {
     let plugins = BuiltinPlugins::create_all();
-    assert_eq!(plugins.plugins().len(), 3);
+    assert_eq!(plugins.plugins().len(), 4);
 }
 
 #[test]
@@ -76,7 +79,7 @@ fn test_builtin_plugins_register_all() {
     let mut registry = AgentBridgePluginRegistry::new();
 
     plugins.register_all(&mut registry).unwrap();
-    assert_eq!(registry.list_plugins().len(), 3);
+    assert_eq!(registry.list_plugins().len(), 4);
 }
 
 #[test]
@@ -123,4 +126,51 @@ fn test_agent_client_mode_local_not_found() {
 
     let result = AgentClient::new(mode, registry);
     assert!(result.is_err());
+}
+
+#[test]
+fn test_registry_list_all_sessions_sorted_by_updated_at() {
+    let plugins = BuiltinPlugins::create_all();
+    let mut registry = AgentBridgePluginRegistry::new();
+    plugins.register_all(&mut registry).unwrap();
+
+    let codex_id = registry
+        .create_provider(
+            "builtin.codex",
+            AgentBridgeType::Codex,
+            AgentBridgeConfig::new("bridge.codex", AgentBridgeType::Codex),
+        )
+        .unwrap();
+    let hermes_id = registry
+        .create_provider(
+            "builtin.hermes",
+            AgentBridgeType::Hermes,
+            AgentBridgeConfig::new("bridge.hermes", AgentBridgeType::Hermes),
+        )
+        .unwrap();
+
+    let codex = registry.get_provider(&codex_id).unwrap();
+    let hermes = registry.get_provider(&hermes_id).unwrap();
+    codex.initialize().unwrap();
+    hermes.initialize().unwrap();
+
+    let codex_session = codex
+        .create_session(SessionConfig::new("agent.1").with_title("Codex"))
+        .unwrap();
+    let _hermes_session = hermes
+        .create_session(SessionConfig::new("agent.1").with_title("Hermes"))
+        .unwrap();
+    codex
+        .send_message(ChatRequest {
+            session_id: codex_session.session_id.clone(),
+            content: "ping".to_string(),
+            model: None,
+            stream: false,
+        })
+        .unwrap();
+
+    let listed = registry.list_all_sessions(&BridgeSessionQuery::default());
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0].session_id, codex_session.session_id);
+    assert_eq!(listed[0].provider_id, "codex");
 }

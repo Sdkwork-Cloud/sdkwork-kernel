@@ -135,7 +135,12 @@ impl SessionConfig {
 pub struct SessionInfo {
     pub session_id: String,
     pub agent_id: String,
+    pub provider_id: String,
+    pub bridge_id: String,
     pub model: Option<String>,
+    pub title: Option<String>,
     pub state: String,
+    pub message_count: u32,
     pub created_at: String,
+    pub updated_at: String,
 }

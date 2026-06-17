@@ -19,6 +19,8 @@ pub struct ServerConfig {
     pub max_body_size: usize,
     /// Health check endpoint path
     pub health_path: String,
+    /// SQLite database path for session persistence
+    pub database_path: String,
 }
 
 impl Default for ServerConfig {
@@ -32,6 +34,7 @@ impl Default for ServerConfig {
             request_timeout_secs: 30,
             max_body_size: 10 * 1024 * 1024, // 10MB
             health_path: "/health".to_string(),
+            database_path: "./data/agent-server.sqlite".to_string(),
         }
     }
 }
@@ -58,6 +61,9 @@ impl ServerConfig {
         }
         if let Ok(timeout) = std::env::var("SDKWORK_REQUEST_TIMEOUT") {
             config.request_timeout_secs = timeout.parse()?;
+        }
+        if let Ok(database_path) = std::env::var("SDKWORK_DATABASE_PATH") {
+            config.database_path = database_path;
         }
 
         Ok(config)

@@ -6,6 +6,9 @@ mod schema;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
+#[cfg(feature = "sqlite")]
+mod sqlite_repository;
+
 #[cfg(feature = "postgres")]
 pub mod postgres;
 
@@ -16,3 +19,6 @@ pub use traits::{AgentDatabase, SessionRepository, MessageRepository, TaskReposi
 pub use types::{SessionRow, MessageRow, TaskRow, EventRow, AgentRow, SessionQuery, MessageQuery, EventQuery};
 pub use schema::SchemaManager;
 pub use memory::InMemoryDatabase;
+
+#[cfg(feature = "sqlite")]
+pub use sqlite::SqliteDatabase;

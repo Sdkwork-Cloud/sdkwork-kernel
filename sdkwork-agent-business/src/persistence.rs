@@ -24,9 +24,9 @@ use sdkwork_agent_kernel::{
 use sdkwork_code_kernel::CodeTaskIntent;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "postgres-sync")]
-use time::{OffsetDateTime, PrimitiveDateTime};
-#[cfg(feature = "postgres-sync")]
 use std::sync::Mutex;
+#[cfg(feature = "postgres-sync")]
+use time::{OffsetDateTime, PrimitiveDateTime};
 
 #[cfg(feature = "postgres-sync")]
 use crate::id::{AgentBusinessIdGenerator, AgentIdGenerator};
@@ -6465,10 +6465,7 @@ fn parse_rfc3339_timestamp(value: &str) -> KernelResult<PrimitiveDateTime> {
 
 #[cfg(feature = "postgres-sync")]
 fn optional_rfc3339_timestamp(value: &Option<String>) -> KernelResult<Option<PrimitiveDateTime>> {
-    value
-        .as_deref()
-        .map(parse_rfc3339_timestamp)
-        .transpose()
+    value.as_deref().map(parse_rfc3339_timestamp).transpose()
 }
 
 #[cfg(feature = "postgres-sync")]

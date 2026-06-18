@@ -10,7 +10,9 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 use sdkwork_agent_server::{
     api::{chat, messages, sessions, sse},
     config::ServerConfig,
-    health, middleware, persistence::PersistenceState, preflight, shutdown,
+    health, middleware,
+    persistence::PersistenceState,
+    preflight, shutdown,
 };
 
 #[tokio::main]

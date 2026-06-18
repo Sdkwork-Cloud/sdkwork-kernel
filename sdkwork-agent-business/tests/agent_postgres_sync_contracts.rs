@@ -3,10 +3,10 @@
 use sdkwork_agent_business::{
     AgentMemoryRelationKind, AgentMemoryRelationRecord, AgentRepository, PostgresAgentRepository,
     SyncPostgresAdapter, SQL_LIST_AGENT_MEMORY_STORES, SQL_SELECT_AGENT_MEMORY_BINDING,
-    SQL_SELECT_AGENT_MEMORY_NAMESPACE, SQL_SELECT_AGENT_MEMORY_PROFILE, SQL_SELECT_AGENT_MEMORY_STORE,
+    SQL_SELECT_AGENT_MEMORY_NAMESPACE, SQL_SELECT_AGENT_MEMORY_PROFILE,
     SQL_SELECT_AGENT_MEMORY_RELATION, SQL_SELECT_AGENT_MEMORY_RETRIEVAL_INDEX,
-    SQL_SELECT_AGENT_MEMORY_SOURCE, SQL_UPDATE_AGENT_MEMORY_BINDING, SQL_UPDATE_AGENT_MEMORY_NAMESPACE,
-    SQL_UPDATE_AGENT_MEMORY_PROFILE,
+    SQL_SELECT_AGENT_MEMORY_SOURCE, SQL_SELECT_AGENT_MEMORY_STORE, SQL_UPDATE_AGENT_MEMORY_BINDING,
+    SQL_UPDATE_AGENT_MEMORY_NAMESPACE, SQL_UPDATE_AGENT_MEMORY_PROFILE,
 };
 
 fn tenant_scoped_select_sql(sql: &str, table: &str) {
@@ -49,7 +49,10 @@ fn postgres_memory_get_select_sql_is_tenant_scoped() {
     tenant_scoped_select_sql(SQL_SELECT_AGENT_MEMORY_STORE, "a_agent_memory_store");
     tenant_scoped_select_sql(SQL_SELECT_AGENT_MEMORY_PROFILE, "a_agent_memory_profile");
     tenant_scoped_select_sql(SQL_SELECT_AGENT_MEMORY_BINDING, "a_agent_memory_binding");
-    tenant_scoped_select_sql(SQL_SELECT_AGENT_MEMORY_NAMESPACE, "a_agent_memory_namespace");
+    tenant_scoped_select_sql(
+        SQL_SELECT_AGENT_MEMORY_NAMESPACE,
+        "a_agent_memory_namespace",
+    );
 }
 
 #[test]
@@ -57,7 +60,10 @@ fn postgres_memory_list_and_update_sql_is_tenant_scoped() {
     tenant_scoped_list_sql(SQL_LIST_AGENT_MEMORY_STORES, "a_agent_memory_store");
     tenant_scoped_update_sql(SQL_UPDATE_AGENT_MEMORY_PROFILE, "a_agent_memory_profile");
     tenant_scoped_update_sql(SQL_UPDATE_AGENT_MEMORY_BINDING, "a_agent_memory_binding");
-    tenant_scoped_update_sql(SQL_UPDATE_AGENT_MEMORY_NAMESPACE, "a_agent_memory_namespace");
+    tenant_scoped_update_sql(
+        SQL_UPDATE_AGENT_MEMORY_NAMESPACE,
+        "a_agent_memory_namespace",
+    );
 }
 
 #[test]

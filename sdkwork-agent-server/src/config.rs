@@ -44,11 +44,18 @@ impl ServerConfig {
     pub fn from_env() -> anyhow::Result<Self> {
         let mut config = Self::default();
 
-        if let Ok(addr) = std::env::var("SDKWORK_BIND_ADDRESS") {
-            config.bind_address = addr;
-        }
-        if let Ok(port) = std::env::var("SDKWORK_PORT") {
-            config.port = port.parse()?;
+        if let Ok(bind) = std::env::var("SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND") {
+            let (bind_address, port) =
+                parse_ingress_bind("SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND", &bind)?;
+            config.bind_address = bind_address;
+            config.port = port;
+        } else {
+            if let Ok(addr) = std::env::var("SDKWORK_BIND_ADDRESS") {
+                config.bind_address = addr;
+            }
+            if let Ok(port) = std::env::var("SDKWORK_PORT") {
+                config.port = port.parse()?;
+            }
         }
         if let Ok(level) = std::env::var("SDKWORK_LOG_LEVEL") {
             config.log_level = level;
@@ -80,6 +87,25 @@ impl ServerConfig {
     }
 }
 
+fn parse_ingress_bind(env_name: &str, bind: &str) -> anyhow::Result<(String, u16)> {
+    let trimmed = bind.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("{env_name} cannot be empty");
+    }
+
+    if let Ok(socket_addr) = trimmed.parse::<std::net::SocketAddr>() {
+        return Ok((socket_addr.ip().to_string(), socket_addr.port()));
+    }
+
+    let (host, port) = trimmed
+        .rsplit_once(':')
+        .ok_or_else(|| anyhow::anyhow!("{env_name} must be host:port or a socket address"))?;
+    let port = port
+        .parse::<u16>()
+        .map_err(|error| anyhow::anyhow!("{env_name} port is invalid: {error}"))?;
+    Ok((host.to_string(), port))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -103,5 +129,16 @@ mod tests {
     fn base_url() {
         let config = ServerConfig::default();
         assert_eq!(config.base_url(), "http://localhost:8080");
+    }
+
+    #[test]
+    fn parse_ingress_bind_host_port() {
+        let (host, port) = parse_ingress_bind(
+            "SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND",
+            "127.0.0.1:18280",
+        )
+        .expect("host:port bind should parse");
+        assert_eq!(host, "127.0.0.1");
+        assert_eq!(port, 18280);
     }
 }

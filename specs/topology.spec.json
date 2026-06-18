@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 2,
+  "kind": "sdkwork.app.topology",
+  "appId": "sdkwork-kernel",
+  "archetype": "realtime-application-platform",
+  "profileRoot": "configs/topology",
+  "profilePattern": "{hosting}.{serviceLayout}.{environment}.env",
+  "vocabulary": {
+    "hosting": { "allowed": ["self-hosted", "cloud-hosted"] },
+    "serviceLayout": { "allowed": ["unified-process", "split-services"] },
+    "environment": { "allowed": ["development", "production"] },
+    "connectivityPlane": { "allowed": ["application", "platform", "operations"] }
+  },
+  "defaults": {
+    "developmentProfileId": "self-hosted.split-services.development",
+    "productionProfileId": "cloud-hosted.split-services.production"
+  },
+  "profileFiles": {
+    "self-hosted.split-services.development": "configs/topology/self-hosted.split-services.development.env",
+    "self-hosted.unified-process.development": "configs/topology/self-hosted.unified-process.development.env",
+    "self-hosted.split-services.production": "configs/topology/self-hosted.split-services.production.env",
+    "cloud-hosted.split-services.development": "configs/topology/cloud-hosted.split-services.development.env",
+    "cloud-hosted.split-services.production": "configs/topology/cloud-hosted.split-services.production.env"
+  },
+  "envKeys": {
+    "hosting": "SDKWORK_KERNEL_HOSTING",
+    "serviceLayout": "SDKWORK_KERNEL_SERVICE_LAYOUT",
+    "environment": "SDKWORK_KERNEL_ENVIRONMENT",
+    "profileId": "SDKWORK_KERNEL_PROFILE_ID",
+    "clientHosting": "VITE_SDKWORK_KERNEL_HOSTING",
+    "gatewayAutostart": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_AUTOSTART",
+    "clientApiGatewayBaseUrl": "VITE_SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL",
+    "apiGatewayBaseUrl": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL"
+  },
+  "surfaces": {
+    "application.public-ingress": {
+      "connectivityPlane": "application",
+      "protocols": ["http", "websocket"],
+      "bindEnv": "SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND",
+      "httpUrlEnv": "SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL",
+      "websocketUrlEnv": "SDKWORK_KERNEL_APPLICATION_PUBLIC_WEBSOCKET_URL",
+      "clientHttpEnv": "VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL",
+      "clientWebsocketEnv": "VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_WEBSOCKET_URL"
+    },
+    "platform.api-gateway": {
+      "connectivityPlane": "platform",
+      "protocols": ["http"],
+      "owner": "sdkwork-api-gateway",
+      "bindEnv": "SDKWORK_API_GATEWAY_BIND",
+      "httpUrlEnv": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL",
+      "clientHttpEnv": "VITE_SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL",
+      "autostartEnv": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_AUTOSTART"
+    }
+  },
+  "cloudPublicHosts": {
+    "application.public-ingress": { "httpHost": "kernel.sdkwork.com" },
+    "platform.api-gateway": { "httpHost": "api.sdkwork.com" }
+  },
+  "components": {
+    "agentServer": {
+      "crate": "sdkwork-agent-server",
+      "binary": "sdkwork-agent-server"
+    },
+    "kernelUi": {
+      "package": "sdkwork-kernel-ui",
+      "script": "dev"
+    }
+  },
+  "orchestration": {
+    "profiles": {
+      "self-hosted.split-services.development": {
+        "processes": [
+          {
+            "id": "application.public-ingress",
+            "crate": "sdkwork-agent-server",
+            "binary": "sdkwork-agent-server",
+            "required": true
+          },
+          {
+            "id": "kernel-ui-renderer",
+            "package": "sdkwork-kernel-ui",
+            "script": "dev",
+            "required": true
+          }
+        ],
+        "healthSurfaces": ["application.public-ingress"]
+      },
+      "self-hosted.unified-process.development": {
+        "processes": [
+          {
+            "id": "application.public-ingress",
+            "crate": "sdkwork-agent-server",
+            "binary": "sdkwork-agent-server",
+            "required": true
+          }
+        ],
+        "capabilitySubset": ["application-http", "application-websocket"],
+        "healthSurfaces": ["application.public-ingress"]
+      }
+    }
+  },
+  "scripts": {
+    "kernelDev": "scripts/kernel-dev.mjs"
+  },
+  "retired": {
+    "envKeys": [
+      "SDKWORK_KERNEL_TOPOLOGY",
+      "VITE_KERNEL_TOPOLOGY"
+    ],
+    "notes": "Use hosting/serviceLayout/environment profile ids and application.public-ingress surface keys instead of legacy topology selectors."
+  }
+}

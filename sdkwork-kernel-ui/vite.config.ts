@@ -8,6 +8,22 @@ const rootDir = path.dirname(fileURLToPath(import.meta.url));
 const packageAlias = (packageDir: string, entry = 'index.ts') =>
   path.resolve(rootDir, 'packages', packageDir, 'src', entry);
 
+function resolveUiDevServer() {
+  const bind = process.env.SDKWORK_KERNEL_UI_DEV_BIND ?? '127.0.0.1:5179';
+  const separatorIndex = bind.lastIndexOf(':');
+  if (separatorIndex <= 0) {
+    return { host: '127.0.0.1', port: 5179 };
+  }
+  const host = bind.slice(0, separatorIndex);
+  const port = Number.parseInt(bind.slice(separatorIndex + 1), 10);
+  return {
+    host: host || '127.0.0.1',
+    port: Number.isFinite(port) ? port : 5179
+  };
+}
+
+const uiDevServer = resolveUiDevServer();
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -25,7 +41,7 @@ export default defineConfig({
     }
   },
   server: {
-    host: '127.0.0.1',
-    port: 5179
+    host: uiDevServer.host,
+    port: uiDevServer.port
   }
 });

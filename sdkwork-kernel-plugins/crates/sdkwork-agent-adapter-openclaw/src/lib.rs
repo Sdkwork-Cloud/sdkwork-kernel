@@ -416,7 +416,10 @@ impl ToolProvider for OpenClawToolProvider {
 // OpenClaw Lifecycle Provider (existing, preserved)
 // ============================================================================
 
-sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(OpenClawLifecycleProvider, "openclaw");
+sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(
+    OpenClawLifecycleProvider,
+    "openclaw"
+);
 
 // ============================================================================`r`n// Tests
 // ============================================================================

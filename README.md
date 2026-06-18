@@ -638,6 +638,14 @@ documented by each subsystem:
 # Repository-level checks
 pnpm lint
 
+# Runtime topology (sdkwork-app-topology adoption)
+pnpm install
+pnpm topology:validate
+pnpm test:topology
+pnpm test:topology-baggage
+pnpm kernel:dev
+pnpm kernel:dev:unified
+
 # Kernel standard conformance
 node scripts/check-kernel-standards.mjs
 node sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs

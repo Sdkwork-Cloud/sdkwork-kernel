@@ -1,0 +1,20 @@
+{
+  "name": "sdkwork-kernel-workspace",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE",
+  "type": "module",
+  "packageManager": "pnpm@10.30.2",
+  "dependencies": {
+    "@sdkwork/app-topology": "file:../sdkwork-app-topology"
+  },
+  "scripts": {
+    "kernel:dev": "node scripts/kernel-dev.mjs --hosting self-hosted",
+    "kernel:dev:cloud": "node scripts/kernel-dev.mjs --hosting cloud-hosted",
+    "kernel:dev:unified": "node scripts/kernel-dev.mjs --hosting self-hosted --service-layout unified-process",
+    "topology:validate": "node ../sdkwork-app-topology/scripts/sdkwork-topology.mjs validate --root . --spec specs/topology.spec.json",
+    "test:topology": "node --test --experimental-test-isolation=none tests/kernel_topology_alignment.test.mjs",
+    "test:topology-baggage": "node --test --experimental-test-isolation=none scripts/dev/sdkwork-kernel-topology-baggage.test.mjs",
+    "test:topology-smoke": "node scripts/dev/sdkwork-kernel-topology-smoke.mjs",
+    "test": "pnpm topology:validate && pnpm test:topology && pnpm test:topology-baggage"
+  }
+}

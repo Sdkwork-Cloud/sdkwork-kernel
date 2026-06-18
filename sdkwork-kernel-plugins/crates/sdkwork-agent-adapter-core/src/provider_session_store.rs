@@ -1,7 +1,5 @@
 use crate::{create_session_from_config, now_iso, uuid_simple, SessionConfig};
-use sdkwork_agent_kernel::{
-    AgentMessage, AgentSession, KernelError, KernelResult, SessionState,
-};
+use sdkwork_agent_kernel::{AgentMessage, AgentSession, KernelError, KernelResult, SessionState};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -63,7 +61,10 @@ impl InMemoryProviderSessionStore {
 
         let mut inner = self.lock_inner()?;
         inner.sessions.insert(session_id, session.clone());
-        inner.conversations.entry(session.session_id.clone()).or_default();
+        inner
+            .conversations
+            .entry(session.session_id.clone())
+            .or_default();
         Ok(session)
     }
 
@@ -169,9 +170,8 @@ impl InMemoryProviderSessionStore {
 }
 
 pub fn sort_sessions_by_updated_at(sessions: &mut [AgentSession]) {
-    sessions.sort_by(|left, right| {
-        session_sort_timestamp(right).cmp(&session_sort_timestamp(left))
-    });
+    sessions
+        .sort_by(|left, right| session_sort_timestamp(right).cmp(&session_sort_timestamp(left)));
 }
 
 fn session_sort_timestamp(session: &AgentSession) -> &str {

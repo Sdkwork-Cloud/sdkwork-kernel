@@ -28,6 +28,8 @@ const commands = [
   ['node', ['scripts/check-agent-sdk-workspace.mjs']],
   ['node', ['sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs']],
   ['node', ['--test', 'tests/kernel_workspace_structure.test.mjs']],
+  ['node', ['--test', 'tests/kernel_topology_alignment.test.mjs']],
+  ['node', ['--test', 'scripts/dev/sdkwork-kernel-topology-baggage.test.mjs']],
   [
     'node',
     [

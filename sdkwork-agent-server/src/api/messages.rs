@@ -56,15 +56,13 @@ pub async fn send_message(
         content: request.content,
         metadata: None,
     };
-    let row = state
-        .send_message(&session_id, config)
-        .map_err(|error| {
-            if error.contains("not found") {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        })?;
+    let row = state.send_message(&session_id, config).map_err(|error| {
+        if error.contains("not found") {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    })?;
     Ok((StatusCode::CREATED, Json(message_row_to_response(row))))
 }
 
@@ -211,7 +209,8 @@ mod tests {
         .await
         .expect("sent");
 
-        let Json(result) = message_count(State(state.clone()), Path(session.session_id)).await
+        let Json(result) = message_count(State(state.clone()), Path(session.session_id))
+            .await
             .expect("count");
         assert_eq!(result["count"], 1);
     }

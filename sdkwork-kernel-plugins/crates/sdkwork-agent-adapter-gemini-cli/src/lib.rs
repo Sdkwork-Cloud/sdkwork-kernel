@@ -412,7 +412,10 @@ impl ToolProvider for GeminiToolProvider {
 // Gemini CLI Lifecycle Provider (existing, preserved)
 // ============================================================================
 
-sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(GeminiCliLifecycleProvider, "gemini-cli");
+sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(
+    GeminiCliLifecycleProvider,
+    "gemini-cli"
+);
 
 // ============================================================================`r`n// Tests
 // ============================================================================

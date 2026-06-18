@@ -6,6 +6,10 @@ builds on that foundation with software-engineering-specific SPI for
 workspaces, VCS, patches, terminal execution, verification, language
 intelligence, review, artifacts, and the code-agent runtime registry.
 
+Runtime connectivity profiles for local dev and deployment live in
+[`topology.spec.json`](./topology.spec.json) with env files under
+`../configs/topology/`. See [`../docs/topology-standard.md`](../docs/topology-standard.md).
+
 ## Cross-Cutting Standard Set
 
 | Spec | Responsibility |

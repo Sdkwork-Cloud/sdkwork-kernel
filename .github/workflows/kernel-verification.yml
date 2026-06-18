@@ -12,15 +12,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout sdkwork-app-topology sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-app-topology
+          path: .topology-deps/sdkwork-app-topology
+          ref: main
+
+      - name: Link sdkwork-app-topology for file dependency
+        run: |
+          mkdir -p ..
+          ln -sfn "$GITHUB_WORKSPACE/.topology-deps/sdkwork-app-topology" ../sdkwork-app-topology
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10.30.2
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install workspace topology dependency
+        run: pnpm install --ignore-scripts
 
       - name: Install UI dependencies
         run: pnpm --dir sdkwork-kernel-ui install --frozen-lockfile

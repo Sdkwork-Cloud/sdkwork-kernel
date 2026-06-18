@@ -478,7 +478,10 @@ impl ToolProvider for ClaudeToolProvider {
 // Claude Code Lifecycle Provider (existing, preserved)
 // ============================================================================
 
-sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(ClaudeCodeLifecycleProvider, "claude-code");
+sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(
+    ClaudeCodeLifecycleProvider,
+    "claude-code"
+);
 
 // ============================================================================`r`n// Tests
 // ============================================================================

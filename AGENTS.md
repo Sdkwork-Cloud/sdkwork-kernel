@@ -92,6 +92,11 @@ This repository defines the SDKWork kernel standard for agent and code-agent sys
 - `node scripts/check-kernel-standards.mjs`: verify required specs, schemas, crates, and UI package structure.
 - `node scripts/verify-kernel-audit-remediation.mjs`: run the full kernel audit remediation verification matrix.
 - `node sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs`: enforce UI package layering.
+- `pnpm install`: install root `@sdkwork/app-topology` workspace dependency.
+- `pnpm topology:validate`: validate `specs/topology.spec.json` against the shared topology schema.
+- `pnpm test:topology` / `pnpm test:topology-baggage`: verify topology adoption contracts and retired vocabulary.
+- `pnpm test:topology-smoke`: start `sdkwork-agent-server` with the unified-process dev profile and wait for `/health`.
+- `pnpm kernel:dev`: start the default split-services development stack (agent server + kernel UI).
 
 ### Coding Style & Naming Conventions
 

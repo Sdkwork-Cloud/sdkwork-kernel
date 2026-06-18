@@ -797,8 +797,7 @@ macro_rules! define_provider_lifecycle_provider {
 
             fn list_active_sessions(
                 &self,
-            ) -> sdkwork_agent_kernel::KernelResult<Vec<sdkwork_agent_kernel::AgentSession>>
-            {
+            ) -> sdkwork_agent_kernel::KernelResult<Vec<sdkwork_agent_kernel::AgentSession>> {
                 self.store.list_active_sessions()
             }
 

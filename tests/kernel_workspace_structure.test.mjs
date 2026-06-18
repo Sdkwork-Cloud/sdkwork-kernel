@@ -706,6 +706,44 @@ test('kernel standards validator splits kernel UI package checks into a focused 
   }
 });
 
+test('kernel standards validator splits runtime topology checks into a focused module', () => {
+  const validatorPath = path.join(
+    root,
+    'tools',
+    'validators',
+    'kernel-standards',
+    'check-kernel-standards.mjs'
+  );
+  const kernelTopologyPath = path.join(
+    root,
+    'tools',
+    'validators',
+    'kernel-standards',
+    'kernel-topology.mjs'
+  );
+
+  assert.equal(fs.existsSync(kernelTopologyPath), true, 'kernel topology validator module should exist');
+
+  const validator = fs.readFileSync(validatorPath, 'utf8');
+  assert.match(
+    validator,
+    /from '\.\/kernel-topology\.mjs'/,
+    'kernel standards validator should import kernel topology helpers'
+  );
+  assert.match(validator, /validateKernelTopology/, 'kernel standards validator should call validateKernelTopology');
+
+  const kernelTopology = fs.readFileSync(kernelTopologyPath, 'utf8');
+  for (const requiredText of [
+    'export function validateKernelTopology',
+    'scripts/lib/kernel-topology.mjs',
+    'docs/topology-standard.md',
+    'sdkwork-topology.mjs',
+    "'validate'"
+  ]) {
+    assert.ok(kernelTopology.includes(requiredText), `kernel topology module should include ${requiredText}`);
+  }
+});
+
 test('agent SDK workspace command delegates to a reusable tools validator', () => {
   const scriptPath = path.join(root, 'scripts', 'check-agent-sdk-workspace.mjs');
   const validatorPath = path.join(

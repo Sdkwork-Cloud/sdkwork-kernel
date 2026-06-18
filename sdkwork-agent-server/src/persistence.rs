@@ -1,7 +1,5 @@
 use sdkwork_agent_database::{MessageRow, SessionRow, SqliteDatabase};
-use sdkwork_agent_session::{
-    MessageConfig, SessionConfig, SessionQuery, UnifiedSessionManager,
-};
+use sdkwork_agent_session::{MessageConfig, SessionConfig, SessionQuery, UnifiedSessionManager};
 use std::sync::{Arc, Mutex};
 
 pub type AppSessionManager = UnifiedSessionManager<
@@ -30,13 +28,8 @@ impl PersistenceState {
     }
 
     fn from_database(db: SqliteDatabase) -> Self {
-        let manager = UnifiedSessionManager::new(
-            db.clone(),
-            db.clone(),
-            db.clone(),
-            db.clone(),
-            db,
-        );
+        let manager =
+            UnifiedSessionManager::new(db.clone(), db.clone(), db.clone(), db.clone(), db);
         Self {
             manager: Arc::new(Mutex::new(manager)),
         }

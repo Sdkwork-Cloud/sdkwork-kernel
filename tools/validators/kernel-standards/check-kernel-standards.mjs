@@ -11,6 +11,7 @@ import {
 import { validateAgentKnowledgeMemoryContracts } from './agent-knowledge-memory-contracts.mjs';
 import { validateKernelContracts } from './kernel-contracts.mjs';
 import { validateKernelUiPackages } from './ui-packages.mjs';
+import { validateKernelTopology } from './kernel-topology.mjs';
 import { validateWorkspaceEvidence } from './workspace-evidence.mjs';
 
 export function runKernelStandardsCheck() {
@@ -47,6 +48,7 @@ export function runKernelStandardsCheck() {
 
   validateKernelContracts({ kernelRoot, errors, ensureFile, readJson, readFileIfExists });
   validateKernelUiPackages({ kernelRoot, errors, ensureFile, readJson });
+  validateKernelTopology({ kernelRoot, errors, readJson });
 
   ensureFile(path.join('scripts', 'check-agent-sdk-workspace.mjs'));
   const agentSdkWorkspaceCheck = spawnSync(

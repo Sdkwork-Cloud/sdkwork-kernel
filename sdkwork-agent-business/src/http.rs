@@ -59,11 +59,11 @@ use sdkwork_code_kernel::CodeTaskIntent;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
+#[cfg(feature = "postgres-sync")]
+use std::sync::Mutex as ServiceMutex;
 use time::OffsetDateTime;
 #[cfg(not(feature = "postgres-sync"))]
 use tokio::sync::Mutex as ServiceMutex;
-#[cfg(feature = "postgres-sync")]
-use std::sync::Mutex as ServiceMutex;
 
 const HEADER_SUBJECT_ID: &str = "x-subject-id";
 const HEADER_SUBJECT_TENANT_ID: &str = "x-subject-tenant-id";
@@ -650,7 +650,10 @@ impl AgentHttpState {
     }
 }
 
-async fn inject_gateway_agent_context(mut request: Request<axum::body::Body>, next: Next) -> Response {
+async fn inject_gateway_agent_context(
+    mut request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
     match AgentRequestContext::from_gateway_subject_headers(request.headers()) {
         Ok(context) => {
             request.extensions_mut().insert(context);
@@ -3105,10 +3108,11 @@ async fn backend_list_agents(
     Extension(context): Extension<AgentRequestContext>,
 ) -> Result<Json<AgentListResponse>, ApiProblem> {
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
-    let scope = RequestScope::from_trusted_extension(context, 
+    let scope = RequestScope::from_trusted_extension(
+        context,
         query.tenant_id.clone(),
         query.organization_id.clone(),
-        query.owner_user_id.clone()
+        query.owner_user_id.clone(),
     )?;
     execute_list(state, query, scope).await
 }
@@ -3130,10 +3134,11 @@ async fn backend_create_agent(
 ) -> Result<(StatusCode, Json<AgentResponse>), ApiProblem> {
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
-    let scope = RequestScope::from_trusted_extension(context, 
+    let scope = RequestScope::from_trusted_extension(
+        context,
         query.tenant_id,
         body.organization_id.clone(),
-        body.owner_user_id.clone()
+        body.owner_user_id.clone(),
     )?;
     execute_create(state, scope, body).await
 }
@@ -4096,10 +4101,11 @@ async fn list_knowledge_bases(
     Extension(context): Extension<AgentRequestContext>,
 ) -> Result<Json<KnowledgeBaseListResponse>, ApiProblem> {
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
-    let scope = RequestScope::from_trusted_extension(context, 
+    let scope = RequestScope::from_trusted_extension(
+        context,
         query.tenant_id.clone(),
         query.organization_id.clone(),
-        query.owner_user_id.clone()
+        query.owner_user_id.clone(),
     )?;
     execute_list_knowledge_bases(state, query, scope).await
 }
@@ -4112,10 +4118,11 @@ async fn create_knowledge_base(
 ) -> Result<(StatusCode, Json<KnowledgeBaseResponse>), ApiProblem> {
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
-    let scope = RequestScope::from_trusted_extension(context, 
+    let scope = RequestScope::from_trusted_extension(
+        context,
         query.tenant_id,
         body.organization_id.clone(),
-        body.owner_user_id.clone()
+        body.owner_user_id.clone(),
     )?;
     execute_create_knowledge_base(state, scope, body).await
 }
@@ -4208,10 +4215,11 @@ async fn create_knowledge_source(
     let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
-    let scope = RequestScope::from_trusted_extension(context, 
+    let scope = RequestScope::from_trusted_extension(
+        context,
         query.tenant_id,
         body.organization_id.clone(),
-        None
+        None,
     )?;
     execute_create_knowledge_source(state, scope, path.knowledge_base_id, body).await
 }
@@ -4304,10 +4312,11 @@ async fn create_knowledge_document(
     let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
-    let scope = RequestScope::from_trusted_extension(context, 
+    let scope = RequestScope::from_trusted_extension(
+        context,
         query.tenant_id,
         body.organization_id.clone(),
-        None
+        None,
     )?;
     execute_create_knowledge_document(state, scope, path.knowledge_base_id, body).await
 }
@@ -4414,10 +4423,11 @@ async fn create_knowledge_chunk(
     let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
-    let scope = RequestScope::from_trusted_extension(context, 
+    let scope = RequestScope::from_trusted_extension(
+        context,
         query.tenant_id,
         body.organization_id.clone(),
-        None
+        None,
     )?;
     execute_create_knowledge_chunk(state, scope, path.knowledge_document_id, body).await
 }
@@ -4506,10 +4516,11 @@ async fn create_knowledge_binding(
     let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
-    let scope = RequestScope::from_trusted_extension(context, 
+    let scope = RequestScope::from_trusted_extension(
+        context,
         query.tenant_id,
         body.organization_id.clone(),
-        None
+        None,
     )?;
     execute_create_knowledge_binding(state, scope, path.knowledge_base_id, body).await
 }
@@ -4555,10 +4566,11 @@ async fn create_knowledge_sync_job(
     let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
-    let scope = RequestScope::from_trusted_extension(context, 
+    let scope = RequestScope::from_trusted_extension(
+        context,
         query.tenant_id,
         body.organization_id.clone(),
-        None
+        None,
     )?;
     execute_create_knowledge_sync_job(state, scope, path.knowledge_base_id, body).await
 }
@@ -4940,10 +4952,11 @@ async fn create_memory_store(
 ) -> Result<(StatusCode, Json<MemoryStoreResponse>), ApiProblem> {
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
-    let scope = RequestScope::from_trusted_extension(context, 
+    let scope = RequestScope::from_trusted_extension(
+        context,
         query.tenant_id,
         body.organization_id.clone(),
-        body.owner_user_id.clone()
+        body.owner_user_id.clone(),
     )?;
     execute_create_memory_store(state, scope, body).await
 }
@@ -4984,10 +4997,11 @@ async fn create_memory_profile(
     let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
-    let scope = RequestScope::from_trusted_extension(context, 
+    let scope = RequestScope::from_trusted_extension(
+        context,
         query.tenant_id,
         body.organization_id.clone(),
-        body.owner_user_id.clone()
+        body.owner_user_id.clone(),
     )?;
     execute_create_memory_profile(state, scope, path.memory_store_id, body).await
 }
@@ -5014,10 +5028,11 @@ async fn create_memory_binding(
     let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
-    let scope = RequestScope::from_trusted_extension(context, 
+    let scope = RequestScope::from_trusted_extension(
+        context,
         query.tenant_id,
         body.organization_id.clone(),
-        None
+        None,
     )?;
     execute_create_memory_binding(state, scope, path.memory_profile_id, body).await
 }
@@ -5042,10 +5057,11 @@ async fn create_memory_namespace(
 ) -> Result<(StatusCode, Json<MemoryNamespaceResponse>), ApiProblem> {
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
-    let scope = RequestScope::from_trusted_extension(context, 
+    let scope = RequestScope::from_trusted_extension(
+        context,
         query.tenant_id,
         body.organization_id.clone(),
-        None
+        None,
     )?;
     execute_create_memory_namespace(state, scope, body).await
 }
@@ -5091,10 +5107,11 @@ async fn create_memory_record(
     let Path(path) = path.map_err(ApiProblem::from_path_rejection)?;
     let Query(query) = query.map_err(ApiProblem::from_query_rejection)?;
     let Json(body) = body.map_err(ApiProblem::from_json_rejection)?;
-    let scope = RequestScope::from_trusted_extension(context, 
+    let scope = RequestScope::from_trusted_extension(
+        context,
         query.tenant_id,
         body.organization_id.clone(),
-        None
+        None,
     )?;
     execute_create_memory_record(state, scope, path.memory_namespace_id, body).await
 }
@@ -5238,11 +5255,9 @@ where
 {
     let service = Arc::clone(&state.service);
     let result = tokio::task::spawn_blocking(move || {
-        let mut guard = service
-            .lock()
-            .map_err(|_| KernelError::Internal {
-                message: "agent business service lock poisoned".to_string(),
-            })?;
+        let mut guard = service.lock().map_err(|_| KernelError::Internal {
+            message: "agent business service lock poisoned".to_string(),
+        })?;
         action(&mut *guard)
     })
     .await
@@ -5475,7 +5490,10 @@ async fn execute_delete_knowledge_base(
         requested_by: scope.subject,
         requested_at,
     };
-    let record = with_service_mut(&state, move |service| service.delete_knowledge_base(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.delete_knowledge_base(command)
+    })
+    .await?;
     Ok(Json(KnowledgeBaseResponse {
         data: map_knowledge_base_record(&AgentKnowledgeBaseRecordDto::from_record(&record), 0),
     }))
@@ -5582,8 +5600,10 @@ async fn execute_create_knowledge_source(
     .into_command(scope.subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record =
-        with_service_mut(&state, move |service| service.create_knowledge_source(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.create_knowledge_source(command)
+    })
+    .await?;
     Ok((
         StatusCode::CREATED,
         Json(KnowledgeSourceResponse {
@@ -5604,7 +5624,8 @@ async fn execute_get_knowledge_source(
         item_id: knowledge_source_id,
         requested_by: scope.subject,
     };
-    let record = with_service_mut(&state, move |service| service.get_knowledge_source(command)).await?;
+    let record =
+        with_service_mut(&state, move |service| service.get_knowledge_source(command)).await?;
     Ok(Json(KnowledgeSourceResponse {
         data: map_knowledge_source_record(&AgentKnowledgeSourceRecordDto::from_record(&record))?,
     }))
@@ -5637,8 +5658,10 @@ async fn execute_update_knowledge_source(
     }
     .into_command(scope.subject)
     .map_err(ApiProblem::from_kernel_error)?;
-    let record =
-        with_service_mut(&state, move |service| service.update_knowledge_source(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.update_knowledge_source(command)
+    })
+    .await?;
     Ok(Json(KnowledgeSourceResponse {
         data: map_knowledge_source_record(&AgentKnowledgeSourceRecordDto::from_record(&record))?,
     }))
@@ -5664,8 +5687,10 @@ async fn execute_delete_knowledge_source(
         requested_by: scope.subject,
         requested_at,
     };
-    let record =
-        with_service_mut(&state, move |service| service.delete_knowledge_source(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.delete_knowledge_source(command)
+    })
+    .await?;
     Ok(Json(KnowledgeSourceResponse {
         data: map_knowledge_source_record(&AgentKnowledgeSourceRecordDto::from_record(&record))?,
     }))
@@ -5691,8 +5716,10 @@ async fn execute_restore_knowledge_source(
         requested_by: scope.subject,
         requested_at: body.requested_at,
     };
-    let record =
-        with_service_mut(&state, move |service| service.restore_knowledge_source(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.restore_knowledge_source(command)
+    })
+    .await?;
     Ok(Json(KnowledgeSourceResponse {
         data: map_knowledge_source_record(&AgentKnowledgeSourceRecordDto::from_record(&record))?,
     }))
@@ -5771,8 +5798,10 @@ async fn execute_create_knowledge_document(
     .into_command(scope.subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record =
-        with_service_mut(&state, move |service| service.create_knowledge_document(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.create_knowledge_document(command)
+    })
+    .await?;
     Ok((
         StatusCode::CREATED,
         Json(KnowledgeDocumentResponse {
@@ -5800,7 +5829,8 @@ async fn execute_search_knowledge(
     .into_command(scope.subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let results = with_service_mut(&state, move |service| service.search_knowledge(command)).await?;
+    let results =
+        with_service_mut(&state, move |service| service.search_knowledge(command)).await?;
     let items = results
         .iter()
         .map(|record| {
@@ -5823,8 +5853,10 @@ async fn execute_get_knowledge_document(
         item_id: knowledge_document_id,
         requested_by: scope.subject,
     };
-    let record =
-        with_service_mut(&state, move |service| service.get_knowledge_document(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.get_knowledge_document(command)
+    })
+    .await?;
     Ok(Json(KnowledgeDocumentResponse {
         data: map_knowledge_document_record(&AgentKnowledgeDocumentRecordDto::from_record(
             &record,
@@ -5852,9 +5884,10 @@ async fn execute_update_knowledge_document(
                     item_id: knowledge_document_id.clone(),
                     requested_by: subject.clone(),
                 };
-                let current =
-                    with_service_mut(&state, move |service| service.get_knowledge_document(command))
-                        .await?;
+                let current = with_service_mut(&state, move |service| {
+                    service.get_knowledge_document(command)
+                })
+                .await?;
                 current.metadata_json
             }
         };
@@ -5884,8 +5917,10 @@ async fn execute_update_knowledge_document(
     }
     .into_command(subject)
     .map_err(ApiProblem::from_kernel_error)?;
-    let record =
-        with_service_mut(&state, move |service| service.update_knowledge_document(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.update_knowledge_document(command)
+    })
+    .await?;
     Ok(Json(KnowledgeDocumentResponse {
         data: map_knowledge_document_record(&AgentKnowledgeDocumentRecordDto::from_record(
             &record,
@@ -5913,8 +5948,10 @@ async fn execute_delete_knowledge_document(
         requested_by: scope.subject,
         requested_at,
     };
-    let record =
-        with_service_mut(&state, move |service| service.delete_knowledge_document(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.delete_knowledge_document(command)
+    })
+    .await?;
     Ok(Json(KnowledgeDocumentResponse {
         data: map_knowledge_document_record(&AgentKnowledgeDocumentRecordDto::from_record(
             &record,
@@ -6015,8 +6052,10 @@ async fn execute_create_knowledge_chunk(
     .into_command(scope.subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record =
-        with_service_mut(&state, move |service| service.create_knowledge_chunk(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.create_knowledge_chunk(command)
+    })
+    .await?;
     Ok((
         StatusCode::CREATED,
         Json(KnowledgeChunkResponse {
@@ -6035,7 +6074,8 @@ async fn execute_get_knowledge_chunk(
         item_id: knowledge_chunk_id,
         requested_by: scope.subject,
     };
-    let record = with_service_mut(&state, move |service| service.get_knowledge_chunk(command)).await?;
+    let record =
+        with_service_mut(&state, move |service| service.get_knowledge_chunk(command)).await?;
     Ok(Json(KnowledgeChunkResponse {
         data: map_knowledge_chunk_record(&AgentKnowledgeChunkRecordDto::from_record(&record))?,
     }))
@@ -6099,8 +6139,10 @@ async fn execute_upsert_knowledge_index(
     .into_command(scope.subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record =
-        with_service_mut(&state, move |service| service.upsert_knowledge_index(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.upsert_knowledge_index(command)
+    })
+    .await?;
     Ok((
         StatusCode::CREATED,
         Json(KnowledgeIndexResponse {
@@ -6119,7 +6161,8 @@ async fn execute_get_knowledge_index(
         item_id: knowledge_index_id,
         requested_by: scope.subject,
     };
-    let record = with_service_mut(&state, move |service| service.get_knowledge_index(command)).await?;
+    let record =
+        with_service_mut(&state, move |service| service.get_knowledge_index(command)).await?;
     Ok(Json(KnowledgeIndexResponse {
         data: map_knowledge_index_record(&AgentKnowledgeIndexRecordDto::from_record(&record)),
     }))
@@ -6183,8 +6226,10 @@ async fn execute_create_knowledge_binding(
     .into_command(scope.subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record =
-        with_service_mut(&state, move |service| service.create_knowledge_binding(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.create_knowledge_binding(command)
+    })
+    .await?;
     Ok((
         StatusCode::CREATED,
         Json(KnowledgeBindingResponse {
@@ -6205,7 +6250,10 @@ async fn execute_get_knowledge_binding(
         item_id: knowledge_binding_id,
         requested_by: scope.subject,
     };
-    let record = with_service_mut(&state, move |service| service.get_knowledge_binding(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.get_knowledge_binding(command)
+    })
+    .await?;
     Ok(Json(KnowledgeBindingResponse {
         data: map_knowledge_binding_record(&AgentKnowledgeBindingRecordDto::from_record(&record)),
     }))
@@ -6268,8 +6316,10 @@ async fn execute_create_knowledge_sync_job(
     .into_command(scope.subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record =
-        with_service_mut(&state, move |service| service.create_knowledge_sync_job(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.create_knowledge_sync_job(command)
+    })
+    .await?;
     Ok((
         StatusCode::CREATED,
         Json(KnowledgeSyncJobResponse {
@@ -6290,8 +6340,10 @@ async fn execute_get_knowledge_sync_job(
         item_id: sync_job_id,
         requested_by: scope.subject,
     };
-    let record =
-        with_service_mut(&state, move |service| service.get_knowledge_sync_job(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.get_knowledge_sync_job(command)
+    })
+    .await?;
     Ok(Json(KnowledgeSyncJobResponse {
         data: map_knowledge_sync_job_record(&AgentKnowledgeSyncJobRecordDto::from_record(&record))?,
     }))
@@ -6310,8 +6362,10 @@ async fn execute_start_knowledge_sync_job(
         requested_by: scope.subject,
         requested_at: body.requested_at,
     };
-    let record =
-        with_service_mut(&state, move |service| service.start_knowledge_sync_job(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.start_knowledge_sync_job(command)
+    })
+    .await?;
     Ok(Json(KnowledgeSyncJobResponse {
         data: map_knowledge_sync_job_record(&AgentKnowledgeSyncJobRecordDto::from_record(&record))?,
     }))
@@ -6356,8 +6410,10 @@ async fn execute_fail_knowledge_sync_job(
         requested_by: scope.subject,
         requested_at: body.requested_at,
     };
-    let record =
-        with_service_mut(&state, move |service| service.fail_knowledge_sync_job(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.fail_knowledge_sync_job(command)
+    })
+    .await?;
     Ok(Json(KnowledgeSyncJobResponse {
         data: map_knowledge_sync_job_record(&AgentKnowledgeSyncJobRecordDto::from_record(&record))?,
     }))
@@ -6378,8 +6434,10 @@ async fn execute_cancel_knowledge_sync_job(
         requested_by: scope.subject,
         requested_at: body.requested_at,
     };
-    let record =
-        with_service_mut(&state, move |service| service.cancel_knowledge_sync_job(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.cancel_knowledge_sync_job(command)
+    })
+    .await?;
     Ok(Json(KnowledgeSyncJobResponse {
         data: map_knowledge_sync_job_record(&AgentKnowledgeSyncJobRecordDto::from_record(&record))?,
     }))
@@ -6410,7 +6468,8 @@ async fn execute_create_memory_store(
     .into_command(subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record = with_service_mut(&state, move |service| service.create_memory_store(command)).await?;
+    let record =
+        with_service_mut(&state, move |service| service.create_memory_store(command)).await?;
     Ok((
         StatusCode::CREATED,
         Json(MemoryStoreResponse {
@@ -6459,7 +6518,8 @@ async fn execute_update_memory_store(
     .into_command(subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record = with_service_mut(&state, move |service| service.update_memory_store(command)).await?;
+    let record =
+        with_service_mut(&state, move |service| service.update_memory_store(command)).await?;
     Ok(Json(MemoryStoreResponse {
         data: map_memory_store_record(&AgentMemoryStoreRecordDto::from_record(&record)),
     }))
@@ -6507,7 +6567,10 @@ async fn execute_create_memory_profile(
     .into_command(subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record = with_service_mut(&state, move |service| service.create_memory_profile(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.create_memory_profile(command)
+    })
+    .await?;
     Ok((
         StatusCode::CREATED,
         Json(MemoryProfileResponse {
@@ -6526,7 +6589,8 @@ async fn execute_get_memory_profile(
         item_id: memory_profile_id,
         requested_by: scope.subject,
     };
-    let record = with_service_mut(&state, move |service| service.get_memory_profile(command)).await?;
+    let record =
+        with_service_mut(&state, move |service| service.get_memory_profile(command)).await?;
     Ok(Json(MemoryProfileResponse {
         data: map_memory_profile_record(&AgentMemoryProfileRecordDto::from_record(&record))?,
     }))
@@ -6555,7 +6619,10 @@ async fn execute_create_memory_binding(
     .into_command(subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record = with_service_mut(&state, move |service| service.create_memory_binding(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.create_memory_binding(command)
+    })
+    .await?;
     Ok((
         StatusCode::CREATED,
         Json(MemoryBindingResponse {
@@ -6574,7 +6641,8 @@ async fn execute_get_memory_binding(
         item_id: memory_binding_id,
         requested_by: scope.subject,
     };
-    let record = with_service_mut(&state, move |service| service.get_memory_binding(command)).await?;
+    let record =
+        with_service_mut(&state, move |service| service.get_memory_binding(command)).await?;
     Ok(Json(MemoryBindingResponse {
         data: map_memory_binding_record(&AgentMemoryBindingRecordDto::from_record(&record)),
     }))
@@ -6601,8 +6669,10 @@ async fn execute_create_memory_namespace(
     .into_command(subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record =
-        with_service_mut(&state, move |service| service.create_memory_namespace(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.create_memory_namespace(command)
+    })
+    .await?;
     Ok((
         StatusCode::CREATED,
         Json(MemoryNamespaceResponse {
@@ -6621,7 +6691,8 @@ async fn execute_get_memory_namespace(
         item_id: memory_namespace_id,
         requested_by: scope.subject,
     };
-    let record = with_service_mut(&state, move |service| service.get_memory_namespace(command)).await?;
+    let record =
+        with_service_mut(&state, move |service| service.get_memory_namespace(command)).await?;
     Ok(Json(MemoryNamespaceResponse {
         data: map_memory_namespace_record(&AgentMemoryNamespaceRecordDto::from_record(&record)),
     }))
@@ -6691,7 +6762,8 @@ async fn execute_create_memory_record(
     .into_command(subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record = with_service_mut(&state, move |service| service.create_memory_record(command)).await?;
+    let record =
+        with_service_mut(&state, move |service| service.create_memory_record(command)).await?;
     Ok((
         StatusCode::CREATED,
         Json(MemoryRecordResponse {
@@ -6710,7 +6782,8 @@ async fn execute_get_memory_record(
         item_id: memory_id,
         requested_by: scope.subject,
     };
-    let record = with_service_mut(&state, move |service| service.get_memory_record(command)).await?;
+    let record =
+        with_service_mut(&state, move |service| service.get_memory_record(command)).await?;
     Ok(Json(MemoryRecordResponse {
         data: map_memory_record(&AgentMemoryRecordDto::from_record(&record))?,
     }))
@@ -6736,7 +6809,8 @@ async fn execute_delete_memory_record(
         requested_by: scope.subject,
         requested_at,
     };
-    let record = with_service_mut(&state, move |service| service.delete_memory_record(command)).await?;
+    let record =
+        with_service_mut(&state, move |service| service.delete_memory_record(command)).await?;
     Ok(Json(MemoryRecordResponse {
         data: map_memory_record(&AgentMemoryRecordDto::from_record(&record))?,
     }))
@@ -6762,7 +6836,10 @@ async fn execute_restore_memory_record(
         requested_by: scope.subject,
         requested_at: body.requested_at,
     };
-    let record = with_service_mut(&state, move |service| service.restore_memory_record(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.restore_memory_record(command)
+    })
+    .await?;
     Ok(Json(MemoryRecordResponse {
         data: map_memory_record(&AgentMemoryRecordDto::from_record(&record))?,
     }))
@@ -6826,7 +6903,8 @@ async fn execute_create_memory_source(
     .into_command(subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record = with_service_mut(&state, move |service| service.create_memory_source(command)).await?;
+    let record =
+        with_service_mut(&state, move |service| service.create_memory_source(command)).await?;
     Ok((
         StatusCode::CREATED,
         Json(MemorySourceResponse {
@@ -6898,8 +6976,10 @@ async fn execute_create_memory_relation(
     .into_command(subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record =
-        with_service_mut(&state, move |service| service.create_memory_relation(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.create_memory_relation(command)
+    })
+    .await?;
     Ok((
         StatusCode::CREATED,
         Json(MemoryRelationResponse {
@@ -7250,7 +7330,8 @@ async fn execute_add_provider_binding(
     .into_command(scope.subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record = with_service_mut(&state, move |service| service.add_provider_binding(command)).await?;
+    let record =
+        with_service_mut(&state, move |service| service.add_provider_binding(command)).await?;
     Ok((
         StatusCode::CREATED,
         Json(AgentProviderBindingResponse {
@@ -7274,8 +7355,10 @@ async fn execute_activate_provider_binding(
     .into_command(scope.subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record =
-        with_service_mut(&state, move |service| service.activate_provider_binding(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.activate_provider_binding(command)
+    })
+    .await?;
     Ok(Json(AgentProviderBindingResponse {
         data: map_provider_binding_record(&AgentProviderBindingRecordDto::from_record(&record)),
     }))
@@ -7337,7 +7420,8 @@ async fn execute_create_deployment(
     .into_command(scope.subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record = with_service_mut(&state, move |service| service.create_deployment(command)).await?;
+    let record =
+        with_service_mut(&state, move |service| service.create_deployment(command)).await?;
     Ok((
         StatusCode::CREATED,
         Json(AgentDeploymentResponse {
@@ -7372,8 +7456,10 @@ async fn execute_create_preview_response(
     .into_command(scope.subject)
     .map_err(ApiProblem::from_kernel_error)?;
 
-    let record =
-        with_service_mut(&state, move |service| service.create_preview_response(command)).await?;
+    let record = with_service_mut(&state, move |service| {
+        service.create_preview_response(command)
+    })
+    .await?;
     Ok(Json(AgentRuntimeExecutionResponse {
         data: map_runtime_execution_record(&AgentRuntimeExecutionRecordDto::from_record(&record))?,
     }))

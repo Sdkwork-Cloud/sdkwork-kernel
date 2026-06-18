@@ -9,11 +9,7 @@ pub struct BridgeSessionRuntime {
 }
 
 impl BridgeSessionRuntime {
-    pub fn new(
-        provider_id: &str,
-        bridge_id: &str,
-        provider_label: &str,
-    ) -> Result<Self, String> {
+    pub fn new(provider_id: &str, bridge_id: &str, provider_label: &str) -> Result<Self, String> {
         Ok(Self {
             store: BridgeSessionStore::open_default(provider_id, bridge_id)?,
             provider_label: provider_label.to_string(),
@@ -43,7 +39,8 @@ impl BridgeSessionRuntime {
             timestamp: chrono::Utc::now().to_rfc3339(),
             metadata: None,
         };
-        self.store.append_message(&request.session_id, user_message)?;
+        self.store
+            .append_message(&request.session_id, user_message)?;
 
         let assistant_content = format!(
             "[{}] {}",

@@ -8,6 +8,8 @@ Allowed content: schemas, dev/test/staging/prod examples, non-secret defaults, a
 
 Forbidden content: `.env.local`, live tokens, database passwords, private service endpoints, user-private runtime config, logs, caches, and runtime state.
 
-Related specs: `../sdkwork-specs/SDKWORK_WORKSPACE_SPEC.md`, `../sdkwork-specs/CONFIG_SPEC.md`, `../sdkwork-specs/ENVIRONMENT_SPEC.md`, and `../sdkwork-specs/RUNTIME_DIRECTORY_SPEC.md`.
+Related specs: `../sdkwork-specs/SDKWORK_WORKSPACE_SPEC.md`, `../sdkwork-specs/CONFIG_SPEC.md`, `../sdkwork-specs/ENVIRONMENT_SPEC.md`, `../sdkwork-specs/RUNTIME_DIRECTORY_SPEC.md`, `../sdkwork-specs/APP_RUNTIME_TOPOLOGY_ADOPTION.md`.
+
+Topology profile env files live under `topology/` and are loaded by `scripts/lib/kernel-topology.mjs` via `@sdkwork/app-topology`. See `../docs/topology-standard.md`.
 
 Verification: run `node scripts/check-kernel-standards.mjs`; config-specific additions must include a no-secrets review checklist.

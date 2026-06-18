@@ -416,7 +416,10 @@ impl ToolProvider for MiMoCodeToolProvider {
 // MiMo Code Lifecycle Provider (existing, preserved)
 // ============================================================================
 
-sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(MiMoCodeLifecycleProvider, "mimo-code");
+sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(
+    MiMoCodeLifecycleProvider,
+    "mimo-code"
+);
 
 // ============================================================================`r`n// Tests
 // ============================================================================

@@ -357,7 +357,10 @@ impl ToolProvider for OpenCodeToolProvider {
 // OpenCode Lifecycle Provider (existing, preserved)
 // ============================================================================
 
-sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(OpenCodeLifecycleProvider, "opencode");
+sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(
+    OpenCodeLifecycleProvider,
+    "opencode"
+);
 
 // ============================================================================`r`n// Tests
 // ============================================================================

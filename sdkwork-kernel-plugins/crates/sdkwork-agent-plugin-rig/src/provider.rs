@@ -710,16 +710,18 @@ impl PlanningProvider for RigPlanningProvider {
         RigPlanningProvider::provider_manifest(self)
     }
 
-    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> Plan {
-        Plan::new("plan.rig.runtime", task_id, run_id, summary).add_action(
-            Action::new(
-                "action.model.invoke",
-                ActionKind::ModelCall,
-                "invoke Rig model provider",
-            )
-            .with_required_capabilities(vec!["model.chat".to_string()])
-            .with_side_effect_level(SideEffectLevel::ExternalSend)
-            .with_policy_categories(vec![PolicyCategory::ModelInvoke.as_str().to_string()]),
+    fn create_plan(&self, task_id: &str, run_id: &str, summary: &str) -> KernelResult<Plan> {
+        Ok(
+            Plan::new("plan.rig.runtime", task_id, run_id, summary).add_action(
+                Action::new(
+                    "action.model.invoke",
+                    ActionKind::ModelCall,
+                    "invoke Rig model provider",
+                )
+                .with_required_capabilities(vec!["model.chat".to_string()])
+                .with_side_effect_level(SideEffectLevel::ExternalSend)
+                .with_policy_categories(vec![PolicyCategory::ModelInvoke.as_str().to_string()]),
+            ),
         )
     }
 

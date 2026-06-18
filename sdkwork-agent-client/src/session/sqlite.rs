@@ -177,7 +177,10 @@ impl SqliteBridgeSessionStore {
                 messages = messages.split_off(messages.len() - keep);
             }
         }
-        Ok(messages.into_iter().map(|row| message_from_row(&row)).collect())
+        Ok(messages
+            .into_iter()
+            .map(|row| message_from_row(&row))
+            .collect())
     }
 
     pub fn append_message(&self, session_id: &str, message: ChatMessage) -> Result<(), String> {

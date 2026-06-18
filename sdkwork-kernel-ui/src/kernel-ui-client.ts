@@ -16,7 +16,10 @@ function hasStaticEnvAuth(): boolean {
 }
 
 export function kernelApiUrl(): string | undefined {
-  return import.meta.env.VITE_KERNEL_API_URL as string | undefined;
+  return (
+    import.meta.env.VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL ??
+    import.meta.env.VITE_KERNEL_API_URL
+  ) as string | undefined;
 }
 
 export function needsKernelUiSessionGate(): boolean {

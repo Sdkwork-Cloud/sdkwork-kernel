@@ -300,6 +300,7 @@ test('standards alignment records architecture decision and quality gate evidenc
     'tools/validators/kernel-standards/agent-knowledge-memory-contracts.mjs',
     'tools/validators/kernel-standards/kernel-contracts.mjs',
     'tools/validators/kernel-standards/ui-packages.mjs',
+    'tools/validators/kernel-standards/platform-integration.mjs',
     'tools/validators/agent-sdk-workspace/check-agent-sdk-workspace.mjs',
     'tools/validators/agent-sdk-workspace/sdkgen-standard-checks.mjs',
     'tools/validators/agent-sdk-workspace/sdk-family-metadata-checks.mjs',
@@ -316,7 +317,11 @@ test('standards alignment records architecture decision and quality gate evidenc
     'All component specs explicitly declare contracts.dependencyApiSurfaces',
     'Component SDK Route Manifest Applicability Follow-up',
     'SDK family root component specs explicitly declare contracts.routeManifest as null',
-    '"gapCount": 0'
+    '"gapCount": 0',
+    'Platform Framework Adoption Follow-up',
+    'ADR-20260618-platform-framework-adoption.md',
+    'apis/agent-business/authority-index.json',
+    'platform-integration.mjs'
   ]) {
     assert.ok(quality.includes(requiredText), `quality gate evidence should include ${requiredText}`);
   }
@@ -324,6 +329,73 @@ test('standards alignment records architecture decision and quality gate evidenc
     quality.includes('19 non-SDK component specs still omit component.surface'),
     false,
     'quality gate evidence should not keep the stale component.surface residual risk'
+  );
+});
+
+test('platform framework adoption records ADR, API authority index, and validator module', () => {
+  const adrPath = path.join(
+    root,
+    'docs',
+    'architecture',
+    'decisions',
+    'ADR-20260618-platform-framework-adoption.md'
+  );
+  const authorityIndexPath = path.join(root, 'apis', 'agent-business', 'authority-index.json');
+  const platformValidatorPath = path.join(
+    root,
+    'tools',
+    'validators',
+    'kernel-standards',
+    'platform-integration.mjs'
+  );
+
+  assert.equal(fs.existsSync(adrPath), true, 'platform framework adoption ADR should exist');
+  assert.equal(fs.existsSync(authorityIndexPath), true, 'agent-business API authority index should exist');
+  assert.equal(fs.existsSync(platformValidatorPath), true, 'platform integration validator should exist');
+
+  const adr = fs.readFileSync(adrPath, 'utf8');
+  for (const requiredText of [
+    'Status: accepted',
+    'WEB_FRAMEWORK_SPEC.md',
+    'DATABASE_SPEC.md',
+    'sdkwork-web-framework',
+    'sdkwork-database',
+    'sdkwork-discovery',
+    'Phase 0',
+    'Phase 2',
+    'Phase 3'
+  ]) {
+    assert.ok(adr.includes(requiredText), `platform ADR should include ${requiredText}`);
+  }
+
+  const authorityIndex = JSON.parse(fs.readFileSync(authorityIndexPath, 'utf8'));
+  const surfaces = new Set(authorityIndex.authorities.map((entry) => entry.surface));
+  for (const surface of ['open-api', 'app-api', 'backend-api']) {
+    assert.equal(surfaces.has(surface), true, `authority index should include ${surface}`);
+  }
+
+  const workspaceCargo = fs.readFileSync(path.join(root, 'Cargo.toml'), 'utf8');
+  for (const dependency of [
+    'sdkwork-web-core',
+    'sdkwork-web-axum',
+    'sdkwork-database-config',
+    'sdkwork-database-sqlx'
+  ]) {
+    assert.match(
+      workspaceCargo,
+      new RegExp(`${dependency} =`),
+      `workspace Cargo.toml should declare ${dependency}`
+    );
+  }
+
+  const standardsValidator = fs.readFileSync(
+    path.join(root, 'tools', 'validators', 'kernel-standards', 'check-kernel-standards.mjs'),
+    'utf8'
+  );
+  assert.match(
+    standardsValidator,
+    /from '\.\/platform-integration\.mjs'/,
+    'kernel standards validator should import platform integration checks'
   );
 });
 
@@ -510,6 +582,11 @@ test('kernel standards validator splits workspace evidence checks into a focused
   const validator = fs.readFileSync(validatorPath, 'utf8');
   assert.match(
     validator,
+    /from '\.\/platform-integration\.mjs'/,
+    'kernel standards validator should import platform integration checks'
+  );
+  assert.match(
+    validator,
     /from '\.\/workspace-evidence\.mjs'/,
     'kernel standards validator should import workspace evidence helpers'
   );
@@ -542,6 +619,8 @@ test('kernel standards validator splits workspace evidence checks into a focused
     'contracts.dependencyApiSurfaces',
     'Component SDK Route Manifest Applicability Follow-up',
     'contracts.routeManifest',
+    'ADR-20260618-platform-framework-adoption.md',
+    'platform-integration.mjs',
     'validateRequiredStandardsEvidenceFile',
     'listCurrentDictionaryFiles'
   ]) {

@@ -109,6 +109,32 @@ export const requiredStandardsEvidenceFiles = [
     ]
   },
   {
+    relativePath: path.join(
+      'docs',
+      'architecture',
+      'decisions',
+      'ADR-20260618-platform-framework-adoption.md'
+    ),
+    requiredText: [
+      'Status: accepted',
+      'Requirement: platform-framework-alignment',
+      'Date: 2026-06-18',
+      'WEB_FRAMEWORK_SPEC.md',
+      'DATABASE_SPEC.md',
+      'sdkwork-web-framework',
+      'sdkwork-database',
+      'sdkwork-discovery',
+      'Phase 0',
+      'Phase 1',
+      'Phase 2',
+      'Phase 3',
+      'crates/sdkwork-router-agent-open-api',
+      'crates/sdkwork-router-agent-app-api',
+      'crates/sdkwork-router-agent-backend-api',
+      '## Verification'
+    ]
+  },
+  {
     relativePath: path.join('docs', 'quality', 'sdkwork-standards-alignment-20260612.md'),
     requiredText: [
       'SDKWork Standards Alignment Quality Gate Evidence',
@@ -150,6 +176,7 @@ export const requiredStandardsEvidenceFiles = [
       'tools/validators/kernel-standards/agent-knowledge-memory-contracts.mjs',
       'tools/validators/kernel-standards/kernel-contracts.mjs',
       'tools/validators/kernel-standards/ui-packages.mjs',
+      'tools/validators/kernel-standards/platform-integration.mjs',
       'tools/validators/agent-sdk-workspace/check-agent-sdk-workspace.mjs',
       'tools/validators/agent-sdk-workspace/sdkgen-standard-checks.mjs',
       'tools/validators/agent-sdk-workspace/sdk-family-metadata-checks.mjs',
@@ -176,7 +203,11 @@ export const requiredStandardsEvidenceFiles = [
       'Component SDK Route Manifest Applicability Follow-up',
       'SDK family root component specs explicitly declare contracts.routeManifest as null',
       'contracts.routeManifest',
-      '"gapCount": 0'
+      '"gapCount": 0',
+      'Platform Framework Adoption Follow-up',
+      'ADR-20260618-platform-framework-adoption.md',
+      'apis/agent-business/authority-index.json',
+      'platform-integration.mjs'
     ]
   }
 ];

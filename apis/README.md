@@ -10,4 +10,12 @@ Forbidden content: generated SDK transport output, runtime implementation code, 
 
 Related specs: `../sdkwork-specs/SDKWORK_WORKSPACE_SPEC.md`, `../sdkwork-specs/API_SPEC.md`, `../sdkwork-specs/SDK_SPEC.md`, `../sdkwork-specs/TEST_SPEC.md`, and `../specs/README.md`.
 
+## Authority indexes
+
+| Index | Owner component | Surfaces |
+| --- | --- | --- |
+| [`agent-business/authority-index.json`](./agent-business/authority-index.json) | `sdkwork-agent-business` | `open-api`, `app-api`, `backend-api` |
+
+Component-local OpenAPI files remain authoritative on disk under `sdkwork-agent-business/specs/openapi/` until route crates are extracted per `docs/architecture/decisions/ADR-20260618-platform-framework-adoption.md`.
+
 Verification: run `node scripts/check-kernel-standards.mjs` and `node scripts/check-agent-sdk-workspace.mjs` from the repository root.

@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "domain": "agent",
+  "capability": "business",
+  "owner": "sdkwork-agent-business",
+  "description": "Authoritative OpenAPI 3.1.2 contracts for managed-agent business HTTP surfaces.",
+  "authorities": [
+    {
+      "surface": "open-api",
+      "apiAuthority": "sdkwork-agent-open-api",
+      "relativePath": "../../sdkwork-agent-business/specs/openapi/agent-business-open-openapi-3.1.2.yaml",
+      "pathPrefix": "/agent/v3/api"
+    },
+    {
+      "surface": "app-api",
+      "apiAuthority": "sdkwork-agent-app-api",
+      "relativePath": "../../sdkwork-agent-business/specs/openapi/agent-business-app-openapi-3.1.2.yaml",
+      "pathPrefix": "/app/v3/api"
+    },
+    {
+      "surface": "backend-api",
+      "apiAuthority": "sdkwork-agent-backend-api",
+      "relativePath": "../../sdkwork-agent-business/specs/openapi/agent-business-backend-openapi-3.1.2.yaml",
+      "pathPrefix": "/backend/v3/api"
+    }
+  ],
+  "sdkFamilies": [
+    {
+      "workspace": "sdks/sdkwork-agent-sdk",
+      "surface": "open-api"
+    },
+    {
+      "workspace": "sdks/sdkwork-agent-app-sdk",
+      "surface": "app-api"
+    },
+    {
+      "workspace": "sdks/sdkwork-agent-backend-sdk",
+      "surface": "backend-api"
+    }
+  ],
+  "relatedSpecs": [
+    "../sdkwork-specs/API_SPEC.md",
+    "../sdkwork-specs/WEB_FRAMEWORK_SPEC.md",
+    "../sdkwork-specs/WEB_BACKEND_SPEC.md",
+    "../sdkwork-specs/SDK_SPEC.md",
+    "../sdkwork-specs/SDK_WORKSPACE_GENERATION_SPEC.md"
+  ]
+}

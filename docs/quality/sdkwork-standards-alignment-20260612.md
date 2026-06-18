@@ -469,3 +469,25 @@ columns with `time::PrimitiveDateTime` (not `OffsetDateTime`, which only accepts
 session persistence, and an interactive session bootstrap panel when neither is present.
 
 Enterprise IdP OAuth redirect flows remain future product work outside this audit scope.
+
+## Platform Framework Adoption Follow-up (2026-06-18)
+
+Scope: close platform integration gaps against `WEB_FRAMEWORK_SPEC.md` and `DATABASE_SPEC.md`.
+
+Decision and evidence:
+
+- `docs/architecture/decisions/ADR-20260618-platform-framework-adoption.md`
+- `apis/agent-business/authority-index.json`
+- Workspace `Cargo.toml` declares `sdkwork-web-*` and `sdkwork-database-*` dependencies
+- `tools/validators/kernel-standards/platform-integration.mjs` enforces Phase 0 evidence
+
+Deferred by design:
+
+- `sdkwork-discovery` — no first-party gRPC/RPC services in kernel
+- `sdkwork.app.config.json` — kernel is a standards repository, not an application root
+- `sdkwork.workflow.json` — verification uses `kernel-verification.yml` until release packaging is required
+
+Verification evidence:
+
+- `node scripts/check-kernel-standards.mjs` -> exit 0
+- `node --test tests/kernel_workspace_structure.test.mjs` -> exit 0; platform framework adoption test passes

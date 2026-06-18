@@ -12,6 +12,7 @@ import { validateAgentKnowledgeMemoryContracts } from './agent-knowledge-memory-
 import { validateKernelContracts } from './kernel-contracts.mjs';
 import { validateKernelUiPackages } from './ui-packages.mjs';
 import { validateKernelTopology } from './kernel-topology.mjs';
+import { validatePlatformIntegration } from './platform-integration.mjs';
 import { validateWorkspaceEvidence } from './workspace-evidence.mjs';
 
 export function runKernelStandardsCheck() {
@@ -22,6 +23,7 @@ export function runKernelStandardsCheck() {
   const errors = [];
 
   validateWorkspaceEvidence({ kernelRoot, sdkworkSpecsRoot, errors, ensureFile, readFileIfExists });
+  validatePlatformIntegration({ kernelRoot, errors, ensureFile, readFileIfExists });
 
   const componentSpecContext = { kernelRoot, errors };
   for (const manifestPath of listComponentSpecFiles(kernelRoot)) {

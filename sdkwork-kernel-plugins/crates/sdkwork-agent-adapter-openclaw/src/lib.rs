@@ -421,7 +421,11 @@ sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(
     "openclaw"
 );
 
-// ============================================================================`r`n// Tests
+pub mod sdk_integration;
+pub use sdk_integration::{openclaw_binding_manifest, OpenClawSdkIntegration};
+
+// ============================================================================
+// Tests
 // ============================================================================
 
 #[cfg(test)]

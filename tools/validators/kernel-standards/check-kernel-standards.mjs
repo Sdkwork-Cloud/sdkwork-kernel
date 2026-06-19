@@ -53,6 +53,7 @@ export function runKernelStandardsCheck() {
   validateKernelTopology({ kernelRoot, errors, readJson });
 
   ensureFile(path.join('scripts', 'check-agent-sdk-workspace.mjs'));
+  ensureFile(path.join('scripts', 'check-external-agent-sdk-bindings.mjs'));
   const agentSdkWorkspaceCheck = spawnSync(
     process.execPath,
     [path.join(kernelRoot, 'scripts', 'check-agent-sdk-workspace.mjs')],
@@ -64,6 +65,20 @@ export function runKernelStandardsCheck() {
   if (agentSdkWorkspaceCheck.status !== 0) {
     errors.push(
       `agent SDK workspace check failed:\n${agentSdkWorkspaceCheck.stdout}${agentSdkWorkspaceCheck.stderr}`
+    );
+  }
+
+  const externalAgentSdkBindingCheck = spawnSync(
+    process.execPath,
+    [path.join(kernelRoot, 'scripts', 'check-external-agent-sdk-bindings.mjs')],
+    {
+      cwd: kernelRoot,
+      encoding: 'utf8'
+    }
+  );
+  if (externalAgentSdkBindingCheck.status !== 0) {
+    errors.push(
+      `external agent SDK binding check failed:\n${externalAgentSdkBindingCheck.stdout}${externalAgentSdkBindingCheck.stderr}`
     );
   }
 

@@ -101,6 +101,11 @@ All three families are owned by the SDK standard in this document and by the
 root `sdks/` workspace. No consumer may bypass these SDK families with local
 HTTP implementations for remote agent business APIs.
 
+External third-party agent native SDK bindings are cataloged separately under
+`sdks/external-agent-sdks/` and governed by `AGENT_SDK_BINDING_SPEC.md`. Those
+bindings describe how SDKWork integrates with agent products such as Codex,
+Hermes, and OpenClaw; they do not replace SDKWork-owned SDK families above.
+
 ## Regeneration Contract
 
 SDK generation commands `MUST` be idempotent. A dry run must report the planned

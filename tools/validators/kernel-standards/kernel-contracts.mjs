@@ -7,6 +7,8 @@ const requiredSpecFiles = [
   'SDK_SPEC.md',
   'KERNEL_PLUGIN_SPEC.md',
   'AGENT_KERNEL_SPEC.md',
+  'AGENT_SDK_SPI_SPEC.md',
+  'AGENT_SDK_BINDING_SPEC.md',
   'CODE_KERNEL_SPEC.md',
   'AGENT_MANIFEST_SPEC.md',
   'AGENT_INSTALLATION_CONFIGURATION_SPEC.md',
@@ -40,6 +42,7 @@ const requiredSchemas = [
   'capability-manifest.schema.json',
   'agent-runtime-diagnostics.schema.json',
   'kernel-conformance-report.schema.json',
+  'agent-sdk-binding.schema.json',
   'code-capability-manifest.schema.json',
   'code-runtime-diagnostics.schema.json',
   'code-conformance-report.schema.json'
@@ -47,6 +50,12 @@ const requiredSchemas = [
 
 const requiredRustCrates = [
   ['sdkwork-agent-kernel', ['src/lib.rs', 'Cargo.toml', 'README.md']],
+  ['sdkwork-agent-sdk-spi', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
+  ['sdkwork-agent-sdk-backend-core', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
+  ['sdkwork-agent-sdk-backend-ipc', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
+  ['sdkwork-agent-sdk-backend-rust', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
+  ['sdkwork-agent-sdk-backend-node', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
+  ['sdkwork-agent-sdk-backend-python', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
   ['sdkwork-code-kernel', ['src/lib.rs', 'Cargo.toml', 'README.md']],
   [
     'sdkwork-agent-business',

@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdkwork.example.invalid/kernel/schemas/agent-sdk-binding.schema.json",
+  "title": "SDKWork Agent SDK Binding Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_type",
+    "binding_id",
+    "agent_id",
+    "display_name",
+    "description",
+    "version",
+    "sdk_owner",
+    "capabilities",
+    "status"
+  ],
+  "properties": {
+    "schema_version": { "$ref": "#/$defs/semver" },
+    "manifest_type": { "const": "agent_sdk_binding" },
+    "binding_id": {
+      "type": "string",
+      "pattern": "^binding\\.agent-sdk\\.[a-z0-9.-]+$"
+    },
+    "agent_id": {
+      "type": "string",
+      "pattern": "^agent\\.[a-z0-9.-]+\\.[a-z0-9.-]+$"
+    },
+    "display_name": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1 },
+    "version": { "$ref": "#/$defs/semver" },
+    "sdk_owner": { "type": "string", "minLength": 1 },
+    "status": {
+      "enum": ["experimental", "standardizing", "stable", "deprecated"]
+    },
+    "kernel_compatibility": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "properties": {
+        "agent_kernel": { "type": "string", "minLength": 1 }
+      }
+    },
+    "selection_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default_backend_priority": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/backendKind" },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "language_packages": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rust": { "$ref": "#/$defs/rustPackage" },
+        "typescript": { "$ref": "#/$defs/npmPackage" },
+        "python": { "$ref": "#/$defs/pythonPackage" }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/capabilityEntry" },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.-]+)?(\\+[A-Za-z0-9.-]+)?$"
+    },
+    "backendKind": {
+      "enum": [
+        "rust_native",
+        "typescript_node",
+        "python_process",
+        "http_openapi",
+        "ipc_protocol"
+      ]
+    },
+    "capabilityEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability_id", "required", "backends"],
+      "properties": {
+        "capability_id": {
+          "type": "string",
+          "pattern": "^sdk\\.[a-z0-9.-]+\\.[a-z0-9.-]+$"
+        },
+        "required": { "type": "boolean" },
+        "backends": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/backendCandidate" },
+          "minItems": 1
+        }
+      }
+    },
+    "backendCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "driver_id"],
+      "properties": {
+        "kind": { "$ref": "#/$defs/backendKind" },
+        "driver_id": {
+          "type": "string",
+          "pattern": "^driver\\.[a-z0-9.-]+\\.[a-z0-9.-]+\\.[a-z0-9.-]+$"
+        },
+        "crate": { "type": "string", "minLength": 1 },
+        "package": { "type": "string", "minLength": 1 },
+        "python_module": { "type": "string", "minLength": 1 },
+        "openapi_authority": { "type": "string", "minLength": 1 },
+        "transport": { "type": "string", "minLength": 1 }
+      }
+    },
+    "rustPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["crate"],
+      "properties": {
+        "crate": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "optional": { "type": "boolean" }
+      }
+    },
+    "npmPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package"],
+      "properties": {
+        "package": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "optional": { "type": "boolean" }
+      }
+    },
+    "pythonPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["module"],
+      "properties": {
+        "module": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "optional": { "type": "boolean" }
+      }
+    }
+  }
+}

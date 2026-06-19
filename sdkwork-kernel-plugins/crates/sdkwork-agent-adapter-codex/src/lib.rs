@@ -230,6 +230,7 @@ impl MessageAdapter for CodexMessageAdapter {
 // Codex Model Provider
 // ============================================================================
 
+#[derive(Clone)]
 pub struct CodexModelProvider {
     default_model: String,
 }
@@ -352,6 +353,7 @@ impl ModelProvider for CodexModelProvider {
 // Codex Tool Provider
 // ============================================================================
 
+#[derive(Clone)]
 pub struct CodexToolProvider;
 
 impl CodexToolProvider {
@@ -467,6 +469,9 @@ impl ToolProvider for CodexToolProvider {
 // ============================================================================
 
 sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(CodexLifecycleProvider, "codex");
+
+pub mod sdk_integration;
+pub use sdk_integration::{codex_binding_manifest, CodexSdkIntegration};
 
 // ============================================================================
 // Tests

@@ -448,7 +448,11 @@ impl ToolProvider for HermesToolProvider {
 
 sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(HermesLifecycleProvider, "hermes");
 
-// ============================================================================`r`n// Tests
+pub mod sdk_integration;
+pub use sdk_integration::{hermes_binding_manifest, HermesSdkIntegration};
+
+// ============================================================================
+// Tests
 // ============================================================================
 
 #[cfg(test)]

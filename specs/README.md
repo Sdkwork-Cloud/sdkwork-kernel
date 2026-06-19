@@ -15,6 +15,8 @@ Runtime connectivity profiles for local dev and deployment live in
 | Spec | Responsibility |
 | --- | --- |
 | [`SDK_SPEC.md`](./SDK_SPEC.md) | SDK generation source of truth, canonical `sdkwork-sdk-generator` location, generated output boundaries, regeneration contract, and conformance rules |
+| [`AGENT_SDK_SPI_SPEC.md`](./AGENT_SDK_SPI_SPEC.md) | External agent native SDK adaptation SPI, capability drivers, backend selection, mapping, registry, and extension rules |
+| [`AGENT_SDK_BINDING_SPEC.md`](./AGENT_SDK_BINDING_SPEC.md) | External agent SDK binding manifests, language package metadata, catalog layout, and onboarding checklist |
 | [`KERNEL_PLUGIN_SPEC.md`](./KERNEL_PLUGIN_SPEC.md) | Kernel plugin identity, manifests, contribution points, provider and adapter loading, lifecycle, security, dependencies, conformance, distribution, and plugin naming policy |
 
 ## Agent Kernel Standard Set
@@ -62,6 +64,7 @@ Runtime connectivity profiles for local dev and deployment live in
 | [`schemas/agent-runtime-diagnostics.schema.json`](./schemas/agent-runtime-diagnostics.schema.json) | `AgentRuntimeDiagnostics` |
 | [`schemas/kernel-conformance-report.schema.json`](./schemas/kernel-conformance-report.schema.json) | `KernelConformanceReport` |
 | [`schemas/kernel-plugin-manifest.schema.json`](./schemas/kernel-plugin-manifest.schema.json) | `KernelPluginManifest` |
+| [`schemas/agent-sdk-binding.schema.json`](./schemas/agent-sdk-binding.schema.json) | `AgentSdkBindingManifest` |
 | [`schemas/code-capability-manifest.schema.json`](./schemas/code-capability-manifest.schema.json) | `CodeKernelCapabilityManifest` |
 | [`schemas/code-runtime-diagnostics.schema.json`](./schemas/code-runtime-diagnostics.schema.json) | `CodeKernelRuntimeDiagnostics` |
 | [`schemas/code-conformance-report.schema.json`](./schemas/code-conformance-report.schema.json) | `CodeConformanceReport` |

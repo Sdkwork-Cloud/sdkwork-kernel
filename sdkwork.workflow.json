@@ -1,0 +1,152 @@
+{
+  "$schema": "../sdkwork-github-workflow/schemas/sdkwork-workflow.schema.json",
+  "schemaVersion": "2026-06-06.sdkwork.workflow.v1",
+  "app": {
+    "id": "sdkwork-kernel",
+    "name": "SDKWork Kernel",
+    "repository": "Sdkwork-Cloud/sdkwork-kernel",
+    "sourcePath": "."
+  },
+  "release": {
+    "artifactPrefix": "sdkwork-kernel",
+    "defaultVersion": "0.1.0",
+    "changelog": {
+      "source": "auto",
+      "maxCommitSubjects": 50
+    }
+  },
+  "dependencies": [
+    {
+      "id": "sdkwork-app-topology",
+      "repository": "Sdkwork-Cloud/sdkwork-app-topology",
+      "refInput": "SDKWORK_APP_TOPOLOGY_REF",
+      "tokenSecret": "SDKWORK_RELEASE_TOKEN"
+    },
+    {
+      "id": "sdkwork-appbase",
+      "repository": "Sdkwork-Cloud/sdkwork-appbase",
+      "refInput": "SDKWORK_APPBASE_REF",
+      "tokenSecret": "SDKWORK_RELEASE_TOKEN"
+    },
+    {
+      "id": "sdkwork-database",
+      "repository": "Sdkwork-Cloud/sdkwork-database",
+      "refInput": "SDKWORK_DATABASE_REF",
+      "tokenSecret": "SDKWORK_RELEASE_TOKEN"
+    },
+    {
+      "id": "sdkwork-drive",
+      "repository": "Sdkwork-Cloud/sdkwork-drive",
+      "refInput": "SDKWORK_DRIVE_REF",
+      "tokenSecret": "SDKWORK_RELEASE_TOKEN"
+    },
+    {
+      "id": "sdkwork-knowledgebase",
+      "repository": "Sdkwork-Cloud/sdkwork-knowledgebase",
+      "refInput": "SDKWORK_KNOWLEDGEBASE_REF",
+      "tokenSecret": "SDKWORK_RELEASE_TOKEN"
+    },
+    {
+      "id": "sdkwork-web-framework",
+      "repository": "Sdkwork-Cloud/sdkwork-web-framework",
+      "refInput": "SDKWORK_WEB_FRAMEWORK_REF",
+      "tokenSecret": "SDKWORK_RELEASE_TOKEN"
+    }
+  ],
+  "toolchains": {
+    "node": "22",
+    "pnpm": "10.30.2",
+    "rust": "stable"
+  },
+  "lifecycle": {
+    "install": [
+      {
+        "name": "Install workspace topology dependency",
+        "shell": "pwsh",
+        "run": "pnpm install --ignore-scripts"
+      },
+      {
+        "name": "Install kernel UI workspace",
+        "shell": "pwsh",
+        "run": "pnpm --dir sdkwork-kernel-ui install --frozen-lockfile"
+      }
+    ],
+    "build": [
+      {
+        "name": "Run kernel standards and contract verification",
+        "shell": "pwsh",
+        "run": "$ErrorActionPreference = \"Stop\"\n$PSNativeCommandUseErrorActionPreference = $true\nnode scripts/verify-kernel-audit-remediation.mjs"
+      }
+    ],
+    "package": [
+      {
+        "name": "Build agent server release binary",
+        "shell": "pwsh",
+        "run": "cargo build -p sdkwork-agent-server --release"
+      }
+    ],
+    "sign": [
+      {
+        "name": "Signing policy placeholder",
+        "shell": "node",
+        "run": "console.log(`Signing is not required for ${process.env.SDKWORK_PACKAGE_ID}.`);"
+      }
+    ],
+    "sbom": [
+      {
+        "name": "SBOM policy placeholder",
+        "shell": "node",
+        "run": "console.log(`SBOM generation is not required for ${process.env.SDKWORK_PACKAGE_ID}.`);"
+      }
+    ],
+    "validate": [
+      {
+        "name": "Validate release binary exists",
+        "shell": "pwsh",
+        "run": "$ErrorActionPreference = \"Stop\"\n$suffix = if ($IsWindows) { \".exe\" } else { \"\" }\n$binary = Join-Path (Get-Location) \"target/release/sdkwork-agent-server$suffix\"\nif (-not (Test-Path -LiteralPath $binary)) { throw \"Missing release binary: $binary\" }"
+      }
+    ]
+  },
+  "targets": [
+    {
+      "id": "linux-x64-cloud-server-tar-gz",
+      "profile": "server",
+      "platform": "linux",
+      "architecture": "x64",
+      "formats": [
+        "tar.gz"
+      ],
+      "runner": "ubuntu-24.04",
+      "deploymentProfile": "cloud",
+      "runtimeTarget": "server",
+      "outputGlobs": [
+        "target/release/sdkwork-agent-server"
+      ]
+    },
+    {
+      "id": "windows-x64-cloud-server-zip",
+      "profile": "server",
+      "platform": "windows",
+      "architecture": "x64",
+      "formats": [
+        "zip"
+      ],
+      "runner": "windows-2022",
+      "deploymentProfile": "cloud",
+      "runtimeTarget": "server",
+      "outputGlobs": [
+        "target/release/sdkwork-agent-server.exe"
+      ]
+    }
+  ],
+  "security": {
+    "artifactAttestations": true,
+    "sbomRequired": false,
+    "signingRequired": false
+  },
+  "publish": {
+    "workflowArtifact": true,
+    "githubRelease": true,
+    "retentionDays": 30
+  }
+}

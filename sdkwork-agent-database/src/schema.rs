@@ -52,8 +52,12 @@ impl SchemaManager {
     }
 
     fn ensure_sessions_provider_columns(&self) -> DatabaseResult<()> {
-        let _ = self.db.execute("ALTER TABLE sessions ADD COLUMN provider_id TEXT", &[]);
-        let _ = self.db.execute("ALTER TABLE sessions ADD COLUMN bridge_id TEXT", &[]);
+        let _ = self
+            .db
+            .execute("ALTER TABLE sessions ADD COLUMN provider_id TEXT", &[]);
+        let _ = self
+            .db
+            .execute("ALTER TABLE sessions ADD COLUMN bridge_id TEXT", &[]);
         Ok(())
     }
 

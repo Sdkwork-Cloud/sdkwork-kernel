@@ -35,7 +35,11 @@ impl AgentDatabase for InMemoryDatabase {
         Ok(0)
     }
 
-    fn query_many(&self, _sql: &str, _params: &[&dyn DatabaseParam]) -> DatabaseResult<Vec<Box<dyn DatabaseRow>>> {
+    fn query_many(
+        &self,
+        _sql: &str,
+        _params: &[&dyn DatabaseParam],
+    ) -> DatabaseResult<Vec<Box<dyn DatabaseRow>>> {
         Ok(Vec::new())
     }
 
@@ -46,24 +50,27 @@ impl AgentDatabase for InMemoryDatabase {
 
 impl SessionRepository for InMemoryDatabase {
     fn save_session(&self, session: &SessionRow) -> DatabaseResult<()> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
         sessions.insert(session.session_id.clone(), session.clone());
         Ok(())
     }
 
     fn load_session(&self, session_id: &str) -> DatabaseResult<Option<SessionRow>> {
-        let sessions = self.sessions.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
         Ok(sessions.get(session_id).cloned())
     }
 
     fn list_sessions(&self, query: &SessionQuery) -> DatabaseResult<Vec<SessionRow>> {
-        let sessions = self.sessions.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
 
         let mut results: Vec<SessionRow> = sessions
             .values()
@@ -118,17 +125,19 @@ impl SessionRepository for InMemoryDatabase {
     }
 
     fn update_session(&self, session: &SessionRow) -> DatabaseResult<()> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
         sessions.insert(session.session_id.clone(), session.clone());
         Ok(())
     }
 
     fn delete_session(&self, session_id: &str) -> DatabaseResult<()> {
-        let mut sessions = self.sessions.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
         sessions.remove(session_id);
         Ok(())
     }
@@ -136,17 +145,23 @@ impl SessionRepository for InMemoryDatabase {
 
 impl MessageRepository for InMemoryDatabase {
     fn save_message(&self, message: &MessageRow) -> DatabaseResult<()> {
-        let mut messages = self.messages.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+        let mut messages = self
+            .messages
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
         messages.push(message.clone());
         Ok(())
     }
 
-    fn load_messages(&self, session_id: &str, query: &MessageQuery) -> DatabaseResult<Vec<MessageRow>> {
-        let messages = self.messages.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+    fn load_messages(
+        &self,
+        session_id: &str,
+        query: &MessageQuery,
+    ) -> DatabaseResult<Vec<MessageRow>> {
+        let messages = self
+            .messages
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
 
         let mut results: Vec<MessageRow> = messages
             .iter()
@@ -162,16 +177,21 @@ impl MessageRepository for InMemoryDatabase {
     }
 
     fn message_count(&self, session_id: &str) -> DatabaseResult<i64> {
-        let messages = self.messages.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
-        Ok(messages.iter().filter(|m| m.session_id == session_id).count() as i64)
+        let messages = self
+            .messages
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
+        Ok(messages
+            .iter()
+            .filter(|m| m.session_id == session_id)
+            .count() as i64)
     }
 
     fn delete_messages(&self, session_id: &str) -> DatabaseResult<()> {
-        let mut messages = self.messages.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+        let mut messages = self
+            .messages
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
         messages.retain(|m| m.session_id != session_id);
         Ok(())
     }
@@ -179,39 +199,48 @@ impl MessageRepository for InMemoryDatabase {
 
 impl TaskRepository for InMemoryDatabase {
     fn save_task(&self, task: &TaskRow) -> DatabaseResult<()> {
-        let mut tasks = self.tasks.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+        let mut tasks = self
+            .tasks
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
         tasks.insert(task.task_id.clone(), task.clone());
         Ok(())
     }
 
     fn load_task(&self, task_id: &str) -> DatabaseResult<Option<TaskRow>> {
-        let tasks = self.tasks.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+        let tasks = self
+            .tasks
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
         Ok(tasks.get(task_id).cloned())
     }
 
     fn load_tasks(&self, session_id: &str) -> DatabaseResult<Vec<TaskRow>> {
-        let tasks = self.tasks.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
-        Ok(tasks.values().filter(|t| t.session_id == session_id).cloned().collect())
+        let tasks = self
+            .tasks
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
+        Ok(tasks
+            .values()
+            .filter(|t| t.session_id == session_id)
+            .cloned()
+            .collect())
     }
 
     fn update_task(&self, task: &TaskRow) -> DatabaseResult<()> {
-        let mut tasks = self.tasks.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+        let mut tasks = self
+            .tasks
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
         tasks.insert(task.task_id.clone(), task.clone());
         Ok(())
     }
 
     fn delete_task(&self, task_id: &str) -> DatabaseResult<()> {
-        let mut tasks = self.tasks.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+        let mut tasks = self
+            .tasks
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
         tasks.remove(task_id);
         Ok(())
     }
@@ -219,23 +248,26 @@ impl TaskRepository for InMemoryDatabase {
 
 impl EventRepository for InMemoryDatabase {
     fn save_event(&self, event: &EventRow) -> DatabaseResult<()> {
-        let mut events = self.events.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
         events.push(event.clone());
         Ok(())
     }
 
     fn load_events(&self, session_id: &str, query: &EventQuery) -> DatabaseResult<Vec<EventRow>> {
-        let events = self.events.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+        let events = self
+            .events
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
 
         let results: Vec<EventRow> = events
             .iter()
             .filter(|e| {
                 e.session_id.as_deref() == Some(session_id)
-                    && (query.event_type.is_none() || e.event_type == *query.event_type.as_ref().unwrap())
+                    && (query.event_type.is_none()
+                        || e.event_type == *query.event_type.as_ref().unwrap())
                     && (query.severity.is_none() || e.severity == *query.severity.as_ref().unwrap())
             })
             .cloned()
@@ -245,9 +277,10 @@ impl EventRepository for InMemoryDatabase {
     }
 
     fn delete_events(&self, session_id: &str) -> DatabaseResult<()> {
-        let mut events = self.events.lock().map_err(|e| {
-            DatabaseError::Internal(format!("failed to acquire lock: {}", e))
-        })?;
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
         events.retain(|e| e.session_id.as_deref() != Some(session_id));
         Ok(())
     }
@@ -303,7 +336,8 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: None,
             metadata_json: None,
-        }).expect("saved");
+        })
+        .expect("saved");
 
         let query = SessionQuery {
             agent_id: Some("agent.1".to_string()),
@@ -326,7 +360,9 @@ mod tests {
         };
 
         db.save_message(&message).expect("saved");
-        let messages = db.load_messages("session.1", &MessageQuery::default()).expect("loaded");
+        let messages = db
+            .load_messages("session.1", &MessageQuery::default())
+            .expect("loaded");
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].content, "Hello");
     }

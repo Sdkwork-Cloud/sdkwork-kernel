@@ -5,7 +5,7 @@ edition = "2021"
 
 [features]
 default = []
-postgres-sync = ["dep:postgres"]
+postgres-sync = ["dep:sdkwork-database-config", "dep:sdkwork-database-sqlx", "dep:sqlx", "dep:tokio"]
 http-axum = ["dep:axum", "dep:tokio", "dep:tower"]
 
 [lib]
@@ -18,7 +18,9 @@ sdkwork-code-kernel.workspace = true
 sdkwork-id-core = { path = "../../sdkwork-id/crates/sdkwork-id-core" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-postgres = { version = "0.19", optional = true, features = ["with-time-0_3"] }
+sdkwork-database-config = { workspace = true, optional = true }
+sdkwork-database-sqlx = { workspace = true, optional = true }
+sqlx = { version = "0.8", default-features = false, optional = true, features = ["runtime-tokio", "postgres", "time"] }
 axum = { version = "0.8", optional = true, features = ["json"] }
 tokio = { version = "1.0", optional = true, features = ["rt-multi-thread", "macros", "sync"] }
 tower = { version = "0.5", optional = true, features = ["util"] }

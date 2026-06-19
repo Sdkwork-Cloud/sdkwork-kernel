@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "kind": "sdkwork.component.spec",
+  "component": {
+    "name": "sdkwork-router-agent-backend-api",
+    "displayName": "SDKWork Router Agent Backend API",
+    "version": "0.1.0",
+    "type": "rust-route-crate",
+    "root": "sdkwork-kernel/crates/sdkwork-router-agent-backend-api",
+    "domain": "intelligence",
+    "capability": "agent-business",
+    "languages": ["rust"],
+    "generated": false,
+    "manifests": ["Cargo.toml"],
+    "surface": "backend-api"
+  },
+  "canonicalSpecs": [
+    {
+      "file": "CODE_STYLE_SPEC.md",
+      "path": "../../../sdkwork-specs/CODE_STYLE_SPEC.md",
+      "purpose": "Authored source structure and generated code boundaries."
+    },
+    {
+      "file": "NAMING_SPEC.md",
+      "path": "../../../sdkwork-specs/NAMING_SPEC.md",
+      "purpose": "Canonical SDKWork naming rules."
+    },
+    {
+      "file": "WEB_FRAMEWORK_SPEC.md",
+      "path": "../../../sdkwork-specs/WEB_FRAMEWORK_SPEC.md",
+      "purpose": "Mandatory sdkwork-web-framework integration for HTTP surfaces."
+    },
+    {
+      "file": "WEB_BACKEND_SPEC.md",
+      "path": "../../../sdkwork-specs/WEB_BACKEND_SPEC.md",
+      "purpose": "HTTP backend route boundary rules."
+    },
+    {
+      "file": "API_SPEC.md",
+      "path": "../../../sdkwork-specs/API_SPEC.md",
+      "purpose": "OpenAPI authority and route manifest rules."
+    },
+    {
+      "file": "RUST_CODE_SPEC.md",
+      "path": "../../../sdkwork-specs/RUST_CODE_SPEC.md",
+      "purpose": "Rust crate rules."
+    }
+  ],
+  "contracts": {
+    "publicExports": ["."],
+    "runtimeEntrypoints": [
+      "build_router",
+      "build_served_router",
+      "backend_route_manifest",
+      "wrap_router_with_web_framework"
+    ],
+    "routeManifest": "sdks/_route-manifests/backend-api/sdkwork-router-agent-backend-api.route-manifest.json",
+    "authMode": "dual-token",
+    "sdkClients": [],
+    "events": [],
+    "configKeys": [],
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": []
+  },
+  "verification": {
+    "commands": ["cargo test -p sdkwork-router-agent-backend-api"]
+  }
+}

@@ -68,7 +68,7 @@ fn postgres_memory_list_and_update_sql_is_tenant_scoped() {
 
 #[test]
 fn live_postgres_memory_relation_get_roundtrip_when_uri_configured() {
-    let Some(uri) = std::env::var("SDKWORK_AGENT_BUSINESS_POSTGRES_URI")
+    let Some(_uri) = std::env::var("SDKWORK_AGENT_BUSINESS_POSTGRES_URI")
         .ok()
         .filter(|value| !value.trim().is_empty())
     else {
@@ -78,8 +78,8 @@ fn live_postgres_memory_relation_get_roundtrip_when_uri_configured() {
         return;
     };
 
-    let adapter = SyncPostgresAdapter::connect(uri.as_str())
-        .expect("postgres adapter should connect when URI is configured");
+    let adapter = SyncPostgresAdapter::connect_from_agent_business_env()
+        .expect("postgres adapter should connect through sdkwork-database-config legacy URI");
     adapter
         .apply_business_schema()
         .expect("postgres schema should apply");

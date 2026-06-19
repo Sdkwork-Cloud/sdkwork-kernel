@@ -667,7 +667,8 @@ fn with_gateway_trusted_context(router: Router<AgentHttpState>) -> Router<AgentH
     router.layer(middleware::from_fn(inject_gateway_agent_context))
 }
 
-pub fn build_app_router() -> Router<AgentHttpState> {
+/// Raw app-api route tree without gateway or web-framework middleware.
+pub fn build_app_routes() -> Router<AgentHttpState> {
     add_app_memory_routes(
         add_app_knowledge_routes(
             Router::new()
@@ -711,8 +712,13 @@ pub fn build_app_router() -> Router<AgentHttpState> {
     )
 }
 
-pub fn build_open_router() -> Router<AgentHttpState> {
-    with_gateway_trusted_context(add_memory_routes(
+pub fn build_app_router() -> Router<AgentHttpState> {
+    build_app_routes()
+}
+
+/// Raw open-api route tree without gateway or web-framework middleware.
+pub fn build_open_routes() -> Router<AgentHttpState> {
+    add_memory_routes(
         add_knowledge_routes(
             Router::new()
                 .route(
@@ -752,11 +758,19 @@ pub fn build_open_router() -> Router<AgentHttpState> {
             "/agent/v3/api",
         ),
         "/agent/v3/api",
-    ))
+    )
 }
 
-pub fn build_backend_router() -> Router<AgentHttpState> {
-    with_gateway_trusted_context(add_memory_routes(
+/// Legacy gateway-trusted open-api router for contract tests.
+///
+/// Production mounts must use `sdkwork-router-agent-open-api::build_served_router` instead.
+pub fn build_open_router() -> Router<AgentHttpState> {
+    with_gateway_trusted_context(build_open_routes())
+}
+
+/// Raw backend-api route tree without gateway or web-framework middleware.
+pub fn build_backend_routes() -> Router<AgentHttpState> {
+    add_memory_routes(
         add_knowledge_routes(
             Router::new()
                 .route(
@@ -794,7 +808,14 @@ pub fn build_backend_router() -> Router<AgentHttpState> {
             "/backend/v3/api",
         ),
         "/backend/v3/api",
-    ))
+    )
+}
+
+/// Legacy gateway-trusted backend-api router for contract tests.
+///
+/// Production mounts must use `sdkwork-router-agent-backend-api::build_served_router` instead.
+pub fn build_backend_router() -> Router<AgentHttpState> {
+    with_gateway_trusted_context(build_backend_routes())
 }
 
 fn add_knowledge_routes(router: Router<AgentHttpState>, prefix: &str) -> Router<AgentHttpState> {
@@ -1132,11 +1153,22 @@ fn add_app_memory_routes(router: Router<AgentHttpState>, prefix: &str) -> Router
         )
 }
 
+/// Legacy combined router for gateway-trusted contract tests (`http_axum_contracts.rs`).
+///
+/// Production mounts must merge raw route builders and wrap with
+/// `sdkwork-router-agent-http-shared::build_served_combined_router`.
 pub fn build_combined_router(state: AgentHttpState) -> Router {
     build_open_router()
         .merge(build_app_router())
         .merge(build_backend_router())
         .with_state(state)
+}
+
+/// Raw combined route tree for served production mounts.
+pub fn build_combined_routes() -> Router<AgentHttpState> {
+    build_open_routes()
+        .merge(build_app_routes())
+        .merge(build_backend_routes())
 }
 
 #[derive(Debug, Clone, Deserialize)]

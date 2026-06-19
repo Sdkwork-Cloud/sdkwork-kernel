@@ -8,15 +8,37 @@ Specs: `API_SPEC.md`, `IAM_SPEC.md`, `SECURITY_SPEC.md`
 
 | Router | Prefix | Request context | Trust model |
 | --- | --- | --- | --- |
-| App API | `/app/v3/api` | `Extension(AgentRequestContext)` injected by the host gateway | Trusted gateway injects tenant, subject, and roles |
-| Backend API | `/backend/v3/api` | `Extension(AgentRequestContext)` from gateway middleware | Trusted edge injects subject headers; handlers reconcile resource tenant via `RequestScope::from_trusted_extension` |
-| Open API | `/agent/v3/api` | Same as backend | Same as backend |
+| App API | `/app/v3/api` | `Extension(AgentRequestContext)` | Dual-token IAM via `sdkwork-web-framework` |
+| Backend API | `/backend/v3/api` | `Extension(AgentRequestContext)` from web-framework injector | IAM validates tokens; handlers reconcile resource tenant via `RequestScope::from_trusted_extension` |
+| Open API | `/agent/v3/api` | Same as backend | Open-api surface uses API key or OAuth bearer at the web-framework layer; IAM gateway may front dual-token clients in production |
 
-`inject_gateway_agent_context` middleware on backend/open routers builds `AgentRequestContext` from gateway subject headers before handlers run.
+## Production mount (canonical)
+
+Production deployments mount raw route builders from `sdkwork-agent-business` through route
+boundary crates:
+
+- `sdkwork-router-agent-app-api::build_served_router`
+- `sdkwork-router-agent-backend-api::build_served_router`
+- `sdkwork-router-agent-open-api::build_served_router`
+- `sdkwork-router-agent-http-shared::build_served_combined_router` (all surfaces)
+
+Each served router wraps raw routes with `sdkwork-web-axum::with_web_request_context`,
+resolves `WebRequestContext` through `sdkwork-iam-web-adapter`, and injects
+`AgentRequestContext` via `AgentRequestContextInjector` in
+`sdkwork-router-agent-http-shared/src/web_bootstrap.rs`.
+
+The agent web profile registers `/agent/v3/api` as an open-api prefix (in addition to the
+platform default `/open/v3/api`) so surface classification and auth interceptors apply correctly.
+
+## Legacy contract-test seam
+
+`inject_gateway_agent_context` middleware on `build_open_router()` / `build_backend_router()`
+builds `AgentRequestContext` from gateway subject headers. `build_combined_router()` merges
+legacy gateway-trusted routers for `http_axum_contracts.rs` only.
 
 When `postgres-sync` and `http-axum` are both enabled, `with_service_mut` runs repository work on a blocking worker thread via `spawn_blocking` and `std::sync::Mutex`.
 
-`RequestScope::from_trusted_extension` is the canonical backend/open entry point after gateway middleware.
+`RequestScope::from_trusted_extension` is the canonical backend/open entry point after request context injection.
 
 ## Rules
 
@@ -27,10 +49,11 @@ When `postgres-sync` and `http-axum` are both enabled, `with_service_mut` runs r
 
 ## Deployment
 
-- SaaS and private deployments: place backend/open routes behind the same IAM gateway that validates `Access-Token` / `Authorization` and injects subject headers.
-- Local development: tests use matching `tenant_id=1` and `x-subject-tenant-id: 1` headers; mismatch cases are covered by `http_axum_contracts.rs`.
+- SaaS and private deployments: mount served routers from `sdkwork-router-agent-*-api` behind the platform IAM gateway.
+- Local development: route-crate web-framework tests use dev inline dual tokens; legacy contract tests use matching `tenant_id=1` and `x-subject-tenant-id: 1` headers.
 
 ## Verification
 
-- `cargo test --features http-axum --manifest-path sdkwork-agent-business/Cargo.toml`
+- Legacy gateway contracts: `cargo test --features http-axum --manifest-path sdkwork-agent-business/Cargo.toml`
+- Served web-framework contracts: `cargo test -p sdkwork-router-agent-app-api` (and backend/open route crates)
 - Contract tests: `backend_route_should_reject_subject_tenant_mismatch`, `backend_route_should_reject_missing_subject_headers`

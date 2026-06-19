@@ -10,6 +10,10 @@ members = [
     "sdkwork-agent-database",
     "sdkwork-agent-session",
     "sdkwork-agent-client",
+    "crates/sdkwork-router-agent-http-shared",
+    "crates/sdkwork-router-agent-open-api",
+    "crates/sdkwork-router-agent-app-api",
+    "crates/sdkwork-router-agent-backend-api",
     "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core",
     "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig",
     "sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive",
@@ -56,4 +60,8 @@ sdkwork-web-bootstrap = { path = "../sdkwork-web-framework/crates/sdkwork-web-bo
 sdkwork-database-config = { path = "../sdkwork-database/crates/sdkwork-database-config" }
 sdkwork-database-sqlx = { path = "../sdkwork-database/crates/sdkwork-database-sqlx" }
 sdkwork-iam-web-adapter = { path = "../sdkwork-appbase/crates/sdkwork-iam-web-adapter" }
+sdkwork-router-agent-http-shared = { path = "crates/sdkwork-router-agent-http-shared" }
+sdkwork-router-agent-open-api = { path = "crates/sdkwork-router-agent-open-api" }
+sdkwork-router-agent-app-api = { path = "crates/sdkwork-router-agent-app-api" }
+sdkwork-router-agent-backend-api = { path = "crates/sdkwork-router-agent-backend-api" }
 

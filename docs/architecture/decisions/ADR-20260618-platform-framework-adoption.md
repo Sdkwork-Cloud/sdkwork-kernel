@@ -27,8 +27,6 @@ Two platform gaps remain against sibling SDKWork repositories:
   deferred until an RPC surface is introduced (`RPC_SPEC.md`).
 - Root `sdkwork.app.config.json` — kernel is a standards repository, not a deployable application
   root (`APPLICATION_SPEC.md`).
-- `sdkwork.workflow.json` — kernel verification uses `kernel-verification.yml`; packaging through
-  `sdkwork-github-workflow` is deferred until kernel artifacts require release publication.
 
 ## Decision
 
@@ -41,38 +39,47 @@ Adopt platform frameworks in phased migration without destabilizing existing con
 - Declare workspace `Cargo.toml` dependencies on `sdkwork-web-framework` and `sdkwork-database`.
 - Enforce Phase 0 evidence through `tools/validators/kernel-standards/platform-integration.mjs`.
 
-### Phase 1 — route boundary extraction
+### Phase 1 — route boundary extraction (complete)
 
-- Introduce compliant route crates:
+- Route crates shipped under:
+  - `crates/sdkwork-router-agent-http-shared`
   - `crates/sdkwork-router-agent-open-api`
   - `crates/sdkwork-router-agent-app-api`
   - `crates/sdkwork-router-agent-backend-api`
-- Move router assembly out of `sdkwork-agent-business/src/http.rs` incrementally.
-- Keep business services, repositories, and DTOs in `sdkwork-agent-business`.
+- Router assembly remains in `sdkwork-agent-business/src/http.rs` for legacy contract tests; served
+  surfaces mount through route crates.
 
-### Phase 2 — `sdkwork-web-framework` integration
+### Phase 2 — `sdkwork-web-framework` integration (complete)
 
-- Wrap served routers with `sdkwork-web-axum::with_web_request_context`.
-- Use `sdkwork-iam-web-adapter` for IAM-backed surfaces and trusted-gateway subject headers for
-  backend/open surfaces per `AGENT_BUSINESS_HTTP_TRUST_BOUNDARY.md`.
-- Map `WebRequestContext` to `AgentRequestContext` through a domain injector; retire duplicate
-  local interceptor logic once parity tests pass.
-- Mount `sdkwork-agent-server` session/chat routes through `sdkwork-web-bootstrap` or an approved
-  narrow bootstrap helper.
+- `build_served_router` in each `*-api` route crate always wraps raw route builders with
+  `sdkwork-web-axum::with_web_request_context` (no duplicate gateway middleware).
+- `build_served_combined_router` in `sdkwork-router-agent-http-shared` provides the combined served
+  entrypoint for deployments that mount all business surfaces together.
+- Legacy `build_*_router()` and `build_combined_router()` remain for gateway-trusted contract tests
+  (`http_axum_contracts.rs`) only; production mounts use route crates.
+- `SDKWORK_AGENT_WEB_FRAMEWORK_ENABLED` opt-in removed; served routers always use web-framework.
+- Web-framework auth contract tests added for app, backend, and open route crates.
+- `sdkwork-agent-server` documented as internal runtime HTTP surface without web-framework
+  (`sdkwork-agent-server/specs/AGENT_SERVER_HTTP_SURFACE.md`).
 
-### Phase 3 — `sdkwork-database` integration
+### Phase 3 — `sdkwork-database` integration (complete for config + pool bootstrap)
 
-- Route `postgres-sync` persistence through `sdkwork-database-sqlx` pools and
-  `sdkwork-database-config`.
-- Evaluate sqlite session persistence: keep `rusqlite` for embedded dev-only session store or migrate
-  to `sdkwork-database-sqlx` sqlite pools when pool semantics are required.
-- Remove the unused `postgres` feature stub from `sdkwork-agent-database` (module file absent).
+- `postgres-sync` depends on `sdkwork-database-config` and `sdkwork-database-sqlx`.
+- `BlockingPostgresPool` in `postgres_sync_pool.rs` wraps platform `PgPool` creation; sync repository
+  traits call through `pg_execute!` / `pg_query!` macros.
+- `SyncPostgresAdapter::connect_from_sdkwork_env` resolves URLs through platform env keys with legacy
+  `SDKWORK_AGENT_BUSINESS_POSTGRES_URI` support.
+- Removed the direct `postgres` crate dependency and the unused `postgres` feature stub from
+  `sdkwork-agent-database`.
+- **Future:** extract row-mapping helpers from `persistence.rs` into a dedicated sqlx repository crate
+  when the business persistence surface splits from the monolith module.
 
-### Phase 4 — packaging and deployment standardization
+### Phase 4 — packaging and deployment standardization (complete for release entrypoint)
 
-- Add `sdkwork.workflow.json` and thin `.github/workflows/package.yml` when kernel binaries/SDKs
-  require standardized release publication (`GITHUB_WORKFLOW_SPEC.md`).
-- Expand `deployments/` with topology-linked deployment profiles when production rollout begins.
+- `sdkwork.workflow.json` declares kernel release packaging for `sdkwork-agent-server`.
+- `.github/workflows/package.yml` calls `Sdkwork-Cloud/sdkwork-github-workflow` reusable packaging workflow.
+- CI verification remains on `.github/workflows/kernel-verification.yml` for every push/PR.
+- **Future:** expand `deployments/` with topology-linked deployment profiles when production rollout begins.
 
 ## Alternatives
 

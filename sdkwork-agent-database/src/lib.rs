@@ -1,7 +1,7 @@
 mod error;
+mod schema;
 mod traits;
 mod types;
-mod schema;
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
@@ -9,16 +9,18 @@ pub mod sqlite;
 #[cfg(feature = "sqlite")]
 mod sqlite_repository;
 
-#[cfg(feature = "postgres")]
-pub mod postgres;
-
 pub mod memory;
 
 pub use error::{DatabaseError, DatabaseResult};
-pub use traits::{AgentDatabase, SessionRepository, MessageRepository, TaskRepository, EventRepository, DatabaseParam, DatabaseRow};
-pub use types::{SessionRow, MessageRow, TaskRow, EventRow, AgentRow, SessionQuery, MessageQuery, EventQuery};
-pub use schema::SchemaManager;
 pub use memory::InMemoryDatabase;
+pub use schema::SchemaManager;
+pub use traits::{
+    AgentDatabase, DatabaseParam, DatabaseRow, EventRepository, MessageRepository,
+    SessionRepository, TaskRepository,
+};
+pub use types::{
+    AgentRow, EventQuery, EventRow, MessageQuery, MessageRow, SessionQuery, SessionRow, TaskRow,
+};
 
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteDatabase;

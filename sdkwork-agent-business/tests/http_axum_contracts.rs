@@ -1,4 +1,9 @@
 #![cfg(feature = "http-axum")]
+//! Legacy gateway-trusted HTTP contract suite for managed agent business handlers.
+//!
+//! Production mounts use `sdkwork-router-agent-*-api::build_served_router` with
+//! `sdkwork-web-framework`. This file exercises handler contracts through
+//! `build_combined_router()` and gateway subject headers.
 
 use axum::body::{to_bytes, Body};
 use axum::http::header::CONTENT_TYPE;

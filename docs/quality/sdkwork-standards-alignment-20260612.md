@@ -485,9 +485,16 @@ Deferred by design:
 
 - `sdkwork-discovery` — no first-party gRPC/RPC services in kernel
 - `sdkwork.app.config.json` — kernel is a standards repository, not an application root
-- `sdkwork.workflow.json` — verification uses `kernel-verification.yml` until release packaging is required
+- `sdkwork-discovery` — no first-party gRPC/RPC services in kernel
 
-Verification evidence:
+Phase 4 packaging:
+
+- `sdkwork.workflow.json` and `.github/workflows/package.yml` for `sdkwork-agent-server` release artifacts
+- `deployments/` topology-linked profiles remain future work for production rollout
+
+Verification evidence (2026-06-18 closeout):
 
 - `node scripts/check-kernel-standards.mjs` -> exit 0
-- `node --test tests/kernel_workspace_structure.test.mjs` -> exit 0; platform framework adoption test passes
+- `node --test tests/kernel_workspace_structure.test.mjs` -> exit 0; platform framework + packaging tests pass
+- `cargo test -p sdkwork-router-agent-*` -> route manifest and web-framework contract tests pass
+- `node scripts/verify-kernel-audit-remediation.mjs` -> exit 0

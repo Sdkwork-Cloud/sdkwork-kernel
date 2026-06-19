@@ -8,6 +8,8 @@ mod id;
 mod infrastructure;
 mod persistence;
 mod ports;
+#[cfg(feature = "postgres-sync")]
+mod postgres_sync_pool;
 mod validation;
 
 pub use api::{
@@ -84,15 +86,14 @@ pub use dto::{
 };
 #[cfg(feature = "http-axum")]
 pub use http::{
-    build_app_router, build_backend_router, build_combined_router, build_open_router,
+    build_app_router, build_app_routes, build_backend_router, build_backend_routes,
+    build_combined_router, build_combined_routes, build_open_router, build_open_routes,
     AgentHttpState, AgentRequestContext,
 };
 pub use id::{AgentBusinessIdGenerator, AgentIdGenerator};
 pub use infrastructure::{
     AllowAllPolicyProvider, InMemoryAgentAuditSink, InMemoryAgentRepository, PolicyMode,
 };
-#[cfg(feature = "postgres-sync")]
-pub use persistence::SyncPostgresAdapter;
 pub use persistence::{
     AgentAuditEventRow, AgentBusinessRow, AgentDeploymentRow, AgentKnowledgeBaseRow,
     AgentKnowledgeBindingRow, AgentKnowledgeChunkRow, AgentKnowledgeDocumentRow,
@@ -139,4 +140,6 @@ pub use persistence::{
     SQL_UPDATE_AGENT_SKILL_PACKAGE, SQL_UPSERT_AGENT_KNOWLEDGE_INDEX,
     SQL_UPSERT_AGENT_MEMORY_RETRIEVAL_INDEX,
 };
+#[cfg(feature = "postgres-sync")]
+pub use persistence::{SyncPostgresAdapter, AGENT_BUSINESS_DATABASE_SERVICE};
 pub use ports::{AgentAuditSink, AgentListQuery, AgentMarketplaceListQuery, AgentRepository};

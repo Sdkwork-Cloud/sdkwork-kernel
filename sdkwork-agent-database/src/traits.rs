@@ -7,7 +7,11 @@ pub trait AgentDatabase: Send + Sync {
     fn execute(&self, sql: &str, params: &[&dyn DatabaseParam]) -> DatabaseResult<usize>;
 
     /// Query for multiple rows
-    fn query_many(&self, sql: &str, params: &[&dyn DatabaseParam]) -> DatabaseResult<Vec<Box<dyn DatabaseRow>>>;
+    fn query_many(
+        &self,
+        sql: &str,
+        params: &[&dyn DatabaseParam],
+    ) -> DatabaseResult<Vec<Box<dyn DatabaseRow>>>;
 
     /// Check if the database is healthy
     fn health(&self) -> DatabaseResult<bool>;
@@ -37,7 +41,11 @@ pub trait SessionRepository: Send + Sync {
 /// Message repository trait
 pub trait MessageRepository: Send + Sync {
     fn save_message(&self, message: &MessageRow) -> DatabaseResult<()>;
-    fn load_messages(&self, session_id: &str, query: &MessageQuery) -> DatabaseResult<Vec<MessageRow>>;
+    fn load_messages(
+        &self,
+        session_id: &str,
+        query: &MessageQuery,
+    ) -> DatabaseResult<Vec<MessageRow>>;
     fn message_count(&self, session_id: &str) -> DatabaseResult<i64>;
     fn delete_messages(&self, session_id: &str) -> DatabaseResult<()>;
 }
@@ -85,6 +93,10 @@ impl DatabaseParam for i32 {
 
 impl DatabaseParam for bool {
     fn as_sql_value(&self) -> String {
-        if *self { "1".to_string() } else { "0".to_string() }
+        if *self {
+            "1".to_string()
+        } else {
+            "0".to_string()
+        }
     }
 }

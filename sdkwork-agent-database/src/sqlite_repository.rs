@@ -10,7 +10,9 @@ impl SqliteDatabase {
         if let Some(parent) = std::path::Path::new(path).parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent).map_err(|error| {
-                    DatabaseError::Connection(format!("failed to create database directory: {error}"))
+                    DatabaseError::Connection(format!(
+                        "failed to create database directory: {error}"
+                    ))
                 })?;
             }
         }
@@ -28,9 +30,8 @@ impl SqliteDatabase {
 
     /// Run schema migrations on this database.
     pub fn migrate(&self) -> DatabaseResult<()> {
-        let manager = crate::SchemaManager::new(Box::new(SqliteMigrationAdapter {
-            db: self.clone(),
-        }));
+        let manager =
+            crate::SchemaManager::new(Box::new(SqliteMigrationAdapter { db: self.clone() }));
         manager.migrate()
     }
 }
@@ -113,9 +114,10 @@ fn map_event_row(row: &Row<'_>) -> rusqlite::Result<EventRow> {
 
 impl SessionRepository for SqliteDatabase {
     fn save_session(&self, session: &SessionRow) -> DatabaseResult<()> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.execute(
             "INSERT OR REPLACE INTO sessions (
                 session_id, agent_id, kind, source, state, title, model, cwd,
@@ -145,9 +147,10 @@ impl SessionRepository for SqliteDatabase {
     }
 
     fn load_session(&self, session_id: &str) -> DatabaseResult<Option<SessionRow>> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.query_row(
             "SELECT session_id, agent_id, kind, source, state, title, model, cwd,
                     provider_id, bridge_id, token_usage_json, message_count,
@@ -161,9 +164,10 @@ impl SessionRepository for SqliteDatabase {
     }
 
     fn list_sessions(&self, query: &SessionQuery) -> DatabaseResult<Vec<SessionRow>> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         let mut sql = String::from(
             "SELECT session_id, agent_id, kind, source, state, title, model, cwd,
                     provider_id, bridge_id, token_usage_json, message_count,
@@ -199,9 +203,9 @@ impl SessionRepository for SqliteDatabase {
             sql.push_str(&format!(" OFFSET {offset}"));
         }
 
-        let mut stmt = conn
-            .prepare(&sql)
-            .map_err(|error| DatabaseError::Query(format!("failed to prepare session list: {error}")))?;
+        let mut stmt = conn.prepare(&sql).map_err(|error| {
+            DatabaseError::Query(format!("failed to prepare session list: {error}"))
+        })?;
         let rows = stmt
             .query_map(rusqlite::params_from_iter(values.iter()), map_session_row)
             .map_err(|error| DatabaseError::Query(format!("failed to list sessions: {error}")))?;
@@ -219,9 +223,10 @@ impl SessionRepository for SqliteDatabase {
     }
 
     fn delete_session(&self, session_id: &str) -> DatabaseResult<()> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.execute(
             "DELETE FROM sessions WHERE session_id = ?1",
             params![session_id],
@@ -233,9 +238,10 @@ impl SessionRepository for SqliteDatabase {
 
 impl MessageRepository for SqliteDatabase {
     fn save_message(&self, message: &MessageRow) -> DatabaseResult<()> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.execute(
             "INSERT OR REPLACE INTO messages (
                 message_id, session_id, role, content, created_at, metadata_json
@@ -258,9 +264,10 @@ impl MessageRepository for SqliteDatabase {
         session_id: &str,
         query: &MessageQuery,
     ) -> DatabaseResult<Vec<MessageRow>> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         let mut sql = String::from(
             "SELECT message_id, session_id, role, content, created_at, metadata_json
              FROM messages WHERE session_id = ?1 ORDER BY created_at ASC",
@@ -271,9 +278,9 @@ impl MessageRepository for SqliteDatabase {
         if let Some(offset) = query.offset {
             sql.push_str(&format!(" OFFSET {offset}"));
         }
-        let mut stmt = conn
-            .prepare(&sql)
-            .map_err(|error| DatabaseError::Query(format!("failed to prepare messages: {error}")))?;
+        let mut stmt = conn.prepare(&sql).map_err(|error| {
+            DatabaseError::Query(format!("failed to prepare messages: {error}"))
+        })?;
         let rows = stmt
             .query_map(params![session_id], map_message_row)
             .map_err(|error| DatabaseError::Query(format!("failed to load messages: {error}")))?;
@@ -287,9 +294,10 @@ impl MessageRepository for SqliteDatabase {
     }
 
     fn message_count(&self, session_id: &str) -> DatabaseResult<i64> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.query_row(
             "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
             params![session_id],
@@ -299,9 +307,10 @@ impl MessageRepository for SqliteDatabase {
     }
 
     fn delete_messages(&self, session_id: &str) -> DatabaseResult<()> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.execute(
             "DELETE FROM messages WHERE session_id = ?1",
             params![session_id],
@@ -313,9 +322,10 @@ impl MessageRepository for SqliteDatabase {
 
 impl TaskRepository for SqliteDatabase {
     fn save_task(&self, task: &TaskRow) -> DatabaseResult<()> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.execute(
             "INSERT OR REPLACE INTO tasks (
                 task_id, session_id, instruction, state, created_at, updated_at
@@ -334,9 +344,10 @@ impl TaskRepository for SqliteDatabase {
     }
 
     fn load_task(&self, task_id: &str) -> DatabaseResult<Option<TaskRow>> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.query_row(
             "SELECT task_id, session_id, instruction, state, created_at, updated_at
              FROM tasks WHERE task_id = ?1",
@@ -348,9 +359,10 @@ impl TaskRepository for SqliteDatabase {
     }
 
     fn load_tasks(&self, session_id: &str) -> DatabaseResult<Vec<TaskRow>> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         let mut stmt = conn
             .prepare(
                 "SELECT task_id, session_id, instruction, state, created_at, updated_at
@@ -374,9 +386,10 @@ impl TaskRepository for SqliteDatabase {
     }
 
     fn delete_task(&self, task_id: &str) -> DatabaseResult<()> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.execute("DELETE FROM tasks WHERE task_id = ?1", params![task_id])
             .map_err(|error| DatabaseError::Query(format!("failed to delete task: {error}")))?;
         Ok(())
@@ -385,9 +398,10 @@ impl TaskRepository for SqliteDatabase {
 
 impl EventRepository for SqliteDatabase {
     fn save_event(&self, event: &EventRow) -> DatabaseResult<()> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.execute(
             "INSERT OR REPLACE INTO events (
                 event_id, session_id, event_type, severity, payload, created_at
@@ -406,9 +420,10 @@ impl EventRepository for SqliteDatabase {
     }
 
     fn load_events(&self, session_id: &str, query: &EventQuery) -> DatabaseResult<Vec<EventRow>> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         let mut sql = String::from(
             "SELECT event_id, session_id, event_type, severity, payload, created_at
              FROM events WHERE session_id = ?1",
@@ -445,9 +460,10 @@ impl EventRepository for SqliteDatabase {
     }
 
     fn delete_events(&self, session_id: &str) -> DatabaseResult<()> {
-        let conn = self.conn.lock().map_err(|error| {
-            DatabaseError::Internal(format!("failed to acquire lock: {error}"))
-        })?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.execute(
             "DELETE FROM events WHERE session_id = ?1",
             params![session_id],
@@ -486,7 +502,10 @@ mod tests {
         let db = SqliteDatabase::memory_migrated().expect("db");
         db.save_session(&sample_session("session.1"))
             .expect("saved");
-        let loaded = db.load_session("session.1").expect("loaded").expect("found");
+        let loaded = db
+            .load_session("session.1")
+            .expect("loaded")
+            .expect("found");
         assert_eq!(loaded.agent_id, "agent.1");
         assert_eq!(loaded.provider_id.as_deref(), Some("codex"));
     }

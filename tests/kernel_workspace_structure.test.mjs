@@ -363,7 +363,8 @@ test('platform framework adoption records ADR, API authority index, and validato
     'sdkwork-discovery',
     'Phase 0',
     'Phase 2',
-    'Phase 3'
+    'Phase 3',
+    'Phase 4'
   ]) {
     assert.ok(adr.includes(requiredText), `platform ADR should include ${requiredText}`);
   }
@@ -396,6 +397,30 @@ test('platform framework adoption records ADR, API authority index, and validato
     standardsValidator,
     /from '\.\/platform-integration\.mjs'/,
     'kernel standards validator should import platform integration checks'
+  );
+});
+
+test('platform packaging records sdkwork.workflow.json and package workflow entrypoint', () => {
+  const workflowPath = path.join(root, 'sdkwork.workflow.json');
+  const packageWorkflowPath = path.join(root, '.github', 'workflows', 'package.yml');
+
+  assert.equal(fs.existsSync(workflowPath), true, 'sdkwork.workflow.json should exist');
+  assert.equal(fs.existsSync(packageWorkflowPath), true, 'package workflow should exist');
+
+  const workflow = JSON.parse(fs.readFileSync(workflowPath, 'utf8'));
+  assert.equal(workflow.app?.id, 'sdkwork-kernel');
+  assert.ok(Array.isArray(workflow.targets) && workflow.targets.length > 0, 'workflow should declare package targets');
+
+  const packageWorkflow = fs.readFileSync(packageWorkflowPath, 'utf8');
+  assert.match(
+    packageWorkflow,
+    /sdkwork-github-workflow\/\.github\/workflows\/sdkwork-package\.yml/,
+    'package workflow should call reusable sdkwork-github-workflow packaging workflow'
+  );
+  assert.match(
+    packageWorkflow,
+    /config_path: sdkwork\.workflow\.json/,
+    'package workflow should pass sdkwork.workflow.json'
   );
 });
 

@@ -15,16 +15,18 @@ use crate::domain::{
     AgentSkillInvocationKind, AgentSkillPackageRecord, AgentVisibility,
 };
 use crate::ports::{AgentAuditSink, AgentListQuery, AgentMarketplaceListQuery, AgentRepository};
+#[cfg(feature = "postgres-sync")]
+use crate::postgres_sync_pool::{BlockingPostgresPool, PgRow};
 use crate::validation::{validate_capabilities, validate_standard_id};
 #[cfg(feature = "postgres-sync")]
-use postgres::{Client, NoTls, Row};
+use crate::{pg_execute, pg_query, pg_query_optional};
 use sdkwork_agent_kernel::{
     AgentManifest, KernelError, KernelEvent, KernelEventSeverity, KernelEventSource, KernelResult,
 };
 use sdkwork_code_kernel::CodeTaskIntent;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "postgres-sync")]
-use std::sync::Mutex;
+use sqlx::Row;
 #[cfg(feature = "postgres-sync")]
 use time::{OffsetDateTime, PrimitiveDateTime};
 
@@ -2870,38 +2872,32 @@ impl AgentAuditEventRow {
     }
 
     #[cfg(feature = "postgres-sync")]
-    fn from_pg_row(row: &Row) -> KernelResult<Self> {
+    fn from_pg_row(row: &PgRow) -> KernelResult<Self> {
         Ok(Self {
-            id: int64_to_u64(
-                row.try_get::<_, i64>("id").map_err(map_postgres_error)?,
-                "id",
-            )?,
-            uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+            id: int64_to_u64(row.try_get::<i64, _>("id").map_err(map_sqlx_error)?, "id")?,
+            uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
             tenant_id: int64_to_u64(
-                row.try_get::<_, i64>("tenant_id")
-                    .map_err(map_postgres_error)?,
+                row.try_get::<i64, _>("tenant_id").map_err(map_sqlx_error)?,
                 "tenant_id",
             )?,
             organization_id: int64_to_u64(
-                row.try_get::<_, i64>("organization_id")
-                    .map_err(map_postgres_error)?,
+                row.try_get::<i64, _>("organization_id")
+                    .map_err(map_sqlx_error)?,
                 "organization_id",
             )?,
             agent_business_id: int64_to_u64(
-                row.try_get::<_, i64>("agent_business_id")
-                    .map_err(map_postgres_error)?,
+                row.try_get::<i64, _>("agent_business_id")
+                    .map_err(map_sqlx_error)?,
                 "agent_business_id",
             )?,
-            agent_id: row.try_get("agent_id").map_err(map_postgres_error)?,
-            action: row.try_get("action").map_err(map_postgres_error)?,
-            subject_id: row.try_get("subject_id").map_err(map_postgres_error)?,
-            subject_tenant_id: row
-                .try_get("subject_tenant_id")
-                .map_err(map_postgres_error)?,
-            request_id: row.try_get("request_id").map_err(map_postgres_error)?,
-            trace_id: row.try_get("trace_id").map_err(map_postgres_error)?,
-            payload_json: row.try_get("payload_json").map_err(map_postgres_error)?,
-            created_at: row.try_get("created_at").map_err(map_postgres_error)?,
+            agent_id: row.try_get("agent_id").map_err(map_sqlx_error)?,
+            action: row.try_get("action").map_err(map_sqlx_error)?,
+            subject_id: row.try_get("subject_id").map_err(map_sqlx_error)?,
+            subject_tenant_id: row.try_get("subject_tenant_id").map_err(map_sqlx_error)?,
+            request_id: row.try_get("request_id").map_err(map_sqlx_error)?,
+            trace_id: row.try_get("trace_id").map_err(map_sqlx_error)?,
+            payload_json: row.try_get("payload_json").map_err(map_sqlx_error)?,
+            created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
         })
     }
 }
@@ -3708,56 +3704,66 @@ pub trait PostgresAuditAdapter {
 }
 
 #[cfg(feature = "postgres-sync")]
+pub const AGENT_BUSINESS_DATABASE_SERVICE: &str = "AGENT_BUSINESS";
+
+#[cfg(feature = "postgres-sync")]
 pub struct SyncPostgresAdapter {
-    client: Mutex<Client>,
+    pool: BlockingPostgresPool,
     id_generator: AgentBusinessIdGenerator,
 }
 
 #[cfg(feature = "postgres-sync")]
 impl SyncPostgresAdapter {
     pub fn connect(connection_uri: &str) -> KernelResult<Self> {
-        let client = Client::connect(connection_uri, NoTls).map_err(map_postgres_error)?;
         Ok(Self {
-            client: Mutex::new(client),
+            pool: BlockingPostgresPool::connect(connection_uri)?,
             id_generator: AgentBusinessIdGenerator::new_default()
                 .expect("default agent business snowflake node id is valid"),
         })
     }
 
-    pub fn with_client(client: Client) -> Self {
+    /// Connects using `sdkwork-database-config` env resolution for the given service name.
+    ///
+    /// Honors the legacy `SDKWORK_{SERVICE}_POSTGRES_URI` variable when set, then falls back to
+    /// `DatabaseConfig::from_env` (`SDKWORK_{SERVICE}_DATABASE_URL` and unified claw profile keys).
+    pub fn connect_from_sdkwork_env(service_name: &str) -> KernelResult<Self> {
+        Ok(Self {
+            pool: BlockingPostgresPool::connect_from_sdkwork_env(service_name)?,
+            id_generator: AgentBusinessIdGenerator::new_default()
+                .expect("default agent business snowflake node id is valid"),
+        })
+    }
+
+    /// Connects using platform database config for agent business persistence.
+    pub fn connect_from_agent_business_env() -> KernelResult<Self> {
+        Self::connect_from_sdkwork_env(AGENT_BUSINESS_DATABASE_SERVICE)
+    }
+
+    pub fn from_pool(pool: BlockingPostgresPool) -> Self {
         Self {
-            client: Mutex::new(client),
+            pool,
             id_generator: AgentBusinessIdGenerator::new_default()
                 .expect("default agent business snowflake node id is valid"),
         }
     }
 
-    pub fn with_client_and_id_generator(
-        client: Client,
+    pub fn with_pool_and_id_generator(
+        pool: BlockingPostgresPool,
         id_generator: AgentBusinessIdGenerator,
     ) -> Self {
-        Self {
-            client: Mutex::new(client),
-            id_generator,
-        }
+        Self { pool, id_generator }
     }
 
     pub fn apply_business_schema(&self) -> KernelResult<()> {
         let ddl = include_str!("../specs/sql/agent_business_postgres.sql");
-        self.with_locked_client(|client| {
-            client.batch_execute(ddl).map_err(map_postgres_error)?;
-            Ok(())
-        })
+        self.pool.execute_batch_sql(ddl)
     }
 
-    fn with_locked_client<T>(
+    fn with_pool<T>(
         &self,
-        action: impl FnOnce(&mut Client) -> KernelResult<T>,
+        action: impl FnOnce(&BlockingPostgresPool) -> KernelResult<T>,
     ) -> KernelResult<T> {
-        let mut client = self.client.lock().map_err(|_| {
-            KernelError::provider_error("postgres_lock_error", "postgres mutex poisoned")
-        })?;
-        action(&mut client)
+        action(&self.pool)
     }
 }
 
@@ -3774,35 +3780,32 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let owner_user_id = u64_to_i64(row.owner_user_id, "owner_user_id")?;
         let version = u64_to_i64(row.version, "version")?;
 
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_BUSINESS,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &owner_user_id,
-                        &row.agent_id,
-                        &row.code,
-                        &row.display_name,
-                        &row.description,
-                        &row.manifest_json,
-                        &row.default_code_task_intent_json,
-                        &row.implementation_provider_id,
-                        &row.implementation_kind,
-                        &row.implementation_type,
-                        &row.status,
-                        &row.visibility,
-                        &row.tags_json,
-                        &row.created_at,
-                        &row.updated_at,
-                        &row.deleted_at,
-                        &version,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_BUSINESS,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                owner_user_id,
+                row.agent_id,
+                row.code,
+                row.display_name,
+                row.description,
+                row.manifest_json,
+                row.default_code_task_intent_json,
+                row.implementation_provider_id,
+                row.implementation_kind,
+                row.implementation_type,
+                row.status,
+                row.visibility,
+                row.tags_json,
+                row.created_at,
+                row.updated_at,
+                row.deleted_at,
+                version
+            )?;
             Ok(())
         })
     }
@@ -3815,42 +3818,39 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             u64_to_i64(expected_previous_version(row.version)?, "previous_version")?;
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
 
-        self.with_locked_client(|client| {
-            let updated_rows = client
-                .execute(
-                    SQL_UPDATE_AGENT_BUSINESS,
-                    &[
-                        &organization_id,
-                        &owner_user_id,
-                        &row.code,
-                        &row.display_name,
-                        &row.description,
-                        &row.manifest_json,
-                        &row.default_code_task_intent_json,
-                        &row.implementation_provider_id,
-                        &row.implementation_kind,
-                        &row.implementation_type,
-                        &row.status,
-                        &row.visibility,
-                        &row.tags_json,
-                        &row.updated_at,
-                        &row.deleted_at,
-                        &version,
-                        &tenant_id,
-                        &row.agent_id,
-                        &previous_version,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let updated_rows = pg_execute!(
+                pool,
+                SQL_UPDATE_AGENT_BUSINESS,
+                organization_id,
+                owner_user_id,
+                row.code,
+                row.display_name,
+                row.description,
+                row.manifest_json,
+                row.default_code_task_intent_json,
+                row.implementation_provider_id,
+                row.implementation_kind,
+                row.implementation_type,
+                row.status,
+                row.visibility,
+                row.tags_json,
+                row.updated_at,
+                row.deleted_at,
+                version,
+                tenant_id,
+                row.agent_id,
+                previous_version
+            )?;
 
             if updated_rows == 0 {
-                let exists = client
-                    .query_opt(
-                        SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID,
-                        &[&tenant_id, &row.agent_id],
-                    )
-                    .map_err(map_postgres_error)?
-                    .is_some();
+                let exists = pg_query_optional!(
+                    pool,
+                    SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID,
+                    tenant_id,
+                    row.agent_id
+                )?
+                .is_some();
                 if exists {
                     return Err(KernelError::conflict("agent version mismatch"));
                 }
@@ -3862,13 +3862,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
 
     fn get_row(&self, tenant_id: u64, agent_id: &str) -> Option<AgentBusinessRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID,
-                    &[&tenant_id, &agent_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID,
+                tenant_id,
+                agent_id
+            )?;
             row.map(pg_row_to_agent_business_row).transpose()
         })
         .ok()
@@ -3881,10 +3881,8 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Err(_) => return Vec::new(),
         };
 
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(SQL_LIST_AGENT_BUSINESS, &[&tenant_id])
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(pool, SQL_LIST_AGENT_BUSINESS, tenant_id)?;
 
             let mut mapped_rows = Vec::with_capacity(rows.len());
             for row in rows {
@@ -3948,27 +3946,24 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
         let version = u64_to_i64(row.version, "version")?;
 
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_PROVIDER_BINDING,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &row.agent_id,
-                        &row.binding_id,
-                        &row.provider_id,
-                        &row.implementation_kind,
-                        &row.configuration_profile_id,
-                        &row.capabilities_json,
-                        &row.active,
-                        &version,
-                        &row.created_at,
-                        &row.updated_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_PROVIDER_BINDING,
+                id,
+                row.uuid,
+                tenant_id,
+                row.agent_id,
+                row.binding_id,
+                row.provider_id,
+                row.implementation_kind,
+                row.configuration_profile_id,
+                row.capabilities_json,
+                row.active,
+                version,
+                row.created_at,
+                row.updated_at
+            )?;
             Ok(())
         })
     }
@@ -3979,34 +3974,32 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             u64_to_i64(expected_previous_version(row.version)?, "previous_version")?;
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
 
-        self.with_locked_client(|client| {
-            let updated_rows = client
-                .execute(
-                    SQL_UPDATE_AGENT_PROVIDER_BINDING,
-                    &[
-                        &row.provider_id,
-                        &row.implementation_kind,
-                        &row.configuration_profile_id,
-                        &row.capabilities_json,
-                        &row.active,
-                        &version,
-                        &row.updated_at,
-                        &tenant_id,
-                        &row.agent_id,
-                        &row.binding_id,
-                        &previous_version,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let updated_rows = pg_execute!(
+                pool,
+                SQL_UPDATE_AGENT_PROVIDER_BINDING,
+                row.provider_id,
+                row.implementation_kind,
+                row.configuration_profile_id,
+                row.capabilities_json,
+                row.active,
+                version,
+                row.updated_at,
+                tenant_id,
+                row.agent_id,
+                row.binding_id,
+                previous_version
+            )?;
 
             if updated_rows == 0 {
-                let exists = client
-                    .query_opt(
-                        SQL_SELECT_AGENT_PROVIDER_BINDING,
-                        &[&tenant_id, &row.agent_id, &row.binding_id],
-                    )
-                    .map_err(map_postgres_error)?
-                    .is_some();
+                let exists = pg_query_optional!(
+                    pool,
+                    SQL_SELECT_AGENT_PROVIDER_BINDING,
+                    tenant_id,
+                    row.agent_id,
+                    row.binding_id
+                )?
+                .is_some();
                 if exists {
                     return Err(KernelError::conflict(
                         "agent provider binding version mismatch",
@@ -4025,13 +4018,14 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         binding_id: &str,
     ) -> Option<AgentProviderBindingRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_PROVIDER_BINDING,
-                    &[&tenant_id, &agent_id, &binding_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_PROVIDER_BINDING,
+                tenant_id,
+                agent_id,
+                binding_id
+            )?;
             row.map(pg_row_to_agent_provider_binding_row).transpose()
         })
         .ok()
@@ -4048,10 +4042,8 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Err(_) => return Vec::new(),
         };
 
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(SQL_LIST_AGENT_PROVIDER_BINDINGS, &[&tenant_id, &agent_id])
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(pool, SQL_LIST_AGENT_PROVIDER_BINDINGS, tenant_id, agent_id)?;
 
             let mut mapped_rows = Vec::with_capacity(rows.len());
             for row in rows {
@@ -4067,28 +4059,25 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
         let version = u64_to_i64(row.version, "version")?;
 
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_DEPLOYMENT,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &row.agent_id,
-                        &row.deployment_id,
-                        &row.binding_id,
-                        &row.provider_id_snapshot,
-                        &row.implementation_kind_snapshot,
-                        &row.configuration_profile_id_snapshot,
-                        &row.capabilities_snapshot_json,
-                        &row.status,
-                        &version,
-                        &row.created_at,
-                        &row.updated_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_DEPLOYMENT,
+                id,
+                row.uuid,
+                tenant_id,
+                row.agent_id,
+                row.deployment_id,
+                row.binding_id,
+                row.provider_id_snapshot,
+                row.implementation_kind_snapshot,
+                row.configuration_profile_id_snapshot,
+                row.capabilities_snapshot_json,
+                row.status,
+                version,
+                row.created_at,
+                row.updated_at
+            )?;
             Ok(())
         })
     }
@@ -4099,10 +4088,8 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Err(_) => return Vec::new(),
         };
 
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(SQL_LIST_AGENT_DEPLOYMENTS, &[&tenant_id, &agent_id])
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(pool, SQL_LIST_AGENT_DEPLOYMENTS, tenant_id, agent_id)?;
 
             let mut mapped_rows = Vec::with_capacity(rows.len());
             for row in rows {
@@ -4119,38 +4106,35 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
         let owner_user_id = u64_to_i64(row.owner_user_id, "owner_user_id")?;
         let version = u64_to_i64(row.version, "version")?;
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_SKILL_PACKAGE,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &owner_user_id,
-                        &row.skill_id,
-                        &row.code,
-                        &row.display_name,
-                        &row.description,
-                        &row.invocation_kind,
-                        &row.package_ref,
-                        &row.entrypoint,
-                        &row.input_schema_json,
-                        &row.output_schema_json,
-                        &row.capability_ids_json,
-                        &row.categories_json,
-                        &row.tags_json,
-                        &row.security_profile_id,
-                        &row.status,
-                        &row.visibility,
-                        &version,
-                        &row.created_at,
-                        &row.updated_at,
-                        &row.deleted_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_SKILL_PACKAGE,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                owner_user_id,
+                row.skill_id,
+                row.code,
+                row.display_name,
+                row.description,
+                row.invocation_kind,
+                row.package_ref,
+                row.entrypoint,
+                row.input_schema_json,
+                row.output_schema_json,
+                row.capability_ids_json,
+                row.categories_json,
+                row.tags_json,
+                row.security_profile_id,
+                row.status,
+                row.visibility,
+                version,
+                row.created_at,
+                row.updated_at,
+                row.deleted_at
+            )?;
             Ok(())
         })
     }
@@ -4162,41 +4146,41 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let version = u64_to_i64(row.version, "version")?;
         let previous_version =
             u64_to_i64(expected_previous_version(row.version)?, "previous_version")?;
-        self.with_locked_client(|client| {
-            let updated_rows = client
-                .execute(
-                    SQL_UPDATE_AGENT_SKILL_PACKAGE,
-                    &[
-                        &organization_id,
-                        &owner_user_id,
-                        &row.code,
-                        &row.display_name,
-                        &row.description,
-                        &row.invocation_kind,
-                        &row.package_ref,
-                        &row.entrypoint,
-                        &row.input_schema_json,
-                        &row.output_schema_json,
-                        &row.capability_ids_json,
-                        &row.categories_json,
-                        &row.tags_json,
-                        &row.security_profile_id,
-                        &row.status,
-                        &row.visibility,
-                        &version,
-                        &row.updated_at,
-                        &row.deleted_at,
-                        &tenant_id,
-                        &row.skill_id,
-                        &previous_version,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let updated_rows = pg_execute!(
+                pool,
+                SQL_UPDATE_AGENT_SKILL_PACKAGE,
+                organization_id,
+                owner_user_id,
+                row.code,
+                row.display_name,
+                row.description,
+                row.invocation_kind,
+                row.package_ref,
+                row.entrypoint,
+                row.input_schema_json,
+                row.output_schema_json,
+                row.capability_ids_json,
+                row.categories_json,
+                row.tags_json,
+                row.security_profile_id,
+                row.status,
+                row.visibility,
+                version,
+                row.updated_at,
+                row.deleted_at,
+                tenant_id,
+                row.skill_id,
+                previous_version
+            )?;
             if updated_rows == 0 {
-                let exists = client
-                    .query_opt(SQL_SELECT_AGENT_SKILL_PACKAGE, &[&tenant_id, &row.skill_id])
-                    .map_err(map_postgres_error)?
-                    .is_some();
+                let exists = pg_query_optional!(
+                    pool,
+                    SQL_SELECT_AGENT_SKILL_PACKAGE,
+                    tenant_id,
+                    row.skill_id
+                )?
+                .is_some();
                 if exists {
                     return Err(KernelError::conflict(
                         "agent skill package version mismatch",
@@ -4214,10 +4198,9 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         skill_id: &str,
     ) -> Option<AgentSkillPackageRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(SQL_SELECT_AGENT_SKILL_PACKAGE, &[&tenant_id, &skill_id])
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row =
+                pg_query_optional!(pool, SQL_SELECT_AGENT_SKILL_PACKAGE, tenant_id, skill_id)?;
             row.map(pg_row_to_agent_skill_package_row).transpose()
         })
         .ok()
@@ -4232,10 +4215,8 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(SQL_LIST_AGENT_SKILL_PACKAGES, &[&tenant_id])
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(pool, SQL_LIST_AGENT_SKILL_PACKAGES, tenant_id)?;
             rows.into_iter()
                 .map(pg_row_to_agent_skill_package_row)
                 .collect()
@@ -4272,43 +4253,40 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let tool_count = i64::from(row.tool_count);
         let resource_count = i64::from(row.resource_count);
         let prompt_count = i64::from(row.prompt_count);
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_MCP_SERVER,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &owner_user_id,
-                        &row.mcp_server_id,
-                        &row.code,
-                        &row.display_name,
-                        &row.description,
-                        &row.protocol_version,
-                        &row.transport_kind,
-                        &row.endpoint_ref,
-                        &row.command_ref,
-                        &row.auth_kind,
-                        &row.auth_profile_id,
-                        &row.capability_ids_json,
-                        &tool_count,
-                        &resource_count,
-                        &prompt_count,
-                        &row.capabilities_json,
-                        &row.categories_json,
-                        &row.tags_json,
-                        &row.security_profile_id,
-                        &row.status,
-                        &row.visibility,
-                        &version,
-                        &row.created_at,
-                        &row.updated_at,
-                        &row.deleted_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_MCP_SERVER,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                owner_user_id,
+                row.mcp_server_id,
+                row.code,
+                row.display_name,
+                row.description,
+                row.protocol_version,
+                row.transport_kind,
+                row.endpoint_ref,
+                row.command_ref,
+                row.auth_kind,
+                row.auth_profile_id,
+                row.capability_ids_json,
+                tool_count,
+                resource_count,
+                prompt_count,
+                row.capabilities_json,
+                row.categories_json,
+                row.tags_json,
+                row.security_profile_id,
+                row.status,
+                row.visibility,
+                version,
+                row.created_at,
+                row.updated_at,
+                row.deleted_at
+            )?;
             Ok(())
         })
     }
@@ -4323,49 +4301,46 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let tool_count = i64::from(row.tool_count);
         let resource_count = i64::from(row.resource_count);
         let prompt_count = i64::from(row.prompt_count);
-        self.with_locked_client(|client| {
-            let updated_rows = client
-                .execute(
-                    SQL_UPDATE_AGENT_MCP_SERVER,
-                    &[
-                        &organization_id,
-                        &owner_user_id,
-                        &row.code,
-                        &row.display_name,
-                        &row.description,
-                        &row.protocol_version,
-                        &row.transport_kind,
-                        &row.endpoint_ref,
-                        &row.command_ref,
-                        &row.auth_kind,
-                        &row.auth_profile_id,
-                        &row.capability_ids_json,
-                        &tool_count,
-                        &resource_count,
-                        &prompt_count,
-                        &row.capabilities_json,
-                        &row.categories_json,
-                        &row.tags_json,
-                        &row.security_profile_id,
-                        &row.status,
-                        &row.visibility,
-                        &version,
-                        &row.updated_at,
-                        &row.deleted_at,
-                        &tenant_id,
-                        &row.mcp_server_id,
-                        &previous_version,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let updated_rows = pg_execute!(
+                pool,
+                SQL_UPDATE_AGENT_MCP_SERVER,
+                organization_id,
+                owner_user_id,
+                row.code,
+                row.display_name,
+                row.description,
+                row.protocol_version,
+                row.transport_kind,
+                row.endpoint_ref,
+                row.command_ref,
+                row.auth_kind,
+                row.auth_profile_id,
+                row.capability_ids_json,
+                tool_count,
+                resource_count,
+                prompt_count,
+                row.capabilities_json,
+                row.categories_json,
+                row.tags_json,
+                row.security_profile_id,
+                row.status,
+                row.visibility,
+                version,
+                row.updated_at,
+                row.deleted_at,
+                tenant_id,
+                row.mcp_server_id,
+                previous_version
+            )?;
             if updated_rows == 0 {
-                let exists = client
-                    .query_opt(
-                        SQL_SELECT_AGENT_MCP_SERVER,
-                        &[&tenant_id, &row.mcp_server_id],
-                    )
-                    .map_err(map_postgres_error)?
-                    .is_some();
+                let exists = pg_query_optional!(
+                    pool,
+                    SQL_SELECT_AGENT_MCP_SERVER,
+                    tenant_id,
+                    row.mcp_server_id
+                )?
+                .is_some();
                 if exists {
                     return Err(KernelError::conflict("agent mcp server version mismatch"));
                 }
@@ -4377,10 +4352,9 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
 
     fn get_mcp_server_row(&self, tenant_id: u64, mcp_server_id: &str) -> Option<AgentMcpServerRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(SQL_SELECT_AGENT_MCP_SERVER, &[&tenant_id, &mcp_server_id])
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row =
+                pg_query_optional!(pool, SQL_SELECT_AGENT_MCP_SERVER, tenant_id, mcp_server_id)?;
             row.map(pg_row_to_agent_mcp_server_row).transpose()
         })
         .ok()
@@ -4392,10 +4366,8 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(SQL_LIST_AGENT_MCP_SERVERS, &[&tenant_id])
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(pool, SQL_LIST_AGENT_MCP_SERVERS, tenant_id)?;
             rows.into_iter()
                 .map(pg_row_to_agent_mcp_server_row)
                 .collect()
@@ -4429,38 +4401,35 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
         let owner_user_id = u64_to_i64(row.owner_user_id, "owner_user_id")?;
         let version = u64_to_i64(row.version, "version")?;
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_PROMPT_TEMPLATE,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &owner_user_id,
-                        &row.prompt_id,
-                        &row.code,
-                        &row.display_name,
-                        &row.description,
-                        &row.prompt_kind,
-                        &row.template_format,
-                        &row.template_body,
-                        &row.variables_schema_json,
-                        &row.model_constraints_json,
-                        &row.capability_ids_json,
-                        &row.categories_json,
-                        &row.tags_json,
-                        &row.safety_profile_id,
-                        &row.status,
-                        &row.visibility,
-                        &version,
-                        &row.created_at,
-                        &row.updated_at,
-                        &row.deleted_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_PROMPT_TEMPLATE,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                owner_user_id,
+                row.prompt_id,
+                row.code,
+                row.display_name,
+                row.description,
+                row.prompt_kind,
+                row.template_format,
+                row.template_body,
+                row.variables_schema_json,
+                row.model_constraints_json,
+                row.capability_ids_json,
+                row.categories_json,
+                row.tags_json,
+                row.safety_profile_id,
+                row.status,
+                row.visibility,
+                version,
+                row.created_at,
+                row.updated_at,
+                row.deleted_at
+            )?;
             Ok(())
         })
     }
@@ -4472,44 +4441,41 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let version = u64_to_i64(row.version, "version")?;
         let previous_version =
             u64_to_i64(expected_previous_version(row.version)?, "previous_version")?;
-        self.with_locked_client(|client| {
-            let updated_rows = client
-                .execute(
-                    SQL_UPDATE_AGENT_PROMPT_TEMPLATE,
-                    &[
-                        &organization_id,
-                        &owner_user_id,
-                        &row.code,
-                        &row.display_name,
-                        &row.description,
-                        &row.prompt_kind,
-                        &row.template_format,
-                        &row.template_body,
-                        &row.variables_schema_json,
-                        &row.model_constraints_json,
-                        &row.capability_ids_json,
-                        &row.categories_json,
-                        &row.tags_json,
-                        &row.safety_profile_id,
-                        &row.status,
-                        &row.visibility,
-                        &version,
-                        &row.updated_at,
-                        &row.deleted_at,
-                        &tenant_id,
-                        &row.prompt_id,
-                        &previous_version,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let updated_rows = pg_execute!(
+                pool,
+                SQL_UPDATE_AGENT_PROMPT_TEMPLATE,
+                organization_id,
+                owner_user_id,
+                row.code,
+                row.display_name,
+                row.description,
+                row.prompt_kind,
+                row.template_format,
+                row.template_body,
+                row.variables_schema_json,
+                row.model_constraints_json,
+                row.capability_ids_json,
+                row.categories_json,
+                row.tags_json,
+                row.safety_profile_id,
+                row.status,
+                row.visibility,
+                version,
+                row.updated_at,
+                row.deleted_at,
+                tenant_id,
+                row.prompt_id,
+                previous_version
+            )?;
             if updated_rows == 0 {
-                let exists = client
-                    .query_opt(
-                        SQL_SELECT_AGENT_PROMPT_TEMPLATE,
-                        &[&tenant_id, &row.prompt_id],
-                    )
-                    .map_err(map_postgres_error)?
-                    .is_some();
+                let exists = pg_query_optional!(
+                    pool,
+                    SQL_SELECT_AGENT_PROMPT_TEMPLATE,
+                    tenant_id,
+                    row.prompt_id
+                )?
+                .is_some();
                 if exists {
                     return Err(KernelError::conflict(
                         "agent prompt template version mismatch",
@@ -4527,10 +4493,9 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         prompt_id: &str,
     ) -> Option<AgentPromptTemplateRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(SQL_SELECT_AGENT_PROMPT_TEMPLATE, &[&tenant_id, &prompt_id])
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row =
+                pg_query_optional!(pool, SQL_SELECT_AGENT_PROMPT_TEMPLATE, tenant_id, prompt_id)?;
             row.map(pg_row_to_agent_prompt_template_row).transpose()
         })
         .ok()
@@ -4545,10 +4510,8 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(SQL_LIST_AGENT_PROMPT_TEMPLATES, &[&tenant_id])
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(pool, SQL_LIST_AGENT_PROMPT_TEMPLATES, tenant_id)?;
             rows.into_iter()
                 .map(pg_row_to_agent_prompt_template_row)
                 .collect()
@@ -4582,34 +4545,31 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
         let owner_user_id = u64_to_i64(row.owner_user_id, "owner_user_id")?;
         let version = u64_to_i64(row.version, "version")?;
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_KNOWLEDGE_BASE,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &owner_user_id,
-                        &row.knowledge_base_id,
-                        &row.code,
-                        &row.display_name,
-                        &row.description,
-                        &row.provider_id,
-                        &row.base_kind,
-                        &row.retrieval_modes_json,
-                        &row.capability_ids_json,
-                        &row.configuration_profile_id,
-                        &row.status,
-                        &row.visibility,
-                        &version,
-                        &row.created_at,
-                        &row.updated_at,
-                        &row.deleted_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_KNOWLEDGE_BASE,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                owner_user_id,
+                row.knowledge_base_id,
+                row.code,
+                row.display_name,
+                row.description,
+                row.provider_id,
+                row.base_kind,
+                row.retrieval_modes_json,
+                row.capability_ids_json,
+                row.configuration_profile_id,
+                row.status,
+                row.visibility,
+                version,
+                row.created_at,
+                row.updated_at,
+                row.deleted_at
+            )?;
             Ok(())
         })
     }
@@ -4621,40 +4581,37 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let version = u64_to_i64(row.version, "version")?;
         let previous_version =
             u64_to_i64(expected_previous_version(row.version)?, "previous_version")?;
-        self.with_locked_client(|client| {
-            let updated_rows = client
-                .execute(
-                    SQL_UPDATE_AGENT_KNOWLEDGE_BASE,
-                    &[
-                        &organization_id,
-                        &owner_user_id,
-                        &row.code,
-                        &row.display_name,
-                        &row.description,
-                        &row.provider_id,
-                        &row.base_kind,
-                        &row.retrieval_modes_json,
-                        &row.capability_ids_json,
-                        &row.configuration_profile_id,
-                        &row.status,
-                        &row.visibility,
-                        &version,
-                        &row.updated_at,
-                        &row.deleted_at,
-                        &tenant_id,
-                        &row.knowledge_base_id,
-                        &previous_version,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let updated_rows = pg_execute!(
+                pool,
+                SQL_UPDATE_AGENT_KNOWLEDGE_BASE,
+                organization_id,
+                owner_user_id,
+                row.code,
+                row.display_name,
+                row.description,
+                row.provider_id,
+                row.base_kind,
+                row.retrieval_modes_json,
+                row.capability_ids_json,
+                row.configuration_profile_id,
+                row.status,
+                row.visibility,
+                version,
+                row.updated_at,
+                row.deleted_at,
+                tenant_id,
+                row.knowledge_base_id,
+                previous_version
+            )?;
             if updated_rows == 0 {
-                let exists = client
-                    .query_opt(
-                        SQL_SELECT_AGENT_KNOWLEDGE_BASE,
-                        &[&tenant_id, &row.knowledge_base_id],
-                    )
-                    .map_err(map_postgres_error)?
-                    .is_some();
+                let exists = pg_query_optional!(
+                    pool,
+                    SQL_SELECT_AGENT_KNOWLEDGE_BASE,
+                    tenant_id,
+                    row.knowledge_base_id
+                )?
+                .is_some();
                 if exists {
                     return Err(KernelError::conflict(
                         "agent knowledge base version mismatch",
@@ -4672,13 +4629,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         knowledge_base_id: &str,
     ) -> Option<AgentKnowledgeBaseRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_KNOWLEDGE_BASE,
-                    &[&tenant_id, &knowledge_base_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_KNOWLEDGE_BASE,
+                tenant_id,
+                knowledge_base_id
+            )?;
             row.map(pg_row_to_agent_knowledge_base_row).transpose()
         })
         .ok()
@@ -4693,10 +4650,8 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(SQL_LIST_AGENT_KNOWLEDGE_BASES, &[&tenant_id])
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(pool, SQL_LIST_AGENT_KNOWLEDGE_BASES, tenant_id)?;
             rows.into_iter()
                 .map(pg_row_to_agent_knowledge_base_row)
                 .collect()
@@ -4729,30 +4684,27 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
         let version = u64_to_i64(row.version, "version")?;
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_KNOWLEDGE_SOURCE,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &row.knowledge_source_id,
-                        &row.knowledge_base_id,
-                        &row.source_kind,
-                        &row.source_ref,
-                        &row.source_hash,
-                        &row.sync_policy_json,
-                        &row.metadata_json,
-                        &row.status,
-                        &version,
-                        &row.created_at,
-                        &row.updated_at,
-                        &row.deleted_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_KNOWLEDGE_SOURCE,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                row.knowledge_source_id,
+                row.knowledge_base_id,
+                row.source_kind,
+                row.source_ref,
+                row.source_hash,
+                row.sync_policy_json,
+                row.metadata_json,
+                row.status,
+                version,
+                row.created_at,
+                row.updated_at,
+                row.deleted_at
+            )?;
             Ok(())
         })
     }
@@ -4763,36 +4715,33 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let version = u64_to_i64(row.version, "version")?;
         let previous_version =
             u64_to_i64(expected_previous_version(row.version)?, "previous_version")?;
-        self.with_locked_client(|client| {
-            let updated_rows = client
-                .execute(
-                    SQL_UPDATE_AGENT_KNOWLEDGE_SOURCE,
-                    &[
-                        &organization_id,
-                        &row.knowledge_base_id,
-                        &row.source_kind,
-                        &row.source_ref,
-                        &row.source_hash,
-                        &row.sync_policy_json,
-                        &row.metadata_json,
-                        &row.status,
-                        &version,
-                        &row.updated_at,
-                        &row.deleted_at,
-                        &tenant_id,
-                        &row.knowledge_source_id,
-                        &previous_version,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let updated_rows = pg_execute!(
+                pool,
+                SQL_UPDATE_AGENT_KNOWLEDGE_SOURCE,
+                organization_id,
+                row.knowledge_base_id,
+                row.source_kind,
+                row.source_ref,
+                row.source_hash,
+                row.sync_policy_json,
+                row.metadata_json,
+                row.status,
+                version,
+                row.updated_at,
+                row.deleted_at,
+                tenant_id,
+                row.knowledge_source_id,
+                previous_version
+            )?;
             if updated_rows == 0 {
-                let exists = client
-                    .query_opt(
-                        SQL_SELECT_AGENT_KNOWLEDGE_SOURCE,
-                        &[&tenant_id, &row.knowledge_source_id],
-                    )
-                    .map_err(map_postgres_error)?
-                    .is_some();
+                let exists = pg_query_optional!(
+                    pool,
+                    SQL_SELECT_AGENT_KNOWLEDGE_SOURCE,
+                    tenant_id,
+                    row.knowledge_source_id
+                )?
+                .is_some();
                 if exists {
                     return Err(KernelError::conflict(
                         "agent knowledge source version mismatch",
@@ -4810,13 +4759,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         knowledge_source_id: &str,
     ) -> Option<AgentKnowledgeSourceRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_KNOWLEDGE_SOURCE,
-                    &[&tenant_id, &knowledge_source_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_KNOWLEDGE_SOURCE,
+                tenant_id,
+                knowledge_source_id
+            )?;
             row.map(pg_row_to_agent_knowledge_source_row).transpose()
         })
         .ok()
@@ -4832,13 +4781,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(
-                    SQL_LIST_AGENT_KNOWLEDGE_SOURCES,
-                    &[&tenant_id, &knowledge_base_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(
+                pool,
+                SQL_LIST_AGENT_KNOWLEDGE_SOURCES,
+                tenant_id,
+                knowledge_base_id
+            )?;
             rows.into_iter()
                 .map(pg_row_to_agent_knowledge_source_row)
                 .collect()
@@ -4855,38 +4804,35 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
         let chunk_count = i64::from(row.chunk_count);
         let version = u64_to_i64(row.version, "version")?;
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_KNOWLEDGE_DOCUMENT,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &row.knowledge_document_id,
-                        &row.knowledge_base_id,
-                        &row.knowledge_source_id,
-                        &row.document_kind,
-                        &row.title,
-                        &row.content_ref,
-                        &row.content_hash,
-                        &row.summary,
-                        &row.metadata_json,
-                        &row.tags_json,
-                        &row.categories_json,
-                        &row.trust_level,
-                        &row.redaction_classification,
-                        &chunk_count,
-                        &row.status,
-                        &row.visibility,
-                        &version,
-                        &row.created_at,
-                        &row.updated_at,
-                        &row.deleted_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_KNOWLEDGE_DOCUMENT,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                row.knowledge_document_id,
+                row.knowledge_base_id,
+                row.knowledge_source_id,
+                row.document_kind,
+                row.title,
+                row.content_ref,
+                row.content_hash,
+                row.summary,
+                row.metadata_json,
+                row.tags_json,
+                row.categories_json,
+                row.trust_level,
+                row.redaction_classification,
+                chunk_count,
+                row.status,
+                row.visibility,
+                version,
+                row.created_at,
+                row.updated_at,
+                row.deleted_at
+            )?;
             Ok(())
         })
     }
@@ -4900,43 +4846,40 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let version = u64_to_i64(row.version, "version")?;
         let previous_version =
             u64_to_i64(expected_previous_version(row.version)?, "previous_version")?;
-        self.with_locked_client(|client| {
-            let updated_rows = client
-                .execute(
-                    SQL_UPDATE_AGENT_KNOWLEDGE_DOCUMENT,
-                    &[
-                        &row.knowledge_base_id,
-                        &row.knowledge_source_id,
-                        &row.document_kind,
-                        &row.title,
-                        &row.content_ref,
-                        &row.content_hash,
-                        &row.summary,
-                        &row.metadata_json,
-                        &row.tags_json,
-                        &row.categories_json,
-                        &row.trust_level,
-                        &row.redaction_classification,
-                        &chunk_count,
-                        &row.status,
-                        &row.visibility,
-                        &version,
-                        &row.updated_at,
-                        &row.deleted_at,
-                        &tenant_id,
-                        &row.knowledge_document_id,
-                        &previous_version,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let updated_rows = pg_execute!(
+                pool,
+                SQL_UPDATE_AGENT_KNOWLEDGE_DOCUMENT,
+                row.knowledge_base_id,
+                row.knowledge_source_id,
+                row.document_kind,
+                row.title,
+                row.content_ref,
+                row.content_hash,
+                row.summary,
+                row.metadata_json,
+                row.tags_json,
+                row.categories_json,
+                row.trust_level,
+                row.redaction_classification,
+                chunk_count,
+                row.status,
+                row.visibility,
+                version,
+                row.updated_at,
+                row.deleted_at,
+                tenant_id,
+                row.knowledge_document_id,
+                previous_version
+            )?;
             if updated_rows == 0 {
-                let exists = client
-                    .query_opt(
-                        SQL_SELECT_AGENT_KNOWLEDGE_DOCUMENT,
-                        &[&tenant_id, &row.knowledge_document_id],
-                    )
-                    .map_err(map_postgres_error)?
-                    .is_some();
+                let exists = pg_query_optional!(
+                    pool,
+                    SQL_SELECT_AGENT_KNOWLEDGE_DOCUMENT,
+                    tenant_id,
+                    row.knowledge_document_id
+                )?
+                .is_some();
                 if exists {
                     return Err(KernelError::conflict(
                         "agent knowledge document version mismatch",
@@ -4956,13 +4899,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         knowledge_document_id: &str,
     ) -> Option<AgentKnowledgeDocumentRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_KNOWLEDGE_DOCUMENT,
-                    &[&tenant_id, &knowledge_document_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_KNOWLEDGE_DOCUMENT,
+                tenant_id,
+                knowledge_document_id
+            )?;
             row.map(pg_row_to_agent_knowledge_document_row).transpose()
         })
         .ok()
@@ -4978,13 +4921,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(
-                    SQL_LIST_AGENT_KNOWLEDGE_DOCUMENTS,
-                    &[&tenant_id, &knowledge_base_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(
+                pool,
+                SQL_LIST_AGENT_KNOWLEDGE_DOCUMENTS,
+                tenant_id,
+                knowledge_base_id
+            )?;
             rows.into_iter()
                 .map(pg_row_to_agent_knowledge_document_row)
                 .collect()
@@ -4998,36 +4941,34 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
         let chunk_ordinal = i64::from(row.chunk_ordinal);
         let token_estimate = i64::from(row.token_estimate);
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_KNOWLEDGE_CHUNK,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &row.knowledge_chunk_id,
-                        &row.knowledge_document_id,
-                        &row.parent_chunk_id,
-                        &chunk_ordinal,
-                        &row.heading,
-                        &row.content_ref,
-                        &row.content_hash,
-                        &token_estimate,
-                        &row.summary,
-                        &row.metadata_json,
-                        &row.status,
-                        &row.created_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
-            client
-                .execute(
-                    SQL_INCREMENT_AGENT_KNOWLEDGE_DOCUMENT_CHUNK_COUNT,
-                    &[&row.created_at, &tenant_id, &row.knowledge_document_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_KNOWLEDGE_CHUNK,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                row.knowledge_chunk_id,
+                row.knowledge_document_id,
+                row.parent_chunk_id,
+                chunk_ordinal,
+                row.heading,
+                row.content_ref,
+                row.content_hash,
+                token_estimate,
+                row.summary,
+                row.metadata_json,
+                row.status,
+                row.created_at
+            )?;
+            pg_execute!(
+                pool,
+                SQL_INCREMENT_AGENT_KNOWLEDGE_DOCUMENT_CHUNK_COUNT,
+                row.created_at,
+                tenant_id,
+                row.knowledge_document_id
+            )?;
             Ok(())
         })
     }
@@ -5038,13 +4979,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         knowledge_chunk_id: &str,
     ) -> Option<AgentKnowledgeChunkRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_KNOWLEDGE_CHUNK,
-                    &[&tenant_id, &knowledge_chunk_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_KNOWLEDGE_CHUNK,
+                tenant_id,
+                knowledge_chunk_id
+            )?;
             row.map(pg_row_to_agent_knowledge_chunk_row).transpose()
         })
         .ok()
@@ -5060,13 +5001,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(
-                    SQL_LIST_AGENT_KNOWLEDGE_CHUNKS,
-                    &[&tenant_id, &knowledge_document_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(
+                pool,
+                SQL_LIST_AGENT_KNOWLEDGE_CHUNKS,
+                tenant_id,
+                knowledge_document_id
+            )?;
             rows.into_iter()
                 .map(pg_row_to_agent_knowledge_chunk_row)
                 .collect()
@@ -5078,29 +5019,26 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let id = u64_to_i64(row.id, "id")?;
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
         let vector_dimension = row.vector_dimension.map(i64::from);
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_UPSERT_AGENT_KNOWLEDGE_INDEX,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &row.knowledge_index_id,
-                        &row.knowledge_base_id,
-                        &row.knowledge_document_id,
-                        &row.knowledge_chunk_id,
-                        &row.index_kind,
-                        &row.index_provider_id,
-                        &row.external_ref,
-                        &row.embedding_model_id,
-                        &vector_dimension,
-                        &row.content_hash,
-                        &row.indexed_at,
-                        &row.status,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_UPSERT_AGENT_KNOWLEDGE_INDEX,
+                id,
+                row.uuid,
+                tenant_id,
+                row.knowledge_index_id,
+                row.knowledge_base_id,
+                row.knowledge_document_id,
+                row.knowledge_chunk_id,
+                row.index_kind,
+                row.index_provider_id,
+                row.external_ref,
+                row.embedding_model_id,
+                vector_dimension,
+                row.content_hash,
+                row.indexed_at,
+                row.status
+            )?;
             Ok(())
         })
     }
@@ -5111,13 +5049,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         knowledge_index_id: &str,
     ) -> Option<AgentKnowledgeIndexRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_KNOWLEDGE_INDEX,
-                    &[&tenant_id, &knowledge_index_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_KNOWLEDGE_INDEX,
+                tenant_id,
+                knowledge_index_id
+            )?;
             row.map(pg_row_to_agent_knowledge_index_row).transpose()
         })
         .ok()
@@ -5133,13 +5071,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(
-                    SQL_LIST_AGENT_KNOWLEDGE_INDEXES,
-                    &[&tenant_id, &knowledge_document_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(
+                pool,
+                SQL_LIST_AGENT_KNOWLEDGE_INDEXES,
+                tenant_id,
+                knowledge_document_id
+            )?;
             rows.into_iter()
                 .map(pg_row_to_agent_knowledge_index_row)
                 .collect()
@@ -5156,13 +5094,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(
-                    SQL_LIST_AGENT_KNOWLEDGE_INDEXES_BY_BASE,
-                    &[&tenant_id, &knowledge_base_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(
+                pool,
+                SQL_LIST_AGENT_KNOWLEDGE_INDEXES_BY_BASE,
+                tenant_id,
+                knowledge_base_id
+            )?;
             rows.into_iter()
                 .map(pg_row_to_agent_knowledge_index_row)
                 .collect()
@@ -5175,29 +5113,26 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
         let version = u64_to_i64(row.version, "version")?;
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_KNOWLEDGE_BINDING,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &row.knowledge_binding_id,
-                        &row.knowledge_base_id,
-                        &row.agent_id,
-                        &row.deployment_id,
-                        &row.scope_kind,
-                        &row.scope_ref,
-                        &row.active,
-                        &row.default_binding,
-                        &version,
-                        &row.created_at,
-                        &row.updated_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_KNOWLEDGE_BINDING,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                row.knowledge_binding_id,
+                row.knowledge_base_id,
+                row.agent_id,
+                row.deployment_id,
+                row.scope_kind,
+                row.scope_ref,
+                row.active,
+                row.default_binding,
+                version,
+                row.created_at,
+                row.updated_at
+            )?;
             Ok(())
         })
     }
@@ -5208,13 +5143,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         knowledge_binding_id: &str,
     ) -> Option<AgentKnowledgeBindingRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_KNOWLEDGE_BINDING,
-                    &[&tenant_id, &knowledge_binding_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_KNOWLEDGE_BINDING,
+                tenant_id,
+                knowledge_binding_id
+            )?;
             row.map(pg_row_to_agent_knowledge_binding_row).transpose()
         })
         .ok()
@@ -5230,13 +5165,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(
-                    SQL_LIST_AGENT_KNOWLEDGE_BINDINGS,
-                    &[&tenant_id, &knowledge_base_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(
+                pool,
+                SQL_LIST_AGENT_KNOWLEDGE_BINDINGS,
+                tenant_id,
+                knowledge_base_id
+            )?;
             rows.into_iter()
                 .map(pg_row_to_agent_knowledge_binding_row)
                 .collect()
@@ -5248,54 +5183,48 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let id = u64_to_i64(row.id, "id")?;
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_KNOWLEDGE_SYNC_JOB,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &row.sync_job_id,
-                        &row.knowledge_base_id,
-                        &row.knowledge_source_id,
-                        &row.job_kind,
-                        &row.status,
-                        &row.input_ref,
-                        &row.input_json,
-                        &row.output_json,
-                        &row.error_json,
-                        &row.requested_at,
-                        &row.started_at,
-                        &row.completed_at,
-                        &row.created_at,
-                        &row.updated_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_KNOWLEDGE_SYNC_JOB,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                row.sync_job_id,
+                row.knowledge_base_id,
+                row.knowledge_source_id,
+                row.job_kind,
+                row.status,
+                row.input_ref,
+                row.input_json,
+                row.output_json,
+                row.error_json,
+                row.requested_at,
+                row.started_at,
+                row.completed_at,
+                row.created_at,
+                row.updated_at
+            )?;
             Ok(())
         })
     }
 
     fn update_knowledge_sync_job_row(&mut self, row: AgentKnowledgeSyncJobRow) -> KernelResult<()> {
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
-        self.with_locked_client(|client| {
-            let updated_rows = client
-                .execute(
-                    SQL_UPDATE_AGENT_KNOWLEDGE_SYNC_JOB,
-                    &[
-                        &row.status,
-                        &row.output_json,
-                        &row.error_json,
-                        &row.started_at,
-                        &row.completed_at,
-                        &row.updated_at,
-                        &tenant_id,
-                        &row.sync_job_id,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let updated_rows = pg_execute!(
+                pool,
+                SQL_UPDATE_AGENT_KNOWLEDGE_SYNC_JOB,
+                row.status,
+                row.output_json,
+                row.error_json,
+                row.started_at,
+                row.completed_at,
+                row.updated_at,
+                tenant_id,
+                row.sync_job_id
+            )?;
             if updated_rows == 0 {
                 return Err(KernelError::validation(
                     "agent knowledge sync job not found",
@@ -5311,13 +5240,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         sync_job_id: &str,
     ) -> Option<AgentKnowledgeSyncJobRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_KNOWLEDGE_SYNC_JOB,
-                    &[&tenant_id, &sync_job_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_KNOWLEDGE_SYNC_JOB,
+                tenant_id,
+                sync_job_id
+            )?;
             row.map(pg_row_to_agent_knowledge_sync_job_row).transpose()
         })
         .ok()
@@ -5333,13 +5262,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(
-                    SQL_LIST_AGENT_KNOWLEDGE_SYNC_JOBS,
-                    &[&tenant_id, &knowledge_base_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(
+                pool,
+                SQL_LIST_AGENT_KNOWLEDGE_SYNC_JOBS,
+                tenant_id,
+                knowledge_base_id
+            )?;
             rows.into_iter()
                 .map(pg_row_to_agent_knowledge_sync_job_row)
                 .collect()
@@ -5353,34 +5282,31 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
         let owner_user_id = u64_to_i64(row.owner_user_id, "owner_user_id")?;
         let version = u64_to_i64(row.version, "version")?;
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_MEMORY_STORE,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &owner_user_id,
-                        &row.memory_store_id,
-                        &row.code,
-                        &row.display_name,
-                        &row.description,
-                        &row.provider_id,
-                        &row.store_kind,
-                        &row.retrieval_modes_json,
-                        &row.capability_ids_json,
-                        &row.configuration_profile_id,
-                        &row.status,
-                        &row.visibility,
-                        &version,
-                        &row.created_at,
-                        &row.updated_at,
-                        &row.deleted_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_MEMORY_STORE,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                owner_user_id,
+                row.memory_store_id,
+                row.code,
+                row.display_name,
+                row.description,
+                row.provider_id,
+                row.store_kind,
+                row.retrieval_modes_json,
+                row.capability_ids_json,
+                row.configuration_profile_id,
+                row.status,
+                row.visibility,
+                version,
+                row.created_at,
+                row.updated_at,
+                row.deleted_at
+            )?;
             Ok(())
         })
     }
@@ -5392,40 +5318,37 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let version = u64_to_i64(row.version, "version")?;
         let previous_version =
             u64_to_i64(expected_previous_version(row.version)?, "previous_version")?;
-        self.with_locked_client(|client| {
-            let updated_rows = client
-                .execute(
-                    SQL_UPDATE_AGENT_MEMORY_STORE,
-                    &[
-                        &organization_id,
-                        &owner_user_id,
-                        &row.code,
-                        &row.display_name,
-                        &row.description,
-                        &row.provider_id,
-                        &row.store_kind,
-                        &row.retrieval_modes_json,
-                        &row.capability_ids_json,
-                        &row.configuration_profile_id,
-                        &row.status,
-                        &row.visibility,
-                        &version,
-                        &row.updated_at,
-                        &row.deleted_at,
-                        &tenant_id,
-                        &row.memory_store_id,
-                        &previous_version,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let updated_rows = pg_execute!(
+                pool,
+                SQL_UPDATE_AGENT_MEMORY_STORE,
+                organization_id,
+                owner_user_id,
+                row.code,
+                row.display_name,
+                row.description,
+                row.provider_id,
+                row.store_kind,
+                row.retrieval_modes_json,
+                row.capability_ids_json,
+                row.configuration_profile_id,
+                row.status,
+                row.visibility,
+                version,
+                row.updated_at,
+                row.deleted_at,
+                tenant_id,
+                row.memory_store_id,
+                previous_version
+            )?;
             if updated_rows == 0 {
-                let exists = client
-                    .query_opt(
-                        SQL_SELECT_AGENT_MEMORY_STORE,
-                        &[&tenant_id, &row.memory_store_id],
-                    )
-                    .map_err(map_postgres_error)?
-                    .is_some();
+                let exists = pg_query_optional!(
+                    pool,
+                    SQL_SELECT_AGENT_MEMORY_STORE,
+                    tenant_id,
+                    row.memory_store_id
+                )?
+                .is_some();
                 if exists {
                     return Err(KernelError::conflict("agent memory store version mismatch"));
                 }
@@ -5441,13 +5364,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         memory_store_id: &str,
     ) -> Option<AgentMemoryStoreRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_MEMORY_STORE,
-                    &[&tenant_id, &memory_store_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_MEMORY_STORE,
+                tenant_id,
+                memory_store_id
+            )?;
             row.map(pg_row_to_agent_memory_store_row).transpose()
         })
         .ok()
@@ -5460,35 +5383,32 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
         let owner_user_id = u64_to_i64(row.owner_user_id, "owner_user_id")?;
         let version = u64_to_i64(row.version, "version")?;
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_MEMORY_PROFILE,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &owner_user_id,
-                        &row.memory_profile_id,
-                        &row.memory_store_id,
-                        &row.code,
-                        &row.display_name,
-                        &row.description,
-                        &row.write_policy_json,
-                        &row.retrieval_policy_json,
-                        &row.compaction_policy_json,
-                        &row.retention_policy_json,
-                        &row.privacy_policy_json,
-                        &row.status,
-                        &row.visibility,
-                        &version,
-                        &row.created_at,
-                        &row.updated_at,
-                        &row.deleted_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_MEMORY_PROFILE,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                owner_user_id,
+                row.memory_profile_id,
+                row.memory_store_id,
+                row.code,
+                row.display_name,
+                row.description,
+                row.write_policy_json,
+                row.retrieval_policy_json,
+                row.compaction_policy_json,
+                row.retention_policy_json,
+                row.privacy_policy_json,
+                row.status,
+                row.visibility,
+                version,
+                row.created_at,
+                row.updated_at,
+                row.deleted_at
+            )?;
             Ok(())
         })
     }
@@ -5499,13 +5419,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         memory_profile_id: &str,
     ) -> Option<AgentMemoryProfileRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_MEMORY_PROFILE,
-                    &[&tenant_id, &memory_profile_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_MEMORY_PROFILE,
+                tenant_id,
+                memory_profile_id
+            )?;
             row.map(pg_row_to_agent_memory_profile_row).transpose()
         })
         .ok()
@@ -5517,29 +5437,26 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
         let version = u64_to_i64(row.version, "version")?;
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_MEMORY_BINDING,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &row.memory_binding_id,
-                        &row.memory_profile_id,
-                        &row.agent_id,
-                        &row.deployment_id,
-                        &row.scope_kind,
-                        &row.scope_ref,
-                        &row.active,
-                        &row.default_binding,
-                        &version,
-                        &row.created_at,
-                        &row.updated_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_MEMORY_BINDING,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                row.memory_binding_id,
+                row.memory_profile_id,
+                row.agent_id,
+                row.deployment_id,
+                row.scope_kind,
+                row.scope_ref,
+                row.active,
+                row.default_binding,
+                version,
+                row.created_at,
+                row.updated_at
+            )?;
             Ok(())
         })
     }
@@ -5550,13 +5467,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         memory_binding_id: &str,
     ) -> Option<AgentMemoryBindingRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_MEMORY_BINDING,
-                    &[&tenant_id, &memory_binding_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_MEMORY_BINDING,
+                tenant_id,
+                memory_binding_id
+            )?;
             row.map(pg_row_to_agent_memory_binding_row).transpose()
         })
         .ok()
@@ -5568,30 +5485,27 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
         let version = u64_to_i64(row.version, "version")?;
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_MEMORY_NAMESPACE,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &row.memory_namespace_id,
-                        &row.agent_id,
-                        &row.user_ref,
-                        &row.session_ref,
-                        &row.thread_ref,
-                        &row.namespace_kind,
-                        &row.status,
-                        &row.visibility,
-                        &version,
-                        &row.created_at,
-                        &row.updated_at,
-                        &row.deleted_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_MEMORY_NAMESPACE,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                row.memory_namespace_id,
+                row.agent_id,
+                row.user_ref,
+                row.session_ref,
+                row.thread_ref,
+                row.namespace_kind,
+                row.status,
+                row.visibility,
+                version,
+                row.created_at,
+                row.updated_at,
+                row.deleted_at
+            )?;
             Ok(())
         })
     }
@@ -5602,13 +5516,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         memory_namespace_id: &str,
     ) -> Option<AgentMemoryNamespaceRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_MEMORY_NAMESPACE,
-                    &[&tenant_id, &memory_namespace_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_MEMORY_NAMESPACE,
+                tenant_id,
+                memory_namespace_id
+            )?;
             row.map(pg_row_to_agent_memory_namespace_row).transpose()
         })
         .ok()
@@ -5625,40 +5539,37 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let salience_score = row.salience_score;
         let confidence_score = row.confidence_score;
         let freshness_score = row.freshness_score;
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_MEMORY_RECORD,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &row.memory_id,
-                        &row.memory_namespace_id,
-                        &row.agent_id,
-                        &row.memory_kind,
-                        &row.content_format,
-                        &row.content_json,
-                        &row.summary,
-                        &salience_score,
-                        &confidence_score,
-                        &freshness_score,
-                        &row.sensitivity_level,
-                        &source_count,
-                        &row.effective_at,
-                        &row.expires_at,
-                        &row.last_used_at,
-                        &use_count,
-                        &row.status,
-                        &version,
-                        &row.created_at,
-                        &row.updated_at,
-                        &row.deleted_at,
-                        &row.redacted_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_MEMORY_RECORD,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                row.memory_id,
+                row.memory_namespace_id,
+                row.agent_id,
+                row.memory_kind,
+                row.content_format,
+                row.content_json,
+                row.summary,
+                salience_score,
+                confidence_score,
+                freshness_score,
+                row.sensitivity_level,
+                source_count,
+                row.effective_at,
+                row.expires_at,
+                row.last_used_at,
+                use_count,
+                row.status,
+                version,
+                row.created_at,
+                row.updated_at,
+                row.deleted_at,
+                row.redacted_at
+            )?;
             Ok(())
         })
     }
@@ -5673,42 +5584,39 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let salience_score = row.salience_score;
         let confidence_score = row.confidence_score;
         let freshness_score = row.freshness_score;
-        self.with_locked_client(|client| {
-            let updated_rows = client
-                .execute(
-                    SQL_UPDATE_AGENT_MEMORY_RECORD,
-                    &[
-                        &row.content_format,
-                        &row.content_json,
-                        &row.summary,
-                        &salience_score,
-                        &confidence_score,
-                        &freshness_score,
-                        &row.sensitivity_level,
-                        &source_count,
-                        &row.effective_at,
-                        &row.expires_at,
-                        &row.last_used_at,
-                        &use_count,
-                        &row.status,
-                        &version,
-                        &row.updated_at,
-                        &row.deleted_at,
-                        &row.redacted_at,
-                        &tenant_id,
-                        &row.memory_id,
-                        &previous_version,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let updated_rows = pg_execute!(
+                pool,
+                SQL_UPDATE_AGENT_MEMORY_RECORD,
+                row.content_format,
+                row.content_json,
+                row.summary,
+                salience_score,
+                confidence_score,
+                freshness_score,
+                row.sensitivity_level,
+                source_count,
+                row.effective_at,
+                row.expires_at,
+                row.last_used_at,
+                use_count,
+                row.status,
+                version,
+                row.updated_at,
+                row.deleted_at,
+                row.redacted_at,
+                tenant_id,
+                row.memory_id,
+                previous_version
+            )?;
             if updated_rows == 0 {
-                let exists = client
-                    .query_opt(
-                        SQL_SELECT_AGENT_MEMORY_RECORD,
-                        &[&tenant_id, &row.memory_id],
-                    )
-                    .map_err(map_postgres_error)?
-                    .is_some();
+                let exists = pg_query_optional!(
+                    pool,
+                    SQL_SELECT_AGENT_MEMORY_RECORD,
+                    tenant_id,
+                    row.memory_id
+                )?
+                .is_some();
                 if exists {
                     return Err(KernelError::conflict(
                         "agent memory record version mismatch",
@@ -5726,10 +5634,9 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         memory_id: &str,
     ) -> Option<AgentMemoryRecordRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(SQL_SELECT_AGENT_MEMORY_RECORD, &[&tenant_id, &memory_id])
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row =
+                pg_query_optional!(pool, SQL_SELECT_AGENT_MEMORY_RECORD, tenant_id, memory_id)?;
             row.map(pg_row_to_agent_memory_record_row).transpose()
         })
         .ok()
@@ -5745,13 +5652,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(
-                    SQL_LIST_AGENT_MEMORY_RECORDS,
-                    &[&tenant_id, &memory_namespace_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(
+                pool,
+                SQL_LIST_AGENT_MEMORY_RECORDS,
+                tenant_id,
+                memory_namespace_id
+            )?;
             rows.into_iter()
                 .map(pg_row_to_agent_memory_record_row)
                 .collect()
@@ -5762,31 +5669,29 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
     fn insert_memory_source_row(&mut self, row: AgentMemorySourceRow) -> KernelResult<()> {
         let id = u64_to_i64(row.id, "id")?;
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_MEMORY_SOURCE,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &row.memory_source_id,
-                        &row.memory_id,
-                        &row.source_kind,
-                        &row.source_ref,
-                        &row.source_hash,
-                        &row.evidence_json,
-                        &row.captured_at,
-                        &row.created_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
-            client
-                .execute(
-                    SQL_INCREMENT_AGENT_MEMORY_RECORD_SOURCE_COUNT,
-                    &[&row.created_at, &tenant_id, &row.memory_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_MEMORY_SOURCE,
+                id,
+                row.uuid,
+                tenant_id,
+                row.memory_source_id,
+                row.memory_id,
+                row.source_kind,
+                row.source_ref,
+                row.source_hash,
+                row.evidence_json,
+                row.captured_at,
+                row.created_at
+            )?;
+            pg_execute!(
+                pool,
+                SQL_INCREMENT_AGENT_MEMORY_RECORD_SOURCE_COUNT,
+                row.created_at,
+                tenant_id,
+                row.memory_id
+            )?;
             Ok(())
         })
     }
@@ -5797,13 +5702,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         memory_source_id: &str,
     ) -> Option<AgentMemorySourceRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_MEMORY_SOURCE,
-                    &[&tenant_id, &memory_source_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_MEMORY_SOURCE,
+                tenant_id,
+                memory_source_id
+            )?;
             row.map(pg_row_to_agent_memory_source_row).transpose()
         })
         .ok()
@@ -5819,10 +5724,8 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(SQL_LIST_AGENT_MEMORY_SOURCES, &[&tenant_id, &memory_id])
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(pool, SQL_LIST_AGENT_MEMORY_SOURCES, tenant_id, memory_id)?;
             rows.into_iter()
                 .map(pg_row_to_agent_memory_source_row)
                 .collect()
@@ -5837,25 +5740,22 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let valid_from = optional_rfc3339_timestamp(&row.valid_from)?;
         let valid_until = optional_rfc3339_timestamp(&row.valid_until)?;
         let created_at = parse_rfc3339_timestamp(row.created_at.as_str())?;
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AGENT_MEMORY_RELATION,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &row.memory_relation_id,
-                        &row.from_memory_id,
-                        &row.to_memory_id,
-                        &row.relation_kind,
-                        &weight,
-                        &valid_from,
-                        &valid_until,
-                        &created_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AGENT_MEMORY_RELATION,
+                id,
+                row.uuid,
+                tenant_id,
+                row.memory_relation_id,
+                row.from_memory_id,
+                row.to_memory_id,
+                row.relation_kind,
+                weight,
+                valid_from,
+                valid_until,
+                created_at
+            )?;
             Ok(())
         })
     }
@@ -5866,13 +5766,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         memory_relation_id: &str,
     ) -> Option<AgentMemoryRelationRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_MEMORY_RELATION,
-                    &[&tenant_id, &memory_relation_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_MEMORY_RELATION,
+                tenant_id,
+                memory_relation_id
+            )?;
             row.map(pg_row_to_agent_memory_relation_row).transpose()
         })
         .ok()
@@ -5888,10 +5788,8 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(SQL_LIST_AGENT_MEMORY_RELATIONS, &[&tenant_id, &memory_id])
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(pool, SQL_LIST_AGENT_MEMORY_RELATIONS, tenant_id, memory_id)?;
             rows.into_iter()
                 .map(pg_row_to_agent_memory_relation_row)
                 .collect()
@@ -5906,27 +5804,24 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         let id = u64_to_i64(row.id, "id")?;
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
         let vector_dimension = row.vector_dimension.map(i64::from);
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_UPSERT_AGENT_MEMORY_RETRIEVAL_INDEX,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &row.memory_index_id,
-                        &row.memory_id,
-                        &row.index_kind,
-                        &row.index_provider_id,
-                        &row.external_ref,
-                        &row.embedding_model_id,
-                        &vector_dimension,
-                        &row.content_hash,
-                        &row.indexed_at,
-                        &row.status,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_UPSERT_AGENT_MEMORY_RETRIEVAL_INDEX,
+                id,
+                row.uuid,
+                tenant_id,
+                row.memory_index_id,
+                row.memory_id,
+                row.index_kind,
+                row.index_provider_id,
+                row.external_ref,
+                row.embedding_model_id,
+                vector_dimension,
+                row.content_hash,
+                row.indexed_at,
+                row.status
+            )?;
             Ok(())
         })
     }
@@ -5937,13 +5832,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         memory_index_id: &str,
     ) -> Option<AgentMemoryRetrievalIndexRow> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_locked_client(|client| {
-            let row = client
-                .query_opt(
-                    SQL_SELECT_AGENT_MEMORY_RETRIEVAL_INDEX,
-                    &[&tenant_id, &memory_index_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let row = pg_query_optional!(
+                pool,
+                SQL_SELECT_AGENT_MEMORY_RETRIEVAL_INDEX,
+                tenant_id,
+                memory_index_id
+            )?;
             row.map(pg_row_to_agent_memory_retrieval_index_row)
                 .transpose()
         })
@@ -5960,13 +5855,13 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
             Ok(value) => value,
             Err(_) => return Vec::new(),
         };
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(
-                    SQL_LIST_AGENT_MEMORY_RETRIEVAL_INDEXES,
-                    &[&tenant_id, &memory_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(
+                pool,
+                SQL_LIST_AGENT_MEMORY_RETRIEVAL_INDEXES,
+                tenant_id,
+                memory_id
+            )?;
             rows.into_iter()
                 .map(pg_row_to_agent_memory_retrieval_index_row)
                 .collect()
@@ -5987,27 +5882,24 @@ impl PostgresAuditAdapter for SyncPostgresAdapter {
         let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
         let agent_business_id = u64_to_i64(row.agent_business_id, "agent_business_id")?;
 
-        self.with_locked_client(|client| {
-            client
-                .execute(
-                    SQL_INSERT_AUDIT_EVENT,
-                    &[
-                        &id,
-                        &row.uuid,
-                        &tenant_id,
-                        &organization_id,
-                        &agent_business_id,
-                        &row.agent_id,
-                        &row.action,
-                        &row.subject_id,
-                        &row.subject_tenant_id,
-                        &row.request_id,
-                        &row.trace_id,
-                        &row.payload_json,
-                        &row.created_at,
-                    ],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            pg_execute!(
+                pool,
+                SQL_INSERT_AUDIT_EVENT,
+                id,
+                row.uuid,
+                tenant_id,
+                organization_id,
+                agent_business_id,
+                row.agent_id,
+                row.action,
+                row.subject_id,
+                row.subject_tenant_id,
+                row.request_id,
+                row.trace_id,
+                row.payload_json,
+                row.created_at
+            )?;
             Ok(())
         })
     }
@@ -6018,13 +5910,13 @@ impl PostgresAuditAdapter for SyncPostgresAdapter {
         agent_id: &str,
     ) -> KernelResult<Vec<AgentAuditEventRow>> {
         let tenant_id = u64_to_i64(tenant_id, "tenant_id")?;
-        self.with_locked_client(|client| {
-            let rows = client
-                .query(
-                    SQL_LIST_AUDIT_EVENTS_BY_TENANT_AND_AGENT_ID,
-                    &[&tenant_id, &agent_id],
-                )
-                .map_err(map_postgres_error)?;
+        self.with_pool(|pool| {
+            let rows = pg_query!(
+                pool,
+                SQL_LIST_AUDIT_EVENTS_BY_TENANT_AND_AGENT_ID,
+                tenant_id,
+                agent_id
+            )?;
             rows.iter().map(AgentAuditEventRow::from_pg_row).collect()
         })
     }
@@ -6469,8 +6361,8 @@ fn optional_rfc3339_timestamp(value: &Option<String>) -> KernelResult<Option<Pri
 }
 
 #[cfg(feature = "postgres-sync")]
-fn map_postgres_error(error: postgres::Error) -> KernelError {
-    KernelError::provider_error("postgres_error", error.to_string())
+fn map_sqlx_error(error: sqlx::Error) -> KernelError {
+    crate::postgres_sync_pool::map_sqlx_error(error)
 }
 
 #[cfg(feature = "postgres-sync")]
@@ -6570,850 +6462,713 @@ fn marketplace_row_matches(
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_business_row(row: Row) -> KernelResult<AgentBusinessRow> {
+fn pg_row_to_agent_business_row(row: PgRow) -> KernelResult<AgentBusinessRow> {
     Ok(AgentBusinessRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
         owner_user_id: int64_to_u64(
-            row.try_get("owner_user_id").map_err(map_postgres_error)?,
+            row.try_get("owner_user_id").map_err(map_sqlx_error)?,
             "owner_user_id",
         )?,
-        agent_id: row.try_get("agent_id").map_err(map_postgres_error)?,
-        code: row.try_get("code").map_err(map_postgres_error)?,
-        display_name: row.try_get("display_name").map_err(map_postgres_error)?,
-        description: row.try_get("description").map_err(map_postgres_error)?,
-        manifest_json: row.try_get("manifest_json").map_err(map_postgres_error)?,
+        agent_id: row.try_get("agent_id").map_err(map_sqlx_error)?,
+        code: row.try_get("code").map_err(map_sqlx_error)?,
+        display_name: row.try_get("display_name").map_err(map_sqlx_error)?,
+        description: row.try_get("description").map_err(map_sqlx_error)?,
+        manifest_json: row.try_get("manifest_json").map_err(map_sqlx_error)?,
         default_code_task_intent_json: row
             .try_get("default_code_task_intent_json")
-            .map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
         implementation_provider_id: row
             .try_get("implementation_provider_id")
-            .map_err(map_postgres_error)?,
-        implementation_kind: row
-            .try_get("implementation_kind")
-            .map_err(map_postgres_error)?,
-        implementation_type: row
-            .try_get("implementation_type")
-            .map_err(map_postgres_error)?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
-        visibility: row.try_get("visibility").map_err(map_postgres_error)?,
-        tags_json: row.try_get("tags_json").map_err(map_postgres_error)?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
-        deleted_at: row.try_get("deleted_at").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
+            .map_err(map_sqlx_error)?,
+        implementation_kind: row.try_get("implementation_kind").map_err(map_sqlx_error)?,
+        implementation_type: row.try_get("implementation_type").map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        visibility: row.try_get("visibility").map_err(map_sqlx_error)?,
+        tags_json: row.try_get("tags_json").map_err(map_sqlx_error)?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
+        deleted_at: row.try_get("deleted_at").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_skill_package_row(row: Row) -> KernelResult<AgentSkillPackageRow> {
+fn pg_row_to_agent_skill_package_row(row: PgRow) -> KernelResult<AgentSkillPackageRow> {
     Ok(AgentSkillPackageRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
         owner_user_id: int64_to_u64(
-            row.try_get("owner_user_id").map_err(map_postgres_error)?,
+            row.try_get("owner_user_id").map_err(map_sqlx_error)?,
             "owner_user_id",
         )?,
-        skill_id: row.try_get("skill_id").map_err(map_postgres_error)?,
-        code: row.try_get("code").map_err(map_postgres_error)?,
-        display_name: row.try_get("display_name").map_err(map_postgres_error)?,
-        description: row.try_get("description").map_err(map_postgres_error)?,
-        invocation_kind: row.try_get("invocation_kind").map_err(map_postgres_error)?,
-        package_ref: row.try_get("package_ref").map_err(map_postgres_error)?,
-        entrypoint: row.try_get("entrypoint").map_err(map_postgres_error)?,
-        input_schema_json: row
-            .try_get("input_schema_json")
-            .map_err(map_postgres_error)?,
-        output_schema_json: row
-            .try_get("output_schema_json")
-            .map_err(map_postgres_error)?,
-        capability_ids_json: row
-            .try_get("capability_ids_json")
-            .map_err(map_postgres_error)?,
-        categories_json: row.try_get("categories_json").map_err(map_postgres_error)?,
-        tags_json: row.try_get("tags_json").map_err(map_postgres_error)?,
-        security_profile_id: row
-            .try_get("security_profile_id")
-            .map_err(map_postgres_error)?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
-        visibility: row.try_get("visibility").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
-        deleted_at: row.try_get("deleted_at").map_err(map_postgres_error)?,
+        skill_id: row.try_get("skill_id").map_err(map_sqlx_error)?,
+        code: row.try_get("code").map_err(map_sqlx_error)?,
+        display_name: row.try_get("display_name").map_err(map_sqlx_error)?,
+        description: row.try_get("description").map_err(map_sqlx_error)?,
+        invocation_kind: row.try_get("invocation_kind").map_err(map_sqlx_error)?,
+        package_ref: row.try_get("package_ref").map_err(map_sqlx_error)?,
+        entrypoint: row.try_get("entrypoint").map_err(map_sqlx_error)?,
+        input_schema_json: row.try_get("input_schema_json").map_err(map_sqlx_error)?,
+        output_schema_json: row.try_get("output_schema_json").map_err(map_sqlx_error)?,
+        capability_ids_json: row.try_get("capability_ids_json").map_err(map_sqlx_error)?,
+        categories_json: row.try_get("categories_json").map_err(map_sqlx_error)?,
+        tags_json: row.try_get("tags_json").map_err(map_sqlx_error)?,
+        security_profile_id: row.try_get("security_profile_id").map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        visibility: row.try_get("visibility").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
+        deleted_at: row.try_get("deleted_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_mcp_server_row(row: Row) -> KernelResult<AgentMcpServerRow> {
+fn pg_row_to_agent_mcp_server_row(row: PgRow) -> KernelResult<AgentMcpServerRow> {
     Ok(AgentMcpServerRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
         owner_user_id: int64_to_u64(
-            row.try_get("owner_user_id").map_err(map_postgres_error)?,
+            row.try_get("owner_user_id").map_err(map_sqlx_error)?,
             "owner_user_id",
         )?,
-        mcp_server_id: row.try_get("mcp_server_id").map_err(map_postgres_error)?,
-        code: row.try_get("code").map_err(map_postgres_error)?,
-        display_name: row.try_get("display_name").map_err(map_postgres_error)?,
-        description: row.try_get("description").map_err(map_postgres_error)?,
-        protocol_version: row
-            .try_get("protocol_version")
-            .map_err(map_postgres_error)?,
-        transport_kind: row.try_get("transport_kind").map_err(map_postgres_error)?,
-        endpoint_ref: row.try_get("endpoint_ref").map_err(map_postgres_error)?,
-        command_ref: row.try_get("command_ref").map_err(map_postgres_error)?,
-        auth_kind: row.try_get("auth_kind").map_err(map_postgres_error)?,
-        auth_profile_id: row.try_get("auth_profile_id").map_err(map_postgres_error)?,
-        capability_ids_json: row
-            .try_get("capability_ids_json")
-            .map_err(map_postgres_error)?,
+        mcp_server_id: row.try_get("mcp_server_id").map_err(map_sqlx_error)?,
+        code: row.try_get("code").map_err(map_sqlx_error)?,
+        display_name: row.try_get("display_name").map_err(map_sqlx_error)?,
+        description: row.try_get("description").map_err(map_sqlx_error)?,
+        protocol_version: row.try_get("protocol_version").map_err(map_sqlx_error)?,
+        transport_kind: row.try_get("transport_kind").map_err(map_sqlx_error)?,
+        endpoint_ref: row.try_get("endpoint_ref").map_err(map_sqlx_error)?,
+        command_ref: row.try_get("command_ref").map_err(map_sqlx_error)?,
+        auth_kind: row.try_get("auth_kind").map_err(map_sqlx_error)?,
+        auth_profile_id: row.try_get("auth_profile_id").map_err(map_sqlx_error)?,
+        capability_ids_json: row.try_get("capability_ids_json").map_err(map_sqlx_error)?,
         tool_count: int64_to_u32(
-            row.try_get("tool_count").map_err(map_postgres_error)?,
+            row.try_get("tool_count").map_err(map_sqlx_error)?,
             "tool_count",
         )?,
         resource_count: int64_to_u32(
-            row.try_get("resource_count").map_err(map_postgres_error)?,
+            row.try_get("resource_count").map_err(map_sqlx_error)?,
             "resource_count",
         )?,
         prompt_count: int64_to_u32(
-            row.try_get("prompt_count").map_err(map_postgres_error)?,
+            row.try_get("prompt_count").map_err(map_sqlx_error)?,
             "prompt_count",
         )?,
-        capabilities_json: row
-            .try_get("capabilities_json")
-            .map_err(map_postgres_error)?,
-        categories_json: row.try_get("categories_json").map_err(map_postgres_error)?,
-        tags_json: row.try_get("tags_json").map_err(map_postgres_error)?,
-        security_profile_id: row
-            .try_get("security_profile_id")
-            .map_err(map_postgres_error)?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
-        visibility: row.try_get("visibility").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
-        deleted_at: row.try_get("deleted_at").map_err(map_postgres_error)?,
+        capabilities_json: row.try_get("capabilities_json").map_err(map_sqlx_error)?,
+        categories_json: row.try_get("categories_json").map_err(map_sqlx_error)?,
+        tags_json: row.try_get("tags_json").map_err(map_sqlx_error)?,
+        security_profile_id: row.try_get("security_profile_id").map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        visibility: row.try_get("visibility").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
+        deleted_at: row.try_get("deleted_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_prompt_template_row(row: Row) -> KernelResult<AgentPromptTemplateRow> {
+fn pg_row_to_agent_prompt_template_row(row: PgRow) -> KernelResult<AgentPromptTemplateRow> {
     Ok(AgentPromptTemplateRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
         owner_user_id: int64_to_u64(
-            row.try_get("owner_user_id").map_err(map_postgres_error)?,
+            row.try_get("owner_user_id").map_err(map_sqlx_error)?,
             "owner_user_id",
         )?,
-        prompt_id: row.try_get("prompt_id").map_err(map_postgres_error)?,
-        code: row.try_get("code").map_err(map_postgres_error)?,
-        display_name: row.try_get("display_name").map_err(map_postgres_error)?,
-        description: row.try_get("description").map_err(map_postgres_error)?,
-        prompt_kind: row.try_get("prompt_kind").map_err(map_postgres_error)?,
-        template_format: row.try_get("template_format").map_err(map_postgres_error)?,
-        template_body: row.try_get("template_body").map_err(map_postgres_error)?,
+        prompt_id: row.try_get("prompt_id").map_err(map_sqlx_error)?,
+        code: row.try_get("code").map_err(map_sqlx_error)?,
+        display_name: row.try_get("display_name").map_err(map_sqlx_error)?,
+        description: row.try_get("description").map_err(map_sqlx_error)?,
+        prompt_kind: row.try_get("prompt_kind").map_err(map_sqlx_error)?,
+        template_format: row.try_get("template_format").map_err(map_sqlx_error)?,
+        template_body: row.try_get("template_body").map_err(map_sqlx_error)?,
         variables_schema_json: row
             .try_get("variables_schema_json")
-            .map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
         model_constraints_json: row
             .try_get("model_constraints_json")
-            .map_err(map_postgres_error)?,
-        capability_ids_json: row
-            .try_get("capability_ids_json")
-            .map_err(map_postgres_error)?,
-        categories_json: row.try_get("categories_json").map_err(map_postgres_error)?,
-        tags_json: row.try_get("tags_json").map_err(map_postgres_error)?,
-        safety_profile_id: row
-            .try_get("safety_profile_id")
-            .map_err(map_postgres_error)?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
-        visibility: row.try_get("visibility").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
-        deleted_at: row.try_get("deleted_at").map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
+        capability_ids_json: row.try_get("capability_ids_json").map_err(map_sqlx_error)?,
+        categories_json: row.try_get("categories_json").map_err(map_sqlx_error)?,
+        tags_json: row.try_get("tags_json").map_err(map_sqlx_error)?,
+        safety_profile_id: row.try_get("safety_profile_id").map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        visibility: row.try_get("visibility").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
+        deleted_at: row.try_get("deleted_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_knowledge_base_row(row: Row) -> KernelResult<AgentKnowledgeBaseRow> {
+fn pg_row_to_agent_knowledge_base_row(row: PgRow) -> KernelResult<AgentKnowledgeBaseRow> {
     Ok(AgentKnowledgeBaseRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
         owner_user_id: int64_to_u64(
-            row.try_get("owner_user_id").map_err(map_postgres_error)?,
+            row.try_get("owner_user_id").map_err(map_sqlx_error)?,
             "owner_user_id",
         )?,
-        knowledge_base_id: row
-            .try_get("knowledge_base_id")
-            .map_err(map_postgres_error)?,
-        code: row.try_get("code").map_err(map_postgres_error)?,
-        display_name: row.try_get("display_name").map_err(map_postgres_error)?,
-        description: row.try_get("description").map_err(map_postgres_error)?,
-        provider_id: row.try_get("provider_id").map_err(map_postgres_error)?,
-        base_kind: row.try_get("base_kind").map_err(map_postgres_error)?,
+        knowledge_base_id: row.try_get("knowledge_base_id").map_err(map_sqlx_error)?,
+        code: row.try_get("code").map_err(map_sqlx_error)?,
+        display_name: row.try_get("display_name").map_err(map_sqlx_error)?,
+        description: row.try_get("description").map_err(map_sqlx_error)?,
+        provider_id: row.try_get("provider_id").map_err(map_sqlx_error)?,
+        base_kind: row.try_get("base_kind").map_err(map_sqlx_error)?,
         retrieval_modes_json: row
             .try_get("retrieval_modes_json")
-            .map_err(map_postgres_error)?,
-        capability_ids_json: row
-            .try_get("capability_ids_json")
-            .map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
+        capability_ids_json: row.try_get("capability_ids_json").map_err(map_sqlx_error)?,
         configuration_profile_id: row
             .try_get("configuration_profile_id")
-            .map_err(map_postgres_error)?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
-        visibility: row.try_get("visibility").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
-        deleted_at: row.try_get("deleted_at").map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        visibility: row.try_get("visibility").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
+        deleted_at: row.try_get("deleted_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_knowledge_source_row(row: Row) -> KernelResult<AgentKnowledgeSourceRow> {
+fn pg_row_to_agent_knowledge_source_row(row: PgRow) -> KernelResult<AgentKnowledgeSourceRow> {
     Ok(AgentKnowledgeSourceRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
-        knowledge_source_id: row
-            .try_get("knowledge_source_id")
-            .map_err(map_postgres_error)?,
-        knowledge_base_id: row
-            .try_get("knowledge_base_id")
-            .map_err(map_postgres_error)?,
-        source_kind: row.try_get("source_kind").map_err(map_postgres_error)?,
-        source_ref: row.try_get("source_ref").map_err(map_postgres_error)?,
-        source_hash: row.try_get("source_hash").map_err(map_postgres_error)?,
-        sync_policy_json: row
-            .try_get("sync_policy_json")
-            .map_err(map_postgres_error)?,
-        metadata_json: row.try_get("metadata_json").map_err(map_postgres_error)?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
-        deleted_at: row.try_get("deleted_at").map_err(map_postgres_error)?,
+        knowledge_source_id: row.try_get("knowledge_source_id").map_err(map_sqlx_error)?,
+        knowledge_base_id: row.try_get("knowledge_base_id").map_err(map_sqlx_error)?,
+        source_kind: row.try_get("source_kind").map_err(map_sqlx_error)?,
+        source_ref: row.try_get("source_ref").map_err(map_sqlx_error)?,
+        source_hash: row.try_get("source_hash").map_err(map_sqlx_error)?,
+        sync_policy_json: row.try_get("sync_policy_json").map_err(map_sqlx_error)?,
+        metadata_json: row.try_get("metadata_json").map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
+        deleted_at: row.try_get("deleted_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_knowledge_document_row(row: Row) -> KernelResult<AgentKnowledgeDocumentRow> {
+fn pg_row_to_agent_knowledge_document_row(row: PgRow) -> KernelResult<AgentKnowledgeDocumentRow> {
     Ok(AgentKnowledgeDocumentRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
         knowledge_document_id: row
             .try_get("knowledge_document_id")
-            .map_err(map_postgres_error)?,
-        knowledge_base_id: row
-            .try_get("knowledge_base_id")
-            .map_err(map_postgres_error)?,
-        knowledge_source_id: row
-            .try_get("knowledge_source_id")
-            .map_err(map_postgres_error)?,
-        document_kind: row.try_get("document_kind").map_err(map_postgres_error)?,
-        title: row.try_get("title").map_err(map_postgres_error)?,
-        content_ref: row.try_get("content_ref").map_err(map_postgres_error)?,
-        content_hash: row.try_get("content_hash").map_err(map_postgres_error)?,
-        summary: row.try_get("summary").map_err(map_postgres_error)?,
-        metadata_json: row.try_get("metadata_json").map_err(map_postgres_error)?,
-        tags_json: row.try_get("tags_json").map_err(map_postgres_error)?,
-        categories_json: row.try_get("categories_json").map_err(map_postgres_error)?,
-        trust_level: row.try_get("trust_level").map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
+        knowledge_base_id: row.try_get("knowledge_base_id").map_err(map_sqlx_error)?,
+        knowledge_source_id: row.try_get("knowledge_source_id").map_err(map_sqlx_error)?,
+        document_kind: row.try_get("document_kind").map_err(map_sqlx_error)?,
+        title: row.try_get("title").map_err(map_sqlx_error)?,
+        content_ref: row.try_get("content_ref").map_err(map_sqlx_error)?,
+        content_hash: row.try_get("content_hash").map_err(map_sqlx_error)?,
+        summary: row.try_get("summary").map_err(map_sqlx_error)?,
+        metadata_json: row.try_get("metadata_json").map_err(map_sqlx_error)?,
+        tags_json: row.try_get("tags_json").map_err(map_sqlx_error)?,
+        categories_json: row.try_get("categories_json").map_err(map_sqlx_error)?,
+        trust_level: row.try_get("trust_level").map_err(map_sqlx_error)?,
         redaction_classification: row
             .try_get("redaction_classification")
-            .map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
         chunk_count: int64_to_u32(
-            row.try_get("chunk_count").map_err(map_postgres_error)?,
+            row.try_get("chunk_count").map_err(map_sqlx_error)?,
             "chunk_count",
         )?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
-        visibility: row.try_get("visibility").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
-        deleted_at: row.try_get("deleted_at").map_err(map_postgres_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        visibility: row.try_get("visibility").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
+        deleted_at: row.try_get("deleted_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_knowledge_chunk_row(row: Row) -> KernelResult<AgentKnowledgeChunkRow> {
+fn pg_row_to_agent_knowledge_chunk_row(row: PgRow) -> KernelResult<AgentKnowledgeChunkRow> {
     Ok(AgentKnowledgeChunkRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
-        knowledge_chunk_id: row
-            .try_get("knowledge_chunk_id")
-            .map_err(map_postgres_error)?,
+        knowledge_chunk_id: row.try_get("knowledge_chunk_id").map_err(map_sqlx_error)?,
         knowledge_document_id: row
             .try_get("knowledge_document_id")
-            .map_err(map_postgres_error)?,
-        parent_chunk_id: row.try_get("parent_chunk_id").map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
+        parent_chunk_id: row.try_get("parent_chunk_id").map_err(map_sqlx_error)?,
         chunk_ordinal: int64_to_u32(
-            row.try_get("chunk_ordinal").map_err(map_postgres_error)?,
+            row.try_get("chunk_ordinal").map_err(map_sqlx_error)?,
             "chunk_ordinal",
         )?,
-        heading: row.try_get("heading").map_err(map_postgres_error)?,
-        content_ref: row.try_get("content_ref").map_err(map_postgres_error)?,
-        content_hash: row.try_get("content_hash").map_err(map_postgres_error)?,
+        heading: row.try_get("heading").map_err(map_sqlx_error)?,
+        content_ref: row.try_get("content_ref").map_err(map_sqlx_error)?,
+        content_hash: row.try_get("content_hash").map_err(map_sqlx_error)?,
         token_estimate: int64_to_u32(
-            row.try_get("token_estimate").map_err(map_postgres_error)?,
+            row.try_get("token_estimate").map_err(map_sqlx_error)?,
             "token_estimate",
         )?,
-        summary: row.try_get("summary").map_err(map_postgres_error)?,
-        metadata_json: row.try_get("metadata_json").map_err(map_postgres_error)?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
+        summary: row.try_get("summary").map_err(map_sqlx_error)?,
+        metadata_json: row.try_get("metadata_json").map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_knowledge_index_row(row: Row) -> KernelResult<AgentKnowledgeIndexRow> {
-    let vector_dimension: Option<i64> = row
-        .try_get("vector_dimension")
-        .map_err(map_postgres_error)?;
+fn pg_row_to_agent_knowledge_index_row(row: PgRow) -> KernelResult<AgentKnowledgeIndexRow> {
+    let vector_dimension: Option<i64> = row.try_get("vector_dimension").map_err(map_sqlx_error)?;
     Ok(AgentKnowledgeIndexRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
-        knowledge_index_id: row
-            .try_get("knowledge_index_id")
-            .map_err(map_postgres_error)?,
-        knowledge_base_id: row
-            .try_get("knowledge_base_id")
-            .map_err(map_postgres_error)?,
+        knowledge_index_id: row.try_get("knowledge_index_id").map_err(map_sqlx_error)?,
+        knowledge_base_id: row.try_get("knowledge_base_id").map_err(map_sqlx_error)?,
         knowledge_document_id: row
             .try_get("knowledge_document_id")
-            .map_err(map_postgres_error)?,
-        knowledge_chunk_id: row
-            .try_get("knowledge_chunk_id")
-            .map_err(map_postgres_error)?,
-        index_kind: row.try_get("index_kind").map_err(map_postgres_error)?,
-        index_provider_id: row
-            .try_get("index_provider_id")
-            .map_err(map_postgres_error)?,
-        external_ref: row.try_get("external_ref").map_err(map_postgres_error)?,
-        embedding_model_id: row
-            .try_get("embedding_model_id")
-            .map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
+        knowledge_chunk_id: row.try_get("knowledge_chunk_id").map_err(map_sqlx_error)?,
+        index_kind: row.try_get("index_kind").map_err(map_sqlx_error)?,
+        index_provider_id: row.try_get("index_provider_id").map_err(map_sqlx_error)?,
+        external_ref: row.try_get("external_ref").map_err(map_sqlx_error)?,
+        embedding_model_id: row.try_get("embedding_model_id").map_err(map_sqlx_error)?,
         vector_dimension: vector_dimension
             .map(|value| int64_to_u32(value, "vector_dimension"))
             .transpose()?,
-        content_hash: row.try_get("content_hash").map_err(map_postgres_error)?,
-        indexed_at: row.try_get("indexed_at").map_err(map_postgres_error)?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
+        content_hash: row.try_get("content_hash").map_err(map_sqlx_error)?,
+        indexed_at: row.try_get("indexed_at").map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_knowledge_binding_row(row: Row) -> KernelResult<AgentKnowledgeBindingRow> {
+fn pg_row_to_agent_knowledge_binding_row(row: PgRow) -> KernelResult<AgentKnowledgeBindingRow> {
     Ok(AgentKnowledgeBindingRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
         knowledge_binding_id: row
             .try_get("knowledge_binding_id")
-            .map_err(map_postgres_error)?,
-        knowledge_base_id: row
-            .try_get("knowledge_base_id")
-            .map_err(map_postgres_error)?,
-        agent_id: row.try_get("agent_id").map_err(map_postgres_error)?,
-        deployment_id: row.try_get("deployment_id").map_err(map_postgres_error)?,
-        scope_kind: row.try_get("scope_kind").map_err(map_postgres_error)?,
-        scope_ref: row.try_get("scope_ref").map_err(map_postgres_error)?,
-        active: row.try_get("active").map_err(map_postgres_error)?,
-        default_binding: row.try_get("default_binding").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
+        knowledge_base_id: row.try_get("knowledge_base_id").map_err(map_sqlx_error)?,
+        agent_id: row.try_get("agent_id").map_err(map_sqlx_error)?,
+        deployment_id: row.try_get("deployment_id").map_err(map_sqlx_error)?,
+        scope_kind: row.try_get("scope_kind").map_err(map_sqlx_error)?,
+        scope_ref: row.try_get("scope_ref").map_err(map_sqlx_error)?,
+        active: row.try_get("active").map_err(map_sqlx_error)?,
+        default_binding: row.try_get("default_binding").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_knowledge_sync_job_row(row: Row) -> KernelResult<AgentKnowledgeSyncJobRow> {
+fn pg_row_to_agent_knowledge_sync_job_row(row: PgRow) -> KernelResult<AgentKnowledgeSyncJobRow> {
     Ok(AgentKnowledgeSyncJobRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
-        sync_job_id: row.try_get("sync_job_id").map_err(map_postgres_error)?,
-        knowledge_base_id: row
-            .try_get("knowledge_base_id")
-            .map_err(map_postgres_error)?,
-        knowledge_source_id: row
-            .try_get("knowledge_source_id")
-            .map_err(map_postgres_error)?,
-        job_kind: row.try_get("job_kind").map_err(map_postgres_error)?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
-        input_ref: row.try_get("input_ref").map_err(map_postgres_error)?,
-        input_json: row.try_get("input_json").map_err(map_postgres_error)?,
-        output_json: row.try_get("output_json").map_err(map_postgres_error)?,
-        error_json: row.try_get("error_json").map_err(map_postgres_error)?,
-        requested_at: row.try_get("requested_at").map_err(map_postgres_error)?,
-        started_at: row.try_get("started_at").map_err(map_postgres_error)?,
-        completed_at: row.try_get("completed_at").map_err(map_postgres_error)?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
+        sync_job_id: row.try_get("sync_job_id").map_err(map_sqlx_error)?,
+        knowledge_base_id: row.try_get("knowledge_base_id").map_err(map_sqlx_error)?,
+        knowledge_source_id: row.try_get("knowledge_source_id").map_err(map_sqlx_error)?,
+        job_kind: row.try_get("job_kind").map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        input_ref: row.try_get("input_ref").map_err(map_sqlx_error)?,
+        input_json: row.try_get("input_json").map_err(map_sqlx_error)?,
+        output_json: row.try_get("output_json").map_err(map_sqlx_error)?,
+        error_json: row.try_get("error_json").map_err(map_sqlx_error)?,
+        requested_at: row.try_get("requested_at").map_err(map_sqlx_error)?,
+        started_at: row.try_get("started_at").map_err(map_sqlx_error)?,
+        completed_at: row.try_get("completed_at").map_err(map_sqlx_error)?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_memory_store_row(row: Row) -> KernelResult<AgentMemoryStoreRow> {
+fn pg_row_to_agent_memory_store_row(row: PgRow) -> KernelResult<AgentMemoryStoreRow> {
     Ok(AgentMemoryStoreRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
         owner_user_id: int64_to_u64(
-            row.try_get("owner_user_id").map_err(map_postgres_error)?,
+            row.try_get("owner_user_id").map_err(map_sqlx_error)?,
             "owner_user_id",
         )?,
-        memory_store_id: row.try_get("memory_store_id").map_err(map_postgres_error)?,
-        code: row.try_get("code").map_err(map_postgres_error)?,
-        display_name: row.try_get("display_name").map_err(map_postgres_error)?,
-        description: row.try_get("description").map_err(map_postgres_error)?,
-        provider_id: row.try_get("provider_id").map_err(map_postgres_error)?,
-        store_kind: row.try_get("store_kind").map_err(map_postgres_error)?,
+        memory_store_id: row.try_get("memory_store_id").map_err(map_sqlx_error)?,
+        code: row.try_get("code").map_err(map_sqlx_error)?,
+        display_name: row.try_get("display_name").map_err(map_sqlx_error)?,
+        description: row.try_get("description").map_err(map_sqlx_error)?,
+        provider_id: row.try_get("provider_id").map_err(map_sqlx_error)?,
+        store_kind: row.try_get("store_kind").map_err(map_sqlx_error)?,
         retrieval_modes_json: row
             .try_get("retrieval_modes_json")
-            .map_err(map_postgres_error)?,
-        capability_ids_json: row
-            .try_get("capability_ids_json")
-            .map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
+        capability_ids_json: row.try_get("capability_ids_json").map_err(map_sqlx_error)?,
         configuration_profile_id: row
             .try_get("configuration_profile_id")
-            .map_err(map_postgres_error)?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
-        visibility: row.try_get("visibility").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
-        deleted_at: row.try_get("deleted_at").map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        visibility: row.try_get("visibility").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
+        deleted_at: row.try_get("deleted_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_memory_profile_row(row: Row) -> KernelResult<AgentMemoryProfileRow> {
+fn pg_row_to_agent_memory_profile_row(row: PgRow) -> KernelResult<AgentMemoryProfileRow> {
     Ok(AgentMemoryProfileRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
         owner_user_id: int64_to_u64(
-            row.try_get("owner_user_id").map_err(map_postgres_error)?,
+            row.try_get("owner_user_id").map_err(map_sqlx_error)?,
             "owner_user_id",
         )?,
-        memory_profile_id: row
-            .try_get("memory_profile_id")
-            .map_err(map_postgres_error)?,
-        memory_store_id: row.try_get("memory_store_id").map_err(map_postgres_error)?,
-        code: row.try_get("code").map_err(map_postgres_error)?,
-        display_name: row.try_get("display_name").map_err(map_postgres_error)?,
-        description: row.try_get("description").map_err(map_postgres_error)?,
-        write_policy_json: row
-            .try_get("write_policy_json")
-            .map_err(map_postgres_error)?,
+        memory_profile_id: row.try_get("memory_profile_id").map_err(map_sqlx_error)?,
+        memory_store_id: row.try_get("memory_store_id").map_err(map_sqlx_error)?,
+        code: row.try_get("code").map_err(map_sqlx_error)?,
+        display_name: row.try_get("display_name").map_err(map_sqlx_error)?,
+        description: row.try_get("description").map_err(map_sqlx_error)?,
+        write_policy_json: row.try_get("write_policy_json").map_err(map_sqlx_error)?,
         retrieval_policy_json: row
             .try_get("retrieval_policy_json")
-            .map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
         compaction_policy_json: row
             .try_get("compaction_policy_json")
-            .map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
         retention_policy_json: row
             .try_get("retention_policy_json")
-            .map_err(map_postgres_error)?,
-        privacy_policy_json: row
-            .try_get("privacy_policy_json")
-            .map_err(map_postgres_error)?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
-        visibility: row.try_get("visibility").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
-        deleted_at: row.try_get("deleted_at").map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
+        privacy_policy_json: row.try_get("privacy_policy_json").map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        visibility: row.try_get("visibility").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
+        deleted_at: row.try_get("deleted_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_memory_binding_row(row: Row) -> KernelResult<AgentMemoryBindingRow> {
+fn pg_row_to_agent_memory_binding_row(row: PgRow) -> KernelResult<AgentMemoryBindingRow> {
     Ok(AgentMemoryBindingRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
-        memory_binding_id: row
-            .try_get("memory_binding_id")
-            .map_err(map_postgres_error)?,
-        memory_profile_id: row
-            .try_get("memory_profile_id")
-            .map_err(map_postgres_error)?,
-        agent_id: row.try_get("agent_id").map_err(map_postgres_error)?,
-        deployment_id: row.try_get("deployment_id").map_err(map_postgres_error)?,
-        scope_kind: row.try_get("scope_kind").map_err(map_postgres_error)?,
-        scope_ref: row.try_get("scope_ref").map_err(map_postgres_error)?,
-        active: row.try_get("active").map_err(map_postgres_error)?,
-        default_binding: row.try_get("default_binding").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
+        memory_binding_id: row.try_get("memory_binding_id").map_err(map_sqlx_error)?,
+        memory_profile_id: row.try_get("memory_profile_id").map_err(map_sqlx_error)?,
+        agent_id: row.try_get("agent_id").map_err(map_sqlx_error)?,
+        deployment_id: row.try_get("deployment_id").map_err(map_sqlx_error)?,
+        scope_kind: row.try_get("scope_kind").map_err(map_sqlx_error)?,
+        scope_ref: row.try_get("scope_ref").map_err(map_sqlx_error)?,
+        active: row.try_get("active").map_err(map_sqlx_error)?,
+        default_binding: row.try_get("default_binding").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_memory_namespace_row(row: Row) -> KernelResult<AgentMemoryNamespaceRow> {
+fn pg_row_to_agent_memory_namespace_row(row: PgRow) -> KernelResult<AgentMemoryNamespaceRow> {
     Ok(AgentMemoryNamespaceRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
-        memory_namespace_id: row
-            .try_get("memory_namespace_id")
-            .map_err(map_postgres_error)?,
-        agent_id: row.try_get("agent_id").map_err(map_postgres_error)?,
-        user_ref: row.try_get("user_ref").map_err(map_postgres_error)?,
-        session_ref: row.try_get("session_ref").map_err(map_postgres_error)?,
-        thread_ref: row.try_get("thread_ref").map_err(map_postgres_error)?,
-        namespace_kind: row.try_get("namespace_kind").map_err(map_postgres_error)?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
-        visibility: row.try_get("visibility").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
-        deleted_at: row.try_get("deleted_at").map_err(map_postgres_error)?,
+        memory_namespace_id: row.try_get("memory_namespace_id").map_err(map_sqlx_error)?,
+        agent_id: row.try_get("agent_id").map_err(map_sqlx_error)?,
+        user_ref: row.try_get("user_ref").map_err(map_sqlx_error)?,
+        session_ref: row.try_get("session_ref").map_err(map_sqlx_error)?,
+        thread_ref: row.try_get("thread_ref").map_err(map_sqlx_error)?,
+        namespace_kind: row.try_get("namespace_kind").map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        visibility: row.try_get("visibility").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
+        deleted_at: row.try_get("deleted_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_memory_record_row(row: Row) -> KernelResult<AgentMemoryRecordRow> {
+fn pg_row_to_agent_memory_record_row(row: PgRow) -> KernelResult<AgentMemoryRecordRow> {
     Ok(AgentMemoryRecordRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
         organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_postgres_error)?,
+            row.try_get("organization_id").map_err(map_sqlx_error)?,
             "organization_id",
         )?,
-        memory_id: row.try_get("memory_id").map_err(map_postgres_error)?,
-        memory_namespace_id: row
-            .try_get("memory_namespace_id")
-            .map_err(map_postgres_error)?,
-        agent_id: row.try_get("agent_id").map_err(map_postgres_error)?,
-        memory_kind: row.try_get("memory_kind").map_err(map_postgres_error)?,
-        content_format: row.try_get("content_format").map_err(map_postgres_error)?,
-        content_json: row.try_get("content_json").map_err(map_postgres_error)?,
-        summary: row.try_get("summary").map_err(map_postgres_error)?,
-        salience_score: row.try_get("salience_score").map_err(map_postgres_error)?,
-        confidence_score: row
-            .try_get("confidence_score")
-            .map_err(map_postgres_error)?,
-        freshness_score: row.try_get("freshness_score").map_err(map_postgres_error)?,
-        sensitivity_level: row
-            .try_get("sensitivity_level")
-            .map_err(map_postgres_error)?,
+        memory_id: row.try_get("memory_id").map_err(map_sqlx_error)?,
+        memory_namespace_id: row.try_get("memory_namespace_id").map_err(map_sqlx_error)?,
+        agent_id: row.try_get("agent_id").map_err(map_sqlx_error)?,
+        memory_kind: row.try_get("memory_kind").map_err(map_sqlx_error)?,
+        content_format: row.try_get("content_format").map_err(map_sqlx_error)?,
+        content_json: row.try_get("content_json").map_err(map_sqlx_error)?,
+        summary: row.try_get("summary").map_err(map_sqlx_error)?,
+        salience_score: row.try_get("salience_score").map_err(map_sqlx_error)?,
+        confidence_score: row.try_get("confidence_score").map_err(map_sqlx_error)?,
+        freshness_score: row.try_get("freshness_score").map_err(map_sqlx_error)?,
+        sensitivity_level: row.try_get("sensitivity_level").map_err(map_sqlx_error)?,
         source_count: int64_to_u32(
-            row.try_get("source_count").map_err(map_postgres_error)?,
+            row.try_get("source_count").map_err(map_sqlx_error)?,
             "source_count",
         )?,
-        effective_at: row.try_get("effective_at").map_err(map_postgres_error)?,
-        expires_at: row.try_get("expires_at").map_err(map_postgres_error)?,
-        last_used_at: row.try_get("last_used_at").map_err(map_postgres_error)?,
+        effective_at: row.try_get("effective_at").map_err(map_sqlx_error)?,
+        expires_at: row.try_get("expires_at").map_err(map_sqlx_error)?,
+        last_used_at: row.try_get("last_used_at").map_err(map_sqlx_error)?,
         use_count: int64_to_u64(
-            row.try_get("use_count").map_err(map_postgres_error)?,
+            row.try_get("use_count").map_err(map_sqlx_error)?,
             "use_count",
         )?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
-        deleted_at: row.try_get("deleted_at").map_err(map_postgres_error)?,
-        redacted_at: row.try_get("redacted_at").map_err(map_postgres_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
+        deleted_at: row.try_get("deleted_at").map_err(map_sqlx_error)?,
+        redacted_at: row.try_get("redacted_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_memory_source_row(row: Row) -> KernelResult<AgentMemorySourceRow> {
+fn pg_row_to_agent_memory_source_row(row: PgRow) -> KernelResult<AgentMemorySourceRow> {
     Ok(AgentMemorySourceRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
-        memory_source_id: row
-            .try_get("memory_source_id")
-            .map_err(map_postgres_error)?,
-        memory_id: row.try_get("memory_id").map_err(map_postgres_error)?,
-        source_kind: row.try_get("source_kind").map_err(map_postgres_error)?,
-        source_ref: row.try_get("source_ref").map_err(map_postgres_error)?,
-        source_hash: row.try_get("source_hash").map_err(map_postgres_error)?,
-        evidence_json: row.try_get("evidence_json").map_err(map_postgres_error)?,
-        captured_at: row.try_get("captured_at").map_err(map_postgres_error)?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
+        memory_source_id: row.try_get("memory_source_id").map_err(map_sqlx_error)?,
+        memory_id: row.try_get("memory_id").map_err(map_sqlx_error)?,
+        source_kind: row.try_get("source_kind").map_err(map_sqlx_error)?,
+        source_ref: row.try_get("source_ref").map_err(map_sqlx_error)?,
+        source_hash: row.try_get("source_hash").map_err(map_sqlx_error)?,
+        evidence_json: row.try_get("evidence_json").map_err(map_sqlx_error)?,
+        captured_at: row.try_get("captured_at").map_err(map_sqlx_error)?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_memory_relation_row(row: Row) -> KernelResult<AgentMemoryRelationRow> {
+fn pg_row_to_agent_memory_relation_row(row: PgRow) -> KernelResult<AgentMemoryRelationRow> {
     Ok(AgentMemoryRelationRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
-        memory_relation_id: row
-            .try_get("memory_relation_id")
-            .map_err(map_postgres_error)?,
-        from_memory_id: row.try_get("from_memory_id").map_err(map_postgres_error)?,
-        to_memory_id: row.try_get("to_memory_id").map_err(map_postgres_error)?,
-        relation_kind: row.try_get("relation_kind").map_err(map_postgres_error)?,
-        weight: row.try_get("weight").map_err(map_postgres_error)?,
-        valid_from: row.try_get("valid_from").map_err(map_postgres_error)?,
-        valid_until: row.try_get("valid_until").map_err(map_postgres_error)?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
+        memory_relation_id: row.try_get("memory_relation_id").map_err(map_sqlx_error)?,
+        from_memory_id: row.try_get("from_memory_id").map_err(map_sqlx_error)?,
+        to_memory_id: row.try_get("to_memory_id").map_err(map_sqlx_error)?,
+        relation_kind: row.try_get("relation_kind").map_err(map_sqlx_error)?,
+        weight: row.try_get("weight").map_err(map_sqlx_error)?,
+        valid_from: row.try_get("valid_from").map_err(map_sqlx_error)?,
+        valid_until: row.try_get("valid_until").map_err(map_sqlx_error)?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
 fn pg_row_to_agent_memory_retrieval_index_row(
-    row: Row,
+    row: PgRow,
 ) -> KernelResult<AgentMemoryRetrievalIndexRow> {
-    let vector_dimension: Option<i64> = row
-        .try_get("vector_dimension")
-        .map_err(map_postgres_error)?;
+    let vector_dimension: Option<i64> = row.try_get("vector_dimension").map_err(map_sqlx_error)?;
     Ok(AgentMemoryRetrievalIndexRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
-        memory_index_id: row.try_get("memory_index_id").map_err(map_postgres_error)?,
-        memory_id: row.try_get("memory_id").map_err(map_postgres_error)?,
-        index_kind: row.try_get("index_kind").map_err(map_postgres_error)?,
-        index_provider_id: row
-            .try_get("index_provider_id")
-            .map_err(map_postgres_error)?,
-        external_ref: row.try_get("external_ref").map_err(map_postgres_error)?,
-        embedding_model_id: row
-            .try_get("embedding_model_id")
-            .map_err(map_postgres_error)?,
+        memory_index_id: row.try_get("memory_index_id").map_err(map_sqlx_error)?,
+        memory_id: row.try_get("memory_id").map_err(map_sqlx_error)?,
+        index_kind: row.try_get("index_kind").map_err(map_sqlx_error)?,
+        index_provider_id: row.try_get("index_provider_id").map_err(map_sqlx_error)?,
+        external_ref: row.try_get("external_ref").map_err(map_sqlx_error)?,
+        embedding_model_id: row.try_get("embedding_model_id").map_err(map_sqlx_error)?,
         vector_dimension: vector_dimension
             .map(|value| int64_to_u32(value, "vector_dimension"))
             .transpose()?,
-        content_hash: row.try_get("content_hash").map_err(map_postgres_error)?,
-        indexed_at: row.try_get("indexed_at").map_err(map_postgres_error)?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
+        content_hash: row.try_get("content_hash").map_err(map_sqlx_error)?,
+        indexed_at: row.try_get("indexed_at").map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_provider_binding_row(row: Row) -> KernelResult<AgentProviderBindingRow> {
+fn pg_row_to_agent_provider_binding_row(row: PgRow) -> KernelResult<AgentProviderBindingRow> {
     Ok(AgentProviderBindingRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
-        agent_id: row.try_get("agent_id").map_err(map_postgres_error)?,
-        binding_id: row.try_get("binding_id").map_err(map_postgres_error)?,
-        provider_id: row.try_get("provider_id").map_err(map_postgres_error)?,
-        implementation_kind: row
-            .try_get("implementation_kind")
-            .map_err(map_postgres_error)?,
+        agent_id: row.try_get("agent_id").map_err(map_sqlx_error)?,
+        binding_id: row.try_get("binding_id").map_err(map_sqlx_error)?,
+        provider_id: row.try_get("provider_id").map_err(map_sqlx_error)?,
+        implementation_kind: row.try_get("implementation_kind").map_err(map_sqlx_error)?,
         configuration_profile_id: row
             .try_get("configuration_profile_id")
-            .map_err(map_postgres_error)?,
-        capabilities_json: row
-            .try_get("capabilities_json")
-            .map_err(map_postgres_error)?,
-        active: row.try_get("active").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
+        capabilities_json: row.try_get("capabilities_json").map_err(map_sqlx_error)?,
+        active: row.try_get("active").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
     })
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_deployment_row(row: Row) -> KernelResult<AgentDeploymentRow> {
+fn pg_row_to_agent_deployment_row(row: PgRow) -> KernelResult<AgentDeploymentRow> {
     Ok(AgentDeploymentRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_postgres_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_postgres_error)?,
+        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
+        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
         tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_postgres_error)?,
+            row.try_get("tenant_id").map_err(map_sqlx_error)?,
             "tenant_id",
         )?,
-        agent_id: row.try_get("agent_id").map_err(map_postgres_error)?,
-        deployment_id: row.try_get("deployment_id").map_err(map_postgres_error)?,
-        binding_id: row.try_get("binding_id").map_err(map_postgres_error)?,
+        agent_id: row.try_get("agent_id").map_err(map_sqlx_error)?,
+        deployment_id: row.try_get("deployment_id").map_err(map_sqlx_error)?,
+        binding_id: row.try_get("binding_id").map_err(map_sqlx_error)?,
         provider_id_snapshot: row
             .try_get("provider_id_snapshot")
-            .map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
         implementation_kind_snapshot: row
             .try_get("implementation_kind_snapshot")
-            .map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
         configuration_profile_id_snapshot: row
             .try_get("configuration_profile_id_snapshot")
-            .map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
         capabilities_snapshot_json: row
             .try_get("capabilities_snapshot_json")
-            .map_err(map_postgres_error)?,
-        status: row.try_get("status").map_err(map_postgres_error)?,
-        version: int64_to_u64(
-            row.try_get("version").map_err(map_postgres_error)?,
-            "version",
-        )?,
-        created_at: row.try_get("created_at").map_err(map_postgres_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_postgres_error)?,
+            .map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
     })
 }
 

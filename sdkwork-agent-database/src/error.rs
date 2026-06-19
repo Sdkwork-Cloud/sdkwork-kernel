@@ -44,24 +44,8 @@ impl From<rusqlite::Error> for DatabaseError {
             rusqlite::Error::QueryReturnedNoRows => {
                 DatabaseError::NotFound("row not found".to_string())
             }
-            rusqlite::Error::SqliteFailure(_, Some(msg)) => {
-                DatabaseError::Query(msg)
-            }
+            rusqlite::Error::SqliteFailure(_, Some(msg)) => DatabaseError::Query(msg),
             _ => DatabaseError::Internal(err.to_string()),
         }
-    }
-}
-
-#[cfg(feature = "postgres")]
-impl From<tokio_postgres::Error> for DatabaseError {
-    fn from(err: tokio_postgres::Error) -> Self {
-        DatabaseError::Query(err.to_string())
-    }
-}
-
-#[cfg(feature = "postgres")]
-impl From<deadpool_postgres::PoolError> for DatabaseError {
-    fn from(err: deadpool_postgres::PoolError) -> Self {
-        DatabaseError::Connection(err.to_string())
     }
 }

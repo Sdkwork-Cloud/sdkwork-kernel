@@ -7,9 +7,18 @@ import {
 } from '@sdkwork/kernel-ui-services';
 import type { KernelUiAuthProvider, KernelUiClient } from '@sdkwork/kernel-ui-types';
 
+function readPrivateAccessToken(): string | undefined {
+  const processToken = (
+    globalThis as typeof globalThis & {
+      process?: { env?: Record<string, string | undefined> };
+    }
+  ).process?.env?.SDKWORK_ACCESS_TOKEN;
+  return processToken?.trim() || undefined;
+}
+
 function hasStaticEnvAuth(): boolean {
   return Boolean(
-    import.meta.env.VITE_KERNEL_ACCESS_TOKEN ||
+    readPrivateAccessToken() ||
       import.meta.env.VITE_KERNEL_TENANT_ID ||
       import.meta.env.VITE_KERNEL_USER_ID
   );
@@ -34,7 +43,7 @@ export function needsKernelUiSessionGate(): boolean {
 }
 
 function createAuthProvider(): KernelUiAuthProvider | undefined {
-  const accessToken = import.meta.env.VITE_KERNEL_ACCESS_TOKEN;
+  const accessToken = readPrivateAccessToken();
   const tenantId = import.meta.env.VITE_KERNEL_TENANT_ID;
   const userId = import.meta.env.VITE_KERNEL_USER_ID;
   if (accessToken || tenantId || userId) {

@@ -1,9 +1,15 @@
 target/
+**/target/
 node_modules/
+**/node_modules/
 dist/
-coverage/
+**/dist/
 .vite/
+**/.vite/
 .turbo/
+**/.local/
+/NUL
+NUL
 .env
 .env.*
 !.env.example

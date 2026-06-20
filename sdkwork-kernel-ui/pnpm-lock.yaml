@@ -68,6 +68,9 @@ importers:
       '@sdkwork/kernel-ui-workspace':
         specifier: workspace:*
         version: link:packages/sdkwork-kernel-ui-workspace
+      '@sdkwork/utils-typescript':
+        specifier: workspace:*
+        version: link:../../sdkwork-utils/packages/sdkwork-utils-typescript
       lucide-react:
         specifier: 'catalog:'
         version: 0.546.0(react@19.2.7)
@@ -96,6 +99,15 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 6.4.3(@types/node@22.19.21)
+
+  ../../sdkwork-utils/packages/sdkwork-utils-typescript:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.19.21
+      typescript:
+        specifier: ^5.7.2
+        version: 5.8.3
 
   packages/sdkwork-kernel-ui-agent:
     dependencies:

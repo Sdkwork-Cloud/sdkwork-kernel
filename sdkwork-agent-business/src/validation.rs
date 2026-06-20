@@ -1,7 +1,28 @@
 use sdkwork_agent_kernel::{KernelError, KernelResult};
+use sdkwork_utils_rust::{is_blank, trim};
 use std::collections::HashSet;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+
+fn require_trimmed_non_blank(value: &str, field_name: &str) -> KernelResult<()> {
+    if is_blank(Some(value)) {
+        return Err(KernelError::validation(format!("{field_name} is required")));
+    }
+    if trim(value) != value {
+        return Err(KernelError::validation(format!(
+            "{field_name} must not contain leading or trailing whitespace"
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn optional_non_blank(value: String) -> Option<String> {
+    if is_blank(Some(value.as_str())) {
+        None
+    } else {
+        Some(value)
+    }
+}
 
 pub(crate) fn parse_int64_string_field(value: &str, field_name: &str) -> KernelResult<u64> {
     value
@@ -34,14 +55,7 @@ pub(crate) fn validate_standard_id(
     field_name: &str,
     required_prefix: Option<&str>,
 ) -> KernelResult<()> {
-    if value.trim().is_empty() {
-        return Err(KernelError::validation(format!("{field_name} is required")));
-    }
-    if value.trim() != value {
-        return Err(KernelError::validation(format!(
-            "{field_name} must not contain leading or trailing whitespace"
-        )));
-    }
+    require_trimmed_non_blank(value, field_name)?;
     if value.chars().count() > 128 {
         return Err(KernelError::validation(format!(
             "{field_name} must be at most 128 characters"
@@ -70,7 +84,7 @@ pub(crate) fn validate_standard_id(
 pub(crate) fn validate_capabilities(capabilities: &[String], field_name: &str) -> KernelResult<()> {
     let mut seen = HashSet::new();
     for capability in capabilities {
-        if capability.trim().is_empty() {
+        if is_blank(Some(capability.as_str())) {
             return Err(KernelError::validation(format!(
                 "{field_name} must not contain empty capability ids"
             )));
@@ -80,7 +94,7 @@ pub(crate) fn validate_capabilities(capabilities: &[String], field_name: &str) -
                 "{field_name} capability ids must be at most 128 characters"
             )));
         }
-        if capability.trim() != capability || !is_valid_capability_id(capability.as_str()) {
+        if trim(capability) != *capability || !is_valid_capability_id(capability.as_str()) {
             return Err(KernelError::validation(format!(
                 "{field_name} must use lowercase namespaced capability ids"
             )));

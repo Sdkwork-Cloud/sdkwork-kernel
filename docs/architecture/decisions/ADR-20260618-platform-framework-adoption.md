@@ -28,6 +28,11 @@ Two platform gaps remain against sibling SDKWork repositories:
 - Root `sdkwork.app.config.json` — kernel is a standards repository, not a deployable application
   root (`APPLICATION_SPEC.md`).
 
+**Integrated in Phase 5:**
+
+- `sdkwork-utils` — shared Rust/TypeScript utility helpers replace ad hoc blank/trim validation in
+  business HTTP contracts and kernel UI session bootstrap.
+
 ## Decision
 
 Adopt platform frameworks in phased migration without destabilizing existing contract suites.
@@ -80,6 +85,18 @@ Adopt platform frameworks in phased migration without destabilizing existing con
 - `.github/workflows/package.yml` calls `Sdkwork-Cloud/sdkwork-github-workflow` reusable packaging workflow.
 - CI verification remains on `.github/workflows/kernel-verification.yml` for every push/PR.
 - **Future:** expand `deployments/` with topology-linked deployment profiles when production rollout begins.
+
+### Phase 5 — `sdkwork-utils` integration (complete for canonical validation + UI bootstrap)
+
+- Workspace `Cargo.toml` declares `sdkwork-utils-rust`; `sdkwork-agent-business` consumes `is_blank` and `trim`
+  in `validation.rs` and reuses `optional_non_blank` from list-query builders in `ports.rs`.
+- `sdkwork-kernel-ui` links `@sdkwork/utils-typescript` through the sibling workspace package for session
+  bootstrap trimming and blank checks in `KernelUiSessionPanel.tsx`.
+- `sdkwork.workflow.json` and `.github/workflows/package.yml` declare `sdkwork-utils` sibling checkout refs.
+- `tools/validators/kernel-standards/platform-utils.mjs` and
+  `scripts/dev/sdkwork-kernel-utils-standard.test.mjs` enforce the integration boundary.
+- **Future:** migrate remaining ad hoc string/crypto helpers in business persistence and adapters when those
+  modules split from the monolith.
 
 ## Alternatives
 

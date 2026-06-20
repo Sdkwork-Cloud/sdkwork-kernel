@@ -487,6 +487,13 @@ Deferred by design:
 - `sdkwork.app.config.json` — kernel is a standards repository, not an application root
 - `sdkwork-discovery` — no first-party gRPC/RPC services in kernel
 
+Phase 5 utils (2026-06-20 closeout):
+
+- `sdkwork-utils-rust` workspace dependency and `sdkwork-agent-business/src/validation.rs` consumption
+- `@sdkwork/utils-typescript` in `sdkwork-kernel-ui` session bootstrap
+- `tools/validators/kernel-standards/platform-utils.mjs` and `scripts/dev/sdkwork-kernel-utils-standard.test.mjs`
+- `pnpm test:utils-standard` in root `package.json`
+
 Phase 4 packaging:
 
 - `sdkwork.workflow.json` and `.github/workflows/package.yml` for `sdkwork-agent-server` release artifacts

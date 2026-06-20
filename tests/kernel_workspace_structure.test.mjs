@@ -398,6 +398,31 @@ test('platform framework adoption records ADR, API authority index, and validato
     /from '\.\/platform-integration\.mjs'/,
     'kernel standards validator should import platform integration checks'
   );
+  assert.match(
+    standardsValidator,
+    /from '\.\/platform-utils\.mjs'/,
+    'kernel standards validator should import platform utils checks'
+  );
+});
+
+test('sdkwork-utils integration records workspace dependency, validator, and standard test', () => {
+  const workspaceCargo = fs.readFileSync(path.join(root, 'Cargo.toml'), 'utf8');
+  assert.match(workspaceCargo, /sdkwork-utils-rust =/, 'workspace Cargo.toml should declare sdkwork-utils-rust');
+
+  const workflow = JSON.parse(fs.readFileSync(path.join(root, 'sdkwork.workflow.json'), 'utf8'));
+  const dependencyIds = new Set((workflow.dependencies || []).map((entry) => entry.id));
+  assert.equal(dependencyIds.has('sdkwork-utils'), true, 'workflow should declare sdkwork-utils dependency');
+
+  const utilsValidatorPath = path.join(root, 'tools', 'validators', 'kernel-standards', 'platform-utils.mjs');
+  const utilsTestPath = path.join(root, 'scripts', 'dev', 'sdkwork-kernel-utils-standard.test.mjs');
+  assert.equal(fs.existsSync(utilsValidatorPath), true, 'platform-utils validator should exist');
+  assert.equal(fs.existsSync(utilsTestPath), true, 'utils standard test should exist');
+
+  const adr = fs.readFileSync(
+    path.join(root, 'docs', 'architecture', 'decisions', 'ADR-20260618-platform-framework-adoption.md'),
+    'utf8'
+  );
+  assert.ok(adr.includes('sdkwork-utils'), 'platform ADR should document sdkwork-utils adoption');
 });
 
 test('platform packaging records sdkwork.workflow.json and package workflow entrypoint', () => {

@@ -13,6 +13,7 @@ import { validateKernelContracts } from './kernel-contracts.mjs';
 import { validateKernelUiPackages } from './ui-packages.mjs';
 import { validateKernelTopology } from './kernel-topology.mjs';
 import { validatePlatformIntegration } from './platform-integration.mjs';
+import { validatePlatformUtils } from './platform-utils.mjs';
 import { validateWorkspaceEvidence } from './workspace-evidence.mjs';
 
 export function runKernelStandardsCheck() {
@@ -24,6 +25,7 @@ export function runKernelStandardsCheck() {
 
   validateWorkspaceEvidence({ kernelRoot, sdkworkSpecsRoot, errors, ensureFile, readFileIfExists });
   validatePlatformIntegration({ kernelRoot, errors, ensureFile, readFileIfExists });
+  validatePlatformUtils({ kernelRoot, errors, readFileIfExists });
 
   const componentSpecContext = { kernelRoot, errors };
   for (const manifestPath of listComponentSpecFiles(kernelRoot)) {

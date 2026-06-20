@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { isBlank, trim } from '@sdkwork/utils-typescript';
 import { translateKernelUi } from '@sdkwork/kernel-ui-commons';
 import {
   clearBrowserKernelUiAuthSession,
@@ -17,11 +18,11 @@ export function KernelUiSessionPanel({ onSessionSaved }: KernelUiSessionPanelPro
 
   const handleSave = () => {
     const session: KernelUiAuthSession = {
-      accessToken: accessToken.trim(),
-      tenantId: tenantId.trim() || undefined,
-      userId: userId.trim() || undefined
+      accessToken: trim(accessToken),
+      tenantId: isBlank(tenantId) ? undefined : trim(tenantId),
+      userId: isBlank(userId) ? undefined : trim(userId)
     };
-    if (!session.accessToken) {
+    if (isBlank(session.accessToken)) {
       return;
     }
     persistBrowserKernelUiAuthSession(session);

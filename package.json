@@ -15,6 +15,7 @@
     "test:topology": "node --test --experimental-test-isolation=none tests/kernel_topology_alignment.test.mjs",
     "test:topology-baggage": "node --test --experimental-test-isolation=none scripts/dev/sdkwork-kernel-topology-baggage.test.mjs",
     "test:topology-smoke": "node scripts/dev/sdkwork-kernel-topology-smoke.mjs",
-    "test": "pnpm topology:validate && pnpm test:topology && pnpm test:topology-baggage"
+    "test:utils-standard": "node scripts/dev/sdkwork-kernel-utils-standard.test.mjs",
+    "test": "pnpm topology:validate && pnpm test:topology && pnpm test:topology-baggage && pnpm test:utils-standard"
   }
 }

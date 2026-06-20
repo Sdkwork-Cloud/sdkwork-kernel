@@ -9,6 +9,7 @@ use crate::domain::{
     AgentVisibility,
 };
 use sdkwork_agent_kernel::{KernelError, KernelEvent, KernelResult};
+use crate::validation::optional_non_blank;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentListQuery {
@@ -47,11 +48,7 @@ impl AgentListQuery {
 
     pub fn with_search(mut self, query: impl Into<String>) -> Self {
         let query = query.into();
-        self.search_query = if query.trim().is_empty() {
-            None
-        } else {
-            Some(query)
-        };
+        self.search_query = optional_non_blank(query);
         self
     }
 }
@@ -111,31 +108,19 @@ impl AgentMarketplaceListQuery {
 
     pub fn with_search(mut self, query: impl Into<String>) -> Self {
         let query = query.into();
-        self.search_query = if query.trim().is_empty() {
-            None
-        } else {
-            Some(query)
-        };
+        self.search_query = optional_non_blank(query);
         self
     }
 
     pub fn with_category(mut self, category: impl Into<String>) -> Self {
         let category = category.into();
-        self.category = if category.trim().is_empty() {
-            None
-        } else {
-            Some(category)
-        };
+        self.category = optional_non_blank(category);
         self
     }
 
     pub fn with_tag(mut self, tag: impl Into<String>) -> Self {
         let tag = tag.into();
-        self.tag = if tag.trim().is_empty() {
-            None
-        } else {
-            Some(tag)
-        };
+        self.tag = optional_non_blank(tag);
         self
     }
 }

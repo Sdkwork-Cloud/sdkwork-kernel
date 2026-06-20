@@ -1,5 +1,6 @@
 packages:
   - 'packages/*'
+  - '../../sdkwork-utils/packages/sdkwork-utils-typescript'
 
 catalog:
   '@types/node': ^22.14.0

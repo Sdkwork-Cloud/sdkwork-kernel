@@ -35,6 +35,8 @@ this order per capability:
 | Agent | Binding id | Primary SDK language |
 | --- | --- | --- |
 | Codex | `binding.agent-sdk.codex` | Rust |
+| Claude Code | `binding.agent-sdk.claude-code` | TypeScript |
+| Gemini CLI | `binding.agent-sdk.gemini-cli` | TypeScript |
 | Hermes | `binding.agent-sdk.hermes` | Python |
 | OpenClaw | `binding.agent-sdk.openclaw` | TypeScript |
 | OpenCode | `binding.agent-sdk.opencode` | TypeScript |

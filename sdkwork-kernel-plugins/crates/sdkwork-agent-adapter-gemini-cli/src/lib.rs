@@ -784,3 +784,6 @@ mod tests {
         assert_eq!(remaining[0].role, AgentMessageRole::System);
     }
 }
+
+pub mod sdk_integration;
+pub use sdk_integration::{gemini_cli_binding_manifest, GeminiCliSdkIntegration};

@@ -7,6 +7,8 @@ use crate::registry::{BindingRegistry, DriverRegistry};
 use std::sync::Arc;
 
 pub const CODEX_BINDING_ID: &str = "binding.agent-sdk.codex";
+pub const CLAUDE_CODE_BINDING_ID: &str = "binding.agent-sdk.claude-code";
+pub const GEMINI_CLI_BINDING_ID: &str = "binding.agent-sdk.gemini-cli";
 pub const HERMES_BINDING_ID: &str = "binding.agent-sdk.hermes";
 pub const OPENCLAW_BINDING_ID: &str = "binding.agent-sdk.openclaw";
 pub const OPENCODE_BINDING_ID: &str = "binding.agent-sdk.opencode";

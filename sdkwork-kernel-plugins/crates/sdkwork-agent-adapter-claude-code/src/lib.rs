@@ -941,3 +941,6 @@ mod tests {
         assert_eq!(closed.state, SessionState::Closed);
     }
 }
+
+pub mod sdk_integration;
+pub use sdk_integration::{claude_code_binding_manifest, ClaudeCodeSdkIntegration};

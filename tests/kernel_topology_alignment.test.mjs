@@ -56,16 +56,17 @@ test('declares v2 topology spec and profile env files for sdkwork-kernel', async
   }
 });
 
-test('root package.json wires @sdkwork/app-topology and kernel:dev scripts', async () => {
+test('root package.json wires @sdkwork/app-topology and standard dev scripts', async () => {
   const packageJson = await readJson('package.json');
   assert.equal(packageJson.dependencies['@sdkwork/app-topology'], 'file:../sdkwork-app-topology');
-  assert.match(packageJson.scripts['kernel:dev'], /scripts\/kernel-dev\.mjs/);
+  assert.match(packageJson.scripts.dev, /scripts\/sdkwork-command\.mjs dev/);
   assert.match(packageJson.scripts['topology:validate'], /sdkwork-topology\.mjs validate/);
 });
 
-test('kernel dev orchestrator rejects retired --topology flag', async () => {
+test('kernel dev orchestrator rejects retired --topology and --hosting flags', async () => {
   const devScript = await read('scripts/kernel-dev.mjs');
   assert.match(devScript, /--topology is retired/);
+  assert.match(devScript, /--hosting is retired/);
 });
 
 test('agent server reads topology bind env keys', async () => {

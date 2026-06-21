@@ -96,7 +96,9 @@ This repository defines the SDKWork kernel standard for agent and code-agent sys
 - `pnpm topology:validate`: validate `specs/topology.spec.json` against the shared topology schema.
 - `pnpm test:topology` / `pnpm test:topology-baggage`: verify topology adoption contracts and retired vocabulary.
 - `pnpm test:topology-smoke`: start `sdkwork-agent-server` with the unified-process dev profile and wait for `/health`.
-- `pnpm kernel:dev`: start the default split-services development stack (agent server + kernel UI).
+- `pnpm dev`: start the default unified-process development stack (agent server + kernel UI).
+- `pnpm verify`: run the merge-ready verification aggregate.
+- `pnpm check`: run kernel standards, SDK workspace, UI architecture, and PNPM script checks.
 
 ### Coding Style & Naming Conventions
 

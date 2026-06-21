@@ -2665,15 +2665,7 @@ fn validate_score_value(value: f32, field_name: &str) -> KernelResult<()> {
 }
 
 fn validate_non_empty_storage_text(value: &str, field_name: &str) -> KernelResult<()> {
-    if value.trim().is_empty() {
-        return Err(KernelError::validation(format!("{field_name} is required")));
-    }
-    if value.trim() != value {
-        return Err(KernelError::validation(format!(
-            "{field_name} must not contain leading or trailing whitespace"
-        )));
-    }
-    Ok(())
+    crate::validation::require_trimmed_non_blank(value, field_name)
 }
 
 fn validate_optional_plain_storage_ref(value: Option<&str>, field_name: &str) -> KernelResult<()> {
@@ -2761,16 +2753,7 @@ fn validate_json_text(input: &str, field_name: &str) -> KernelResult<()> {
 fn validate_slug_list(values: &[String], field_name: &str) -> KernelResult<()> {
     let mut seen = std::collections::HashSet::new();
     for value in values {
-        if value.trim().is_empty() {
-            return Err(KernelError::validation(format!(
-                "{field_name} must not contain empty values"
-            )));
-        }
-        if value.trim() != value {
-            return Err(KernelError::validation(format!(
-                "{field_name} values must not contain leading or trailing whitespace"
-            )));
-        }
+        validate_non_empty_storage_text(value, field_name)?;
         if !value
             .chars()
             .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '-' | '_'))

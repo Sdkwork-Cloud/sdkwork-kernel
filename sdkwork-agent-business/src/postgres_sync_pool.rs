@@ -1,6 +1,7 @@
 //! Blocking facade over `sdkwork-database-sqlx` PostgreSQL pools for sync repositories.
 
 use sdkwork_database_config::{DatabaseConfig, DatabaseEngine};
+use sdkwork_utils_rust::is_blank;
 use sdkwork_database_sqlx::{create_pool_from_config, DatabasePool, PoolError};
 use sqlx::PgPool;
 use std::future::Future;
@@ -84,7 +85,7 @@ impl BlockingPostgresPool {
         let legacy_uri_key = format!("SDKWORK_{}_POSTGRES_URI", service_name.to_uppercase());
         if let Ok(uri) = std::env::var(&legacy_uri_key) {
             let trimmed = uri.trim();
-            if !trimmed.is_empty() {
+            if !is_blank(Some(trimmed)) {
                 return Self::connect(trimmed);
             }
         }

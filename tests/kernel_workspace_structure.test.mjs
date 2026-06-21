@@ -403,6 +403,11 @@ test('platform framework adoption records ADR, API authority index, and validato
     /from '\.\/platform-utils\.mjs'/,
     'kernel standards validator should import platform utils checks'
   );
+  assert.match(
+    standardsValidator,
+    /from '\.\/platform-pnpm-scripts\.mjs'/,
+    'kernel standards validator should import platform pnpm script checks'
+  );
 });
 
 test('sdkwork-utils integration records workspace dependency, validator, and standard test', () => {

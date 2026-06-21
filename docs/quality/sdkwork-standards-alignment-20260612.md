@@ -483,14 +483,14 @@ Decision and evidence:
 
 Deferred by design:
 
-- `sdkwork-discovery` â€” no first-party gRPC/RPC services in kernel
-- `sdkwork.app.config.json` â€” kernel is a standards repository, not an application root
-- `sdkwork-discovery` â€” no first-party gRPC/RPC services in kernel
+- `sdkwork-discovery` â€?no first-party gRPC/RPC services in kernel
+- `sdkwork.app.config.json` â€?kernel is a standards repository, not an application root
+- `sdkwork-discovery` â€?no first-party gRPC/RPC services in kernel
 
 Phase 5 utils (2026-06-20 closeout):
 
 - `sdkwork-utils-rust` workspace dependency and `sdkwork-agent-business/src/validation.rs` consumption
-- `@sdkwork/utils-typescript` in `sdkwork-kernel-ui` session bootstrap
+- `@sdkwork/utils` in `sdkwork-kernel-ui` session bootstrap
 - `tools/validators/kernel-standards/platform-utils.mjs` and `scripts/dev/sdkwork-kernel-utils-standard.test.mjs`
 - `pnpm test:utils-standard` in root `package.json`
 

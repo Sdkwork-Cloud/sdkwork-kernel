@@ -643,12 +643,12 @@ pnpm install
 pnpm topology:validate
 pnpm test:topology
 pnpm test:topology-baggage
-pnpm kernel:dev
-pnpm kernel:dev:unified
+pnpm dev
+pnpm dev:server:postgres:unified-process:standalone
 
 # Kernel standard conformance
-node scripts/check-kernel-standards.mjs
-node sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs
+pnpm check
+pnpm verify
 
 # Rust kernel checks, paths may be refined by concrete crate layout
 cargo test --manifest-path sdkwork-agent-kernel/Cargo.toml

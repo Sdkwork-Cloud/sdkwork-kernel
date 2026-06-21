@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@sdkwork/kernel-ui-agent": "workspace:*",
-    "@sdkwork/utils-typescript": "workspace:*",
+    "@sdkwork/utils": "workspace:*",
     "@sdkwork/kernel-ui-code": "workspace:*",
     "@sdkwork/kernel-ui-commons": "workspace:*",
     "@sdkwork/kernel-ui-core": "workspace:*",

@@ -44,15 +44,15 @@ assert.match(
 
 const uiPackage = JSON.parse(read('sdkwork-kernel-ui/package.json'));
 assert(
-  uiPackage.dependencies?.['@sdkwork/utils-typescript'],
-  'sdkwork-kernel-ui must depend on @sdkwork/utils-typescript for shared utility standardization'
+  uiPackage.dependencies?.['@sdkwork/utils'],
+  'sdkwork-kernel-ui must depend on @sdkwork/utils for shared utility standardization'
 );
 
 const sessionPanel = read('sdkwork-kernel-ui/src/KernelUiSessionPanel.tsx');
 assert.match(
   sessionPanel,
-  /@sdkwork\/utils-typescript/u,
-  'KernelUiSessionPanel must consume @sdkwork/utils-typescript helpers'
+  /@sdkwork\/utils/u,
+  'KernelUiSessionPanel must consume @sdkwork/utils helpers'
 );
 
 const packageWorkflow = read('.github/workflows/package.yml');

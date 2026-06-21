@@ -14,37 +14,37 @@ aligns with `SDKWORK_WORKSPACE_SPEC.md` through the hybrid root dictionary model
 
 Two platform gaps remain against sibling SDKWork repositories:
 
-1. **HTTP runtime** â€” `sdkwork-agent-business` (`http-axum`) and `sdkwork-agent-server` use raw
+1. **HTTP runtime** â€?`sdkwork-agent-business` (`http-axum`) and `sdkwork-agent-server` use raw
    Axum routers with local gateway-header middleware instead of `sdkwork-web-framework`
    (`WebRequestContext`, interceptor chain, route manifest metadata).
-2. **Database runtime** â€” `sdkwork-agent-database` uses `rusqlite` for session/chat persistence,
+2. **Database runtime** â€?`sdkwork-agent-database` uses `rusqlite` for session/chat persistence,
    while `sdkwork-agent-business` `postgres-sync` uses the `postgres` crate directly. Neither path
    uses `sdkwork-database` (`sdkwork-database-config`, `sdkwork-database-sqlx`).
 
 **Out of scope for this ADR:**
 
-- `sdkwork-discovery` â€” kernel has no first-party gRPC/RPC services. Discovery integration is
+- `sdkwork-discovery` â€?kernel has no first-party gRPC/RPC services. Discovery integration is
   deferred until an RPC surface is introduced (`RPC_SPEC.md`).
-- Root `sdkwork.app.config.json` â€” kernel is a standards repository, not a deployable application
+- Root `sdkwork.app.config.json` â€?kernel is a standards repository, not a deployable application
   root (`APPLICATION_SPEC.md`).
 
 **Integrated in Phase 5:**
 
-- `sdkwork-utils` â€” shared Rust/TypeScript utility helpers replace ad hoc blank/trim validation in
+- `sdkwork-utils` â€?shared Rust/TypeScript utility helpers replace ad hoc blank/trim validation in
   business HTTP contracts and kernel UI session bootstrap.
 
 ## Decision
 
 Adopt platform frameworks in phased migration without destabilizing existing contract suites.
 
-### Phase 0 â€” alignment evidence (this ADR)
+### Phase 0 â€?alignment evidence (this ADR)
 
 - Record adoption phases and verification gates.
 - Index authored OpenAPI authorities under `apis/agent-business/authority-index.json`.
 - Declare workspace `Cargo.toml` dependencies on `sdkwork-web-framework` and `sdkwork-database`.
 - Enforce Phase 0 evidence through `tools/validators/kernel-standards/platform-integration.mjs`.
 
-### Phase 1 â€” route boundary extraction (complete)
+### Phase 1 â€?route boundary extraction (complete)
 
 - Route crates shipped under:
   - `crates/sdkwork-router-agent-http-shared`
@@ -54,7 +54,7 @@ Adopt platform frameworks in phased migration without destabilizing existing con
 - Router assembly remains in `sdkwork-agent-business/src/http.rs` for legacy contract tests; served
   surfaces mount through route crates.
 
-### Phase 2 â€” `sdkwork-web-framework` integration (complete)
+### Phase 2 â€?`sdkwork-web-framework` integration (complete)
 
 - `build_served_router` in each `*-api` route crate always wraps raw route builders with
   `sdkwork-web-axum::with_web_request_context` (no duplicate gateway middleware).
@@ -67,7 +67,7 @@ Adopt platform frameworks in phased migration without destabilizing existing con
 - `sdkwork-agent-server` documented as internal runtime HTTP surface without web-framework
   (`sdkwork-agent-server/specs/AGENT_SERVER_HTTP_SURFACE.md`).
 
-### Phase 3 â€” `sdkwork-database` integration (complete for config + pool bootstrap)
+### Phase 3 â€?`sdkwork-database` integration (complete for config + pool bootstrap)
 
 - `postgres-sync` depends on `sdkwork-database-config` and `sdkwork-database-sqlx`.
 - `BlockingPostgresPool` in `postgres_sync_pool.rs` wraps platform `PgPool` creation; sync repository
@@ -79,34 +79,36 @@ Adopt platform frameworks in phased migration without destabilizing existing con
 - **Future:** extract row-mapping helpers from `persistence.rs` into a dedicated sqlx repository crate
   when the business persistence surface splits from the monolith module.
 
-### Phase 4 â€” packaging and deployment standardization (complete for release entrypoint)
+### Phase 4 â€?packaging and deployment standardization (complete for release entrypoint)
 
 - `sdkwork.workflow.json` declares kernel release packaging for `sdkwork-agent-server`.
 - `.github/workflows/package.yml` calls `Sdkwork-Cloud/sdkwork-github-workflow` reusable packaging workflow.
 - CI verification remains on `.github/workflows/kernel-verification.yml` for every push/PR.
-- **Future:** expand `deployments/` with topology-linked deployment profiles when production rollout begins.
+- `deployments/topology-profiles.md` links topology profile env files to PNPM standard dev entrypoints.
+- Root `package.json` exposes `PNPM_SCRIPT_SPEC.md` commands through `scripts/sdkwork-command.mjs`.
 
-### Phase 5 â€” `sdkwork-utils` integration (complete for canonical validation + UI bootstrap)
+### Phase 5 â€?`sdkwork-utils` integration (complete for canonical validation + UI bootstrap)
 
 - Workspace `Cargo.toml` declares `sdkwork-utils-rust`; `sdkwork-agent-business` consumes `is_blank` and `trim`
   in `validation.rs` and reuses `optional_non_blank` from list-query builders in `ports.rs`.
-- `sdkwork-kernel-ui` links `@sdkwork/utils-typescript` through the sibling workspace package for session
+- `sdkwork-kernel-ui` links `@sdkwork/utils` through the sibling workspace package for session
   bootstrap trimming and blank checks in `KernelUiSessionPanel.tsx`.
 - `sdkwork.workflow.json` and `.github/workflows/package.yml` declare `sdkwork-utils` sibling checkout refs.
 - `tools/validators/kernel-standards/platform-utils.mjs` and
   `scripts/dev/sdkwork-kernel-utils-standard.test.mjs` enforce the integration boundary.
+- `persistence.rs` storage text validation delegates to `validation::require_trimmed_non_blank`.
 - **Future:** migrate remaining ad hoc string/crypto helpers in business persistence and adapters when those
   modules split from the monolith.
 
 ## Alternatives
 
-1. **Big-bang rewrite of `http.rs` (~8k LOC)** â€” rejected; breaks 75+ HTTP contract tests and
+1. **Big-bang rewrite of `http.rs` (~8k LOC)** â€?rejected; breaks 75+ HTTP contract tests and
    obscures review boundaries.
-2. **Permanent local HTTP framework fork** â€” rejected; violates `WEB_FRAMEWORK_SPEC.md` mandatory
+2. **Permanent local HTTP framework fork** â€?rejected; violates `WEB_FRAMEWORK_SPEC.md` mandatory
    integration rule.
-3. **Keep `sdkwork-agent-database` forever** â€” rejected for PostgreSQL business persistence;
+3. **Keep `sdkwork-agent-database` forever** â€?rejected for PostgreSQL business persistence;
    `sdkwork-database` is the platform pool authority (`DATABASE_SPEC.md`).
-4. **Phased adoption with executable gates** â€” selected.
+4. **Phased adoption with executable gates** â€?selected.
 
 ## Consequences
 

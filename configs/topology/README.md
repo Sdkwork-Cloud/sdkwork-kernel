@@ -10,9 +10,10 @@ Human summary: `../../docs/topology-standard.md`
 ## Commands
 
 ```bash
-pnpm kernel:dev
-pnpm kernel:dev:unified
-pnpm kernel:dev:cloud
+pnpm dev
+pnpm dev:server:postgres:split-services:standalone
+pnpm dev:server:postgres:unified-process:standalone
+pnpm dev:server:postgres:split-services:cloud
 pnpm topology:validate
 pnpm test:topology-baggage
 ```

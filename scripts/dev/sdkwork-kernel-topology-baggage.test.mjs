@@ -143,8 +143,8 @@ assert.match(
 );
 assert.match(
   JSON.stringify(packageJson.scripts ?? {}),
-  /kernel:dev/u,
-  'package.json must expose kernel:dev',
+  /"dev":/u,
+  'package.json must expose standard dev script',
 );
 
 for (const profileFile of profileFiles) {

@@ -1,0 +1,40 @@
+# Kernel Deployment Profiles
+
+Purpose: topology-linked deployment handoff for `sdkwork-kernel` release and operations.
+
+Owner: SDKWork kernel maintainers.
+
+## Profile Matrix
+
+Kernel runtime connectivity is declared in [`../specs/topology.spec.json`](../specs/topology.spec.json) and materialized through env files under [`../configs/topology/`](../configs/topology/).
+
+| Topology profile id | Deployment profile | Service layout | Environment | Env file |
+| --- | --- | --- | --- | --- |
+| `self-hosted.split-services.development` | standalone | split-services | development | `configs/topology/self-hosted.split-services.development.env` |
+| `self-hosted.unified-process.development` | standalone | unified-process | development | `configs/topology/self-hosted.unified-process.development.env` |
+| `self-hosted.split-services.production` | standalone | split-services | production | `configs/topology/self-hosted.split-services.production.env` |
+| `cloud-hosted.split-services.development` | cloud | split-services | development | `configs/topology/cloud-hosted.split-services.development.env` |
+| `cloud-hosted.split-services.production` | cloud | split-services | production | `configs/topology/cloud-hosted.split-services.production.env` |
+
+## Local Development Entrypoints
+
+Use PNPM standard commands (`PNPM_SCRIPT_SPEC.md`):
+
+```bash
+pnpm dev
+pnpm dev:server:postgres:split-services:standalone
+pnpm dev:server:postgres:unified-process:standalone
+pnpm dev:server:postgres:split-services:cloud
+```
+
+These dispatch through `scripts/sdkwork-command.mjs` into `scripts/kernel-dev.mjs`, which loads the matching topology profile env bundle.
+
+## Packaging And Release
+
+- Workflow config: [`../sdkwork.workflow.json`](../sdkwork.workflow.json)
+- GitHub packaging entry: [`.github/workflows/package.yml`](../.github/workflows/package.yml)
+- Merge-ready verification: `pnpm verify`
+
+Related specs: `../sdkwork-specs/DEPLOYMENT_SPEC.md`, `../sdkwork-specs/APP_RUNTIME_TOPOLOGY_SPEC.md`, `../sdkwork-specs/GITHUB_WORKFLOW_SPEC.md`.
+
+Verification: `pnpm topology:validate` and `pnpm check:pnpm-script-standard`.

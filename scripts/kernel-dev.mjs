@@ -31,9 +31,24 @@ function pnpmCommand() {
   return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
+const DEPLOYMENT_PROFILE_TO_HOSTING = {
+  standalone: 'self-hosted',
+  cloud: 'cloud-hosted',
+};
+
+function mapDeploymentProfileToHosting(deploymentProfile) {
+  const hosting = DEPLOYMENT_PROFILE_TO_HOSTING[deploymentProfile];
+  if (!hosting) {
+    throw new Error(
+      `unsupported deployment profile ${deploymentProfile}; use standalone or cloud`,
+    );
+  }
+  return hosting;
+}
+
 function parseArgs(argv) {
   const settings = {
-    hosting: 'self-hosted',
+    deploymentProfile: 'standalone',
     serviceLayout: 'split-services',
     dryRun: false,
     help: false,
@@ -45,8 +60,8 @@ function parseArgs(argv) {
       settings.help = true;
       continue;
     }
-    if (arg === '--hosting') {
-      settings.hosting = argv[index + 1] ?? settings.hosting;
+    if (arg === '--deployment-profile') {
+      settings.deploymentProfile = argv[index + 1] ?? settings.deploymentProfile;
       index += 1;
       continue;
     }
@@ -55,9 +70,14 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
+    if (arg === '--hosting') {
+      throw new Error(
+        '--hosting is retired; use --deployment-profile (standalone -> self-hosted, cloud -> cloud-hosted)',
+      );
+    }
     if (arg === '--topology') {
       throw new Error(
-        '--topology is retired; use --hosting (standalone -> self-hosted, cloud -> cloud-hosted)',
+        '--topology is retired; use --deployment-profile and --service-layout',
       );
     }
     if (arg === '--dry-run') {
@@ -74,7 +94,7 @@ function printHelp() {
 Topology-aware kernel dev entry. Loads configs/topology profile env via @sdkwork/app-topology.
 
 Options:
-  --hosting <self-hosted|cloud-hosted>              Default: self-hosted
+  --deployment-profile <standalone|cloud>           Default: standalone
   --service-layout <split-services|unified-process> Default: split-services
   --dry-run                                         Print plan without executing
   --help, -h
@@ -206,7 +226,8 @@ async function main() {
     process.exit(0);
   }
 
-  const profileId = resolveDevProfileId(settings.hosting, settings.serviceLayout)
+  const hosting = mapDeploymentProfileToHosting(settings.deploymentProfile);
+  const profileId = resolveDevProfileId(hosting, settings.serviceLayout)
     || DEFAULT_DEV_PROFILE_ID;
   const profileEnv = loadProfile(profileId);
   const runtimeEnv = mergeRuntimeEnv(process.env, profileEnv, bridgeLegacyServiceEnv(profileEnv), {

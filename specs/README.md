@@ -16,8 +16,9 @@ Runtime connectivity profiles for local dev and deployment live in
 | --- | --- | --- |
 | `sdkwork-web-framework` | **Integrated** | Workspace `Cargo.toml` deps (`sdkwork-web-core`, `sdkwork-web-axum`, `sdkwork-web-bootstrap`, `sdkwork-iam-web-adapter`); route crates under `crates/sdkwork-router-agent-*` wrap served routers with `with_web_request_context`. Verified by `tools/validators/kernel-standards/platform-integration.mjs`. |
 | `sdkwork-database` | **Integrated** | Workspace deps (`sdkwork-database-config`, `sdkwork-database-sqlx`); `sdkwork-agent-business` `postgres-sync` bootstraps pools through `BlockingPostgresPool`. Verified by `platform-integration.mjs` and `agent_postgres_sync_contracts`. |
-| `sdkwork-utils` | **Integrated** | Workspace dep `sdkwork-utils-rust` in `sdkwork-agent-business/src/validation.rs`; kernel UI consumes `@sdkwork/utils-typescript` for session bootstrap. Verified by `scripts/dev/sdkwork-kernel-utils-standard.test.mjs`. |
+| `sdkwork-utils` | **Integrated** | Workspace dep `sdkwork-utils-rust` in `validation.rs` and `postgres_sync_pool.rs`; persistence storage validation delegates to `require_trimmed_non_blank`; kernel UI consumes `@sdkwork/utils`. Verified by `scripts/dev/sdkwork-kernel-utils-standard.test.mjs`. |
 | `sdkwork-discovery` | **Deferred** | Kernel has no first-party gRPC/RPC services. Adopt when an RPC surface ships per `RPC_SPEC.md` and `RUST_RPC_SPEC.md`. |
+| PNPM script surface | **Integrated** | Root `package.json` exposes `dev`, `build`, `test`, `check`, `verify`, `clean` via `scripts/sdkwork-command.mjs`. Verified by `tools/validators/kernel-standards/platform-pnpm-scripts.mjs`. |
 
 Sibling checkout and release refs are declared in `sdkwork.workflow.json`
 (`sdkwork-web-framework`, `sdkwork-database`, `sdkwork-utils`).

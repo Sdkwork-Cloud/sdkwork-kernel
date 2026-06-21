@@ -25,10 +25,11 @@ This repository adopts the shared SDKWork runtime topology framework.
 ## Commands
 
 ```bash
-pnpm kernel:dev           # self-hosted.split-services.development
-pnpm kernel:dev:unified   # self-hosted.unified-process.development (server smoke)
-pnpm kernel:dev:cloud     # cloud-hosted.split-services.development
-pnpm topology:validate    # validate specs/topology.spec.json
+pnpm dev                                              # standalone + unified-process dev default
+pnpm dev:server:postgres:split-services:standalone    # self-hosted.split-services.development
+pnpm dev:server:postgres:unified-process:standalone   # self-hosted.unified-process.development
+pnpm dev:server:postgres:split-services:cloud         # cloud-hosted.split-services.development
+pnpm topology:validate                                # validate specs/topology.spec.json
 ```
 
 ## Local URLs (self-hosted split dev)

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { isBlank, trim } from '@sdkwork/utils-typescript';
+import { isBlank, trim } from '@sdkwork/utils';
 import { translateKernelUi } from '@sdkwork/kernel-ui-commons';
 import {
   clearBrowserKernelUiAuthSession,

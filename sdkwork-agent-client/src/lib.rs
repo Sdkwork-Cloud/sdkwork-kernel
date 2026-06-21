@@ -1,6 +1,7 @@
 pub mod bridge;
 mod chat;
 pub mod plugins;
+mod runtime_guard;
 pub mod session;
 mod sse;
 mod types;

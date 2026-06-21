@@ -10,6 +10,7 @@ use sdkwork_agent_kernel::{
     SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
     ToolResult, ToolSchema,
 };
+use sdkwork_agent_adapter_core::reject_direct_mock_provider_invocation;
 
 // ============================================================================
 // Gemini CLI Message Types
@@ -275,6 +276,8 @@ impl ModelProvider for GeminiModelProvider {
     }
 
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
+        reject_direct_mock_provider_invocation("provider.model.gemini.invoke")?;
+
         let model_id = request.model_id.as_deref().unwrap_or(&self.default_model);
         let prompt = request.messages.join("\n");
 
@@ -288,6 +291,8 @@ impl ModelProvider for GeminiModelProvider {
     }
 
     fn stream(&self, request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
+        reject_direct_mock_provider_invocation("provider.model.gemini.stream")?;
+
         let response_text = format!(
             "[Gemini] Streaming mock response to: {}",
             request.messages.join(" ")

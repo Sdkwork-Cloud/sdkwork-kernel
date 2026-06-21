@@ -10,6 +10,7 @@ const kernelRoot = process.cwd();
 const requiredArtifacts = [
   '.github/workflows/kernel-verification.yml',
   'sdkwork-agent-business/specs/AGENT_BUSINESS_HTTP_TRUST_BOUNDARY.md',
+  'sdkwork-agent-server/specs/AGENT_SERVER_HTTP_SURFACE.md',
   'sdkwork-kernel-ui/src/KernelUiSessionPanel.tsx',
   'sdkwork-kernel-ui/src/kernel-ui-client.ts',
   'scripts/verify-kernel-audit-remediation.mjs'
@@ -28,8 +29,10 @@ const commands = [
   ['node', ['scripts/check-agent-sdk-workspace.mjs']],
   ['node', ['sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs']],
   ['node', ['--test', 'scripts/dev/sdkwork-kernel-utils-standard.test.mjs']],
+  ['node', ['scripts/sdk-backend-workers/engine-sdk-live.test.mjs']],
   ['node', ['--test', 'tests/kernel_workspace_structure.test.mjs']],
   ['node', ['--test', 'tests/kernel_topology_alignment.test.mjs']],
+  ['node', ['--test', 'tests/kernel_ui_server_api_alignment.test.mjs']],
   ['node', ['--test', 'scripts/dev/sdkwork-kernel-topology-baggage.test.mjs']],
   [
     'node',
@@ -40,6 +43,19 @@ const commands = [
     ]
   ],
   ['cargo', ['test', '--manifest-path', 'sdkwork-agent-kernel/Cargo.toml', '-q']],
+  ['cargo', ['test', '--manifest-path', 'sdkwork-agent-server/Cargo.toml', '-q']],
+  [
+    'cargo',
+    [
+      'test',
+      '--test',
+      'http_kernel_contracts',
+      '--manifest-path',
+      'sdkwork-agent-server/Cargo.toml',
+      '-q'
+    ]
+  ],
+  ['cargo', ['test', '--manifest-path', 'sdkwork-agent-client/Cargo.toml', '-q']],
   ['cargo', ['test', '--doc', '--manifest-path', 'sdkwork-agent-kernel/Cargo.toml', '-q']],
   ['cargo', ['test', '--manifest-path', 'sdkwork-code-kernel/Cargo.toml', '-q']],
   ['cargo', ['test', '--manifest-path', 'sdkwork-agent-business/Cargo.toml', '-q']],

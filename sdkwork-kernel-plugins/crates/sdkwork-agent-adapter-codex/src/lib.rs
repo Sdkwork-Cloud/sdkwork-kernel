@@ -10,6 +10,7 @@ use sdkwork_agent_kernel::{
     SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
     ToolResult, ToolSchema,
 };
+use sdkwork_agent_adapter_core::reject_direct_mock_provider_invocation;
 
 // ============================================================================
 // Codex Message Types
@@ -319,6 +320,8 @@ impl ModelProvider for CodexModelProvider {
     }
 
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
+        reject_direct_mock_provider_invocation("provider.model.codex.invoke")?;
+
         let model_id = request.model_id.as_deref().unwrap_or(&self.default_model);
         let prompt = request.messages.join("\n");
 
@@ -332,6 +335,8 @@ impl ModelProvider for CodexModelProvider {
     }
 
     fn stream(&self, request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
+        reject_direct_mock_provider_invocation("provider.model.codex.stream")?;
+
         let response_text = format!(
             "[Codex] Streaming mock response to: {}",
             request.messages.join(" ")

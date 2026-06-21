@@ -18,9 +18,16 @@
       "optional": false
     },
     "typescript": {
-      "package": "@openai/codex",
-      "optional": true
+      "package": "@openai/codex-sdk",
+      "optional": false
     }
+  },
+  "selection_policy": {
+    "default_backend_priority": [
+      "typescript_node",
+      "rust_native",
+      "ipc_protocol"
+    ]
   },
   "capabilities": [
     {
@@ -54,6 +61,11 @@
       "capability_id": "sdk.model.chat",
       "required": true,
       "backends": [
+        {
+          "kind": "typescript_node",
+          "driver_id": "driver.codex.model.chat.ts",
+          "package": "@openai/codex-sdk"
+        },
         {
           "kind": "rust_native",
           "driver_id": "driver.codex.model.chat.rust",

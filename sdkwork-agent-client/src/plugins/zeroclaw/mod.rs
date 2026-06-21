@@ -7,6 +7,7 @@ use crate::bridge::{
 use crate::chat::ChatClient;
 use crate::session::BridgeSessionQuery;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
+use crate::runtime_guard::lock_runtime_mutex;
 use runtime::ZeroClawRuntime;
 use std::sync::{Arc, Mutex};
 
@@ -29,7 +30,7 @@ impl ZeroClawProvider {
 
 impl ChatClient for ZeroClawProvider {
     fn send_message(&self, request: ChatRequest) -> Result<ChatResponse, String> {
-        let runtime = self.runtime.lock().unwrap();
+        let runtime = lock_runtime_mutex(&self.runtime)?;
         let rt = runtime.as_ref().ok_or("Runtime not initialized")?;
         rt.send_message(request)
     }
@@ -39,31 +40,31 @@ impl ChatClient for ZeroClawProvider {
         session_id: &str,
         limit: Option<u32>,
     ) -> Result<Vec<ChatMessage>, String> {
-        let runtime = self.runtime.lock().unwrap();
+        let runtime = lock_runtime_mutex(&self.runtime)?;
         let rt = runtime.as_ref().ok_or("Runtime not initialized")?;
         rt.get_messages(session_id, limit)
     }
 
     fn create_session(&self, config: SessionConfig) -> Result<SessionInfo, String> {
-        let runtime = self.runtime.lock().unwrap();
+        let runtime = lock_runtime_mutex(&self.runtime)?;
         let rt = runtime.as_ref().ok_or("Runtime not initialized")?;
         rt.create_session(config)
     }
 
     fn close_session(&self, session_id: &str) -> Result<(), String> {
-        let runtime = self.runtime.lock().unwrap();
+        let runtime = lock_runtime_mutex(&self.runtime)?;
         let rt = runtime.as_ref().ok_or("Runtime not initialized")?;
         rt.close_session(session_id)
     }
 
     fn list_sessions(&self, query: &BridgeSessionQuery) -> Result<Vec<SessionInfo>, String> {
-        let runtime = self.runtime.lock().unwrap();
+        let runtime = lock_runtime_mutex(&self.runtime)?;
         let rt = runtime.as_ref().ok_or("Runtime not initialized")?;
         rt.list_sessions(query)
     }
 
     fn health(&self) -> Result<bool, String> {
-        let runtime = self.runtime.lock().unwrap();
+        let runtime = lock_runtime_mutex(&self.runtime)?;
         match runtime.as_ref() {
             Some(rt) => Ok(rt.health_check().status == AgentBridgeStatus::Healthy),
             None => Ok(false),
@@ -89,7 +90,7 @@ impl AgentBridgeProvider for ZeroClawProvider {
     }
 
     fn initialize(&self) -> Result<(), String> {
-        let mut runtime = self.runtime.lock().unwrap();
+        let mut runtime = lock_runtime_mutex(&self.runtime)?;
         if runtime.is_none() {
             *runtime = Some(ZeroClawRuntime::new(&self.config)?);
         }
@@ -97,7 +98,7 @@ impl AgentBridgeProvider for ZeroClawProvider {
     }
 
     fn shutdown(&self) -> Result<(), String> {
-        let mut runtime = self.runtime.lock().unwrap();
+        let mut runtime = lock_runtime_mutex(&self.runtime)?;
         if let Some(mut rt) = runtime.take() {
             rt.shutdown()?;
         }
@@ -105,7 +106,16 @@ impl AgentBridgeProvider for ZeroClawProvider {
     }
 
     fn health_check(&self) -> AgentBridgeHealth {
-        let runtime = self.runtime.lock().unwrap();
+        let runtime = match lock_runtime_mutex(&self.runtime) {
+            Ok(runtime) => runtime,
+            Err(message) => {
+                return AgentBridgeHealth {
+                    status: AgentBridgeStatus::Unknown,
+                    message: Some(message),
+                    last_check: chrono::Utc::now(),
+                };
+            }
+        };
         match runtime.as_ref() {
             Some(rt) => rt.health_check(),
             None => AgentBridgeHealth {

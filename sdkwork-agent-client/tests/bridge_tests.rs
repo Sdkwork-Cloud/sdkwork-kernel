@@ -6,6 +6,7 @@ use sdkwork_agent_client::plugins::BuiltinPlugins;
 use sdkwork_agent_client::session::BridgeSessionQuery;
 use sdkwork_agent_client::{ChatRequest, SessionConfig};
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[test]
 fn test_bridge_type_display() {
@@ -130,6 +131,15 @@ fn test_agent_client_mode_local_not_found() {
 
 #[test]
 fn test_registry_list_all_sessions_sorted_by_updated_at() {
+    let database_path = std::env::temp_dir().join(format!(
+        "sdkwork-agent-client-bridge-test-{}.sqlite",
+        Uuid::new_v4()
+    ));
+    std::env::set_var(
+        "SDKWORK_CLIENT_DATABASE_PATH",
+        database_path.to_string_lossy().as_ref(),
+    );
+
     let plugins = BuiltinPlugins::create_all();
     let mut registry = AgentBridgePluginRegistry::new();
     plugins.register_all(&mut registry).unwrap();

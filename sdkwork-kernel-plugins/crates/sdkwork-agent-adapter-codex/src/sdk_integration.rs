@@ -3,8 +3,9 @@ use crate::{
     CodexToolProvider,
 };
 use sdkwork_agent_sdk_backend_core::{
-    BackendHostRegistry, IpcProtocolBackendHost, RustNativeBackendHost,
+    BackendHostRegistry, IpcProtocolBackendHost, RustNativeBackendHost, TypeScriptNodeBackendHost,
 };
+use sdkwork_agent_sdk_backend_node::NodeSdkBackendRuntime;
 use sdkwork_agent_sdk_backend_rust::{InProcessRustSdkRuntime, ProviderBackedRustHandler};
 use sdkwork_agent_sdk_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
@@ -42,6 +43,7 @@ impl CodexSdkIntegration {
 
         let mut backends = BackendHostRegistry::new();
         backends.register(Arc::new(RustNativeBackendHost::new("codex-core")));
+        backends.register(Arc::new(TypeScriptNodeBackendHost::new("@openai/codex-sdk")));
         backends.register(Arc::new(IpcProtocolBackendHost::new("jsonrpc_stdio")));
         backends.prepare_all().map_err(|error| {
             SdkNegotiationError::missing_required_capabilities(
@@ -59,6 +61,9 @@ impl CodexSdkIntegration {
         ));
         let runtime = Arc::new(
             SdkRuntimeRouter::new(negotiation.clone())
+                .with_typescript_runtime(Arc::new(NodeSdkBackendRuntime::bootstrap(
+                    "@openai/codex-sdk",
+                )))
                 .with_rust_runtime(Arc::new(InProcessRustSdkRuntime::new(rust_handler))),
         );
         let model = SdkRuntimeBackedModelProvider::new(
@@ -109,7 +114,7 @@ mod tests {
         assert_eq!(integration.binding_id(), CODEX_BINDING_ID);
         assert_eq!(
             integration.sdk.selected_backend_kind("sdk.model.chat"),
-            Some(SdkBackendKind::RustNative)
+            Some(SdkBackendKind::TypeScriptNode)
         );
         assert_eq!(
             integration.sdk.selected_driver_id("sdk.session.lifecycle"),
@@ -125,7 +130,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_model_chat_uses_in_process_rust_backend() {
+    fn runtime_model_chat_uses_typescript_backend() {
         let integration = CodexSdkIntegration::bootstrap().expect("bootstrap should succeed");
         let response = integration
             .invoke_runtime(&SdkRuntimeRequest::model_chat(
@@ -135,7 +140,7 @@ mod tests {
             ))
             .expect("runtime invoke should succeed");
         assert!(response.success);
-        assert_eq!(response.backend_kind, SdkBackendKind::RustNative);
+        assert_eq!(response.backend_kind, SdkBackendKind::TypeScriptNode);
     }
 
     #[test]
@@ -146,8 +151,12 @@ mod tests {
             .invoke(ModelRequest::new("req-kernel-1", vec!["hello".to_string()]))
             .expect("model invoke should succeed");
         assert!(response
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.contains("sdk_runtime_mode=")));
+        assert!(!response
             .messages
             .iter()
-            .any(|message| message.contains("Codex")));
+            .any(|message| message.contains("Mock response")));
     }
 }

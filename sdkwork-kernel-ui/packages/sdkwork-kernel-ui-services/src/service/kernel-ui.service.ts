@@ -71,6 +71,7 @@ export function createMockKernelUiClient(snapshot = kernelUiMockSnapshot): Kerne
       const session: SessionView = {
         sessionId,
         agentId: config.agentId,
+        tenantId: config.tenantId,
         userRef: config.userRef,
         source: (config.source || 'api') as SessionSource,
         kind: (config.kind || 'main') as SessionKind,

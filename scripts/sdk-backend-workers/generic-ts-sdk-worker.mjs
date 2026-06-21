@@ -1,6 +1,11 @@
 #!/usr/bin/env node
-import { createRequire } from 'node:module';
 import readline from 'node:readline';
+import {
+  buildStubModelChatResult,
+  invokeModelChatLive,
+  mockProviderInvocationAllowed,
+  probePackage,
+} from './engine-sdk-live.mjs';
 
 const packageIndex = process.argv.indexOf('--package');
 const packageName =
@@ -12,17 +17,7 @@ function writeResponse(response) {
   process.stdout.write(`${JSON.stringify(response)}\n`);
 }
 
-function probePackage(name) {
-  const require = createRequire(import.meta.url);
-  try {
-    require.resolve(name);
-    return { resolved: true };
-  } catch {
-    return { resolved: false };
-  }
-}
-
-function handleCapabilityInvoke(params) {
+async function handleCapabilityInvoke(params) {
   const operation = params.operation ?? {};
   const op = operation.operation ?? operation;
   const packageProbe = probePackage(packageName);
@@ -39,7 +34,7 @@ function handleCapabilityInvoke(params) {
   if (op === 'session_create') {
     return {
       ok: true,
-      mode: packageProbe.resolved ? 'sdk_probe' : 'stub',
+      mode: packageProbe.resolved ? 'sdk_live' : 'stub',
       agent_id: operation.agent_id ?? null,
       user_ref: operation.user_ref ?? null,
       package: packageName,
@@ -47,22 +42,41 @@ function handleCapabilityInvoke(params) {
   }
 
   if (op === 'model_chat') {
-    const prompt = (operation.messages ?? []).join('\n');
-    const prefix = packageProbe.resolved ? `[${packageName}]` : `[${packageName} stub]`;
-    return {
-      ok: true,
-      mode: packageProbe.resolved ? 'sdk_probe' : 'stub',
-      messages: [`${prefix} ${prompt}`],
-      finish_reason: 'stop',
-      package: packageName,
-      model_request_id: operation.model_request_id ?? null,
-    };
+    if (packageProbe.resolved) {
+      try {
+        return await invokeModelChatLive(packageName, operation);
+      } catch (error) {
+        if (!mockProviderInvocationAllowed()) {
+          return {
+            ok: false,
+            mode: 'sdk_live_failed',
+            package: packageName,
+            error: error instanceof Error ? error.message : String(error),
+            model_request_id: operation.model_request_id ?? null,
+          };
+        }
+      }
+    }
+
+    if (!mockProviderInvocationAllowed()) {
+      return {
+        ok: false,
+        mode: 'sdk_live_failed',
+        package: packageName,
+        error: packageProbe.resolved
+          ? 'official sdk live invoke failed and mock fallback is disabled'
+          : `official sdk package is not resolved: ${packageName}`,
+        model_request_id: operation.model_request_id ?? null,
+      };
+    }
+
+    return buildStubModelChatResult(packageName, operation, packageProbe);
   }
 
   if (op === 'tool_invoke') {
     return {
       ok: true,
-      mode: packageProbe.resolved ? 'sdk_probe' : 'stub',
+      mode: packageProbe.resolved ? 'sdk_live' : 'stub',
       output: JSON.stringify({
         tool_id: operation.tool_id ?? null,
         arguments: operation.arguments ?? null,
@@ -99,11 +113,24 @@ function handleRequest(request) {
 
   if (request.method === 'sdkwork/capability.invoke') {
     const params = request.params ?? {};
-    writeResponse({
-      jsonrpc: '2.0',
-      id: request.id,
-      result: handleCapabilityInvoke(params),
-    });
+    Promise.resolve(handleCapabilityInvoke(params))
+      .then((result) => {
+        writeResponse({
+          jsonrpc: '2.0',
+          id: request.id,
+          result,
+        });
+      })
+      .catch((error) => {
+        writeResponse({
+          jsonrpc: '2.0',
+          id: request.id,
+          error: {
+            code: -32000,
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
+      });
     return;
   }
 

@@ -49,7 +49,7 @@ fn foundation_plugin_trait_exposes_provider_without_agent_manifest() {
 
 #[test]
 fn provider_manifest_declares_standard_knowledge_capabilities() {
-    let provider = SdkworkKnowledgebaseProvider::new(FakeKnowledgebaseClient, 20001);
+    let provider = SdkworkKnowledgebaseProvider::new(FakeKnowledgebaseClient, 100001);
 
     let manifest = provider.provider_manifest();
 
@@ -69,12 +69,12 @@ fn provider_manifest_declares_standard_knowledge_capabilities() {
 
 #[test]
 fn search_maps_kernel_request_to_knowledgebase_retrieval_and_back() {
-    let provider = SdkworkKnowledgebaseProvider::new(FakeKnowledgebaseClient, 20001);
+    let provider = SdkworkKnowledgebaseProvider::new(FakeKnowledgebaseClient, 100001);
 
     let results = provider
         .search(
             KnowledgeSearchRequest::new("RAG boundary")
-                .with_tenant_id("20001")
+                .with_tenant_id("100001")
                 .with_namespace("space:7")
                 .with_top_k(3)
                 .with_method(KnowledgeRetrievalMethod::Hybrid)
@@ -116,7 +116,7 @@ fn search_maps_kernel_request_to_knowledgebase_retrieval_and_back() {
 
 #[test]
 fn search_requires_namespace_space_id_to_preserve_scope() {
-    let provider = SdkworkKnowledgebaseProvider::new(FakeKnowledgebaseClient, 20001);
+    let provider = SdkworkKnowledgebaseProvider::new(FakeKnowledgebaseClient, 100001);
 
     let error = provider
         .search(KnowledgeSearchRequest::new("missing scope"))
@@ -127,7 +127,7 @@ fn search_requires_namespace_space_id_to_preserve_scope() {
 
 #[test]
 fn read_and_list_delegate_to_typed_client() {
-    let provider = SdkworkKnowledgebaseProvider::new(FakeKnowledgebaseClient, 20001);
+    let provider = SdkworkKnowledgebaseProvider::new(FakeKnowledgebaseClient, 100001);
 
     let document = provider.read("301").unwrap();
     let documents = provider
@@ -142,7 +142,7 @@ fn read_and_list_delegate_to_typed_client() {
 #[test]
 fn official_knowledgebase_provider_enriches_agent_chat_context_when_selected() {
     let captured_model_requests = Arc::new(Mutex::new(Vec::new()));
-    let provider = SdkworkKnowledgebaseProvider::new(ChatKnowledgebaseClient, 20001);
+    let provider = SdkworkKnowledgebaseProvider::new(ChatKnowledgebaseClient, 100001);
     let manifest = AgentManifest::from_json(
         r#"
 {
@@ -197,7 +197,7 @@ fn official_knowledgebase_provider_enriches_agent_chat_context_when_selected() {
             .for_task("task.knowledgebase")
             .with_knowledge_query("RAG boundary")
             .with_knowledge_provider_id(SDKWORK_KNOWLEDGEBASE_PROVIDER_ID)
-            .with_knowledge_tenant_id("20001")
+            .with_knowledge_tenant_id("100001")
             .with_knowledge_namespace("space:7")
             .with_knowledge_top_k(2)
             .with_knowledge_method(KnowledgeRetrievalMethod::Hybrid),
@@ -239,7 +239,7 @@ fn official_knowledgebase_provider_enriches_agent_chat_context_when_selected() {
 fn official_knowledgebase_chat_fails_closed_when_sensitive_context_policy_denies_model_send() {
     let captured_model_requests = Arc::new(Mutex::new(Vec::new()));
     let captured_policy_requests = Arc::new(Mutex::new(Vec::new()));
-    let provider = SdkworkKnowledgebaseProvider::new(ChatKnowledgebaseClient, 20001);
+    let provider = SdkworkKnowledgebaseProvider::new(ChatKnowledgebaseClient, 100001);
     let manifest = AgentManifest::from_json(
         r#"
 {
@@ -294,7 +294,7 @@ fn official_knowledgebase_chat_fails_closed_when_sensitive_context_policy_denies
             .for_task("task.knowledgebase.policy")
             .with_knowledge_query("RAG boundary")
             .with_knowledge_provider_id(SDKWORK_KNOWLEDGEBASE_PROVIDER_ID)
-            .with_knowledge_tenant_id("20001")
+            .with_knowledge_tenant_id("100001")
             .with_knowledge_namespace("space:7")
             .with_knowledge_top_k(2)
             .with_knowledge_method(KnowledgeRetrievalMethod::Hybrid),
@@ -328,7 +328,7 @@ impl KnowledgebaseRetrievalClient for FakeKnowledgebaseClient {
         &self,
         request: KnowledgeRetrievalRequest,
     ) -> Result<KnowledgeRetrievalResult, String> {
-        assert_eq!(request.tenant_id, 20001);
+        assert_eq!(request.tenant_id, 100001);
         assert_eq!(request.bindings[0].space_id, 7);
         assert_eq!(request.bindings[0].top_k, Some(3));
         assert_eq!(request.retrieval_profile_id, Some(31));
@@ -393,7 +393,7 @@ impl KnowledgebaseRetrievalClient for ChatKnowledgebaseClient {
         &self,
         request: KnowledgeRetrievalRequest,
     ) -> Result<KnowledgeRetrievalResult, String> {
-        assert_eq!(request.tenant_id, 20001);
+        assert_eq!(request.tenant_id, 100001);
         assert_eq!(request.query, "RAG boundary");
         assert_eq!(request.bindings[0].space_id, 7);
         assert_eq!(request.bindings[0].top_k, Some(2));

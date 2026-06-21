@@ -2,6 +2,8 @@ use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::persistence::PersistenceState;
+
 /// Health check response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
@@ -45,49 +47,105 @@ impl Default for HealthState {
     }
 }
 
+fn persistence_component(persistence: &PersistenceState) -> ComponentHealth {
+    match persistence.health() {
+        Ok(true) => ComponentHealth {
+            name: "persistence".to_string(),
+            status: "available".to_string(),
+            message: None,
+        },
+        Ok(false) => ComponentHealth {
+            name: "persistence".to_string(),
+            status: "degraded".to_string(),
+            message: Some("database health probe returned false".to_string()),
+        },
+        Err(error) => ComponentHealth {
+            name: "persistence".to_string(),
+            status: "unavailable".to_string(),
+            message: Some(error),
+        },
+    }
+}
+
+fn aggregate_status(components: &[ComponentHealth]) -> String {
+    if components
+        .iter()
+        .any(|component| component.status == "unavailable")
+    {
+        "unhealthy".to_string()
+    } else if components
+        .iter()
+        .any(|component| component.status == "degraded")
+    {
+        "degraded".to_string()
+    } else {
+        "healthy".to_string()
+    }
+}
+
 /// Health check handler
 pub async fn health_check(
-    State(state): State<Arc<HealthState>>,
+    State((health_state, persistence)): State<(Arc<HealthState>, Arc<PersistenceState>)>,
 ) -> (StatusCode, Json<HealthResponse>) {
-    let response = HealthResponse {
-        status: "healthy".to_string(),
-        version: state.version.clone(),
-        uptime_secs: state.uptime_secs(),
-        components: vec![
-            ComponentHealth {
-                name: "kernel".to_string(),
-                status: "available".to_string(),
-                message: None,
-            },
-            ComponentHealth {
-                name: "business".to_string(),
-                status: "available".to_string(),
-                message: None,
-            },
-        ],
+    let components = vec![
+        ComponentHealth {
+            name: "kernel".to_string(),
+            status: "available".to_string(),
+            message: None,
+        },
+        persistence_component(&persistence),
+    ];
+    let status = aggregate_status(&components);
+    let code = if status == "unhealthy" {
+        StatusCode::SERVICE_UNAVAILABLE
+    } else {
+        StatusCode::OK
     };
 
-    (StatusCode::OK, Json(response))
+    let response = HealthResponse {
+        status,
+        version: health_state.version.clone(),
+        uptime_secs: health_state.uptime_secs(),
+        components,
+    };
+
+    (code, Json(response))
 }
 
 /// Readiness check handler
-pub async fn readiness_check() -> (StatusCode, Json<HealthResponse>) {
+pub async fn readiness_check(
+    State((health_state, persistence)): State<(Arc<HealthState>, Arc<PersistenceState>)>,
+) -> (StatusCode, Json<HealthResponse>) {
+    let components = vec![persistence_component(&persistence)];
+    let persistence_ready = components
+        .first()
+        .is_some_and(|component| component.status == "available");
     let response = HealthResponse {
-        status: "ready".to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        uptime_secs: 0,
-        components: Vec::new(),
+        status: if persistence_ready {
+            "ready".to_string()
+        } else {
+            "not_ready".to_string()
+        },
+        version: health_state.version.clone(),
+        uptime_secs: health_state.uptime_secs(),
+        components,
     };
-
-    (StatusCode::OK, Json(response))
+    let code = if persistence_ready {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (code, Json(response))
 }
 
 /// Liveness check handler
-pub async fn liveness_check() -> (StatusCode, Json<HealthResponse>) {
+pub async fn liveness_check(
+    State((health_state, _persistence)): State<(Arc<HealthState>, Arc<PersistenceState>)>,
+) -> (StatusCode, Json<HealthResponse>) {
     let response = HealthResponse {
         status: "alive".to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        uptime_secs: 0,
+        version: health_state.version.clone(),
+        uptime_secs: health_state.uptime_secs(),
         components: Vec::new(),
     };
 
@@ -97,11 +155,21 @@ pub async fn liveness_check() -> (StatusCode, Json<HealthResponse>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::persistence::PersistenceState;
 
     #[test]
     fn health_state_uptime() {
         let state = HealthState::new();
-        // Just verify it doesn't panic
         let _ = state.uptime_secs();
+    }
+
+    #[tokio::test]
+    async fn readiness_reports_database_state() {
+        let health_state = Arc::new(HealthState::new());
+        let persistence = Arc::new(PersistenceState::memory().expect("persistence"));
+        let (status, Json(response)) =
+            readiness_check(State((health_state, persistence))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(response.status, "ready");
     }
 }

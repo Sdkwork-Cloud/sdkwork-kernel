@@ -82,7 +82,21 @@ async function main() {
     throw new Error(`timed out waiting for ${healthUrl}${HEALTH_PATH}`);
   }
 
-  console.log(`[sdkwork-kernel-topology-smoke] ok profile=${PROFILE_ID} url=${healthUrl}${HEALTH_PATH}`);
+  const snapshotUrl = `${healthUrl}/api/kernel/snapshot`;
+  const snapshotResponse = await fetch(snapshotUrl, {
+    signal: AbortSignal.timeout(1500),
+  });
+  if (!snapshotResponse.ok) {
+    throw new Error(`kernel snapshot probe failed: ${snapshotResponse.status}`);
+  }
+  const snapshot = await snapshotResponse.json();
+  if (!snapshot?.runtime?.health) {
+    throw new Error('kernel snapshot response missing runtime.health');
+  }
+
+  console.log(
+    `[sdkwork-kernel-topology-smoke] ok profile=${PROFILE_ID} url=${healthUrl}${HEALTH_PATH} snapshot=${snapshot.runtime.health}`,
+  );
 }
 
 main().catch((error) => {

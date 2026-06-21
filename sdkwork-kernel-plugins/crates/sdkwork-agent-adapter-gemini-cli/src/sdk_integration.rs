@@ -117,8 +117,12 @@ mod tests {
             .invoke(ModelRequest::new("req-gemini-1", vec!["hello".to_string()]))
             .expect("model invoke should succeed");
         assert!(response
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.contains("sdk_runtime_mode=")));
+        assert!(!response
             .messages
             .iter()
-            .any(|message| message.contains("@google/gemini-cli-sdk")));
+            .any(|message| message.contains("Mock response")));
     }
 }

@@ -52,6 +52,7 @@ Sibling checkout and release refs are declared in `sdkwork.workflow.json`
 | [`AGENT_PROTOCOL_ADAPTER_SPEC.md`](./AGENT_PROTOCOL_ADAPTER_SPEC.md) | MCP, A2A, HTTP/RPC, IPC, Tauri, WebSocket, kernel UI client adapters, object mapping, auth, streaming, and trace propagation |
 | [`AGENT_SECURITY_POLICY_SPEC.md`](./AGENT_SECURITY_POLICY_SPEC.md) | Policy categories, decisions, untrusted context, prompt-injection boundaries, secret handling, sandbox controls, audit, and risk controls |
 | [`AGENT_EVENT_TELEMETRY_SPEC.md`](./AGENT_EVENT_TELEMETRY_SPEC.md) | Event envelope, event families, streaming, replay, trace context, metrics, logs, audit export, and redaction |
+| [`KERNEL_PRODUCT_PROJECTION_SPEC.md`](./KERNEL_PRODUCT_PROJECTION_SPEC.md) | KernelEvent → BirdCoder `coding_session_event` projection mapping for product surfaces |
 | [`AGENT_UI_CONTRACT_SPEC.md`](./AGENT_UI_CONTRACT_SPEC.md) | Typed UI client surface, capability-driven rendering, permission response, event timeline, diagnostics, and TypeScript package boundary |
 | [`AGENT_CONFORMANCE_SPEC.md`](./AGENT_CONFORMANCE_SPEC.md) | Conformance profiles, manifest/runtime/provider/adapter/security/UI tests, and reporting |
 

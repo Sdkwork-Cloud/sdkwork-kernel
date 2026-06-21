@@ -96,6 +96,45 @@
         ],
         "capabilitySubset": ["application-http", "application-websocket"],
         "healthSurfaces": ["application.public-ingress"]
+      },
+      "self-hosted.split-services.production": {
+        "processes": [
+          {
+            "id": "application.public-ingress",
+            "crate": "sdkwork-agent-server",
+            "binary": "sdkwork-agent-server",
+            "required": true
+          }
+        ],
+        "healthSurfaces": ["application.public-ingress"]
+      },
+      "cloud-hosted.split-services.development": {
+        "processes": [
+          {
+            "id": "application.public-ingress",
+            "crate": "sdkwork-agent-server",
+            "binary": "sdkwork-agent-server",
+            "required": true
+          },
+          {
+            "id": "kernel-ui-renderer",
+            "package": "sdkwork-kernel-ui",
+            "script": "dev",
+            "required": false
+          }
+        ],
+        "healthSurfaces": ["application.public-ingress", "platform.api-gateway"]
+      },
+      "cloud-hosted.split-services.production": {
+        "processes": [
+          {
+            "id": "application.public-ingress",
+            "crate": "sdkwork-agent-server",
+            "binary": "sdkwork-agent-server",
+            "required": true
+          }
+        ],
+        "healthSurfaces": ["application.public-ingress", "platform.api-gateway"]
       }
     }
   },

@@ -4,6 +4,13 @@ use std::collections::HashSet;
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+pub(crate) fn require_non_blank(value: &str, field_name: &str) -> KernelResult<()> {
+    if is_blank(Some(value)) {
+        return Err(KernelError::validation(format!("{field_name} is required")));
+    }
+    Ok(())
+}
+
 pub(crate) fn require_trimmed_non_blank(value: &str, field_name: &str) -> KernelResult<()> {
     if is_blank(Some(value)) {
         return Err(KernelError::validation(format!("{field_name} is required")));

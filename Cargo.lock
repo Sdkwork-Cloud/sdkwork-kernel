@@ -1991,6 +1991,7 @@ dependencies = [
  "sdkwork-agent-adapter-core",
  "sdkwork-agent-kernel",
  "sdkwork-agent-sdk-backend-core",
+ "sdkwork-agent-sdk-backend-node",
  "sdkwork-agent-sdk-backend-rust",
  "sdkwork-agent-sdk-spi",
  "serde",
@@ -2002,6 +2003,7 @@ name = "sdkwork-agent-adapter-core"
 version = "0.1.0"
 dependencies = [
  "sdkwork-agent-kernel",
+ "serde_json",
 ]
 
 [[package]]
@@ -2166,6 +2168,7 @@ name = "sdkwork-agent-sdk-backend-node"
 version = "0.1.0"
 dependencies = [
  "pretty_assertions",
+ "sdkwork-agent-adapter-core",
  "sdkwork-agent-sdk-backend-ipc",
  "sdkwork-agent-sdk-spi",
  "serde_json",
@@ -2248,6 +2251,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdkwork-appbase-iam-bootstrap"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "sdkwork-iam-context-service",
+ "sdkwork-iam-module-registry",
+ "sqlx",
+]
+
+[[package]]
 name = "sdkwork-code-kernel"
 version = "0.1.0"
 dependencies = [
@@ -2303,6 +2316,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdkwork-iam-module-registry"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "sdkwork-iam-context-service",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlx",
+]
+
+[[package]]
 name = "sdkwork-iam-web-adapter"
 version = "0.1.0"
 dependencies = [
@@ -2316,6 +2341,7 @@ dependencies = [
  "password-hash",
  "rand_core 0.6.4",
  "reqwest",
+ "sdkwork-appbase-iam-bootstrap",
  "sdkwork-database-sqlx",
  "sdkwork-iam-context-service",
  "sdkwork-utils-rust",

@@ -78,7 +78,9 @@ impl BindingRegistry {
             let capability_priority = effective_backend_priority(&priority, capability);
 
             let selection = select_backend(capability, &capability_priority, |driver_id| {
-                drivers.health(driver_id)
+                drivers.health(driver_id).or_else(|| {
+                    Some(SdkDriverHealth::unhealthy("driver not registered"))
+                })
             });
 
             let Some(selection) = selection else {

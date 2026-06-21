@@ -1,3 +1,4 @@
+use sdkwork_agent_adapter_core::mock_provider_invocation_allowed;
 use sdkwork_agent_sdk_backend_ipc::{
     JsonRpcTransport, PackageStubJsonRpcTransport, SharedJsonRpcTransport, StdioJsonRpcSession,
     TransportError, SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_PING_METHOD,
@@ -41,7 +42,16 @@ pub struct NodeSdkBackendRuntime {
 impl NodeSdkBackendRuntime {
     pub fn bootstrap(package_name: impl Into<String>) -> Self {
         let options = NodeWorkerLaunchOptions::for_package(package_name);
-        Self::spawn(&options).unwrap_or_else(|_| Self::in_memory_stub(options.package_name, true))
+        match Self::spawn(&options) {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                if mock_provider_invocation_allowed() {
+                    Self::in_memory_stub(options.package_name, true)
+                } else {
+                    Self::fail_closed(options.package_name, error.to_string())
+                }
+            }
+        }
     }
 
     pub fn from_transport(
@@ -89,6 +99,13 @@ impl NodeSdkBackendRuntime {
         )
     }
 
+    pub fn fail_closed(package_name: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::from_transport(
+            Arc::new(FailClosedJsonRpcTransport::new(reason.into())),
+            package_name,
+        )
+    }
+
     fn invoke_worker(&self, request: &SdkRuntimeRequest) -> Result<Value, SdkRuntimeError> {
         let params = json!({
             "capability_id": request.capability_id,
@@ -131,6 +148,17 @@ impl SdkBackendRuntime for NodeSdkBackendRuntime {
         }
 
         let payload = self.invoke_worker(request)?;
+        if payload.get("ok").and_then(Value::as_bool) == Some(false) {
+            let message = payload
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("typescript worker invoke failed")
+                .to_string();
+            return Ok(SdkRuntimeResponse::failure(
+                SdkBackendKind::TypeScriptNode,
+                message,
+            ));
+        }
         Ok(SdkRuntimeResponse::success(
             SdkBackendKind::TypeScriptNode,
             &request.capability_id,
@@ -141,6 +169,27 @@ impl SdkBackendRuntime for NodeSdkBackendRuntime {
 
 fn map_transport_error(error: TransportError) -> SdkRuntimeError {
     SdkRuntimeError::new("transport_error", error.message)
+}
+
+struct FailClosedJsonRpcTransport {
+    reason: String,
+}
+
+impl FailClosedJsonRpcTransport {
+    fn new(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+        }
+    }
+}
+
+impl JsonRpcTransport for FailClosedJsonRpcTransport {
+    fn call(&self, _method: &str, _params: Option<Value>) -> Result<Value, TransportError> {
+        Err(TransportError::new(format!(
+            "typescript sdk backend unavailable in production profile: {}",
+            self.reason
+        )))
+    }
 }
 
 #[cfg(test)]

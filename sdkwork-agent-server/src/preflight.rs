@@ -31,6 +31,31 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
     // Check bind address
     checks.push(validate_bind_address(&config.bind_address));
 
+    if config.environment.eq_ignore_ascii_case("production")
+        && config.bind_address == "0.0.0.0"
+    {
+        checks.push(PreflightCheck {
+            name: "production_bind".to_string(),
+            status: PreflightStatus::Warning,
+            message: "Production environment binds to 0.0.0.0; place ingress behind a trusted gateway"
+                .to_string(),
+        });
+    }
+
+    if config.ingress_auth_mode.eq_ignore_ascii_case("token")
+        && config
+            .ingress_token
+            .as_deref()
+            .is_none_or(str::is_empty)
+    {
+        checks.push(PreflightCheck {
+            name: "ingress_token".to_string(),
+            status: PreflightStatus::Failed,
+            message: "SDKWORK_KERNEL_INGRESS_TOKEN is required when ingress auth mode is token"
+                .to_string(),
+        });
+    }
+
     // Check port availability
     checks.push(validate_port(config.port));
 

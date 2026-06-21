@@ -1,12 +1,18 @@
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
     ModelRequest, ModelResponse, ModelStreamChunk, PolicyDecision, PolicyRequest, SessionKind,
-    SessionSource, SessionState, ToolCall, ToolDescriptor, ToolResult,
+    SessionSource, ToolCall, ToolDescriptor, ToolResult,
 };
 use std::collections::HashMap;
 
+mod mock_policy;
 mod provider_session_store;
 
+pub use mock_policy::{
+    is_mock_response_text, is_production_kernel_profile, kernel_profile_id,
+    mock_provider_invocation_allowed, reject_direct_mock_provider_invocation,
+    validate_runtime_model_payload,
+};
 pub use provider_session_store::{
     sort_sessions_by_updated_at, InMemoryProviderSessionStore, SessionListQuery,
 };
@@ -21,7 +27,7 @@ pub trait SessionAdapter {
 
     fn to_agent_session(&self, external: &Self::ExternalSession) -> KernelResult<AgentSession>;
 
-    fn from_agent_session(&self, session: &AgentSession) -> KernelResult<Self::ExternalSession> {
+    fn from_agent_session(&self, _session: &AgentSession) -> KernelResult<Self::ExternalSession> {
         Err(KernelError::validation("reverse conversion not supported"))
     }
 }
@@ -88,7 +94,7 @@ pub trait MessageAdapter {
 
     fn to_agent_message(&self, external: &Self::ExternalMessage) -> KernelResult<AgentMessage>;
 
-    fn from_agent_message(&self, message: &AgentMessage) -> KernelResult<Self::ExternalMessage> {
+    fn from_agent_message(&self, _message: &AgentMessage) -> KernelResult<Self::ExternalMessage> {
         Err(KernelError::validation(
             "reverse message conversion not supported",
         ))
@@ -176,7 +182,7 @@ pub trait PolicyAdapter {
 
     fn map_policy_decision(
         &self,
-        decision: &PolicyDecision,
+        _decision: &PolicyDecision,
     ) -> KernelResult<Self::ExternalPermission> {
         Err(KernelError::validation(
             "reverse policy conversion not supported",

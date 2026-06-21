@@ -132,10 +132,30 @@ fn runtime_router_routes_to_registered_backend() {
 
     let json = include_str!("../../sdks/external-agent-sdks/codex/sdk-binding.manifest.json");
     let manifest = AgentSdkBindingManifest::from_json(json).expect("manifest should parse");
-    let mut drivers = DriverRegistry::new();
+
     let mut bindings = BindingRegistry::new();
-    let negotiation =
-        bootstrap_binding(manifest, &mut drivers, &mut bindings).expect("bootstrap should succeed");
+    bindings.register(manifest);
+
+    let mut drivers = DriverRegistry::new();
+    drivers.register(Arc::new(FakeDriver {
+        id: "driver.codex.session.lifecycle.rust".to_string(),
+        capability: "sdk.session.lifecycle".to_string(),
+        backend: SdkBackendKind::RustNative,
+    }));
+    drivers.register(Arc::new(FakeDriver {
+        id: "driver.codex.session.history.rust".to_string(),
+        capability: "sdk.session.history".to_string(),
+        backend: SdkBackendKind::RustNative,
+    }));
+    drivers.register(Arc::new(FakeDriver {
+        id: "driver.codex.model.chat.rust".to_string(),
+        capability: "sdk.model.chat".to_string(),
+        backend: SdkBackendKind::RustNative,
+    }));
+
+    let negotiation = bindings
+        .negotiate("binding.agent-sdk.codex", &drivers)
+        .expect("negotiation should succeed");
 
     let router = SdkRuntimeRouter::new(negotiation).with_rust_runtime(Arc::new(StubRuntime {
         kind: SdkBackendKind::RustNative,

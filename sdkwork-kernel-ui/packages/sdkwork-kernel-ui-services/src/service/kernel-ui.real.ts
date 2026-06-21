@@ -179,34 +179,73 @@ class HttpKernelUiClient implements KernelUiClient {
   }
 
   // =========================================================================
-  // Streaming
+  // Streaming (fetch + SSE so auth headers are preserved)
   // =========================================================================
 
   subscribeEvents(sessionId: string, callback: (event: StreamEventView) => void): EventSubscription {
-    const url = `${this.config.baseUrl}/api/kernel/sessions/${encodeURIComponent(sessionId)}/events/stream`;
-    const eventSource = new EventSource(url);
+    const controller = new AbortController();
 
-    eventSource.onmessage = (event) => {
+    void (async () => {
+      const headers: Record<string, string> = {
+        Accept: 'text/event-stream',
+        ...(await buildKernelUiAuthHeaders(this.config.auth))
+      };
+      const url = `${this.config.baseUrl}/api/kernel/sessions/${encodeURIComponent(sessionId)}/events/stream`;
+      const f = this.config.fetch ?? globalThis.fetch;
+
       try {
-        const data = JSON.parse(event.data) as StreamEventView;
-        callback(data);
-      } catch {
-        // Ignore parse errors
-      }
-    };
+        const response = await f(url, { headers, signal: controller.signal });
+        if (!response.ok || !response.body) {
+          return;
+        }
 
-    eventSource.onerror = () => {
-      // Reconnect after delay
-      setTimeout(() => {
-        eventSource.close();
-      }, 5000);
-    };
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (!controller.signal.aborted) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          buffer = this.consumeSseBuffer(buffer, callback);
+        }
+      } catch {
+        // Ignore abort and transport teardown during unsubscribe.
+      }
+    })();
 
     return {
       unsubscribe: () => {
-        eventSource.close();
+        controller.abort();
       }
     };
+  }
+
+  private consumeSseBuffer(buffer: string, callback: (event: StreamEventView) => void): string {
+    const frames = buffer.split('\n\n');
+    const remainder = frames.pop() ?? '';
+
+    for (const frame of frames) {
+      const dataLine = frame
+        .split('\n')
+        .find((line) => line.startsWith('data:'));
+      if (!dataLine) {
+        continue;
+      }
+      const payload = dataLine.slice('data:'.length).trim();
+      if (!payload) {
+        continue;
+      }
+      try {
+        callback(JSON.parse(payload) as StreamEventView);
+      } catch {
+        // Ignore malformed frames.
+      }
+    }
+
+    return remainder;
   }
 
   // =========================================================================

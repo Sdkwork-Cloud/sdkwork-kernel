@@ -152,7 +152,7 @@ export interface SessionView {
 
 export interface SessionConfig {
   agentId: string;
-  tenantId?: number;
+  tenantId?: string;
   userRef?: string;
   model?: string;
   modelProvider?: string;

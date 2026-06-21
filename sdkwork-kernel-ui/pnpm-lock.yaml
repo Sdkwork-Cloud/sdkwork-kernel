@@ -68,7 +68,7 @@ importers:
       '@sdkwork/kernel-ui-workspace':
         specifier: workspace:*
         version: link:packages/sdkwork-kernel-ui-workspace
-      '@sdkwork/utils-typescript':
+      '@sdkwork/utils':
         specifier: workspace:*
         version: link:../../sdkwork-utils/packages/sdkwork-utils-typescript
       lucide-react:

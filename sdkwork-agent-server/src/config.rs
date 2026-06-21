@@ -21,6 +21,12 @@ pub struct ServerConfig {
     pub health_path: String,
     /// SQLite database path for session persistence
     pub database_path: String,
+    /// Runtime environment: development | production
+    pub environment: String,
+    /// Ingress auth mode: open | token
+    pub ingress_auth_mode: String,
+    /// Required bearer/static token when ingress_auth_mode is token
+    pub ingress_token: Option<String>,
 }
 
 impl Default for ServerConfig {
@@ -35,6 +41,9 @@ impl Default for ServerConfig {
             max_body_size: 10 * 1024 * 1024, // 10MB
             health_path: "/health".to_string(),
             database_path: "./data/agent-server.sqlite".to_string(),
+            environment: "development".to_string(),
+            ingress_auth_mode: "open".to_string(),
+            ingress_token: None,
         }
     }
 }
@@ -71,6 +80,23 @@ impl ServerConfig {
         }
         if let Ok(database_path) = std::env::var("SDKWORK_DATABASE_PATH") {
             config.database_path = database_path;
+        }
+        if let Ok(environment) = std::env::var("SDKWORK_KERNEL_ENVIRONMENT") {
+            config.environment = environment;
+        }
+        if let Ok(auth_mode) = std::env::var("SDKWORK_KERNEL_INGRESS_AUTH_MODE") {
+            config.ingress_auth_mode = auth_mode;
+        }
+        if let Ok(token) = std::env::var("SDKWORK_KERNEL_INGRESS_TOKEN") {
+            let trimmed = token.trim().to_string();
+            if !trimmed.is_empty() {
+                config.ingress_token = Some(trimmed);
+            }
+        }
+        if config.environment.eq_ignore_ascii_case("production")
+            && config.ingress_auth_mode.eq_ignore_ascii_case("open")
+        {
+            config.ingress_auth_mode = "token".to_string();
         }
 
         Ok(config)

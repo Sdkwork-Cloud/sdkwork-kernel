@@ -37,9 +37,9 @@ fn test_app() -> axum::Router {
 }
 
 const DEV_AUTH_TOKEN: &str =
-    "Bearer tenant_id=20001;user_id=30001;session_id=s-1;app_id=agent;auth_level=password";
+    "Bearer tenant_id=100001;user_id=30001;session_id=s-1;app_id=agent;auth_level=password";
 const DEV_ACCESS_TOKEN: &str =
-    "tenant_id=20001;user_id=30001;session_id=s-1;app_id=agent;environment=dev;deployment_mode=saas";
+    "tenant_id=100001;user_id=30001;session_id=s-1;app_id=agent;environment=dev;deployment_mode=saas";
 
 #[test]
 fn app_route_manifest_covers_all_openapi_operations() {

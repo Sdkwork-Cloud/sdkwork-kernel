@@ -1,8 +1,12 @@
 //! Bridges negotiated SDK runtime invocations to kernel provider SPI surfaces.
 
+use sdkwork_agent_adapter_core::{
+    mock_provider_invocation_allowed, reject_direct_mock_provider_invocation,
+};
 use crate::runtime::{
     SdkRuntimeError, SdkRuntimeOperation, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
 };
+use sdkwork_agent_adapter_core::validate_runtime_model_payload;
 use sdkwork_agent_kernel::{
     KernelResult, ModelProvider, ModelRequest, ModelResponse, ModelStatus, ProviderHealth,
     ProviderManifest, ToolCall, ToolProvider, ToolResult,
@@ -73,7 +77,10 @@ impl ModelProvider for SdkRuntimeBackedModelProvider {
             &self.provider_id,
         ) {
             Ok(response) => Ok(response),
-            Err(_) => self.fallback.invoke(request),
+            Err(_) if mock_provider_invocation_allowed() => self.fallback.invoke(request),
+            Err(_) => Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: self.provider_id.clone(),
+            }),
         }
     }
 
@@ -81,6 +88,7 @@ impl ModelProvider for SdkRuntimeBackedModelProvider {
         &self,
         request: ModelRequest,
     ) -> KernelResult<Vec<sdkwork_agent_kernel::ModelStreamChunk>> {
+        reject_direct_mock_provider_invocation(&self.provider_id)?;
         self.fallback.stream(request)
     }
 }
@@ -133,7 +141,10 @@ impl ToolProvider for SdkRuntimeBackedToolProvider {
         match self.runtime.invoke(&runtime_request) {
             Ok(response) => tool_result_from_runtime(response, &call.tool_call_id)
                 .map_err(|error| sdkwork_agent_kernel::KernelError::validation(error.message)),
-            Err(_) => self.fallback.invoke_tool(call),
+            Err(_) if mock_provider_invocation_allowed() => self.fallback.invoke_tool(call),
+            Err(_) => Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: self.fallback.provider_manifest().provider_id.clone(),
+            }),
         }
     }
 }
@@ -154,6 +165,20 @@ pub fn model_response_from_runtime(
 
     let payload = response.payload.ok_or_else(|| {
         SdkRuntimeError::new("missing_payload", "runtime response missing payload")
+    })?;
+
+    if payload.get("ok").and_then(Value::as_bool) == Some(false) {
+        return Err(SdkRuntimeError::new(
+            "sdk_live_failed",
+            payload
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("runtime invoke returned ok=false"),
+        ));
+    }
+
+    validate_runtime_model_payload(&payload).map_err(|message| {
+        SdkRuntimeError::new("mock_provider_disabled", message)
     })?;
 
     let messages = extract_messages(&payload);

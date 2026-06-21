@@ -10,6 +10,7 @@ use sdkwork_agent_kernel::{
     SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
     ToolResult, ToolSchema,
 };
+use sdkwork_agent_adapter_core::reject_direct_mock_provider_invocation;
 
 // ============================================================================
 // OpenCode Message Types
@@ -233,6 +234,8 @@ impl ModelProvider for OpenCodeModelProvider {
     }
 
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
+        reject_direct_mock_provider_invocation("provider.model.opencode.invoke")?;
+
         let model_id = request.model_id.as_deref().unwrap_or(&self.default_model);
         let prompt = request.messages.join("\n");
 
@@ -246,6 +249,8 @@ impl ModelProvider for OpenCodeModelProvider {
     }
 
     fn stream(&self, request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
+        reject_direct_mock_provider_invocation("provider.model.opencode.stream")?;
+
         let response_text = format!(
             "[OpenCode] Streaming mock response to: {}",
             request.messages.join(" ")

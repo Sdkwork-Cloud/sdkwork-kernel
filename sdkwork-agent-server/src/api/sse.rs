@@ -55,14 +55,21 @@ pub async fn stream_chat(
     let content = format!("This is a streaming response to: {}", request.content);
     let words: Vec<String> = content.split_whitespace().map(|s| s.to_string()).collect();
     let done_message_id = message_id.clone();
+    let sequence_base = {
+        let mut counter = state.event_counter.lock().await;
+        let base = *counter;
+        *counter += words.len() as u64 + 1;
+        base as u32
+    };
 
+    let word_count = words.len() as u32;
     let stream = futures::stream::iter(words.into_iter().enumerate())
         .map(move |(i, word)| {
             let data = SseEventData {
                 event_type: "chunk".to_string(),
                 message_id: message_id.clone(),
                 content: format!("{} ", word),
-                sequence: i as u32,
+                sequence: sequence_base + i as u32,
             };
 
             let event = Event::default()
@@ -76,7 +83,7 @@ pub async fn stream_chat(
                 event_type: "done".to_string(),
                 message_id: done_message_id,
                 content: String::new(),
-                sequence: 0,
+                sequence: sequence_base + word_count,
             };
 
             let event = Event::default()

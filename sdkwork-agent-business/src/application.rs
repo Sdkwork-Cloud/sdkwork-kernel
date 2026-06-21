@@ -17,7 +17,7 @@ use crate::domain::{
     AgentVisibility, DEFAULT_AGENT_MANAGEMENT_POLICY_CATEGORY,
 };
 use crate::ports::{AgentAuditSink, AgentListQuery, AgentMarketplaceListQuery, AgentRepository};
-use crate::validation::{validate_capabilities, validate_standard_id};
+use crate::validation::{require_non_blank, require_trimmed_non_blank, validate_capabilities, validate_standard_id};
 use sdkwork_agent_kernel::{
     AgentManifest, KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity,
     KernelEventSource, KernelResult, PolicyCategory, PolicyDecisionValue, PolicyProvider,
@@ -782,12 +782,8 @@ where
             return Err(KernelError::conflict("agent already exists"));
         }
 
-        if command.code.trim().is_empty() {
-            return Err(KernelError::validation("agent code is required"));
-        }
-        if command.display_name.trim().is_empty() {
-            return Err(KernelError::validation("agent display_name is required"));
-        }
+        require_non_blank(command.code.as_str(), "code")?;
+        require_non_blank(command.display_name.as_str(), "displayName")?;
         if let Some(provider_id) = command.implementation_provider_id.as_deref() {
             validate_standard_id(provider_id, "implementationProviderId", Some("provider."))?;
         }
@@ -5492,11 +5488,7 @@ where
         ensure_expected_version(record.version, command.expected_version, "agent")?;
 
         if let Some(display_name) = command.display_name {
-            if display_name.trim().is_empty() {
-                return Err(KernelError::validation(
-                    "agent display_name cannot be empty",
-                ));
-            }
+            require_non_blank(display_name.as_str(), "displayName")?;
             record.display_name = display_name;
         }
         if let Some(description) = command.description {
@@ -6197,10 +6189,7 @@ fn validate_marketplace_identity(
 }
 
 fn validate_non_empty(value: &str, field_name: &str) -> KernelResult<()> {
-    if value.trim().is_empty() {
-        return Err(KernelError::validation(format!("{field_name} is required")));
-    }
-    Ok(())
+    require_non_blank(value, field_name)
 }
 
 fn validate_json_payload(value: &str, field_name: &str) -> KernelResult<()> {
@@ -6226,16 +6215,7 @@ fn validate_marketplace_json(value: &str, field_name: &str) -> KernelResult<()> 
 fn validate_marketplace_labels(values: &[String], field_name: &str) -> KernelResult<()> {
     let mut seen = HashSet::new();
     for value in values {
-        if value.trim().is_empty() {
-            return Err(KernelError::validation(format!(
-                "{field_name} must not contain empty values"
-            )));
-        }
-        if value.trim() != value {
-            return Err(KernelError::validation(format!(
-                "{field_name} values must not contain leading or trailing whitespace"
-            )));
-        }
+        require_trimmed_non_blank(value, field_name)?;
         if value.chars().count() > 64 {
             return Err(KernelError::validation(format!(
                 "{field_name} values must be at most 64 characters"

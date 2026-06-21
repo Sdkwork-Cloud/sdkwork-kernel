@@ -25,7 +25,7 @@ fn test_app() -> axum::Router {
     )
 }
 
-const DEV_API_KEY: &str = "api_key_id=key-1;tenant_id=20001;user_id=30001;app_id=agent";
+const DEV_API_KEY: &str = "api_key_id=key-1;tenant_id=100001;user_id=30001;app_id=agent";
 
 #[tokio::test]
 async fn open_router_web_framework_rejects_unauthenticated_requests() {

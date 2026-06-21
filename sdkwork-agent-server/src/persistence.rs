@@ -1,4 +1,4 @@
-use sdkwork_agent_database::{MessageRow, SessionRow, SqliteDatabase};
+use sdkwork_agent_database::{EventRow, MessageRow, SessionRow, TaskRow, SqliteDatabase};
 use sdkwork_agent_session::{MessageConfig, SessionConfig, SessionQuery, UnifiedSessionManager};
 use std::sync::{Arc, Mutex};
 
@@ -116,5 +116,57 @@ impl PersistenceState {
             .conversation()
             .clear_history(session_id)
             .map_err(|error| format!("failed to delete messages: {error}"))
+    }
+
+    pub fn health(&self) -> Result<bool, String> {
+        let manager = self
+            .manager
+            .lock()
+            .map_err(|error| format!("lock poisoned: {error}"))?;
+        manager.health()
+    }
+
+    pub fn create_task(&self, session_id: &str, instruction: &str) -> Result<TaskRow, String> {
+        let manager = self
+            .manager
+            .lock()
+            .map_err(|error| format!("lock poisoned: {error}"))?;
+        manager.create_task(session_id, instruction)
+    }
+
+    pub fn get_task(&self, task_id: &str) -> Result<TaskRow, String> {
+        let manager = self
+            .manager
+            .lock()
+            .map_err(|error| format!("lock poisoned: {error}"))?;
+        manager.get_task(task_id)
+    }
+
+    pub fn list_tasks(&self, session_id: &str) -> Result<Vec<TaskRow>, String> {
+        let manager = self
+            .manager
+            .lock()
+            .map_err(|error| format!("lock poisoned: {error}"))?;
+        manager.list_tasks(session_id)
+    }
+
+    pub fn cancel_task(&self, task_id: &str) -> Result<TaskRow, String> {
+        let manager = self
+            .manager
+            .lock()
+            .map_err(|error| format!("lock poisoned: {error}"))?;
+        manager.cancel_task(task_id)
+    }
+
+    pub fn load_session_events(
+        &self,
+        session_id: &str,
+        limit: Option<i64>,
+    ) -> Result<Vec<EventRow>, String> {
+        let manager = self
+            .manager
+            .lock()
+            .map_err(|error| format!("lock poisoned: {error}"))?;
+        manager.load_session_events(session_id, limit)
     }
 }

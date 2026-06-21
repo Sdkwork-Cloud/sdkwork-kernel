@@ -1,8 +1,8 @@
 use crate::conversation::ConversationManager;
 use crate::types::{MessageConfig, SessionConfig, SessionQuery};
 use sdkwork_agent_database::{
-    AgentDatabase, DatabaseError, EventRepository, EventRow, MessageRepository, MessageRow,
-    SessionRepository, SessionRow, TaskRepository, TaskRow,
+    AgentDatabase, EventRepository, EventRow, MessageRepository, MessageRow, SessionRepository,
+    SessionRow, TaskRepository, TaskRow,
 };
 
 /// Unified session manager that integrates database persistence
@@ -59,7 +59,10 @@ where
             message_count: 0,
             created_at: now.clone(),
             updated_at: Some(now),
-            metadata_json: config.metadata.map(|v| v.to_string()),
+            metadata_json: config
+                .metadata
+                .as_ref()
+                .and_then(|value| serde_json::to_string(value).ok()),
         };
 
         self.session_repo
@@ -168,7 +171,10 @@ where
             role: config.role,
             content: config.content,
             created_at: now,
-            metadata_json: config.metadata.map(|v| v.to_string()),
+            metadata_json: config
+                .metadata
+                .as_ref()
+                .and_then(|value| serde_json::to_string(value).ok()),
         };
 
         self.message_repo
@@ -241,6 +247,76 @@ where
             .map_err(|e| format!("failed to save event: {}", e))?;
 
         Ok(())
+    }
+
+    /// Create a task in a session.
+    pub fn create_task(&self, session_id: &str, instruction: &str) -> Result<TaskRow, String> {
+        let _session = self.get_session(session_id)?;
+        let now = chrono::Utc::now().to_rfc3339();
+        let task = TaskRow {
+            task_id: format!("task.{}", generate_id()),
+            session_id: session_id.to_string(),
+            instruction: instruction.to_string(),
+            state: "created".to_string(),
+            created_at: now.clone(),
+            updated_at: Some(now),
+        };
+        self.task_repo
+            .save_task(&task)
+            .map_err(|e| format!("failed to save task: {}", e))?;
+        self.record_event(session_id, "task.created", "info", Some(&task.task_id))?;
+        Ok(task)
+    }
+
+    /// Load a task by id.
+    pub fn get_task(&self, task_id: &str) -> Result<TaskRow, String> {
+        self.task_repo
+            .load_task(task_id)
+            .map_err(|e| format!("failed to load task: {}", e))?
+            .ok_or_else(|| format!("task not found: {}", task_id))
+    }
+
+    /// List tasks for a session.
+    pub fn list_tasks(&self, session_id: &str) -> Result<Vec<TaskRow>, String> {
+        self.get_session(session_id)?;
+        self.task_repo
+            .load_tasks(session_id)
+            .map_err(|e| format!("failed to load tasks: {}", e))
+    }
+
+    /// Cancel a task.
+    pub fn cancel_task(&self, task_id: &str) -> Result<TaskRow, String> {
+        let mut task = self.get_task(task_id)?;
+        task.state = "cancelled".to_string();
+        task.updated_at = Some(chrono::Utc::now().to_rfc3339());
+        self.task_repo
+            .update_task(&task)
+            .map_err(|e| format!("failed to cancel task: {}", e))?;
+        self.record_event(
+            &task.session_id,
+            "task.cancelled",
+            "info",
+            Some(&task.task_id),
+        )?;
+        Ok(task)
+    }
+
+    /// Load recent events for a session.
+    pub fn load_session_events(
+        &self,
+        session_id: &str,
+        limit: Option<i64>,
+    ) -> Result<Vec<EventRow>, String> {
+        self.get_session(session_id)?;
+        let query = sdkwork_agent_database::EventQuery {
+            event_type: None,
+            severity: None,
+            limit,
+            offset: None,
+        };
+        self.event_repo
+            .load_events(session_id, &query)
+            .map_err(|e| format!("failed to load events: {}", e))
     }
 
     /// Health check
@@ -359,5 +435,19 @@ mod tests {
     fn health_check() {
         let manager = create_manager();
         assert!(manager.health().expect("health"));
+    }
+
+    #[test]
+    fn create_and_cancel_task() {
+        let manager = create_manager();
+        let session = manager
+            .create_session(SessionConfig::new("agent.1"))
+            .expect("created");
+        let task = manager
+            .create_task(&session.session_id, "run tests")
+            .expect("task");
+        assert_eq!(task.state, "created");
+        let cancelled = manager.cancel_task(&task.task_id).expect("cancelled");
+        assert_eq!(cancelled.state, "cancelled");
     }
 }

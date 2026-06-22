@@ -4,7 +4,7 @@
   "mode": "dry-run",
   "standardProfile": "sdkwork-v3",
   "sdkgenPath": "../sdkwork-sdk-generator/bin/sdkgen.js",
-  "startedAt": "2026-06-05T08:33:44.663Z",
+  "startedAt": "2026-06-22T09:12:30.617Z",
   "families": [
     {
       "key": "open",
@@ -23,7 +23,7 @@
       "derivedFrom": "sdkwork-agent-app-sdk",
       "derivedGenerated": false,
       "derivedHasChanges": false,
-      "derivationFileCount": 53
+      "derivationFileCount": 137
     },
     {
       "key": "app",
@@ -33,10 +33,25 @@
       "output": "sdks/sdkwork-agent-app-sdk/sdkwork-agent-app-sdk-typescript/generated/server-openapi",
       "sdkName": "sdkwork-agent-app-sdk",
       "sdkType": "app",
+      "sdkOwner": "sdkwork-kernel",
       "packageName": "@sdkwork/agent-app-sdk",
       "apiPrefix": "/app/v3/api",
+      "sdkDependencies": [
+        {
+          "workspace": "sdkwork-appbase-app-sdk",
+          "role": "appbase-identity-and-session-capability",
+          "required": true,
+          "dependencyMode": "consumer-sdk",
+          "apiPrefix": "/app/v3/api",
+          "apiAuthority": "sdkwork-appbase-app-api",
+          "generatedTransportImportPolicy": "forbidden",
+          "packageByLanguage": {
+            "typescript": "@sdkwork/appbase-app-sdk"
+          }
+        }
+      ],
       "version": "0.1.0",
-      "fingerprint": "e070d4f2176e1c46c3327b3861493236a9817dc243f42abd6127eeaeeae5d0d5",
+      "fingerprint": "afef90ac87d718d3b479e78ad1fccb7ed73f5ad9efc3137a80bb71fc96503219",
       "hasChanges": false,
       "riskLevel": "low",
       "generated": false
@@ -49,10 +64,43 @@
       "output": "sdks/sdkwork-agent-backend-sdk/sdkwork-agent-backend-sdk-typescript/generated/server-openapi",
       "sdkName": "sdkwork-agent-backend-sdk",
       "sdkType": "backend",
+      "sdkOwner": "sdkwork-kernel",
       "packageName": "@sdkwork/agent-backend-sdk",
       "apiPrefix": "/backend/v3/api",
+      "sdkDependencies": [
+        {
+          "workspace": "sdkwork-appbase-backend-sdk",
+          "role": "appbase-backend-management-capability",
+          "required": true,
+          "dependencyMode": "consumer-sdk",
+          "apiPrefix": "/backend/v3/api",
+          "apiAuthority": "sdkwork-appbase-backend-api",
+          "generatedTransportImportPolicy": "forbidden",
+          "packageByLanguage": {
+            "typescript": "@sdkwork/appbase-backend-sdk"
+          }
+        }
+      ],
       "version": "0.1.0",
-      "fingerprint": "732a1daa3d5e2b82ba7d76204557a2083b7c922a7af6d362946b70a143feba9f",
+      "fingerprint": "945d4d48e809aa277fecb919cde01d1d912d63e89d9b0b8bca68224db5f320de",
+      "hasChanges": false,
+      "riskLevel": "low",
+      "generated": false
+    },
+    {
+      "key": "internal",
+      "familyDir": "sdkwork-agent-internal-sdk",
+      "authority": "sdkwork-agent-internal-api",
+      "input": "sdks/sdkwork-agent-internal-sdk/openapi/sdkwork-agent-internal-api.sdkgen.yaml",
+      "output": "sdks/sdkwork-agent-internal-sdk/sdkwork-agent-internal-sdk-typescript/generated/server-openapi",
+      "sdkName": "sdkwork-agent-internal-sdk",
+      "sdkType": "custom",
+      "sdkOwner": "sdkwork-kernel",
+      "packageName": "@sdkwork/agent-internal-sdk",
+      "apiPrefix": "/internal/v3/api",
+      "sdkDependencies": [],
+      "version": "0.1.0",
+      "fingerprint": "504b0a2c2c728c87879dd65dd95b7fda59ec07762a0b01a4a6f829c6757c0d79",
       "hasChanges": false,
       "riskLevel": "low",
       "generated": false
@@ -75,8 +123,8 @@
       "updated": [],
       "deleted": []
     },
-    "fileCount": 53,
+    "fileCount": 137,
     "generated": false
   },
-  "finishedAt": "2026-06-05T08:33:45.089Z"
+  "finishedAt": "2026-06-22T09:12:31.374Z"
 }

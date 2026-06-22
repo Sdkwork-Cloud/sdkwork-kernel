@@ -1,4 +1,4 @@
-use crate::generated::{APP_ROUTES, BACKEND_ROUTES, COMBINED_ROUTES, OPEN_ROUTES};
+use crate::generated::{APP_ROUTES, BACKEND_ROUTES, COMBINED_ROUTES, INTERNAL_ROUTES, OPEN_ROUTES};
 use std::sync::Arc;
 
 use axum::Router;
@@ -19,6 +19,10 @@ pub fn backend_route_manifest() -> HttpRouteManifest {
 
 pub fn open_route_manifest() -> HttpRouteManifest {
     HttpRouteManifest::new(OPEN_ROUTES)
+}
+
+pub fn internal_route_manifest() -> HttpRouteManifest {
+    HttpRouteManifest::new(INTERNAL_ROUTES)
 }
 
 pub fn combined_route_manifest() -> HttpRouteManifest {

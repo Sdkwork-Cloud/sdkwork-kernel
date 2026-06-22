@@ -1,7 +1,7 @@
 use sdkwork_agent_adapter_core::{
-    create_session_from_config, now_iso, uuid_simple, ConversationManager,
-    InMemoryConversationManager, MessageAdapter, SessionAdapter, SessionConfig,
-    SessionLifecycleProvider,
+    create_session_from_config, now_iso, reject_direct_mock_provider_invocation, uuid_simple,
+    ConversationManager, InMemoryConversationManager, MessageAdapter, SessionAdapter,
+    SessionConfig, SessionLifecycleProvider,
 };
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
@@ -283,6 +283,8 @@ impl ModelProvider for OpenClawModelProvider {
     }
 
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
+        reject_direct_mock_provider_invocation("provider.model.openclaw.invoke")?;
+
         let model_id = request.model_id.as_deref().unwrap_or(&self.default_model);
         let prompt = request.messages.join("\n");
 
@@ -296,6 +298,8 @@ impl ModelProvider for OpenClawModelProvider {
     }
 
     fn stream(&self, request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
+        reject_direct_mock_provider_invocation("provider.model.openclaw.stream")?;
+
         let response_text = format!(
             "[OpenClaw] Streaming mock response to: {}",
             request.messages.join(" ")

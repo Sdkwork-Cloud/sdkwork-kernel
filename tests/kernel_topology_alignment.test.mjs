@@ -79,3 +79,17 @@ test('kernel UI client prefers topology surface env keys', async () => {
   assert.match(clientSource, /VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL/);
   assert.match(clientSource, /VITE_KERNEL_API_URL/);
 });
+
+test('topology smoke probes canonical internal-api snapshot path', async () => {
+  const smokeScript = await read('scripts/dev/sdkwork-kernel-topology-smoke.mjs');
+  assert.match(
+    smokeScript,
+    /\/internal\/v3\/api\/intelligence\/runtime\/snapshot/,
+    'topology smoke must probe canonical internal-api snapshot'
+  );
+  assert.match(
+    smokeScript,
+    /\/api\/kernel\/snapshot/,
+    'topology smoke must retain legacy alias parity probe'
+  );
+});

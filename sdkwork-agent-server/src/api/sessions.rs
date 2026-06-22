@@ -1,14 +1,18 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     Json,
 };
 use sdkwork_agent_database::SessionRow;
 use sdkwork_agent_session::SessionConfig;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::persistence::PersistenceState;
+use crate::access::stamp_session_ownership;
+use crate::agent_registry::{apply_hosted_agent_defaults, validate_hosted_agent_id};
+use crate::api::kernel::{ensure_session_access, KernelApiState};
+use crate::middleware::RequestContext;
 
 /// Create session request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,11 +69,28 @@ fn session_row_to_response(row: SessionRow) -> SessionResponse {
     }
 }
 
+fn map_persistence_error(error: String) -> StatusCode {
+    if error.contains("not found") {
+        StatusCode::NOT_FOUND
+    } else if error.contains("closed") {
+        StatusCode::CONFLICT
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
+}
+
 /// Create a new session
 pub async fn create_session(
-    State(state): State<Arc<PersistenceState>>,
+    State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Json(request): Json<CreateSessionRequest>,
 ) -> Result<(StatusCode, Json<SessionResponse>), StatusCode> {
+    let registered = validate_hosted_agent_id(&request.agent_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let mut metadata_map = HashMap::new();
+    apply_hosted_agent_defaults(&mut metadata_map, registered);
+    stamp_session_ownership(&mut metadata_map, &ctx, &state.config)?;
+
     let mut config = SessionConfig::new(request.agent_id);
     if let Some(title) = request.title {
         config = config.with_title(title);
@@ -86,88 +107,130 @@ pub async fn create_session(
     if let Some(instructions) = request.instructions {
         config = config.with_instructions(instructions);
     }
+    config.metadata = if metadata_map.is_empty() {
+        None
+    } else {
+        serde_json::to_value(metadata_map).ok()
+    };
 
     let row = state
-        .create_session(config)
+        .persist(move |persistence| persistence.create_session(config))
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok((StatusCode::CREATED, Json(session_row_to_response(row))))
 }
 
 /// Get a session by ID
 pub async fn get_session(
-    State(state): State<Arc<PersistenceState>>,
+    State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
-    state
-        .get_session(&session_id)
-        .map(session_row_to_response)
-        .map(Json)
-        .map_err(|error| {
-            if error.contains("not found") {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        })
+    let session_key = session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(map_persistence_error)?;
+    ensure_session_access(&state, &ctx, &row)?;
+    Ok(Json(session_row_to_response(row)))
 }
 
 /// List sessions
 pub async fn list_sessions(
-    State(state): State<Arc<PersistenceState>>,
+    State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Query(query): Query<ListSessionsQuery>,
 ) -> Result<Json<Vec<SessionResponse>>, StatusCode> {
+    let query = sdkwork_agent_session::SessionQuery {
+        agent_id: query.agent_id,
+        state: query.state,
+        kind: None,
+        provider_id: query.provider_id,
+        bridge_id: query.bridge_id,
+        limit: Some(query.limit.unwrap_or(100).into()),
+        offset: None,
+    };
     let rows = state
-        .list_sessions(sdkwork_agent_session::SessionQuery {
-            agent_id: query.agent_id,
-            state: query.state,
-            kind: None,
-            provider_id: query.provider_id,
-            bridge_id: query.bridge_id,
-            limit: query.limit.map(i64::from),
-            offset: None,
-        })
+        .persist(move |persistence| persistence.list_sessions(query))
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(
-        rows.into_iter().map(session_row_to_response).collect(),
-    ))
+    let mut sessions = Vec::new();
+    for row in rows {
+        if ensure_session_access(&state, &ctx, &row).is_ok() {
+            sessions.push(session_row_to_response(row));
+        }
+    }
+    Ok(Json(sessions))
 }
 
 /// Close a session
 pub async fn close_session(
-    State(state): State<Arc<PersistenceState>>,
+    State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
 ) -> Result<Json<SessionResponse>, StatusCode> {
-    state
-        .close_session(&session_id)
+    let session_key = session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(map_persistence_error)?;
+    ensure_session_access(&state, &ctx, &row)?;
+    let row = state
+        .persist(move |persistence| persistence.close_session(&session_id))
+        .await
         .map(session_row_to_response)
         .map(Json)
-        .map_err(|error| {
-            if error.contains("not found") {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        })
+        .map_err(map_persistence_error)?;
+    Ok(row)
 }
 
 /// Delete a session
 pub async fn delete_session(
-    State(state): State<Arc<PersistenceState>>,
+    State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
 ) -> StatusCode {
-    match state.delete_session(&session_id) {
+    let session_key = session_id.clone();
+    let access = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await;
+    match access {
+        Ok(row) => {
+            if ensure_session_access(&state, &ctx, &row).is_err() {
+                return StatusCode::FORBIDDEN;
+            }
+        }
+        Err(error) => return map_persistence_error(error),
+    }
+
+    match state
+        .persist(move |persistence| persistence.delete_session(&session_id))
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT,
-        Err(error) if error.contains("not found") => StatusCode::NOT_FOUND,
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        Err(error) => map_persistence_error(error),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::ServerConfig;
 
-    fn test_state() -> Arc<PersistenceState> {
-        Arc::new(PersistenceState::memory().expect("persistence"))
+    fn test_state() -> Arc<KernelApiState> {
+        Arc::new(KernelApiState::new(
+            Arc::new(crate::persistence::PersistenceState::memory().expect("persistence")),
+            Arc::new(ServerConfig::default()),
+        ))
+    }
+
+    fn test_context() -> Extension<RequestContext> {
+        Extension(RequestContext {
+            request_id: "req.test".to_string(),
+            tenant_id: None,
+            user_id: None,
+            subject_id: None,
+        })
     }
 
     #[tokio::test]
@@ -182,15 +245,21 @@ mod tests {
             kind: None,
         };
 
-        let (status, Json(session)) = create_session(State(state.clone()), Json(request))
-            .await
-            .expect("created");
+        let (status, Json(session)) =
+            create_session(State(state.clone()), test_context(), Json(request))
+                .await
+                .expect("created");
 
         assert_eq!(status, StatusCode::CREATED);
         assert_eq!(session.agent_id, "agent.1");
         assert_eq!(session.state, "active");
 
-        let result = get_session(State(state.clone()), Path(session.session_id.clone())).await;
+        let result = get_session(
+            State(state.clone()),
+            test_context(),
+            Path(session.session_id.clone()),
+        )
+        .await;
         assert!(result.is_ok());
     }
 
@@ -214,15 +283,16 @@ mod tests {
             kind: None,
         };
 
-        create_session(State(state.clone()), Json(request1))
+        let _ = create_session(State(state.clone()), test_context(), Json(request1))
             .await
             .expect("created");
-        create_session(State(state.clone()), Json(request2))
+        let _ = create_session(State(state.clone()), test_context(), Json(request2))
             .await
             .expect("created");
 
         let Json(sessions) = list_sessions(
             State(state.clone()),
+            test_context(),
             Query(ListSessionsQuery {
                 agent_id: None,
                 state: None,
@@ -249,12 +319,17 @@ mod tests {
             kind: None,
         };
 
-        let (_, Json(session)) = create_session(State(state.clone()), Json(request))
-            .await
-            .expect("created");
-        let Json(closed) = close_session(State(state.clone()), Path(session.session_id.clone()))
-            .await
-            .expect("closed");
+        let (_, Json(session)) =
+            create_session(State(state.clone()), test_context(), Json(request))
+                .await
+                .expect("created");
+        let Json(closed) = close_session(
+            State(state.clone()),
+            test_context(),
+            Path(session.session_id.clone()),
+        )
+        .await
+        .expect("closed");
         assert_eq!(closed.state, "closed");
     }
 }

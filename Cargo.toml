@@ -20,6 +20,7 @@ members = [
     "crates/sdkwork-router-agent-open-api",
     "crates/sdkwork-router-agent-app-api",
     "crates/sdkwork-router-agent-backend-api",
+    "crates/sdkwork-router-agent-internal-api",
     "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core",
     "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig",
     "sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive",
@@ -77,4 +78,5 @@ sdkwork-router-agent-http-shared = { path = "crates/sdkwork-router-agent-http-sh
 sdkwork-router-agent-open-api = { path = "crates/sdkwork-router-agent-open-api" }
 sdkwork-router-agent-app-api = { path = "crates/sdkwork-router-agent-app-api" }
 sdkwork-router-agent-backend-api = { path = "crates/sdkwork-router-agent-backend-api" }
+sdkwork-router-agent-internal-api = { path = "crates/sdkwork-router-agent-internal-api" }
 

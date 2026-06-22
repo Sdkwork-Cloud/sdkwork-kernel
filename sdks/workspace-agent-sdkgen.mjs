@@ -31,6 +31,7 @@ if (!fs.existsSync(sdkgenPath)) {
 }
 
 runNodeScript(path.join(root, 'sdks', 'materialize-agent-v3-openapi-boundaries.mjs'), []);
+runNodeScript(path.join(root, 'sdks', 'materialize-agent-internal-api-openapi.mjs'), []);
 
 const report = {
   schemaVersion: 1,
@@ -241,7 +242,7 @@ function parseArgs(argv) {
 }
 
 function printHelpAndExit() {
-  console.log(`Usage: node sdks/workspace-agent-sdkgen.mjs [--mode dry-run|apply] [--family open|app|backend]
+  console.log(`Usage: node sdks/workspace-agent-sdkgen.mjs [--mode dry-run|apply] [--family open|app|backend|internal]
 
 Generates the SDKWork agent SDK families with --standard-profile ${SDKWORK_SDKGEN_STANDARD.standardProfile}.
 `);

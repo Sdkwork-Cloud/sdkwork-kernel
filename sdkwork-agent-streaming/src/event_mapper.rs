@@ -1,18 +1,18 @@
 use sdkwork_agent_kernel::{
-    KernelEvent, KernelEventSeverity, ProtocolAdapterStreamingSupport, ProtocolFamily,
-    ProtocolSseEvent, ProtocolStreamUpdate, ProtocolTransport,
+    KernelEvent, ProtocolAdapterStreamingSupport, ProtocolFamily, ProtocolSseEvent,
+    ProtocolStreamUpdate, ProtocolTransport,
 };
 
 /// Maps kernel events to protocol-specific stream formats
 pub struct EventMapper {
-    protocol: ProtocolFamily,
+    _protocol: ProtocolFamily,
     transport: ProtocolTransport,
 }
 
 impl EventMapper {
     pub fn new(protocol: ProtocolFamily, transport: ProtocolTransport) -> Self {
         Self {
-            protocol,
+            _protocol: protocol,
             transport,
         }
     }
@@ -56,7 +56,7 @@ impl EventMapper {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sdkwork_agent_kernel::KernelEventSource;
+    use sdkwork_agent_kernel::{KernelEventSeverity, KernelEventSource};
 
     #[test]
     fn map_event_to_stream_update() {

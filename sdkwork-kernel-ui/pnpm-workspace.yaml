@@ -1,6 +1,7 @@
 packages:
   - 'packages/*'
   - '../../sdkwork-utils/packages/sdkwork-utils-typescript'
+  - '../sdks/sdkwork-agent-internal-sdk/sdkwork-agent-internal-sdk-typescript/generated/server-openapi'
 
 catalog:
   '@types/node': ^22.14.0

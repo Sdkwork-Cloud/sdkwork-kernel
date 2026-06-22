@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 1,
+  "kind": "sdkwork.component.spec",
+  "component": {
+    "name": "sdkwork-agent-internal-sdk",
+    "displayName": "SDKWork Agent Internal SDK",
+    "version": "0.1.0",
+    "type": "sdk-family",
+    "root": "sdks/sdkwork-agent-internal-sdk",
+    "domain": "agent",
+    "capability": "agent-internal-sdk",
+    "surface": "internal-api",
+    "status": "standardized",
+    "languages": [
+      "typescript"
+    ],
+    "generated": true,
+    "private": false,
+    "manifests": [
+      ".sdkwork-assembly.json"
+    ]
+  },
+  "canonicalSpecs": [
+    {
+      "file": "SDK_SPEC.md",
+      "path": "../../../sdkwork-specs/SDK_SPEC.md",
+      "purpose": "SDK family naming, generation, dependency, and consumer integration rules."
+    },
+    {
+      "file": "SDK_WORKSPACE_GENERATION_SPEC.md",
+      "path": "../../../sdkwork-specs/SDK_WORKSPACE_GENERATION_SPEC.md",
+      "purpose": "SDK workspace layout, authority OpenAPI, derived input, and generated output rules."
+    },
+    {
+      "file": "API_SPEC.md",
+      "path": "../../../sdkwork-specs/API_SPEC.md",
+      "purpose": "OpenAPI authority, API surface, schema, and SDK-generation contract rules."
+    },
+    {
+      "file": "TEST_SPEC.md",
+      "path": "../../../sdkwork-specs/TEST_SPEC.md",
+      "purpose": "SDK generation, contract, and workspace verification rules."
+    },
+    {
+      "file": "DOCUMENTATION_SPEC.md",
+      "path": "../../../sdkwork-specs/DOCUMENTATION_SPEC.md",
+      "purpose": "SDK README, examples, changelog, and generated artifact documentation rules."
+    }
+  ],
+  "sdk": {
+    "family": "sdkwork-agent-internal-sdk",
+    "authority": "sdkwork-agent-internal-api",
+    "sdkOwner": "sdkwork-kernel",
+    "apiPrefix": "/internal/v3/api",
+    "packageName": "@sdkwork/agent-internal-sdk",
+    "sdkName": "sdkwork-agent-internal-sdk",
+    "sdkType": "custom",
+    "sdkSurface": "internal",
+    "externalSdkgenProfileSupported": true,
+    "generatedOutput": "sdkwork-agent-internal-sdk-typescript/generated/server-openapi",
+    "standardProfile": "sdkwork-v3"
+  },
+  "contracts": {
+    "apiAuthority": {
+      "name": "sdkwork-agent-internal-api",
+      "owner": "sdkwork-kernel",
+      "prefix": "/internal/v3/api",
+      "authorityOpenApi": "openapi/sdkwork-agent-internal-api.openapi.yaml",
+      "derivedOpenApi": [
+        "openapi/sdkwork-agent-internal-api.sdkgen.yaml"
+      ],
+      "standard": "../../specs/SDK_SPEC.md"
+    },
+    "publicExports": [],
+    "runtimeEntrypoints": [
+      ".sdkwork-assembly.json"
+    ],
+    "routeManifest": null,
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
+    "sdkClients": [
+      "SdkworkCustomClient"
+    ],
+    "events": [],
+    "configKeys": [
+      ".sdkwork-assembly.json"
+    ]
+  },
+  "verification": {
+    "commands": [
+      "node sdks/materialize-agent-internal-api-openapi.mjs",
+      "node sdks/sdkwork-agent-internal-sdk/bin/verify-sdk.mjs",
+      "node sdks/test/verify-agent-sdk-ownership-boundaries.test.mjs",
+      "node scripts/check-agent-sdk-workspace.mjs"
+    ]
+  },
+  "metadata": {
+    "managedBy": "sdks/_shared/agent-sdk-ownership.mjs",
+    "standardVersion": "2026-06-06"
+  }
+}

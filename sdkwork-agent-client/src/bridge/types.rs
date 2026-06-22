@@ -144,6 +144,15 @@ impl AgentAuth {
             credentials,
         }
     }
+
+    pub fn bearer_token(token: impl Into<String>) -> Self {
+        let mut credentials = HashMap::new();
+        credentials.insert("token".to_string(), token.into());
+        Self {
+            auth_type: AgentAuthType::BearerToken,
+            credentials,
+        }
+    }
 }
 
 /// Fallback strategy for hybrid mode

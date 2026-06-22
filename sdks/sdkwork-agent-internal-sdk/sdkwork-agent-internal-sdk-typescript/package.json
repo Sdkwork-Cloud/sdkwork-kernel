@@ -1,0 +1,23 @@
+{
+  "name": "@sdkwork/agent-internal-sdk",
+  "version": "0.1.0",
+  "description": "SDKWork agent internal API TypeScript SDK boundary.",
+  "type": "module",
+  "private": false,
+  "sdkwork": {
+    "sdkName": "sdkwork-agent-internal-sdk",
+    "authority": "sdkwork-agent-internal-api",
+    "apiPrefix": "/internal/v3/api",
+    "sdkType": "custom",
+    "sdkSurface": "internal",
+    "generatedOutput": "generated/server-openapi",
+    "standardProfile": "sdkwork-v3",
+    "sdkOwner": "sdkwork-kernel",
+    "sdkDependencies": []
+  },
+  "scripts": {
+    "generate:dry-run": "node ../../workspace-agent-sdkgen.mjs --family internal --mode dry-run",
+    "generate": "node ../../workspace-agent-sdkgen.mjs --family internal --mode apply",
+    "verify": "node ../bin/verify-sdk.mjs"
+  }
+}

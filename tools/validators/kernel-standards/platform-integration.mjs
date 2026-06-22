@@ -26,6 +26,13 @@ const REQUIRED_ROUTE_CRATES = [
   'crates/sdkwork-router-agent-http-shared',
   'crates/sdkwork-router-agent-open-api',
   'crates/sdkwork-router-agent-app-api',
+  'crates/sdkwork-router-agent-backend-api',
+  'crates/sdkwork-router-agent-internal-api'
+];
+
+const WEB_FRAMEWORK_ROUTE_CRATES = [
+  'crates/sdkwork-router-agent-open-api',
+  'crates/sdkwork-router-agent-app-api',
   'crates/sdkwork-router-agent-backend-api'
 ];
 
@@ -179,7 +186,7 @@ export function validatePlatformIntegration({ kernelRoot, errors, ensureFile, re
     }
   }
 
-  for (const surfaceCrate of REQUIRED_ROUTE_CRATES.slice(1)) {
+  for (const surfaceCrate of WEB_FRAMEWORK_ROUTE_CRATES) {
     const libRs = readFileIfExists(path.join(kernelRoot, surfaceCrate, 'src', 'lib.rs'));
     if (libRs && !libRs.includes('wrap_router_with_web_framework_from_env')) {
       errors.push(`${surfaceCrate}/src/lib.rs must wrap served routers with sdkwork-web-framework`);
@@ -193,6 +200,20 @@ export function validatePlatformIntegration({ kernelRoot, errors, ensureFile, re
         `${surfaceCrate}/src/lib.rs build_served_router must use raw route builders to avoid duplicate gateway middleware`
       );
     }
+  }
+
+  const internalAuthorityIndex = path.join(kernelRoot, 'apis', 'internal-api', 'authority-index.json');
+  if (!fs.existsSync(internalAuthorityIndex)) {
+    errors.push('apis/internal-api/authority-index.json must exist for internal-api surface indexing');
+  }
+
+  const internalRouterLib = readFileIfExists(
+    path.join(kernelRoot, 'crates/sdkwork-router-agent-internal-api', 'src', 'lib.rs')
+  );
+  if (internalRouterLib && !internalRouterLib.includes('internal_route_manifest')) {
+    errors.push(
+      'crates/sdkwork-router-agent-internal-api/src/lib.rs must export internal_route_manifest for internal-api route boundary'
+    );
   }
 
   const agentBusinessCargo = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-business', 'Cargo.toml'));

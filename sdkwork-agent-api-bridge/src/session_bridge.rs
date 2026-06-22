@@ -1,7 +1,7 @@
 use crate::types::{generate_id, BridgeSessionConfig};
 use sdkwork_agent_kernel::{
     AgentMessage, AgentSession, EventRecorder, KernelError, KernelResult, SessionKind,
-    SessionSource, SessionState,
+    SessionSource,
 };
 use std::collections::HashMap;
 
@@ -17,6 +17,47 @@ impl SessionBridge {
             sessions: HashMap::new(),
             histories: HashMap::new(),
         }
+    }
+
+    /// Create a new session with a caller-provided session id.
+    pub fn register_session(
+        &mut self,
+        session_id: &str,
+        config: BridgeSessionConfig,
+    ) -> KernelResult<AgentSession> {
+        if self.sessions.contains_key(session_id) {
+            return self.get_session(session_id);
+        }
+
+        let mut session = AgentSession::new(session_id)
+            .with_agent_id(&config.agent_id)
+            .with_source(SessionSource::Api)
+            .with_kind(SessionKind::Main)
+            .created_at(chrono_now());
+
+        if let Some(user_ref) = &config.user_ref {
+            session = session.with_user_ref(user_ref);
+        }
+        if let Some(model) = &config.model {
+            session = session.with_model(model);
+        }
+        if let Some(instructions) = &config.instructions {
+            session = session.with_instructions(instructions);
+        }
+        if let Some(cwd) = &config.cwd {
+            session = session.with_cwd(cwd);
+        }
+        for (key, value) in config.metadata {
+            session = session.with_metadata(key, value);
+        }
+
+        let mut recorder = EventRecorder::new();
+        session = session.activate(&mut recorder)?;
+
+        self.sessions.insert(session_id.to_string(), session.clone());
+        self.histories.insert(session_id.to_string(), Vec::new());
+
+        Ok(session)
     }
 
     /// Create a new session
@@ -133,6 +174,7 @@ fn chrono_now() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sdkwork_agent_kernel::SessionState;
 
     fn test_config() -> BridgeSessionConfig {
         BridgeSessionConfig {

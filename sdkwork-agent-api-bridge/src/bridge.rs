@@ -1,6 +1,6 @@
 use crate::{
     BridgeEvent, BridgeEventSeverity, BridgeMessageResponse, BridgeModelResult,
-    BridgeSessionConfig, BridgeSnapshot, BridgeToolCall, BridgeToolResult, ContextBridge,
+    BridgeSessionConfig, BridgeSnapshot, BridgeToolResult, ContextBridge,
     EventBridge, ModelBridge, SessionBridge, ToolBridge,
 };
 use sdkwork_agent_kernel::{
@@ -28,9 +28,35 @@ impl AgentRuntimeBridge {
         }
     }
 
+    /// Create a bridge wired to a bootstrapped typed agent runtime.
+    pub fn with_agent_runtime(
+        agent_runtime: std::sync::Arc<sdkwork_agent_kernel::AgentRuntime>,
+        allow_mock_fallback: bool,
+    ) -> Self {
+        Self {
+            session_bridge: SessionBridge::new(),
+            model_bridge: ModelBridge::with_agent_runtime(
+                agent_runtime.clone(),
+                allow_mock_fallback,
+            ),
+            tool_bridge: ToolBridge::with_agent_runtime(agent_runtime, allow_mock_fallback),
+            context_bridge: ContextBridge::new(),
+            event_bridge: EventBridge::new(),
+        }
+    }
+
     // =========================================================================
     // Session Management
     // =========================================================================
+
+    /// Register a persisted session in the in-memory bridge runtime.
+    pub fn register_session(
+        &mut self,
+        session_id: &str,
+        config: BridgeSessionConfig,
+    ) -> KernelResult<AgentSession> {
+        self.session_bridge.register_session(session_id, config)
+    }
 
     /// Create a new agent session
     pub fn create_session(&mut self, config: BridgeSessionConfig) -> KernelResult<AgentSession> {
@@ -87,8 +113,8 @@ impl AgentRuntimeBridge {
             &context,
         );
 
-        // Invoke model
-        let model_result = self.model_bridge.invoke(&model_request)?;
+        let provider_id = session.metadata_value("modelProvider");
+        let model_result = self.model_bridge.invoke(&model_request, provider_id)?;
 
         // Create assistant message from model response
         let assistant_message = AgentMessage::new(
@@ -145,6 +171,87 @@ impl AgentRuntimeBridge {
         })
     }
 
+    /// Stream a user message turn and return ordered output chunks plus the assistant message id.
+    pub fn stream_message(
+        &mut self,
+        session_id: &str,
+        content: &str,
+        model_override: Option<&str>,
+    ) -> KernelResult<(String, Vec<sdkwork_agent_kernel::ModelStreamChunk>)> {
+        let mut session = self.session_bridge.get_session(session_id)?;
+        if let Some(model_id) = model_override {
+            session.model = Some(model_id.to_string());
+        }
+
+        let user_message = AgentMessage::new(
+            format!("msg.{}", crate::types::generate_id()),
+            AgentMessageRole::User,
+            vec![AgentPart::text(
+                format!("part.{}", crate::types::generate_id()),
+                content,
+            )],
+        );
+
+        self.session_bridge
+            .append_message(session_id, user_message.clone())?;
+
+        let context = self.context_bridge.collect_context(session_id)?;
+        let model_request = self.model_bridge.build_request(
+            session_id,
+            &session,
+            &self.session_bridge.get_history(session_id)?,
+            &context,
+        );
+
+        let provider_id = session.metadata_value("modelProvider");
+        let chunks = self.model_bridge.stream(&model_request, provider_id)?;
+        let assistant_text: String = chunks.iter().map(|chunk| chunk.content.as_str()).collect();
+        let assistant_message_id = format!("msg.{}", crate::types::generate_id());
+        let assistant_message = AgentMessage::new(
+            assistant_message_id.clone(),
+            AgentMessageRole::Agent,
+            vec![AgentPart::text(
+                format!("part.{}", crate::types::generate_id()),
+                assistant_text.clone(),
+            )],
+        );
+
+        self.session_bridge
+            .append_message(session_id, assistant_message)?;
+
+        let mut events = vec![
+            BridgeEvent {
+                event_type: "agent.message.user".to_string(),
+                session_id: Some(session_id.to_string()),
+                task_id: None,
+                payload: format!("content_length={}", content.len()),
+                severity: BridgeEventSeverity::Info,
+            },
+            BridgeEvent {
+                event_type: "agent.message.assistant".to_string(),
+                session_id: Some(session_id.to_string()),
+                task_id: None,
+                payload: format!("content_length={}", assistant_text.len()),
+                severity: BridgeEventSeverity::Info,
+            },
+        ];
+        for chunk in &chunks {
+            events.push(BridgeEvent {
+                event_type: "agent.model.output.streamed".to_string(),
+                session_id: Some(session_id.to_string()),
+                task_id: None,
+                payload: format!(
+                    "model_request_id={};sequence={}",
+                    chunk.model_request_id, chunk.sequence
+                ),
+                severity: BridgeEventSeverity::Info,
+            });
+        }
+        self.event_bridge.record_events(&events);
+
+        Ok((assistant_message_id, chunks))
+    }
+
     /// Get message history for a session
     pub fn get_messages(&self, session_id: &str) -> KernelResult<Vec<AgentMessage>> {
         self.session_bridge.get_history(session_id)
@@ -156,7 +263,7 @@ impl AgentRuntimeBridge {
 
     /// Invoke the model directly (without conversation context)
     pub fn invoke_model(&self, request: ModelRequest) -> KernelResult<BridgeModelResult> {
-        self.model_bridge.invoke(&request)
+        self.model_bridge.invoke(&request, None)
     }
 
     /// Stream model response
@@ -164,7 +271,12 @@ impl AgentRuntimeBridge {
         &self,
         request: ModelRequest,
     ) -> KernelResult<Vec<sdkwork_agent_kernel::ModelStreamChunk>> {
-        self.model_bridge.stream(&request)
+        self.model_bridge.stream(&request, None)
+    }
+
+    /// List registered model descriptors
+    pub fn list_models(&self) -> KernelResult<Vec<sdkwork_agent_kernel::ModelDescriptor>> {
+        Ok(self.model_bridge.list_models())
     }
 
     // =========================================================================

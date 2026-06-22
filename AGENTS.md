@@ -20,7 +20,7 @@ Do not copy root standard text into this repository. If these relative paths do 
 
 ## Application Identity
 
-No `sdkwork.app.config.json` is present at this root. If the task changes application behavior, runtime config, SDK wiring, release metadata, or app-owned capabilities, first locate the nearest application root that has this manifest or add one according to the root specs.
+`sdkwork.app.config.json` is present at this repository root (`app.key: sdkwork-kernel`). Topology and workflow metadata are linked through `metadata.topologySpec` and `metadata.workflowManifest`.
 
 ## Local Dictionary Structure
 
@@ -28,7 +28,7 @@ No `sdkwork.app.config.json` is present at this root. If the task changes applic
 - `CLAUDE.md`: Claude Code compatibility shim that points to `AGENTS.md` and must not duplicate rules.
 - `GEMINI.md`: Gemini CLI compatibility shim that points to `AGENTS.md` and must not duplicate rules.
 - `CODEX.md`: Codex compatibility shim that points to `AGENTS.md` and must not duplicate rules.
-- `sdkwork.app.config.json`: not present here; required for application roots.
+- `sdkwork.app.config.json`: application identity, topology, and workflow metadata for this repository root (`app.key: sdkwork-kernel`).
 - `.sdkwork/`: reserved local dictionary folder; create only for local skills, plugins, manifests, or AI workspace metadata.
 - `specs/`: local application/component contracts and narrowing rules.
 - `sdks/`: SDK families, OpenAPI authorities, route manifests, and generated SDK artifacts.

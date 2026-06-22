@@ -19,6 +19,9 @@ const explicitProblemResponse = `          description: RFC 9457 problem detail 
                 $ref: '#/components/schemas/ProblemDetail'`;
 
 for (const family of AGENT_SDK_FAMILIES) {
+  if (!family.sourceOpenApi) {
+    continue;
+  }
   const sourcePath = path.join(root, family.sourceOpenApi);
   if (!fs.existsSync(sourcePath)) {
     throw new Error(`OpenAPI source not found for ${family.familyDir}: ${family.sourceOpenApi}`);

@@ -100,10 +100,16 @@
     "runtimeEntrypoints": [
       "package.json#scripts.typecheck"
     ],
-    "sdkDependencies": [],
+    "sdkDependencies": [
+      "sdkwork-agent-internal-sdk"
+    ],
     "dependencyApiExports": [],
-    "dependencyApiSurfaces": [],
-    "sdkClients": [],
+    "dependencyApiSurfaces": [
+      "sdkwork-agent-internal-api: internal-api"
+    ],
+    "sdkClients": [
+      "sdkwork-agent-internal-sdk: sdkwork-agent-internal-api -> @sdkwork/agent-internal-sdk"
+    ],
     "events": [],
     "configKeys": [],
     "routeManifest": null

@@ -27,16 +27,25 @@ pub struct ServerConfig {
     pub ingress_auth_mode: String,
     /// Required bearer/static token when ingress_auth_mode is token
     pub ingress_token: Option<String>,
+    /// Per-client request rate limit (requests/sec). Zero disables limiting.
+    pub rate_limit_rps: u32,
+    /// Burst capacity for the token-bucket rate limiter.
+    pub rate_limit_burst: u32,
+    /// SSE/streaming request timeout in seconds (long-lived connections).
+    pub sse_request_timeout_secs: u64,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            bind_address: "0.0.0.0".to_string(),
+            bind_address: "127.0.0.1".to_string(),
             port: 8080,
             log_level: "info".to_string(),
             cors_enabled: true,
-            cors_origins: vec!["*".to_string()],
+            cors_origins: vec![
+                "http://127.0.0.1:5173".to_string(),
+                "http://localhost:5173".to_string(),
+            ],
             request_timeout_secs: 30,
             max_body_size: 10 * 1024 * 1024, // 10MB
             health_path: "/health".to_string(),
@@ -44,6 +53,9 @@ impl Default for ServerConfig {
             environment: "development".to_string(),
             ingress_auth_mode: "open".to_string(),
             ingress_token: None,
+            rate_limit_rps: 0,
+            rate_limit_burst: 200,
+            sse_request_timeout_secs: 3600,
         }
     }
 }
@@ -93,13 +105,58 @@ impl ServerConfig {
                 config.ingress_token = Some(trimmed);
             }
         }
+        if let Ok(rps) = std::env::var("SDKWORK_RATE_LIMIT_RPS") {
+            config.rate_limit_rps = rps.parse().unwrap_or(0);
+        }
+        if let Ok(burst) = std::env::var("SDKWORK_RATE_LIMIT_BURST") {
+            config.rate_limit_burst = burst.parse().unwrap_or(200);
+        }
+        if let Ok(sse_timeout) = std::env::var("SDKWORK_SSE_REQUEST_TIMEOUT") {
+            config.sse_request_timeout_secs = sse_timeout.parse()?;
+        }
         if config.environment.eq_ignore_ascii_case("production")
             && config.ingress_auth_mode.eq_ignore_ascii_case("open")
         {
             config.ingress_auth_mode = "token".to_string();
         }
+        config.normalize_security();
 
         Ok(config)
+    }
+
+    fn normalize_security(&mut self) {
+        if self.environment.eq_ignore_ascii_case("production")
+            && self.cors_origins.iter().any(|origin| origin == "*")
+        {
+            self.cors_origins = vec![
+                "https://kernel.sdkwork.com".to_string(),
+                "https://app.sdkwork.com".to_string(),
+            ];
+        }
+        if self.environment.eq_ignore_ascii_case("production") && self.rate_limit_rps == 0 {
+            self.rate_limit_rps = 100;
+        }
+        if self.rate_limit_rps > 0 && self.rate_limit_burst == 0 {
+            self.rate_limit_burst = self.rate_limit_rps.saturating_mul(2);
+        }
+    }
+
+    pub fn is_development(&self) -> bool {
+        self.environment.eq_ignore_ascii_case("development")
+    }
+
+    /// When true, typed provider failures fall back to the bridge mock path in development.
+    pub fn allow_mock_provider_fallback(&self) -> bool {
+        if self.environment.eq_ignore_ascii_case("production") {
+            return false;
+        }
+        if let Ok(value) = std::env::var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS") {
+            return matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            );
+        }
+        cfg!(debug_assertions)
     }
 
     /// Get the full bind address (address:port)
@@ -139,16 +196,17 @@ mod tests {
     #[test]
     fn default_config() {
         let config = ServerConfig::default();
-        assert_eq!(config.bind_address, "0.0.0.0");
+        assert_eq!(config.bind_address, "127.0.0.1");
         assert_eq!(config.port, 8080);
         assert_eq!(config.log_level, "info");
         assert!(config.cors_enabled);
+        assert!(!config.cors_origins.iter().any(|origin| origin == "*"));
     }
 
     #[test]
     fn bind_addr() {
         let config = ServerConfig::default();
-        assert_eq!(config.bind_addr(), "0.0.0.0:8080");
+        assert_eq!(config.bind_addr(), "127.0.0.1:8080");
     }
 
     #[test]

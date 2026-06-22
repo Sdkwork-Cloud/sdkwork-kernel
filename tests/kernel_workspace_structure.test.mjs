@@ -1161,6 +1161,9 @@ test('agent SDK workspace validator splits generated TypeScript API surface chec
 
 function expectedSdkComponentSurface(relativePath, manifest) {
   const declaredSurface = manifest.sdk?.sdkSurface ?? manifest.sdk?.sdkType;
+  if (declaredSurface === 'internal') {
+    return 'internal-api';
+  }
   if (declaredSurface === 'open' || declaredSurface === 'custom') {
     return 'open-api';
   }
@@ -1174,6 +1177,9 @@ function expectedSdkComponentSurface(relativePath, manifest) {
   const componentName = manifest.component?.name ?? '';
   const normalizedPath = relativePath.replaceAll('\\', '/');
   const surfaceSource = `${componentName} ${normalizedPath}`;
+  if (surfaceSource.includes('-internal-sdk')) {
+    return 'internal-api';
+  }
   if (surfaceSource.includes('-backend-sdk')) {
     return 'backend-admin';
   }

@@ -2,6 +2,10 @@ export function validateGeneratedAgentApi({ label, content, family, errors }) {
   if (!content) {
     return;
   }
+  if (family.key === 'internal') {
+    validateInternalGeneratedAgentApi({ label, content, family, errors });
+    return;
+  }
   const scopeFreeCallSurface = usesScopeFreeCallSurface(family);
   for (const required of [
     'export class AiMemoryStoresApi',
@@ -286,4 +290,22 @@ function boundedBlock(content, startMarker, endMarker) {
 
 function usesScopeFreeCallSurface(family) {
   return family?.key === 'app' || family?.key === 'open';
+}
+
+function validateInternalGeneratedAgentApi({ label, content, errors }) {
+  for (const required of [
+    'export class IntelligenceRuntimeSnapshotApi',
+    'export class IntelligenceRuntimeSessionsApi',
+    'export class IntelligenceRuntimeSessionsMessagesApi',
+    'async load(): Promise<KernelUiSnapshot>',
+    'async create(body: CreateSessionRequest',
+    'async send(sessionId: string, body: SendMessageRequest',
+    'CreateSessionRequest',
+    'KernelUiSnapshot',
+    'public readonly runtime: IntelligenceRuntimeApi'
+  ]) {
+    if (!content.includes(required)) {
+      errors.push(`${label} missing ${required}`);
+    }
+  }
 }

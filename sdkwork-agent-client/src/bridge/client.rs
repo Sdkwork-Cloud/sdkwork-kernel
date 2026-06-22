@@ -179,10 +179,13 @@ impl AgentClient {
 fn create_remote_client(
     server_url: &str,
     protocol: &AgentProtocol,
-    _auth: &Option<AgentAuth>,
+    auth: &Option<AgentAuth>,
 ) -> Result<Box<dyn ChatClient>, String> {
     match protocol {
-        AgentProtocol::HttpRestSse => Ok(Box::new(SseChatClient::new(server_url))),
+        AgentProtocol::HttpRestSse => Ok(Box::new(SseChatClient::with_auth(
+            server_url,
+            auth.clone(),
+        ))),
         AgentProtocol::Grpc => {
             Err("gRPC client not yet implemented - deferred to Phase 3".to_string())
         }

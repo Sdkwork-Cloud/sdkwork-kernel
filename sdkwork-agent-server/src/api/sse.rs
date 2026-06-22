@@ -1,33 +1,18 @@
 use axum::{
-    extract::State,
+    extract::{Extension, State},
+    http::StatusCode,
     response::sse::{Event, Sse},
     Json,
 };
-use futures::stream::Stream;
+use futures::stream::{self, Stream};
 use serde::{Deserialize, Serialize};
 use std::convert::Infallible;
 use std::sync::Arc;
 use tokio_stream::StreamExt;
 
-/// SSE state
-#[derive(Debug, Clone)]
-pub struct SseState {
-    pub event_counter: Arc<tokio::sync::Mutex<u64>>,
-}
-
-impl SseState {
-    pub fn new() -> Self {
-        Self {
-            event_counter: Arc::new(tokio::sync::Mutex::new(0)),
-        }
-    }
-}
-
-impl Default for SseState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+use crate::api::kernel::{ensure_session_access, KernelApiState};
+use crate::message_dispatch::dispatch_user_message_stream;
+use crate::middleware::RequestContext;
 
 /// SSE chat request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,28 +33,43 @@ pub struct SseEventData {
 
 /// Stream chat response via SSE
 pub async fn stream_chat(
-    State(state): State<Arc<SseState>>,
+    State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Json(request): Json<SseChatRequest>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let message_id = format!("msg.{}", generate_id());
-    let content = format!("This is a streaming response to: {}", request.content);
-    let words: Vec<String> = content.split_whitespace().map(|s| s.to_string()).collect();
-    let done_message_id = message_id.clone();
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
+    let session_key = request.session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(map_persistence_error)?;
+    ensure_session_access(&state, &ctx, &row)?;
+
+    let model_override = request.model.as_deref();
+    let (_user_row, assistant_message_id, chunks) = dispatch_user_message_stream(
+        &state,
+        &request.session_id,
+        &request.content,
+        &row,
+        model_override,
+    )
+    .await?;
+
     let sequence_base = {
-        let mut counter = state.event_counter.lock().await;
+        let mut counter = state.sse_event_counter.lock().await;
         let base = *counter;
-        *counter += words.len() as u64 + 1;
+        *counter += chunks.len() as u64 + 1;
         base as u32
     };
 
-    let word_count = words.len() as u32;
-    let stream = futures::stream::iter(words.into_iter().enumerate())
-        .map(move |(i, word)| {
+    let chunk_count = chunks.len() as u32;
+    let done_message_id = assistant_message_id.clone();
+    let chunk_stream = stream::iter(chunks.into_iter().enumerate()).map(
+        move |(index, chunk)| {
             let data = SseEventData {
                 event_type: "chunk".to_string(),
-                message_id: message_id.clone(),
-                content: format!("{} ", word),
-                sequence: sequence_base + i as u32,
+                message_id: assistant_message_id.clone(),
+                content: chunk.content,
+                sequence: sequence_base + index as u32,
             };
 
             let event = Event::default()
@@ -77,61 +77,33 @@ pub async fn stream_chat(
                 .data(serde_json::to_string(&data).unwrap_or_default());
 
             Ok(event)
-        })
-        .chain(futures::stream::once(async move {
-            let data = SseEventData {
-                event_type: "done".to_string(),
-                message_id: done_message_id,
-                content: String::new(),
-                sequence: sequence_base + word_count,
-            };
+        },
+    );
 
-            let event = Event::default()
-                .event("done")
-                .data(serde_json::to_string(&data).unwrap_or_default());
+    let done_stream = stream::once(async move {
+        let data = SseEventData {
+            event_type: "done".to_string(),
+            message_id: done_message_id,
+            content: String::new(),
+            sequence: sequence_base + chunk_count,
+        };
 
-            Ok(event)
-        }));
-
-    Sse::new(stream)
-}
-
-/// Stream session events via SSE
-pub async fn stream_session_events(
-    State(_state): State<Arc<SseState>>,
-    axum::extract::Path(session_id): axum::extract::Path<String>,
-) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let stream = futures::stream::once(async move {
-        let data = serde_json::json!({
-            "event_type": "session.connected",
-            "session_id": session_id,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
-        });
-
-        let event = Event::default().event("connected").data(data.to_string());
+        let event = Event::default()
+            .event("done")
+            .data(serde_json::to_string(&data).unwrap_or_default());
 
         Ok(event)
     });
 
-    Sse::new(stream)
+    Ok(Sse::new(chunk_stream.chain(done_stream)))
 }
 
-fn generate_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{:x}", nanos)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sse_state_creation() {
-        let state = SseState::new();
-        assert!(state.event_counter.try_lock().is_ok());
+fn map_persistence_error(error: String) -> StatusCode {
+    if error.contains("not found") {
+        StatusCode::NOT_FOUND
+    } else if error.contains("closed") {
+        StatusCode::CONFLICT
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
     }
 }

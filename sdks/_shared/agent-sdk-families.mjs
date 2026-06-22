@@ -92,6 +92,26 @@ export const AGENT_SDK_FAMILIES = [
     capability: 'agent-backend-sdk',
     sdkOwner: AGENT_SDK_OWNER,
     sdkDependencies: [APPBASE_BACKEND_DEPENDENCY]
+  },
+  {
+    key: 'internal',
+    familyDir: 'sdkwork-agent-internal-sdk',
+    authority: 'sdkwork-agent-internal-api',
+    title: 'SDKWork Agent Internal API',
+    description: 'Application-ingress internal runtime API for SDKWork agent kernel UI and trusted in-app automation.',
+    authorityOpenApi: 'apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml',
+    apiPrefix: '/internal/v3/api',
+    sdkName: 'sdkwork-agent-internal-sdk',
+    sdkType: 'custom',
+    sdkSurface: 'internal',
+    externalSdkgenProfileSupported: true,
+    packageName: '@sdkwork/agent-internal-sdk',
+    npmPackageName: '@sdkwork/agent-internal-sdk',
+    languagePackageDir: 'sdkwork-agent-internal-sdk-typescript',
+    audience: 'kernel UI, embedded consoles, and trusted in-app automation on application ingress',
+    capability: 'agent-internal-sdk',
+    sdkOwner: AGENT_SDK_OWNER,
+    sdkDependencies: []
   }
 ];
 

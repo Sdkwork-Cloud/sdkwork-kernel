@@ -10,6 +10,7 @@
     "typecheck": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@sdkwork/agent-internal-sdk": "workspace:*",
     "@sdkwork/kernel-ui-types": "workspace:*"
   },
   "devDependencies": {

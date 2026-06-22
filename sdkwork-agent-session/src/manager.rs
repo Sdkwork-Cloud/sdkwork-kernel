@@ -4,6 +4,7 @@ use sdkwork_agent_database::{
     AgentDatabase, EventRepository, EventRow, MessageRepository, MessageRow, SessionRepository,
     SessionRow, TaskRepository, TaskRow,
 };
+use std::sync::Arc;
 
 /// Unified session manager that integrates database persistence
 pub struct UnifiedSessionManager<D, S, M, T, E>
@@ -19,6 +20,7 @@ where
     message_repo: M,
     task_repo: T,
     event_repo: E,
+    event_listener: Option<Arc<dyn Fn(EventRow) + Send + Sync>>,
 }
 
 impl<D, S, M, T, E> UnifiedSessionManager<D, S, M, T, E>
@@ -36,7 +38,13 @@ where
             message_repo,
             task_repo,
             event_repo,
+            event_listener: None,
         }
+    }
+
+    /// Register a listener invoked after each persisted session event.
+    pub fn set_event_listener(&mut self, listener: Arc<dyn Fn(EventRow) + Send + Sync>) {
+        self.event_listener = Some(listener);
     }
 
     /// Create a new session
@@ -160,7 +168,10 @@ where
         config: MessageConfig,
     ) -> Result<MessageRow, String> {
         // Verify session exists
-        let _session = self.get_session(session_id)?;
+        let session = self.get_session(session_id)?;
+        if session.state == "closed" {
+            return Err(format!("session {session_id} is closed"));
+        }
 
         let now = chrono::Utc::now().to_rfc3339();
         let message_id = format!("msg.{}", generate_id());
@@ -198,6 +209,19 @@ where
         Ok(row)
     }
 
+    /// Delete all messages in a session and reset the cached message count.
+    pub fn delete_messages(&self, session_id: &str) -> Result<(), String> {
+        self.message_repo
+            .delete_messages(session_id)
+            .map_err(|e| format!("failed to delete messages: {}", e))?;
+
+        let mut session = self.get_session(session_id)?;
+        session.message_count = 0;
+        session.updated_at = Some(chrono::Utc::now().to_rfc3339());
+        self.update_session(&session)
+            .map_err(|e| format!("failed to reset session message count: {}", e))
+    }
+
     /// Get message history for a session
     pub fn get_messages(
         &self,
@@ -225,6 +249,17 @@ where
         ConversationManager::new(self.message_repo.clone())
     }
 
+    /// Emit a persisted session event to storage and optional listeners.
+    pub fn emit_session_event(
+        &self,
+        session_id: &str,
+        event_type: &str,
+        severity: &str,
+        payload: Option<&str>,
+    ) -> Result<(), String> {
+        self.record_event(session_id, event_type, severity, payload)
+    }
+
     /// Record an event
     fn record_event(
         &self,
@@ -245,6 +280,10 @@ where
         self.event_repo
             .save_event(&event)
             .map_err(|e| format!("failed to save event: {}", e))?;
+
+        if let Some(listener) = &self.event_listener {
+            listener(event);
+        }
 
         Ok(())
     }

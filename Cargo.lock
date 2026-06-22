@@ -1830,6 +1830,7 @@ dependencies = [
  "pkcs1",
  "pkcs8",
  "rand_core 0.6.4",
+ "sha2",
  "signature",
  "spki",
  "subtle",
@@ -2217,11 +2218,14 @@ dependencies = [
  "sdkwork-agent-business",
  "sdkwork-agent-database",
  "sdkwork-agent-kernel",
+ "sdkwork-agent-plugin-core",
+ "sdkwork-agent-plugin-rig",
  "sdkwork-agent-session",
  "sdkwork-agent-streaming",
  "sdkwork-code-kernel",
  "serde",
  "serde_json",
+ "subtle",
  "tokio",
  "tokio-stream",
  "tower",
@@ -2433,6 +2437,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdkwork-router-agent-internal-api"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "sdkwork-agent-server",
+ "sdkwork-router-agent-http-shared",
+ "sdkwork-web-contract",
+]
+
+[[package]]
 name = "sdkwork-router-agent-open-api"
 version = "0.1.0"
 dependencies = [
@@ -2490,10 +2504,14 @@ dependencies = [
  "async-trait",
  "axum",
  "getrandom 0.2.17",
+ "hmac",
  "http",
+ "rsa",
  "sdkwork-web-contract",
  "serde",
  "serde_json",
+ "sha2",
+ "tokio",
  "tracing",
 ]
 
@@ -3295,7 +3313,9 @@ dependencies = [
  "futures-util",
  "http",
  "http-body",
+ "http-body-util",
  "pin-project-lite",
+ "tokio",
  "tower",
  "tower-layer",
  "tower-service",

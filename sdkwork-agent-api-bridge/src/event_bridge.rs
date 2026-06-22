@@ -1,4 +1,4 @@
-use crate::types::{BridgeEvent, BridgeEventSeverity};
+use crate::types::BridgeEvent;
 use std::collections::HashMap;
 
 /// Manages event recording and retrieval
@@ -59,6 +59,7 @@ impl Default for EventBridge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::BridgeEventSeverity;
 
     #[test]
     fn record_and_get_events() {

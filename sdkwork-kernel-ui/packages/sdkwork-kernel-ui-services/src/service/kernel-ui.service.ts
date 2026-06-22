@@ -16,7 +16,8 @@ import type {
   ToolDescriptorView,
   ToolCallView,
   StreamEventView,
-  EventSubscription
+  EventSubscription,
+  EventSubscriptionOptions
 } from '@sdkwork/kernel-ui-types';
 import { kernelUiMockSnapshot } from './kernel-ui.mock';
 
@@ -308,7 +309,11 @@ export function createMockKernelUiClient(snapshot = kernelUiMockSnapshot): Kerne
     // Streaming
     // =========================================================================
 
-    subscribeEvents(sessionId: string, callback: (event: StreamEventView) => void) {
+    subscribeEvents(
+      sessionId: string,
+      callback: (event: StreamEventView) => void,
+      _options?: EventSubscriptionOptions
+    ) {
       if (!eventCallbacks.has(sessionId)) {
         eventCallbacks.set(sessionId, new Set());
       }

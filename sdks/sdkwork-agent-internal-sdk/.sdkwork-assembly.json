@@ -1,0 +1,45 @@
+{
+  "workspace": "sdkwork-agent-internal-sdk",
+  "title": "SDKWork Agent Internal API",
+  "apiVersion": "0.1.0",
+  "openapiVersion": "3.1.2",
+  "authoritySpec": "openapi/sdkwork-agent-internal-api.openapi.yaml",
+  "generationInputSpec": "openapi/sdkwork-agent-internal-api.sdkgen.yaml",
+  "derivedSpecs": {
+    "default": "openapi/sdkwork-agent-internal-api.sdkgen.yaml"
+  },
+  "apiAuthority": "sdkwork-agent-internal-api",
+  "discoverySurface": {
+    "sdkTarget": "internal",
+    "apiPrefix": "/internal/v3/api",
+    "schemaUrl": "/internal/v3/openapi.json",
+    "generatedProtocols": [
+      "http-openapi"
+    ],
+    "manualTransports": []
+  },
+  "languages": [
+    {
+      "language": "typescript",
+      "workspace": "sdkwork-agent-internal-sdk-typescript",
+      "generationState": "materialized",
+      "releaseState": "not_published",
+      "generatedPath": "sdkwork-agent-internal-sdk-typescript/generated/server-openapi",
+      "manifestPath": "sdkwork-agent-internal-sdk-typescript/generated/server-openapi/package.json",
+      "name": "@sdkwork/agent-internal-sdk",
+      "version": "0.1.0",
+      "description": "Generator-owned TypeScript transport SDK for SDKWork Agent Internal API.",
+      "consumerSurface": {
+        "primaryClient": "SdkworkCustomClient",
+        "apiPrefix": "/internal/v3/api"
+      }
+    }
+  ],
+  "sdkOwner": "sdkwork-kernel",
+  "sdkDependencies": [],
+  "metadata": {
+    "managedBy": "sdks/_shared/agent-sdk-ownership.mjs",
+    "standardVersion": "2026-06-06",
+    "ownerOnlyOperationCount": 18
+  }
+}

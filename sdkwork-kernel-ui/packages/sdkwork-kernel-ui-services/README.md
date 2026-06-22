@@ -1,19 +1,20 @@
 # @sdkwork/kernel-ui-services
 
-Domain: device
-Capability: component
-Package type: node-package
+Domain: device  
+Capability: component  
+Package type: node-package  
 Status: standardizing
 
 This README is the SDKWork module entrypoint for `@sdkwork/kernel-ui-services`. The machine-readable component contract is `specs/component.spec.json`; canonical standards are under `../../../../sdkwork-specs/`.
 
 ## Public API
 
-- `.`
+- `.` — kernel UI client factories, auth providers, and session helpers
 
 ## Required SDK Surface
 
-- None declared in `specs/component.spec.json`.
+- `@sdkwork/agent-internal-sdk` (`sdkwork-agent-internal-sdk` / `sdkwork-agent-internal-api`)
+- Runtime calls use `/internal/v3/api/intelligence/runtime/*` through `createClient()`; do not call `/api/kernel/*` directly.
 
 ## Configuration
 
@@ -25,7 +26,7 @@ This component follows the deployment and runtime rules referenced by its `canon
 
 ## Security
 
-Do not add secrets, live tokens, manual auth headers, or app-local credential handling to this module. Protected API and SDK access must use the generated SDK or approved service boundary declared in the component contract.
+Ingress token auth is applied through the generated internal SDK (`setApiKey`) plus optional `x-sdkwork-tenant-id` / `x-sdkwork-user-id` headers from `KernelUiAuthProvider`. Do not add raw `fetch` clients or hand-built auth headers in UI modules.
 
 ## Extension Points
 

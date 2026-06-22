@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "kind": "sdkwork.component.spec",
+  "component": {
+    "name": "sdkwork-router-agent-internal-api",
+    "displayName": "SDKWork Router Agent Internal API",
+    "version": "0.1.0",
+    "type": "rust-route-crate",
+    "root": "sdkwork-kernel/crates/sdkwork-router-agent-internal-api",
+    "domain": "intelligence",
+    "capability": "agent-server",
+    "languages": ["rust"],
+    "generated": false,
+    "manifests": ["Cargo.toml"],
+    "surface": "internal-api"
+  },
+  "canonicalSpecs": [
+    {
+      "file": "CODE_STYLE_SPEC.md",
+      "path": "../../../sdkwork-specs/CODE_STYLE_SPEC.md",
+      "purpose": "Authored source structure and generated code boundaries."
+    },
+    {
+      "file": "NAMING_SPEC.md",
+      "path": "../../../sdkwork-specs/NAMING_SPEC.md",
+      "purpose": "Canonical SDKWork naming rules."
+    },
+    {
+      "file": "INTERNAL_API_SPEC.md",
+      "path": "../../../sdkwork-specs/INTERNAL_API_SPEC.md",
+      "purpose": "Internal-api HTTP surface, ingress placement, and auth rules."
+    },
+    {
+      "file": "API_SPEC.md",
+      "path": "../../../sdkwork-specs/API_SPEC.md",
+      "purpose": "OpenAPI authority and route manifest rules."
+    },
+    {
+      "file": "RUST_CODE_SPEC.md",
+      "path": "../../../sdkwork-specs/RUST_CODE_SPEC.md",
+      "purpose": "Rust crate rules."
+    },
+    {
+      "file": "AGENT_SERVER_HTTP_SURFACE.md",
+      "path": "../../sdkwork-agent-server/specs/AGENT_SERVER_HTTP_SURFACE.md",
+      "purpose": "Runtime HTTP mount prefixes and legacy alias policy."
+    }
+  ],
+  "contracts": {
+    "publicExports": ["."],
+    "runtimeEntrypoints": [
+      "build_router",
+      "build_legacy_router",
+      "internal_route_manifest",
+      "INTERNAL_RUNTIME_MOUNT_PREFIX",
+      "LEGACY_KERNEL_MOUNT_PREFIX"
+    ],
+    "routeManifest": "apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml",
+    "authMode": "ingress-token",
+    "sdkClients": [],
+    "events": [],
+    "configKeys": [],
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [
+      "sdkwork-agent-internal-api: internal-api"
+    ]
+  },
+  "verification": {
+    "commands": ["cargo test -p sdkwork-router-agent-internal-api"]
+  }
+}

@@ -50,6 +50,12 @@ Root SDKWork standards remain authoritative. Local component specs can narrow or
 
 - No local extension specs are declared yet.
 
+## SDK Integration
+
+- Consumer SDK: `@sdkwork/agent-internal-sdk` (`sdkwork-agent-internal-api`, `internal-api`)
+- Implementation: `src/service/kernel-ui.real.ts` uses `createClient()` from the generated internal SDK
+- Auth: `KernelUiAuthProvider` maps to SDK `setApiKey()` and request context headers
+
 ## Verification
 
 - `pnpm --filter @sdkwork/kernel-ui-services typecheck`

@@ -1,90 +1,94 @@
+use std::sync::Arc;
+
 use sdkwork_agent_kernel::{
-    KernelResult, SideEffectLevel, ToolCall, ToolDescriptor, ToolResult, ToolSchema,
+    AgentRuntime, KernelResult, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor,
+    ToolResult, ToolSchema,
 };
 
 /// Handles tool registration, discovery, and execution
 pub struct ToolBridge {
     tools: Vec<ToolDescriptor>,
+    agent_runtime: Option<Arc<AgentRuntime>>,
+    allow_mock_fallback: bool,
 }
 
 impl ToolBridge {
     pub fn new() -> Self {
-        let tools = vec![
-            ToolDescriptor::new(
-                "tool.bash",
-                "provider.tool.builtin",
-                "bash",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("bash")
-            .with_description("Execute shell commands")
-            .with_input_schema(ToolSchema::json_schema("bash_input"))
-            .with_policy_categories(vec!["host.process.execute".to_string()])
-            .with_timeout_ms(30000),
-            ToolDescriptor::new(
-                "tool.read_file",
-                "provider.tool.builtin",
-                "read_file",
-                SideEffectLevel::ReadOnly,
-            )
-            .with_name("read_file")
-            .with_description("Read file contents")
-            .with_input_schema(ToolSchema::json_schema("read_file_input")),
-            ToolDescriptor::new(
-                "tool.write_file",
-                "provider.tool.builtin",
-                "write_file",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("write_file")
-            .with_description("Write file contents")
-            .with_input_schema(ToolSchema::json_schema("write_file_input"))
-            .with_policy_categories(vec!["host.filesystem.write".to_string()]),
-            ToolDescriptor::new(
-                "tool.list_dir",
-                "provider.tool.builtin",
-                "list_dir",
-                SideEffectLevel::ReadOnly,
-            )
-            .with_name("list_dir")
-            .with_description("List directory contents")
-            .with_input_schema(ToolSchema::json_schema("list_dir_input")),
-            ToolDescriptor::new(
-                "tool.search",
-                "provider.tool.builtin",
-                "search",
-                SideEffectLevel::ReadOnly,
-            )
-            .with_name("search")
-            .with_description("Search files by pattern")
-            .with_input_schema(ToolSchema::json_schema("search_input")),
-        ];
+        Self {
+            tools: builtin_tools(),
+            agent_runtime: None,
+            allow_mock_fallback: true,
+        }
+    }
 
-        Self { tools }
+    pub fn with_agent_runtime(agent_runtime: Arc<AgentRuntime>, allow_mock_fallback: bool) -> Self {
+        Self {
+            tools: builtin_tools(),
+            agent_runtime: Some(agent_runtime),
+            allow_mock_fallback,
+        }
     }
 
     /// List all available tools
     pub fn list_tools(&self) -> KernelResult<Vec<ToolDescriptor>> {
-        Ok(self.tools.clone())
+        let mut tools = self.tools.clone();
+        if let Some(runtime) = &self.agent_runtime {
+            if let Ok(provider) = runtime.tool_provider() {
+                for descriptor in provider.list_tools() {
+                    let duplicate = tools.iter().any(|existing| {
+                        existing.tool_id == descriptor.tool_id
+                            || existing.name == descriptor.name
+                    });
+                    if !duplicate {
+                        tools.push(descriptor);
+                    }
+                }
+            }
+        }
+        Ok(tools)
     }
 
     /// Get a tool descriptor by name
     pub fn get_tool(&self, tool_name: &str) -> KernelResult<ToolDescriptor> {
-        self.tools
-            .iter()
-            .find(|t| t.name.as_deref() == Some(tool_name))
-            .cloned()
-            .ok_or_else(|| {
-                sdkwork_agent_kernel::KernelError::validation(format!(
-                    "tool not found: {}",
-                    tool_name
-                ))
-            })
+        if let Ok(tools) = self.list_tools() {
+            if let Some(tool) = tools
+                .into_iter()
+                .find(|tool| tool.name.as_deref() == Some(tool_name))
+            {
+                return Ok(tool);
+            }
+        }
+
+        Err(sdkwork_agent_kernel::KernelError::validation(format!(
+            "tool not found: {tool_name}"
+        )))
     }
 
-    /// Execute a tool call (mock implementation)
+    /// Execute a tool call through typed providers with optional mock fallback.
     pub fn execute(&self, call: &ToolCall) -> KernelResult<ToolResult> {
-        // Mock implementation - in production this would execute the actual tool
+        if let Some(runtime) = &self.agent_runtime {
+            if let Ok(provider) = runtime.tool_provider() {
+                let result = provider.invoke_tool(call.clone())?;
+                if result.normalized_status == ToolCallStatus::Succeeded
+                    || !self.allow_mock_fallback
+                {
+                    return Ok(result);
+                }
+            }
+        }
+
+        self.execute_mock(call)
+    }
+
+    /// Check if a tool requires policy approval
+    pub fn requires_policy(&self, tool_name: &str) -> bool {
+        self.get_tool(tool_name)
+            .ok()
+            .map(|tool| !tool.policy_categories.is_empty())
+            .unwrap_or(false)
+    }
+
+    fn execute_mock(&self, call: &ToolCall) -> KernelResult<ToolResult> {
         let output = match call.tool_id.as_str() {
             "bash" => format!("$ {}\nCommand executed successfully.", call.arguments),
             "read_file" => "File contents would appear here.".to_string(),
@@ -96,15 +100,59 @@ impl ToolBridge {
 
         Ok(ToolResult::succeeded(&call.tool_call_id, &output).with_duration_ms(100))
     }
+}
 
-    /// Check if a tool requires policy approval
-    pub fn requires_policy(&self, tool_name: &str) -> bool {
-        self.tools
-            .iter()
-            .find(|t| t.name.as_deref() == Some(tool_name))
-            .map(|t| !t.policy_categories.is_empty())
-            .unwrap_or(false)
-    }
+fn builtin_tools() -> Vec<ToolDescriptor> {
+    vec![
+        ToolDescriptor::new(
+            "tool.bash",
+            "provider.tool.builtin",
+            "bash",
+            SideEffectLevel::SideEffectful,
+        )
+        .with_name("bash")
+        .with_description("Execute shell commands")
+        .with_input_schema(ToolSchema::json_schema("bash_input"))
+        .with_policy_categories(vec!["host.process.execute".to_string()])
+        .with_timeout_ms(30000),
+        ToolDescriptor::new(
+            "tool.read_file",
+            "provider.tool.builtin",
+            "read_file",
+            SideEffectLevel::ReadOnly,
+        )
+        .with_name("read_file")
+        .with_description("Read file contents")
+        .with_input_schema(ToolSchema::json_schema("read_file_input")),
+        ToolDescriptor::new(
+            "tool.write_file",
+            "provider.tool.builtin",
+            "write_file",
+            SideEffectLevel::SideEffectful,
+        )
+        .with_name("write_file")
+        .with_description("Write file contents")
+        .with_input_schema(ToolSchema::json_schema("write_file_input"))
+        .with_policy_categories(vec!["host.filesystem.write".to_string()]),
+        ToolDescriptor::new(
+            "tool.list_dir",
+            "provider.tool.builtin",
+            "list_dir",
+            SideEffectLevel::ReadOnly,
+        )
+        .with_name("list_dir")
+        .with_description("List directory contents")
+        .with_input_schema(ToolSchema::json_schema("list_dir_input")),
+        ToolDescriptor::new(
+            "tool.search",
+            "provider.tool.builtin",
+            "search",
+            SideEffectLevel::ReadOnly,
+        )
+        .with_name("search")
+        .with_description("Search files by pattern")
+        .with_input_schema(ToolSchema::json_schema("search_input")),
+    ]
 }
 
 impl Default for ToolBridge {

@@ -131,6 +131,7 @@ export const requiredStandardsEvidenceFiles = [
       'crates/sdkwork-router-agent-open-api',
       'crates/sdkwork-router-agent-app-api',
       'crates/sdkwork-router-agent-backend-api',
+      'crates/sdkwork-router-agent-internal-api',
       '## Verification'
     ]
   },

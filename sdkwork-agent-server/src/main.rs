@@ -3,7 +3,7 @@ use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use sdkwork_agent_server::{
-    api::{chat, kernel, sse},
+    api::kernel,
     app,
     config::ServerConfig,
     health,
@@ -34,16 +34,15 @@ async fn main() -> anyhow::Result<()> {
 
     let health_state = Arc::new(health::HealthState::new());
     let persistence = Arc::new(PersistenceState::open(&config.database_path)?);
-    let chat_state = Arc::new(chat::ChatState::new());
-    let sse_state = Arc::new(sse::SseState::new());
-    let kernel_state = Arc::new(kernel::KernelApiState::new(persistence.clone()));
+    let kernel_state = Arc::new(kernel::KernelApiState::new(
+        persistence.clone(),
+        config.clone(),
+    ));
 
     let app = app::build_app(
         config.clone(),
         health_state,
         persistence,
-        chat_state,
-        sse_state,
         kernel_state,
     );
 
@@ -51,7 +50,8 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
 
     info!("Server listening on {}", bind_addr);
-    info!("Kernel UI API: /api/kernel/*");
+    info!("Internal runtime API: /internal/v3/api/intelligence/runtime/*");
+    info!("Legacy kernel UI alias: /api/kernel/*");
     info!("Legacy session API: /api/sessions/*");
 
     axum::serve(listener, app)

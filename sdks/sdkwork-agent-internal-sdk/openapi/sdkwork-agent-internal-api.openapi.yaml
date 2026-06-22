@@ -1,0 +1,719 @@
+openapi: 3.1.2
+info:
+  title: SDKWork Agent Internal API
+  version: 0.1.0
+  description: Application-ingress internal runtime API for SDKWork agent kernel UI and trusted in-app automation.
+x-sdkwork-owner: sdkwork-kernel
+x-sdkwork-api-authority: sdkwork-agent-internal-api
+x-sdkwork-sdk-family: sdkwork-agent-internal-sdk
+x-sdkwork-owner-only-input: true
+x-sdkwork-standard-version: '2026-06-06'
+servers:
+  - url: http://127.0.0.1:18280
+tags:
+  - name: intelligence
+    description: Agent intelligence runtime operations on application ingress.
+paths:
+  /internal/v3/api/intelligence/runtime/snapshot:
+    get:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Load kernel UI aggregate snapshot
+      operationId: runtime.snapshot.load
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      responses:
+        '200':
+          description: Kernel UI snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KernelUiSnapshot'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/permissions/{permissionRequestId}:
+    post:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Decide a permission request
+      operationId: runtime.permissions.decide
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/PermissionRequestIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PermissionDecisionRequest'
+      responses:
+        '200':
+          description: Updated permission request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PermissionRequest'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/sessions:
+    get:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: List runtime sessions
+      operationId: runtime.sessions.list
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      responses:
+        '200':
+          description: Session list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionListResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+    post:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Create a runtime session
+      operationId: runtime.sessions.create
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionRequest'
+      responses:
+        '201':
+          description: Created session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/sessions/{sessionId}:
+    get:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Retrieve a runtime session
+      operationId: runtime.sessions.retrieve
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      responses:
+        '200':
+          description: Session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+    delete:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Delete a runtime session
+      operationId: runtime.sessions.delete
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      responses:
+        '204':
+          description: Session deleted
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/sessions/{sessionId}/close:
+    post:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Close a runtime session
+      operationId: runtime.sessions.close
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      responses:
+        '200':
+          description: Closed session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/sessions/{sessionId}/messages:
+    get:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: List session messages
+      operationId: runtime.sessions.messages.list
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/MessageLimitQuery'
+        - $ref: '#/components/parameters/MessageOffsetQuery'
+      responses:
+        '200':
+          description: Message list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageListResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+    post:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Send a session message
+      operationId: runtime.sessions.messages.send
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '201':
+          description: Message accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/sessions/{sessionId}/tasks:
+    get:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: List session tasks
+      operationId: runtime.sessions.tasks.list
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      responses:
+        '200':
+          description: Task list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskListResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+    post:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Submit a session task
+      operationId: runtime.sessions.tasks.submit
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitTaskRequest'
+      responses:
+        '201':
+          description: Task created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/tasks/{taskId}:
+    get:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Retrieve a task
+      operationId: runtime.tasks.retrieve
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/TaskIdPath'
+      responses:
+        '200':
+          description: Task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/tasks/{taskId}/cancel:
+    post:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Cancel a task
+      operationId: runtime.tasks.cancel
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/TaskIdPath'
+      responses:
+        '200':
+          description: Cancelled task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/models:
+    get:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: List available models
+      operationId: runtime.models.list
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      responses:
+        '200':
+          description: Model catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelListResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/sessions/{sessionId}/model/invoke:
+    post:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Invoke a model for a session
+      operationId: runtime.sessions.model.invoke
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvokeModelRequest'
+      responses:
+        '200':
+          description: Model invocation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvokeModelResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/sessions/{sessionId}/tools:
+    get:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: List session tools
+      operationId: runtime.sessions.tools.list
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+      responses:
+        '200':
+          description: Tool catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ToolListResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/sessions/{sessionId}/tools/{toolName}/execute:
+    post:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Execute a tool for a session
+      operationId: runtime.sessions.tools.execute
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/ToolNamePath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteToolRequest'
+      responses:
+        '200':
+          description: Tool execution result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecuteToolResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/sessions/{sessionId}/events/stream:
+    get:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Stream session events
+      operationId: runtime.sessions.events.stream
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/LastEventIdQuery'
+        - $ref: '#/components/parameters/LiveQuery'
+      responses:
+        '200':
+          description: Server-sent events stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        default:
+          $ref: '#/components/responses/Problem'
+components:
+  securitySchemes:
+    ApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Application ingress token. Runtime also accepts Authorization Bearer and x-sdkwork-access-token.
+  parameters:
+    SessionIdPath:
+      name: sessionId
+      in: path
+      required: true
+      schema:
+        type: string
+    TaskIdPath:
+      name: taskId
+      in: path
+      required: true
+      schema:
+        type: string
+    ToolNamePath:
+      name: toolName
+      in: path
+      required: true
+      schema:
+        type: string
+    PermissionRequestIdPath:
+      name: permissionRequestId
+      in: path
+      required: true
+      schema:
+        type: string
+    LastEventIdQuery:
+      name: lastEventId
+      in: query
+      required: false
+      schema:
+        type: string
+    LiveQuery:
+      name: live
+      in: query
+      required: false
+      schema:
+        type: boolean
+    MessageLimitQuery:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+    MessageOffsetQuery:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+  responses:
+    Problem:
+      description: RFC 9457 problem detail response
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+  schemas:
+    ProblemDetail:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        code:
+          type: string
+        errorCategory:
+          type: string
+        retryable:
+          type: boolean
+    KernelUiSnapshot:
+      type: object
+      additionalProperties: true
+    PermissionDecisionRequest:
+      type: object
+      required: [decision]
+      properties:
+        decision:
+          type: string
+    PermissionRequest:
+      type: object
+      additionalProperties: true
+    CreateSessionRequest:
+      type: object
+      required: [agentId]
+      properties:
+        agentId:
+          type: string
+        tenantId:
+          type: string
+        userRef:
+          type: string
+        model:
+          type: string
+        modelProvider:
+          type: string
+        title:
+          type: string
+        goal:
+          type: string
+        instructions:
+          type: string
+        cwd:
+          type: string
+        workspaceRoots:
+          type: array
+          items:
+            type: string
+        source:
+          type: string
+        kind:
+          type: string
+        timeoutMs:
+          type: integer
+          minimum: 0
+          description: Session timeout in milliseconds.
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+    SessionResponse:
+      type: object
+      additionalProperties: true
+    SessionListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionResponse'
+    SendMessageRequest:
+      type: object
+      required: [content]
+      properties:
+        content:
+          type: string
+    MessageResponse:
+      type: object
+      additionalProperties: true
+    MessageListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessageResponse'
+    SubmitTaskRequest:
+      type: object
+      required: [instruction]
+      properties:
+        instruction:
+          type: string
+    TaskResponse:
+      type: object
+      additionalProperties: true
+    TaskListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskResponse'
+    ModelListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    InvokeModelRequest:
+      type: object
+      properties:
+        modelId:
+          type: string
+    InvokeModelResponse:
+      type: object
+      additionalProperties: true
+    ToolListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    ExecuteToolRequest:
+      type: object
+      required: [input]
+      properties:
+        input:
+          type: string
+    ExecuteToolResponse:
+      type: object
+      additionalProperties: true

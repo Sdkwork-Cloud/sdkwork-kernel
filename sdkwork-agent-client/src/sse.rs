@@ -1,3 +1,4 @@
+use crate::{AgentAuth, AgentAuthType};
 use crate::chat::ChatClient;
 use crate::types::*;
 use reqwest::Client;
@@ -6,13 +7,43 @@ use reqwest::Client;
 pub struct SseChatClient {
     base_url: String,
     client: Client,
+    auth: Option<AgentAuth>,
 }
 
 impl SseChatClient {
     pub fn new(base_url: impl Into<String>) -> Self {
+        Self::with_auth(base_url, None)
+    }
+
+    pub fn with_auth(base_url: impl Into<String>, auth: Option<AgentAuth>) -> Self {
         Self {
             base_url: base_url.into(),
             client: Client::new(),
+            auth,
+        }
+    }
+
+    fn apply_auth(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        let Some(auth) = &self.auth else {
+            return builder;
+        };
+
+        match auth.auth_type {
+            AgentAuthType::ApiKey => {
+                if let Some(token) = auth.credentials.get("api_key") {
+                    builder.header("x-sdkwork-access-token", token)
+                } else {
+                    builder
+                }
+            }
+            AgentAuthType::BearerToken => {
+                if let Some(token) = auth.credentials.get("token") {
+                    builder.header("Authorization", format!("Bearer {token}"))
+                } else {
+                    builder
+                }
+            }
+            AgentAuthType::BasicAuth | AgentAuthType::OAuth2 => builder,
         }
     }
 
@@ -21,8 +52,7 @@ impl SseChatClient {
         let url = format!("{}/api/chat/send", self.base_url);
 
         let response = self
-            .client
-            .post(&url)
+            .apply_auth(self.client.post(&url))
             .json(&request)
             .send()
             .await
@@ -50,8 +80,7 @@ impl SseChatClient {
         }
 
         let response = self
-            .client
-            .get(&url)
+            .apply_auth(self.client.get(&url))
             .send()
             .await
             .map_err(|e| format!("request failed: {}", e))?;
@@ -70,8 +99,7 @@ impl SseChatClient {
     pub async fn create_session_async(&self, config: SessionConfig) -> Result<SessionInfo, String> {
         let url = format!("{}/api/sessions", self.base_url);
         let response = self
-            .client
-            .post(&url)
+            .apply_auth(self.client.post(&url))
             .json(&config)
             .send()
             .await
@@ -91,8 +119,7 @@ impl SseChatClient {
     pub async fn close_session_async(&self, session_id: &str) -> Result<(), String> {
         let url = format!("{}/api/sessions/{}/close", self.base_url, session_id);
         let response = self
-            .client
-            .post(&url)
+            .apply_auth(self.client.post(&url))
             .send()
             .await
             .map_err(|e| format!("request failed: {}", e))?;

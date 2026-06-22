@@ -68,12 +68,13 @@ for (const family of families) {
   );
   ensureFile(path.relative(root, authorityPath));
   ensureFile(path.relative(root, sdkgenPath));
+  const generatedApiModule = family.key === 'internal' ? 'intelligence' : 'ai';
   const generatedApiPath = path.join(
     packageRoot,
     SDKWORK_SDKGEN_STANDARD.generatedOutput,
     'src',
     'api',
-    'ai.ts'
+    `${generatedApiModule}.ts`
   );
   ensureFile(path.relative(root, generatedApiPath));
 

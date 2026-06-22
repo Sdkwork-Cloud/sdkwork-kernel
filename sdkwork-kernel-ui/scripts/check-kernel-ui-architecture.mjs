@@ -107,6 +107,26 @@ for (const packageDir of expectedPackages) {
       }
     }
   }
+
+  if (packageDir === 'sdkwork-kernel-ui-services') {
+    const deps = packageJson.dependencies ?? {};
+    if (!deps['@sdkwork/agent-internal-sdk']) {
+      errors.push('sdkwork-kernel-ui-services must depend on @sdkwork/agent-internal-sdk');
+    }
+    const realClientPath = path.join(srcDir, 'service', 'kernel-ui.real.ts');
+    if (fs.existsSync(realClientPath)) {
+      const realClientSource = fs.readFileSync(realClientPath, 'utf8');
+      if (!/@sdkwork\/agent-internal-sdk/.test(realClientSource)) {
+        errors.push('kernel-ui.real.ts must import @sdkwork/agent-internal-sdk');
+      }
+      if (/\/api\/kernel\//.test(realClientSource)) {
+        errors.push('kernel-ui.real.ts must not call legacy /api/kernel paths directly');
+      }
+      if (/new EventSource\(/.test(realClientSource)) {
+        errors.push('kernel-ui.real.ts must not use browser EventSource without auth headers');
+      }
+    }
+  }
 }
 
 for (const filePath of listSourceFiles(path.join(root, 'src')).concat(listSourceFiles(packagesRoot))) {

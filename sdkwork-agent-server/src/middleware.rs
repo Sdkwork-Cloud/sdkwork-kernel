@@ -4,7 +4,10 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
+use subtle::ConstantTimeEq;
 use tracing::{info, warn};
 
 use crate::config::ServerConfig;
@@ -45,9 +48,20 @@ fn generate_request_id() -> String {
     format!("{:x}", nanos)
 }
 
+/// Attach request context for downstream handlers and logging.
+pub async fn request_context_middleware(mut request: Request, next: Next) -> Response {
+    let ctx = RequestContext::from_headers(request.headers());
+    request.extensions_mut().insert(ctx);
+    next.run(request).await
+}
+
 /// Logging middleware
 pub async fn logging_middleware(request: Request, next: Next) -> Response {
-    let ctx = RequestContext::from_headers(request.headers());
+    let ctx = request
+        .extensions()
+        .get::<RequestContext>()
+        .cloned()
+        .unwrap_or_else(|| RequestContext::from_headers(request.headers()));
     let method = request.method().clone();
     let uri = request.uri().clone();
     let start = std::time::Instant::now();
@@ -116,9 +130,18 @@ pub async fn ingress_auth_middleware(
 
 fn authorize_request(headers: &HeaderMap, expected: &str) -> bool {
     if let Some(token) = bearer_token(headers) {
-        return token == expected;
+        return constant_time_eq(&token, expected);
     }
-    extract_header(headers, "x-sdkwork-access-token").as_deref() == Some(expected)
+    if let Some(token) = extract_header(headers, "x-api-key") {
+        return constant_time_eq(&token, expected);
+    }
+    extract_header(headers, "x-sdkwork-access-token")
+        .map(|token| constant_time_eq(&token, expected))
+        .unwrap_or(false)
+}
+
+fn constant_time_eq(left: &str, right: &str) -> bool {
+    left.as_bytes().ct_eq(right.as_bytes()).into()
 }
 
 fn bearer_token(headers: &HeaderMap) -> Option<String> {
@@ -127,6 +150,100 @@ fn bearer_token(headers: &HeaderMap) -> Option<String> {
     value
         .strip_prefix(prefix)
         .map(|token| token.trim().to_string())
+}
+
+#[derive(Debug)]
+struct RateBucket {
+    tokens: f64,
+    last_refill: Instant,
+}
+
+/// Shared token-bucket rate limiter keyed by tenant/user or client address.
+#[derive(Debug, Clone)]
+pub struct RateLimitState {
+    rps: u32,
+    burst: u32,
+    buckets: Arc<Mutex<HashMap<String, RateBucket>>>,
+}
+
+impl RateLimitState {
+    pub fn from_config(config: &ServerConfig) -> Self {
+        Self {
+            rps: config.rate_limit_rps,
+            burst: config.rate_limit_burst.max(1),
+            buckets: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.rps > 0
+    }
+
+    pub fn try_acquire(&self, key: &str) -> bool {
+        if !self.is_enabled() {
+            return true;
+        }
+
+        let mut buckets = self
+            .buckets
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let now = Instant::now();
+        let bucket = buckets.entry(key.to_string()).or_insert(RateBucket {
+            tokens: f64::from(self.burst),
+            last_refill: now,
+        });
+
+        let elapsed = now.duration_since(bucket.last_refill).as_secs_f64();
+        bucket.tokens = (bucket.tokens + elapsed * f64::from(self.rps)).min(f64::from(self.burst));
+        bucket.last_refill = now;
+
+        if bucket.tokens >= 1.0 {
+            bucket.tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+fn rate_limit_key(headers: &HeaderMap, ctx: Option<&RequestContext>) -> String {
+    if let Some(ctx) = ctx {
+        if let (Some(tenant), Some(user)) = (&ctx.tenant_id, &ctx.user_id) {
+            return format!("{tenant}:{user}");
+        }
+        if let Some(tenant) = &ctx.tenant_id {
+            return format!("tenant:{tenant}");
+        }
+    }
+
+    extract_header(headers, "x-forwarded-for")
+        .or_else(|| extract_header(headers, "x-real-ip"))
+        .unwrap_or_else(|| "global".to_string())
+}
+
+/// Reject excess ingress traffic before handlers run.
+pub async fn rate_limit_middleware(
+    State(rate_limit): State<Arc<RateLimitState>>,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    if !rate_limit.is_enabled() {
+        return Ok(next.run(request).await);
+    }
+
+    let path = request.uri().path();
+    if path == "/health" || path == "/ready" || path == "/live" {
+        return Ok(next.run(request).await);
+    }
+
+    let ctx = request.extensions().get::<RequestContext>().cloned();
+    let key = rate_limit_key(request.headers(), ctx.as_ref());
+    if rate_limit.try_acquire(&key) {
+        Ok(next.run(request).await)
+    } else {
+        Err(StatusCode::TOO_MANY_REQUESTS)
+    }
 }
 
 /// Build CORS layer from server configuration.
@@ -190,5 +307,17 @@ mod tests {
             HeaderValue::from_static("Bearer secret-token"),
         );
         assert_eq!(bearer_token(&headers), Some("secret-token".to_string()));
+    }
+
+    #[test]
+    fn rate_limit_rejects_when_burst_exhausted() {
+        let state = RateLimitState {
+            rps: 1,
+            burst: 1,
+            buckets: Arc::new(Mutex::new(HashMap::new())),
+        };
+        assert!(state.try_acquire("client.1"));
+        assert!(!state.try_acquire("client.1"));
+        assert!(state.try_acquire("client.2"));
     }
 }

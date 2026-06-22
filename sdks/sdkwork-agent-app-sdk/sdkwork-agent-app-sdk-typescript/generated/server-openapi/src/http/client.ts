@@ -239,8 +239,8 @@ export class HttpClient extends BaseHttpClient {
     const { body, headers, contentType, method = 'GET', skipAuth, ...rest } = options;
     const requestHeaders = skipAuth ? headers : this.applySdkworkAuthHeaders(headers);
     return withRetry(
-      () => execute.call(this, { 
-        url: path, 
+      () => execute.call(this, {
+        url: path,
         method,
         ...rest,
         skipAuth,

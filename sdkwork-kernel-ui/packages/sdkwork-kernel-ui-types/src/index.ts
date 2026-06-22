@@ -273,6 +273,13 @@ export type EventSubscription = {
   unsubscribe: () => void;
 };
 
+export interface EventSubscriptionOptions {
+  lastEventId?: string;
+  /** When false, replay buffered events only (no live tail). Defaults to server default (live). */
+  live?: boolean;
+  onError?: (error: Error) => void;
+}
+
 // ============================================================================
 // Snapshot
 // ============================================================================
@@ -327,7 +334,11 @@ export interface KernelUiClient {
   executeTool(sessionId: string, toolName: string, args: string): Promise<ToolCallView>;
 
   // Streaming
-  subscribeEvents(sessionId: string, callback: (event: StreamEventView) => void): EventSubscription;
+  subscribeEvents(
+    sessionId: string,
+    callback: (event: StreamEventView) => void,
+    options?: EventSubscriptionOptions
+  ): EventSubscription;
 }
 
 export type { KernelUiAuthProvider, KernelUiAuthSession } from './auth/kernel-ui-auth.types';

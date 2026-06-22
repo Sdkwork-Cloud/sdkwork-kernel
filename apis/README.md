@@ -15,6 +15,7 @@ Related specs: `../sdkwork-specs/SDKWORK_WORKSPACE_SPEC.md`, `../sdkwork-specs/A
 | Index | Owner component | Surfaces |
 | --- | --- | --- |
 | [`agent-business/authority-index.json`](./agent-business/authority-index.json) | `sdkwork-agent-business` | `open-api`, `app-api`, `backend-api` |
+| [`internal-api/authority-index.json`](./internal-api/authority-index.json) | `sdkwork-agent-server` / `sdkwork-kernel-ui` | `internal-api` |
 
 Component-local OpenAPI files remain authoritative on disk under `sdkwork-agent-business/specs/openapi/` until route crates are extracted per `docs/architecture/decisions/ADR-20260618-platform-framework-adoption.md`.
 

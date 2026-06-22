@@ -194,7 +194,9 @@ export function buildAgentComponentSpec(family) {
     },
     verification: {
       commands: [
-        'node sdks/materialize-agent-v3-openapi-boundaries.mjs',
+        family.key === 'internal'
+          ? 'node sdks/materialize-agent-internal-api-openapi.mjs'
+          : 'node sdks/materialize-agent-v3-openapi-boundaries.mjs',
         `node sdks/${family.familyDir}/bin/verify-sdk.mjs`,
         'node sdks/test/verify-agent-sdk-ownership-boundaries.test.mjs',
         'node scripts/check-agent-sdk-workspace.mjs'
@@ -306,6 +308,8 @@ function schemaUrlFor(family) {
       return '/app/v3/openapi.json';
     case 'backend':
       return '/backend/v3/openapi.json';
+    case 'internal':
+      return '/internal/v3/openapi.json';
     default:
       return `${family.apiPrefix}/openapi.json`;
   }
@@ -319,6 +323,8 @@ function primaryClientFor(family) {
       return 'SdkworkAppClient';
     case 'backend':
       return 'SdkworkBackendClient';
+    case 'internal':
+      return 'SdkworkCustomClient';
     default:
       return 'SdkworkClient';
   }
@@ -328,11 +334,13 @@ function componentSurfaceFor(family) {
   switch (family.sdkSurface) {
     case 'open':
     case 'custom':
-      return 'open-api';
+      return family.key === 'internal' ? 'internal-api' : 'open-api';
     case 'app':
       return 'app-api';
     case 'backend':
       return 'backend-admin';
+    case 'internal':
+      return 'internal-api';
     default:
       return 'open-api';
   }

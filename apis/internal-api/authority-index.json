@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "owner": "sdkwork-kernel",
+  "domain": "agent",
+  "surfaces": [
+    {
+      "surface": "internal-api",
+      "authority": "sdkwork-agent-internal-api",
+      "authoringPath": "apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml",
+      "sdkFamily": "sdkwork-agent-internal-sdk",
+      "apiPrefix": "/internal/v3/api",
+      "ingress": "application.public-ingress"
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { createClient, type SdkworkCustomClient } from '@sdkwork/agent-internal-sdk';
 import type {
   KernelUiClient,
   KernelUiSnapshot,
@@ -13,206 +14,189 @@ import type {
   ToolDescriptorView,
   ToolCallView,
   StreamEventView,
-  EventSubscription
+  EventSubscription,
+  EventSubscriptionOptions
 } from '@sdkwork/kernel-ui-types';
-import { buildKernelUiAuthHeaders } from './kernel-ui-auth.provider';
 
 export interface KernelUiClientConfig {
   baseUrl: string;
-  fetch?: typeof globalThis.fetch;
   auth?: KernelUiAuthProvider;
 }
 
 export function createKernelUiClient(config: KernelUiClientConfig): KernelUiClient {
-  return new HttpKernelUiClient(config);
+  return new InternalSdkKernelUiClient(config);
 }
 
-class HttpKernelUiClient implements KernelUiClient {
+function asKernelView<T>(value: unknown): T {
+  return value as T;
+}
+
+class InternalSdkKernelUiClient implements KernelUiClient {
   constructor(private config: KernelUiClientConfig) {}
 
-  // =========================================================================
-  // Existing
-  // =========================================================================
-
   async loadSnapshot(): Promise<KernelUiSnapshot> {
-    const response = await this.request('GET', '/api/kernel/snapshot');
-    return response as KernelUiSnapshot;
+    const client = await this.buildSdk();
+    return asKernelView<KernelUiSnapshot>(await client.intelligence.runtime.snapshot.load());
   }
 
   async decidePermission(
     permissionRequestId: string,
     decision: PermissionDecisionValue
   ): Promise<PermissionRequestView> {
-    const response = await this.request(
-      'POST',
-      `/api/kernel/permissions/${encodeURIComponent(permissionRequestId)}`,
-      { decision }
+    const client = await this.buildSdk();
+    return asKernelView<PermissionRequestView>(
+      await client.intelligence.runtime.permissions.decide(permissionRequestId, {
+        decision
+      })
     );
-    return response as PermissionRequestView;
   }
 
-  // =========================================================================
-  // Session management
-  // =========================================================================
-
   async createSession(config: SessionConfig): Promise<SessionView> {
-    const response = await this.request('POST', '/api/kernel/sessions', config);
-    return response as SessionView;
+    const client = await this.buildSdk();
+    return asKernelView<SessionView>(
+      await client.intelligence.runtime.sessions.create({
+      agentId: config.agentId,
+      tenantId: config.tenantId,
+      userRef: config.userRef,
+      model: config.model,
+      modelProvider: config.modelProvider,
+      title: config.title,
+      goal: config.goal,
+      instructions: config.instructions,
+      cwd: config.cwd,
+      workspaceRoots: config.workspaceRoots,
+      source: config.source,
+      kind: config.kind,
+      timeoutMs: config.timeoutMs,
+      metadata: config.metadata
+      })
+    );
   }
 
   async getSession(sessionId: string): Promise<SessionView> {
-    const response = await this.request('GET', `/api/kernel/sessions/${encodeURIComponent(sessionId)}`);
-    return response as SessionView;
+    const client = await this.buildSdk();
+    return asKernelView<SessionView>(
+      await client.intelligence.runtime.sessions.retrieve(sessionId)
+    );
   }
 
   async listSessions(): Promise<SessionView[]> {
-    const response = await this.request('GET', '/api/kernel/sessions');
-    return response as SessionView[];
+    const client = await this.buildSdk();
+    const response = await client.intelligence.runtime.sessions.list();
+    return asKernelView<SessionView[]>(response.items ?? []);
   }
 
   async closeSession(sessionId: string): Promise<SessionView> {
-    const response = await this.request('POST', `/api/kernel/sessions/${encodeURIComponent(sessionId)}/close`);
-    return response as SessionView;
+    const client = await this.buildSdk();
+    return asKernelView<SessionView>(
+      await client.intelligence.runtime.sessions.close(sessionId)
+    );
   }
 
   async deleteSession(sessionId: string): Promise<void> {
-    await this.request('DELETE', `/api/kernel/sessions/${encodeURIComponent(sessionId)}`);
+    const client = await this.buildSdk();
+    await client.intelligence.runtime.sessions.delete(sessionId);
   }
 
-  // =========================================================================
-  // Message operations
-  // =========================================================================
-
   async sendMessage(sessionId: string, content: string): Promise<MessageView> {
-    const response = await this.request(
-      'POST',
-      `/api/kernel/sessions/${encodeURIComponent(sessionId)}/messages`,
-      { content }
+    const client = await this.buildSdk();
+    return asKernelView<MessageView>(
+      await client.intelligence.runtime.sessions.messages.send(sessionId, {
+        content
+      })
     );
-    return response as MessageView;
   }
 
   async getMessages(sessionId: string, limit?: number, offset?: number): Promise<MessageView[]> {
-    const params = new URLSearchParams();
-    if (limit !== undefined) params.set('limit', String(limit));
-    if (offset !== undefined) params.set('offset', String(offset));
-    const query = params.toString() ? `?${params.toString()}` : '';
-
-    const response = await this.request(
-      'GET',
-      `/api/kernel/sessions/${encodeURIComponent(sessionId)}/messages${query}`
-    );
-    return response as MessageView[];
+    const client = await this.buildSdk();
+    const response = await client.intelligence.runtime.sessions.messages.list(sessionId, {
+      limit,
+      offset
+    });
+    return asKernelView<MessageView[]>(response.items ?? []);
   }
 
-  // =========================================================================
-  // Task operations
-  // =========================================================================
-
   async submitTask(sessionId: string, instruction: string): Promise<TaskView> {
-    const response = await this.request(
-      'POST',
-      `/api/kernel/sessions/${encodeURIComponent(sessionId)}/tasks`,
-      { instruction }
+    const client = await this.buildSdk();
+    return asKernelView<TaskView>(
+      await client.intelligence.runtime.sessions.tasks.submit(sessionId, {
+        instruction
+      })
     );
-    return response as TaskView;
   }
 
   async getTask(taskId: string): Promise<TaskView> {
-    const response = await this.request('GET', `/api/kernel/tasks/${encodeURIComponent(taskId)}`);
-    return response as TaskView;
+    const client = await this.buildSdk();
+    return asKernelView<TaskView>(await client.intelligence.runtime.tasks.retrieve(taskId));
   }
 
   async listTasks(sessionId: string): Promise<TaskView[]> {
-    const response = await this.request(
-      'GET',
-      `/api/kernel/sessions/${encodeURIComponent(sessionId)}/tasks`
-    );
-    return response as TaskView[];
+    const client = await this.buildSdk();
+    const response = await client.intelligence.runtime.sessions.tasks.list(sessionId);
+    return asKernelView<TaskView[]>(response.items ?? []);
   }
 
   async cancelTask(taskId: string): Promise<TaskView> {
-    const response = await this.request(
-      'POST',
-      `/api/kernel/tasks/${encodeURIComponent(taskId)}/cancel`
-    );
-    return response as TaskView;
+    const client = await this.buildSdk();
+    return asKernelView<TaskView>(await client.intelligence.runtime.tasks.cancel(taskId));
   }
 
-  // =========================================================================
-  // Model operations
-  // =========================================================================
-
   async listModels(): Promise<ModelDescriptorView[]> {
-    const response = await this.request('GET', '/api/kernel/models');
-    return response as ModelDescriptorView[];
+    const client = await this.buildSdk();
+    const response = await client.intelligence.runtime.models.list();
+    return (response.items ?? []).map((row) => mapModelDescriptor(row));
   }
 
   async invokeModel(sessionId: string, modelId?: string): Promise<ModelResponseView> {
-    const response = await this.request(
-      'POST',
-      `/api/kernel/sessions/${encodeURIComponent(sessionId)}/model/invoke`,
-      { modelId }
+    const client = await this.buildSdk();
+    return asKernelView<ModelResponseView>(
+      await client.intelligence.runtime.sessions.model.invoke(sessionId, {
+        modelId
+      })
     );
-    return response as ModelResponseView;
   }
 
-  // =========================================================================
-  // Tool operations
-  // =========================================================================
-
   async listTools(sessionId: string): Promise<ToolDescriptorView[]> {
-    const response = await this.request(
-      'GET',
-      `/api/kernel/sessions/${encodeURIComponent(sessionId)}/tools`
-    );
-    return response as ToolDescriptorView[];
+    const client = await this.buildSdk();
+    const response = await client.intelligence.runtime.sessions.tools.list(sessionId);
+    return (response.items ?? []).map((row) => mapToolDescriptor(row));
   }
 
   async executeTool(sessionId: string, toolName: string, args: string): Promise<ToolCallView> {
-    const response = await this.request(
-      'POST',
-      `/api/kernel/sessions/${encodeURIComponent(sessionId)}/tools/${encodeURIComponent(toolName)}/execute`,
-      { input: args }
+    const client = await this.buildSdk();
+    return asKernelView<ToolCallView>(
+      await client.intelligence.runtime.sessions.tools.execute(sessionId, toolName, {
+        input: args
+      })
     );
-    return response as ToolCallView;
   }
 
-  // =========================================================================
-  // Streaming (fetch + SSE so auth headers are preserved)
-  // =========================================================================
-
-  subscribeEvents(sessionId: string, callback: (event: StreamEventView) => void): EventSubscription {
+  subscribeEvents(
+    sessionId: string,
+    callback: (event: StreamEventView) => void,
+    options?: EventSubscriptionOptions
+  ): EventSubscription {
     const controller = new AbortController();
 
     void (async () => {
-      const headers: Record<string, string> = {
-        Accept: 'text/event-stream',
-        ...(await buildKernelUiAuthHeaders(this.config.auth))
-      };
-      const url = `${this.config.baseUrl}/api/kernel/sessions/${encodeURIComponent(sessionId)}/events/stream`;
-      const f = this.config.fetch ?? globalThis.fetch;
-
       try {
-        const response = await f(url, { headers, signal: controller.signal });
-        if (!response.ok || !response.body) {
-          return;
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (!controller.signal.aborted) {
-          const { done, value } = await reader.read();
-          if (done) {
+        const client = await this.buildSdk();
+        const stream = await client.intelligence.runtime.sessions.events.stream(sessionId, {
+          lastEventId: options?.lastEventId,
+          live: options?.live
+        });
+        for await (const event of stream) {
+          if (controller.signal.aborted) {
             break;
           }
-          buffer += decoder.decode(value, { stream: true });
-          buffer = this.consumeSseBuffer(buffer, callback);
+          callback(asKernelView<StreamEventView>(event));
         }
-      } catch {
-        // Ignore abort and transport teardown during unsubscribe.
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          options?.onError?.(
+            error instanceof Error ? error : new Error(String(error))
+          );
+        }
       }
     })();
 
@@ -223,59 +207,48 @@ class HttpKernelUiClient implements KernelUiClient {
     };
   }
 
-  private consumeSseBuffer(buffer: string, callback: (event: StreamEventView) => void): string {
-    const frames = buffer.split('\n\n');
-    const remainder = frames.pop() ?? '';
-
-    for (const frame of frames) {
-      const dataLine = frame
-        .split('\n')
-        .find((line) => line.startsWith('data:'));
-      if (!dataLine) {
-        continue;
-      }
-      const payload = dataLine.slice('data:'.length).trim();
-      if (!payload) {
-        continue;
-      }
-      try {
-        callback(JSON.parse(payload) as StreamEventView);
-      } catch {
-        // Ignore malformed frames.
-      }
+  private async buildSdk(): Promise<SdkworkCustomClient> {
+    const session = await this.config.auth?.getSession();
+    const headers: Record<string, string> = {};
+    if (session?.userId) {
+      headers['x-sdkwork-user-id'] = session.userId;
     }
 
-    return remainder;
+    const client = createClient({
+      baseUrl: this.config.baseUrl,
+      tenantId: session?.tenantId,
+      headers: Object.keys(headers).length > 0 ? headers : undefined
+    });
+
+    if (session?.accessToken) {
+      client.setApiKey(session.accessToken);
+    }
+
+    return client;
   }
+}
 
-  // =========================================================================
-  // Internal
-  // =========================================================================
+function mapModelDescriptor(row: Record<string, unknown>): ModelDescriptorView {
+  return {
+    modelId: String(row.modelId ?? ''),
+    providerId: String(row.providerId ?? ''),
+    displayName: String(row.displayName ?? row.modelId ?? ''),
+    family: String(row.family ?? ''),
+    capabilities: Array.isArray(row.capabilities) ? row.capabilities.map(String) : []
+  };
+}
 
-  private async request(method: string, path: string, body?: unknown): Promise<unknown> {
-    const f = this.config.fetch ?? globalThis.fetch;
-    const url = `${this.config.baseUrl}${path}`;
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...(await buildKernelUiAuthHeaders(this.config.auth))
-    };
-
-    const init: RequestInit = { method, headers };
-    if (body !== undefined) {
-      init.body = JSON.stringify(body);
-    }
-
-    const response = await f(url, init);
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error(
-        `Kernel UI request failed: ${response.status} ${response.statusText}${text ? ` - ${text}` : ''}`
-      );
-    }
-
-    return response.json();
-  }
+function mapToolDescriptor(row: Record<string, unknown>): ToolDescriptorView {
+  return {
+    toolId: String(row.toolId ?? ''),
+    providerId: String(row.providerId ?? ''),
+    name: row.name != null ? String(row.name) : undefined,
+    displayName: String(row.displayName ?? row.name ?? row.toolId ?? ''),
+    description: row.description != null ? String(row.description) : undefined,
+    sideEffectLevel: (row.sideEffectLevel ?? 'read_only') as ToolDescriptorView['sideEffectLevel'],
+    policyCategories: Array.isArray(row.policyCategories)
+      ? row.policyCategories.map(String)
+      : [],
+    timeoutMs: typeof row.timeoutMs === 'number' ? row.timeoutMs : undefined
+  };
 }

@@ -109,6 +109,22 @@ importers:
         specifier: ^5.7.2
         version: 5.8.3
 
+  ../sdks/sdkwork-agent-internal-sdk/sdkwork-agent-internal-sdk-typescript/generated/server-openapi:
+    dependencies:
+      '@sdkwork/sdk-common':
+        specifier: ^1.0.2
+        version: 1.0.3
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.43
+      rollup:
+        specifier: ^4.0.0
+        version: 4.61.1
+      typescript:
+        specifier: ^5.3.0
+        version: 5.8.3
+
   packages/sdkwork-kernel-ui-agent:
     dependencies:
       '@sdkwork/kernel-ui-commons':
@@ -194,6 +210,9 @@ importers:
 
   packages/sdkwork-kernel-ui-services:
     dependencies:
+      '@sdkwork/agent-internal-sdk':
+        specifier: workspace:*
+        version: link:../../../sdks/sdkwork-agent-internal-sdk/sdkwork-agent-internal-sdk-typescript/generated/server-openapi
       '@sdkwork/kernel-ui-types':
         specifier: workspace:*
         version: link:../sdkwork-kernel-ui-types
@@ -663,6 +682,10 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@sdkwork/sdk-common@1.0.3':
+    resolution: {integrity: sha512-EGCm742ya1VL9hZ+9SVVArUxieFxIwQ3MMpt8Tv6Vc++U5ug4qG2TBUQ/hKAeJIwhL5Tvbhs6Tzy31P8fBO/cQ==}
+    engines: {node: '>=18.0.0'}
+
   '@types/babel__core@7.20.5':
     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
 
@@ -677,6 +700,9 @@ packages:
 
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
+
+  '@types/node@20.19.43':
+    resolution: {integrity: sha512-6oYBAi5ikg4Pl+kGsoYtawUMBT2zZMCvPNF7pVLnHZfd1zf38DRiWn/gT01RYCdUqkv7Fhr+C9ot4/tb+2sVvA==}
 
   '@types/node@22.19.21':
     resolution: {integrity: sha512-VMeFBSCKQKmm2swI2kW51SFusDqekC6q9trBCvJ/JliDchFSuoYYKN7yVNjPthP1HKZcx3U1gI/wTcEBjEFKTA==}
@@ -1175,6 +1201,8 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.61.1':
     optional: true
 
+  '@sdkwork/sdk-common@1.0.3': {}
+
   '@types/babel__core@7.20.5':
     dependencies:
       '@babel/parser': 7.29.7
@@ -1197,6 +1225,10 @@ snapshots:
       '@babel/types': 7.29.7
 
   '@types/estree@1.0.9': {}
+
+  '@types/node@20.19.43':
+    dependencies:
+      undici-types: 6.21.0
 
   '@types/node@22.19.21':
     dependencies:

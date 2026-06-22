@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "app": "agent",
-  "mode": "dry-run",
+  "mode": "apply",
   "standardProfile": "sdkwork-v3",
   "sdkgenPath": "../sdkwork-sdk-generator/bin/sdkgen.js",
-  "startedAt": "2026-06-12T01:48:05.735Z",
+  "startedAt": "2026-06-22T10:12:17.057Z",
   "families": [
     {
       "key": "open",
@@ -21,7 +21,7 @@
       "skipped": true,
       "skipReason": "sdkwork-v3 standard profile currently supports app, backend, and im prefixes only.",
       "derivedFrom": "sdkwork-agent-app-sdk",
-      "derivedGenerated": false,
+      "derivedGenerated": true,
       "derivedHasChanges": false,
       "derivationFileCount": 137
     },
@@ -86,11 +86,29 @@
       "hasChanges": false,
       "riskLevel": "low",
       "generated": false
+    },
+    {
+      "key": "internal",
+      "familyDir": "sdkwork-agent-internal-sdk",
+      "authority": "sdkwork-agent-internal-api",
+      "input": "sdks/sdkwork-agent-internal-sdk/openapi/sdkwork-agent-internal-api.sdkgen.yaml",
+      "output": "sdks/sdkwork-agent-internal-sdk/sdkwork-agent-internal-sdk-typescript/generated/server-openapi",
+      "sdkName": "sdkwork-agent-internal-sdk",
+      "sdkType": "custom",
+      "sdkOwner": "sdkwork-kernel",
+      "packageName": "@sdkwork/agent-internal-sdk",
+      "apiPrefix": "/internal/v3/api",
+      "sdkDependencies": [],
+      "version": "0.1.0",
+      "fingerprint": "504b0a2c2c728c87879dd65dd95b7fda59ec07762a0b01a4a6f829c6757c0d79",
+      "hasChanges": false,
+      "riskLevel": "low",
+      "generated": false
     }
   ],
   "openSdkDerivation": {
     "schemaVersion": 1,
-    "mode": "dry-run",
+    "mode": "apply",
     "sourceFamily": "sdkwork-agent-app-sdk",
     "sourceAuthority": "sdkwork-agent-app-api",
     "targetFamily": "sdkwork-agent-sdk",
@@ -106,7 +124,7 @@
       "deleted": []
     },
     "fileCount": 137,
-    "generated": false
+    "generated": true
   },
-  "finishedAt": "2026-06-12T01:48:06.324Z"
+  "finishedAt": "2026-06-22T10:12:17.855Z"
 }

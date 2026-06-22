@@ -7,6 +7,10 @@ export function validateOpenApi({ label, content, family, errors }) {
   if (!content) {
     return;
   }
+  if (family.key === 'internal') {
+    validateInternalOpenApi({ label, content, family, errors });
+    return;
+  }
   for (const required of [
     'openapi: 3.1.2',
     `title: SDKWork Agent ${titleKind(family.key)} API`,
@@ -328,7 +332,38 @@ function titleKind(key) {
       return 'App';
     case 'backend':
       return 'Backend';
+    case 'internal':
+      return 'Internal';
     default:
       throw new Error(`unknown family key: ${key}`);
+  }
+}
+
+function validateInternalOpenApi({ label, content, family, errors }) {
+  for (const required of [
+    'openapi: 3.1.2',
+    `title: SDKWork Agent ${titleKind(family.key)} API`,
+    `x-sdkwork-owner: ${AGENT_SDK_OWNER}`,
+    `x-sdkwork-api-authority: ${family.authority}`,
+    family.apiPrefix,
+    '/internal/v3/api/intelligence/runtime/snapshot',
+    'operationId: runtime.snapshot.load',
+    'operationId: runtime.sessions.create',
+    'operationId: runtime.sessions.retrieve',
+    'operationId: runtime.sessions.messages.send',
+    'operationId: runtime.sessions.events.stream',
+    'x-sdkwork-api-surface: internal-api',
+    'x-sdkwork-auth-mode: ingress-token',
+    'ApiKey:'
+  ]) {
+    if (!content.includes(required)) {
+      errors.push(`${label} missing ${required}`);
+    }
+  }
+
+  for (const forbiddenPrefix of forbiddenAgentApiPrefixesFor(family)) {
+    if (content.includes(forbiddenPrefix)) {
+      errors.push(`${label} must not include forbidden prefix ${forbiddenPrefix}`);
+    }
   }
 }

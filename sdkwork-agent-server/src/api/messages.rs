@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     Json,
 };
@@ -8,7 +8,8 @@ use sdkwork_agent_session::MessageConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::persistence::PersistenceState;
+use crate::api::kernel::{ensure_session_access, KernelApiState};
+use crate::middleware::RequestContext;
 
 /// Send message request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,43 +45,82 @@ fn message_row_to_response(row: MessageRow) -> MessageResponse {
     }
 }
 
+fn map_persistence_error(error: String) -> StatusCode {
+    if error.contains("not found") {
+        StatusCode::NOT_FOUND
+    } else if error.contains("closed") {
+        StatusCode::CONFLICT
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
+}
+
+async fn load_session_for_access(
+    state: &KernelApiState,
+    ctx: &RequestContext,
+    session_id: &str,
+) -> Result<(), StatusCode> {
+    let session_key = session_id.to_string();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(map_persistence_error)?;
+    ensure_session_access(state, ctx, &row)
+}
+
 /// Send a message
 pub async fn send_message(
-    State(state): State<Arc<PersistenceState>>,
+    State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
     Json(request): Json<SendMessageRequest>,
 ) -> Result<(StatusCode, Json<MessageResponse>), StatusCode> {
+    let session_key = session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(map_persistence_error)?;
+    ensure_session_access(&state, &ctx, &row)?;
+
     let role = request.role.unwrap_or_else(|| "user".to_string());
+    if role == "user" {
+        let (user_row, _) = crate::message_dispatch::dispatch_user_message(
+            &state,
+            &session_id,
+            &request.content,
+            &row,
+        )
+        .await?;
+        return Ok((StatusCode::CREATED, Json(message_row_to_response(user_row))));
+    }
+
     let config = MessageConfig {
         role,
         content: request.content,
         metadata: None,
     };
-    let row = state.send_message(&session_id, config).map_err(|error| {
-        if error.contains("not found") {
-            StatusCode::NOT_FOUND
-        } else {
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    })?;
+    let session_key = session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.send_message(&session_key, config))
+        .await
+        .map_err(map_persistence_error)?;
     Ok((StatusCode::CREATED, Json(message_row_to_response(row))))
 }
 
 /// Get messages for a session
 pub async fn get_messages(
-    State(state): State<Arc<PersistenceState>>,
+    State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
     Query(query): Query<ListMessagesQuery>,
 ) -> Result<Json<Vec<MessageResponse>>, StatusCode> {
+    load_session_for_access(&state, &ctx, &session_id).await?;
+    let limit = query.limit.map(i64::from);
+    let session_key = session_id.clone();
     let rows = state
-        .get_messages(&session_id, query.limit.map(i64::from))
-        .map_err(|error| {
-            if error.contains("not found") {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        })?;
+        .persist(move |persistence| persistence.get_messages(&session_key, limit))
+        .await
+        .map_err(map_persistence_error)?;
     let mut results: Vec<MessageResponse> = rows.into_iter().map(message_row_to_response).collect();
     if let Some(offset) = query.offset {
         let offset = offset as usize;
@@ -95,16 +135,16 @@ pub async fn get_messages(
 
 /// Get message count for a session
 pub async fn message_count(
-    State(state): State<Arc<PersistenceState>>,
+    State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let count = state.message_count(&session_id).map_err(|error| {
-        if error.contains("not found") {
-            StatusCode::NOT_FOUND
-        } else {
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
-    })?;
+    load_session_for_access(&state, &ctx, &session_id).await?;
+    let session_key = session_id.clone();
+    let count = state
+        .persist(move |persistence| persistence.message_count(&session_key))
+        .await
+        .map_err(map_persistence_error)?;
     Ok(Json(serde_json::json!({
         "session_id": session_id,
         "count": count
@@ -113,13 +153,20 @@ pub async fn message_count(
 
 /// Delete messages for a session
 pub async fn delete_messages(
-    State(state): State<Arc<PersistenceState>>,
+    State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
 ) -> StatusCode {
-    match state.delete_messages(&session_id) {
+    if let Err(status) = load_session_for_access(&state, &ctx, &session_id).await {
+        return status;
+    }
+
+    match state
+        .persist(move |persistence| persistence.delete_messages(&session_id))
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT,
-        Err(error) if error.contains("not found") => StatusCode::NOT_FOUND,
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        Err(error) => map_persistence_error(error),
     }
 }
 
@@ -127,10 +174,22 @@ pub async fn delete_messages(
 mod tests {
     use super::*;
     use crate::api::sessions::{create_session, CreateSessionRequest};
-    use crate::persistence::PersistenceState;
+    use crate::config::ServerConfig;
 
-    fn test_state() -> Arc<PersistenceState> {
-        Arc::new(PersistenceState::memory().expect("persistence"))
+    fn test_state() -> Arc<KernelApiState> {
+        Arc::new(KernelApiState::new(
+            Arc::new(crate::persistence::PersistenceState::memory().expect("persistence")),
+            Arc::new(ServerConfig::default()),
+        ))
+    }
+
+    fn test_context() -> Extension<RequestContext> {
+        Extension(RequestContext {
+            request_id: "req.test".to_string(),
+            tenant_id: None,
+            user_id: None,
+            subject_id: None,
+        })
     }
 
     #[tokio::test]
@@ -138,6 +197,7 @@ mod tests {
         let state = test_state();
         let (_, Json(session)) = create_session(
             State(state.clone()),
+            test_context(),
             Json(CreateSessionRequest {
                 agent_id: "agent.1".to_string(),
                 model: None,
@@ -157,6 +217,7 @@ mod tests {
 
         let (status, Json(msg)) = send_message(
             State(state.clone()),
+            test_context(),
             Path(session.session_id.clone()),
             Json(request),
         )
@@ -169,6 +230,7 @@ mod tests {
 
         let Json(messages) = get_messages(
             State(state.clone()),
+            test_context(),
             Path(session.session_id),
             Query(ListMessagesQuery {
                 limit: None,
@@ -178,7 +240,9 @@ mod tests {
         .await
         .expect("loaded");
 
-        assert_eq!(messages.len(), 1);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].role, "user");
+        assert_eq!(messages[1].role, "assistant");
     }
 
     #[tokio::test]
@@ -186,6 +250,7 @@ mod tests {
         let state = test_state();
         let (_, Json(session)) = create_session(
             State(state.clone()),
+            test_context(),
             Json(CreateSessionRequest {
                 agent_id: "agent.1".to_string(),
                 model: None,
@@ -198,8 +263,9 @@ mod tests {
         .await
         .expect("created");
 
-        send_message(
+        let _ = send_message(
             State(state.clone()),
+            test_context(),
             Path(session.session_id.clone()),
             Json(SendMessageRequest {
                 content: "Hello".to_string(),
@@ -209,9 +275,13 @@ mod tests {
         .await
         .expect("sent");
 
-        let Json(result) = message_count(State(state.clone()), Path(session.session_id))
-            .await
-            .expect("count");
-        assert_eq!(result["count"], 1);
+        let Json(result) = message_count(
+            State(state.clone()),
+            test_context(),
+            Path(session.session_id),
+        )
+        .await
+        .expect("count");
+        assert_eq!(result["count"], 2);
     }
 }

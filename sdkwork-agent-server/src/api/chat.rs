@@ -1,26 +1,14 @@
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{
+    extract::{Extension, State},
+    http::StatusCode,
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-/// Chat state shared across handlers
-#[derive(Debug, Clone)]
-pub struct ChatState {
-    pub messages: Arc<tokio::sync::Mutex<Vec<ChatMessageResponse>>>,
-}
-
-impl ChatState {
-    pub fn new() -> Self {
-        Self {
-            messages: Arc::new(tokio::sync::Mutex::new(Vec::new())),
-        }
-    }
-}
-
-impl Default for ChatState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+use crate::api::kernel::{ensure_session_access, KernelApiState};
+use crate::message_dispatch::assistant_content_from_bridge;
+use crate::middleware::RequestContext;
 
 /// Chat request
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,121 +48,151 @@ pub struct UsageResponse {
     pub total_tokens: u32,
 }
 
-/// Send a chat message
+/// Send a chat message through the runtime bridge.
 pub async fn send_chat(
-    State(state): State<Arc<ChatState>>,
+    State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Json(request): Json<ChatRequest>,
-) -> (StatusCode, Json<ChatResponse>) {
-    let now = chrono::Utc::now().to_rfc3339();
-    let message_id = format!("msg.{}", generate_id());
+) -> Result<(StatusCode, Json<ChatResponse>), StatusCode> {
+    let session_key = request.session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(map_persistence_error)?;
+    ensure_session_access(&state, &ctx, &row)?;
 
-    // Store user message
-    let user_msg = ChatMessageResponse {
-        message_id: format!("msg.{}", generate_id()),
-        session_id: request.session_id.clone(),
-        role: "user".to_string(),
-        content: request.content.clone(),
-        status: "completed".to_string(),
-        created_at: now.clone(),
-    };
+    let (_, bridge_response) = crate::message_dispatch::dispatch_user_message(
+        &state,
+        &request.session_id,
+        &request.content,
+        &row,
+    )
+    .await?;
 
-    let mut messages = state.messages.lock().await;
-    messages.push(user_msg);
+    let content = assistant_content_from_bridge(&bridge_response);
 
-    // Generate mock response
-    let response_content = format!("This is a mock response to: {}", request.content);
-
-    // Store assistant message
-    let assistant_msg = ChatMessageResponse {
-        message_id: message_id.clone(),
-        session_id: request.session_id.clone(),
-        role: "assistant".to_string(),
-        content: response_content.clone(),
-        status: "completed".to_string(),
-        created_at: now,
-    };
-    messages.push(assistant_msg);
-
-    let response = ChatResponse {
-        message_id,
-        session_id: request.session_id,
-        content: response_content,
-        status: "completed".to_string(),
-        usage: Some(UsageResponse {
-            input_tokens: 100,
-            output_tokens: 50,
-            total_tokens: 150,
+    Ok((
+        StatusCode::OK,
+        Json(ChatResponse {
+            message_id: bridge_response.message.message_id,
+            session_id: request.session_id,
+            content,
+            status: "completed".to_string(),
+            usage: bridge_response.model_response.as_ref().and_then(|response| {
+                response.usage.as_ref().map(|usage| UsageResponse {
+                    input_tokens: usage.input_tokens,
+                    output_tokens: usage.output_tokens,
+                    total_tokens: usage.input_tokens + usage.output_tokens,
+                })
+            }),
         }),
-    };
-
-    (StatusCode::OK, Json(response))
+    ))
 }
 
-/// Get chat history for a session
+/// Get chat history for a session from persistence storage.
 pub async fn get_chat_history(
-    State(state): State<Arc<ChatState>>,
+    State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     axum::extract::Path(session_id): axum::extract::Path<String>,
-) -> Json<Vec<ChatMessageResponse>> {
-    let messages = state.messages.lock().await;
-    let results: Vec<ChatMessageResponse> = messages
-        .iter()
-        .filter(|m| m.session_id == session_id)
-        .cloned()
-        .collect();
+) -> Result<Json<Vec<ChatMessageResponse>>, StatusCode> {
+    let session_key = session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(map_persistence_error)?;
+    ensure_session_access(&state, &ctx, &row)?;
 
-    Json(results)
+    let rows = state
+        .persist(move |persistence| persistence.get_messages(&session_id, Some(200)))
+        .await
+        .map_err(map_persistence_error)?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(|row| ChatMessageResponse {
+                message_id: row.message_id,
+                session_id: row.session_id,
+                role: row.role,
+                content: row.content,
+                status: "completed".to_string(),
+                created_at: row.created_at,
+            })
+            .collect(),
+    ))
 }
 
-fn generate_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{:x}", nanos)
+fn map_persistence_error(error: String) -> StatusCode {
+    if error.contains("not found") {
+        StatusCode::NOT_FOUND
+    } else if error.contains("closed") {
+        StatusCode::CONFLICT
+    } else {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::ServerConfig;
+    use crate::persistence::PersistenceState;
+    use crate::api::kernel::KernelApiState;
+    use sdkwork_agent_session::SessionConfig;
+    use std::sync::Arc;
+
+    fn test_state() -> Arc<KernelApiState> {
+        let config = Arc::new(ServerConfig::default());
+        let persistence = Arc::new(
+            PersistenceState::memory().expect("in-memory persistence should initialize for tests"),
+        );
+        Arc::new(KernelApiState::new(persistence, config))
+    }
 
     #[tokio::test]
     async fn send_chat_message() {
-        let state = Arc::new(ChatState::new());
+        let state = test_state();
+        let session = state
+            .persistence
+            .create_session(SessionConfig::new("agent.1"))
+            .expect("session should be created");
 
         let request = ChatRequest {
-            session_id: "session.1".to_string(),
+            session_id: session.session_id.clone(),
             content: "Hello".to_string(),
             model: Some("gpt-4".to_string()),
             stream: false,
         };
 
-        let (status, Json(response)) = send_chat(State(state.clone()), Json(request)).await;
+        let ctx = RequestContext {
+            request_id: "req.1".to_string(),
+            tenant_id: None,
+            user_id: None,
+            subject_id: None,
+        };
+
+        let (status, Json(response)) = send_chat(State(state.clone()), Extension(ctx), Json(request))
+            .await
+            .expect("chat should succeed");
 
         assert_eq!(status, StatusCode::OK);
         assert_eq!(response.status, "completed");
         assert!(!response.content.is_empty());
-    }
 
-    #[tokio::test]
-    async fn get_chat_history_test() {
-        let state = Arc::new(ChatState::new());
-
-        let request = ChatRequest {
-            session_id: "session.1".to_string(),
-            content: "Hello".to_string(),
-            model: None,
-            stream: false,
-        };
-
-        send_chat(State(state.clone()), Json(request)).await;
-
-        let Json(history) = get_chat_history(
-            State(state.clone()),
-            axum::extract::Path("session.1".to_string()),
+        let history = get_chat_history(
+            State(state),
+            Extension(RequestContext {
+                request_id: "req.2".to_string(),
+                tenant_id: None,
+                user_id: None,
+                subject_id: None,
+            }),
+            axum::extract::Path(session.session_id),
         )
-        .await;
-
-        assert_eq!(history.len(), 2); // user + assistant
+        .await
+        .expect("history should load")
+        .0;
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0].role, "user");
+        assert_eq!(history[1].role, "assistant");
     }
 }

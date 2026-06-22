@@ -9,7 +9,7 @@
     "root": "sdkwork-kernel/sdkwork-agent-server",
     "domain": "intelligence",
     "capability": "agent-server",
-    "surfaceNotRequiredReason": "This repository-internal Rust runtime crate exposes library or binary integration surfaces only and has no app, open-api, or backend-admin HTTP contract of its own.",
+    "surfaceNotRequiredReason": "This crate hosts application-ingress internal-api runtime routes documented in specs/AGENT_SERVER_HTTP_SURFACE.md; it is not an app-api, backend-api, or open-api business surface.",
     "languages": [
       "rust"
     ],
@@ -50,6 +50,16 @@
       "purpose": "Rust crate and module rules."
     },
     {
+      "file": "INTERNAL_API_SPEC.md",
+      "path": "../../sdkwork-specs/INTERNAL_API_SPEC.md",
+      "purpose": "Internal-api HTTP surface, ingress placement, auth, and SDK generation rules."
+    },
+    {
+      "file": "AGENT_SERVER_HTTP_SURFACE.md",
+      "path": "specs/AGENT_SERVER_HTTP_SURFACE.md",
+      "purpose": "Runtime HTTP route manifest for internal-api and legacy compatibility aliases."
+    },
+    {
       "file": "TEST_SPEC.md",
       "path": "../../sdkwork-specs/TEST_SPEC.md",
       "purpose": "Verification and contract testing expectations."
@@ -63,10 +73,13 @@
       "src/main.rs",
       "Cargo.toml"
     ],
-    "routeManifest": null,
+    "routeManifest": "specs/AGENT_SERVER_HTTP_SURFACE.md",
     "sdkDependencies": [],
     "dependencyApiExports": [],
-    "dependencyApiSurfaces": [],
+    "dependencyApiSurfaces": [
+      "sdkwork-agent-internal-api: internal-api",
+      "sdkwork-router-agent-internal-api: internal-api"
+    ],
     "sdkClients": [],
     "events": [],
     "configKeys": []

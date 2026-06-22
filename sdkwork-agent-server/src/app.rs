@@ -1,23 +1,28 @@
 use axum::{
+    http::StatusCode,
     middleware as axum_middleware,
     routing::{delete, get, post},
     Router,
 };
 use std::sync::Arc;
+use std::time::Duration;
+use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::timeout::TimeoutLayer;
 
 use crate::api::{chat, kernel, messages, sessions, sse};
 use crate::config::ServerConfig;
 use crate::health;
 use crate::middleware;
 use crate::persistence::PersistenceState;
+use crate::runtime_routes::{
+    build_kernel_runtime_routes, INTERNAL_RUNTIME_MOUNT_PREFIX, LEGACY_KERNEL_MOUNT_PREFIX,
+};
 
 /// Build the agent-server Axum router with ingress auth, logging, and CORS layers applied.
 pub fn build_app(
     config: Arc<ServerConfig>,
     health_state: Arc<health::HealthState>,
     persistence: Arc<PersistenceState>,
-    chat_state: Arc<chat::ChatState>,
-    sse_state: Arc<sse::SseState>,
     kernel_state: Arc<kernel::KernelApiState>,
 ) -> Router {
     let health_routes = Router::new()
@@ -39,7 +44,7 @@ pub fn build_app(
             "/api/sessions/{session_id}/close",
             post(sessions::close_session),
         )
-        .with_state(persistence.clone());
+        .with_state(kernel_state.clone());
 
     let message_routes = Router::new()
         .route(
@@ -54,7 +59,7 @@ pub fn build_app(
             "/api/sessions/{session_id}/messages",
             delete(messages::delete_messages),
         )
-        .with_state(persistence.clone());
+        .with_state(kernel_state.clone());
 
     let chat_routes = Router::new()
         .route("/api/chat/send", post(chat::send_chat))
@@ -62,78 +67,67 @@ pub fn build_app(
             "/api/chat/history/{session_id}",
             get(chat::get_chat_history),
         )
-        .with_state(chat_state);
+        .with_state(kernel_state.clone());
 
-    let sse_routes = Router::new()
+    let kernel_legacy = Router::new().nest(
+        LEGACY_KERNEL_MOUNT_PREFIX,
+        build_kernel_runtime_routes(kernel_state.clone()),
+    );
+    let kernel_internal = Router::new().nest(
+        INTERNAL_RUNTIME_MOUNT_PREFIX,
+        build_kernel_runtime_routes(kernel_state.clone()),
+    );
+
+    let stream_routes = Router::new()
         .route("/api/chat/stream", post(sse::stream_chat))
         .route(
             "/api/sessions/{session_id}/events",
-            get(sse::stream_session_events),
-        )
-        .with_state(sse_state);
-
-    let kernel_routes = Router::new()
-        .route("/api/kernel/snapshot", get(kernel::load_snapshot))
-        .route(
-            "/api/kernel/permissions/{permission_request_id}",
-            post(kernel::decide_permission),
-        )
-        .route(
-            "/api/kernel/sessions",
-            post(kernel::create_session).get(kernel::list_sessions),
-        )
-        .route(
-            "/api/kernel/sessions/{session_id}",
-            get(kernel::get_session).delete(kernel::delete_session),
-        )
-        .route(
-            "/api/kernel/sessions/{session_id}/close",
-            post(kernel::close_session),
-        )
-        .route(
-            "/api/kernel/sessions/{session_id}/messages",
-            post(kernel::send_message).get(kernel::get_messages),
-        )
-        .route(
-            "/api/kernel/sessions/{session_id}/tasks",
-            post(kernel::submit_task).get(kernel::list_tasks),
-        )
-        .route("/api/kernel/tasks/{task_id}", get(kernel::get_task))
-        .route(
-            "/api/kernel/tasks/{task_id}/cancel",
-            post(kernel::cancel_task),
-        )
-        .route("/api/kernel/models", get(kernel::list_models))
-        .route(
-            "/api/kernel/sessions/{session_id}/model/invoke",
-            post(kernel::invoke_model),
-        )
-        .route(
-            "/api/kernel/sessions/{session_id}/tools",
-            get(kernel::list_tools),
-        )
-        .route(
-            "/api/kernel/sessions/{session_id}/tools/{tool_name}/execute",
-            post(kernel::execute_tool),
-        )
-        .route(
-            "/api/kernel/sessions/{session_id}/events/stream",
             get(kernel::stream_session_events),
         )
-        .with_state(kernel_state);
+        .route(
+            &format!("{LEGACY_KERNEL_MOUNT_PREFIX}/sessions/{{session_id}}/events/stream"),
+            get(kernel::stream_session_events),
+        )
+        .route(
+            &format!("{INTERNAL_RUNTIME_MOUNT_PREFIX}/sessions/{{session_id}}/events/stream"),
+            get(kernel::stream_session_events),
+        )
+        .with_state(kernel_state)
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(config.sse_request_timeout_secs),
+        ));
 
-    Router::new()
+    let standard_routes = Router::new()
         .merge(health_routes)
-        .merge(kernel_routes)
+        .merge(kernel_legacy)
+        .merge(kernel_internal)
         .merge(session_routes)
         .merge(message_routes)
         .merge(chat_routes)
-        .merge(sse_routes)
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            Duration::from_secs(config.request_timeout_secs),
+        ));
+
+    let rate_limit = Arc::new(middleware::RateLimitState::from_config(config.as_ref()));
+
+    Router::new()
+        .merge(standard_routes)
+        .merge(stream_routes)
+        .layer(RequestBodyLimitLayer::new(config.max_body_size))
         .layer(axum_middleware::from_fn_with_state(
             config.clone(),
             middleware::ingress_auth_middleware,
         ))
+        .layer(axum_middleware::from_fn_with_state(
+            rate_limit,
+            middleware::rate_limit_middleware,
+        ))
         .layer(axum_middleware::from_fn(middleware::logging_middleware))
+        .layer(axum_middleware::from_fn(
+            middleware::request_context_middleware,
+        ))
         .layer(middleware::cors_layer(&config))
 }
 
@@ -143,17 +137,11 @@ pub fn build_test_app(config: Arc<ServerConfig>) -> Router {
     let persistence = Arc::new(
         PersistenceState::memory().expect("in-memory persistence should initialize for tests"),
     );
-    let chat_state = Arc::new(chat::ChatState::new());
-    let sse_state = Arc::new(sse::SseState::new());
-    let kernel_state = Arc::new(kernel::KernelApiState::new(persistence.clone()));
-    build_app(
-        config,
-        health_state,
-        persistence,
-        chat_state,
-        sse_state,
-        kernel_state,
-    )
+    let kernel_state = Arc::new(kernel::KernelApiState::new(
+        persistence.clone(),
+        config.clone(),
+    ));
+    build_app(config, health_state, persistence, kernel_state)
 }
 
 #[cfg(test)]

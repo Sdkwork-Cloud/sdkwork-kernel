@@ -138,7 +138,8 @@
     "sdkClients": [
       "sdkwork-agent-sdk: sdkwork-agent-open-api -> @sdkwork/agent-sdk",
       "sdkwork-agent-app-sdk: sdkwork-agent-app-api -> @sdkwork/agent-app-sdk",
-      "sdkwork-agent-backend-sdk: sdkwork-agent-backend-api -> @sdkwork/agent-backend-sdk"
+      "sdkwork-agent-backend-sdk: sdkwork-agent-backend-api -> @sdkwork/agent-backend-sdk",
+      "sdkwork-agent-internal-sdk: sdkwork-agent-internal-api -> @sdkwork/agent-internal-sdk"
     ],
     "events": [
       "agent.business.created",

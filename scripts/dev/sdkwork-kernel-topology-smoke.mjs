@@ -12,6 +12,8 @@ import {
 
 const PROFILE_ID = 'self-hosted.unified-process.development';
 const HEALTH_PATH = '/health';
+const INTERNAL_RUNTIME_SNAPSHOT_PATH = '/internal/v3/api/intelligence/runtime/snapshot';
+const LEGACY_KERNEL_SNAPSHOT_PATH = '/api/kernel/snapshot';
 const STARTUP_TIMEOUT_MS = 120_000;
 
 function cargoCommand() {
@@ -82,20 +84,26 @@ async function main() {
     throw new Error(`timed out waiting for ${healthUrl}${HEALTH_PATH}`);
   }
 
-  const snapshotUrl = `${healthUrl}/api/kernel/snapshot`;
-  const snapshotResponse = await fetch(snapshotUrl, {
-    signal: AbortSignal.timeout(1500),
-  });
-  if (!snapshotResponse.ok) {
-    throw new Error(`kernel snapshot probe failed: ${snapshotResponse.status}`);
-  }
-  const snapshot = await snapshotResponse.json();
-  if (!snapshot?.runtime?.health) {
-    throw new Error('kernel snapshot response missing runtime.health');
+  async function probeSnapshot(path) {
+    const snapshotUrl = `${healthUrl}${path}`;
+    const snapshotResponse = await fetch(snapshotUrl, {
+      signal: AbortSignal.timeout(1500),
+    });
+    if (!snapshotResponse.ok) {
+      throw new Error(`kernel snapshot probe failed for ${path}: ${snapshotResponse.status}`);
+    }
+    const snapshot = await snapshotResponse.json();
+    if (!snapshot?.runtime?.health) {
+      throw new Error(`kernel snapshot response missing runtime.health for ${path}`);
+    }
+    return snapshot;
   }
 
+  const snapshot = await probeSnapshot(INTERNAL_RUNTIME_SNAPSHOT_PATH);
+  await probeSnapshot(LEGACY_KERNEL_SNAPSHOT_PATH);
+
   console.log(
-    `[sdkwork-kernel-topology-smoke] ok profile=${PROFILE_ID} url=${healthUrl}${HEALTH_PATH} snapshot=${snapshot.runtime.health}`,
+    `[sdkwork-kernel-topology-smoke] ok profile=${PROFILE_ID} url=${healthUrl}${HEALTH_PATH} internal=${INTERNAL_RUNTIME_SNAPSHOT_PATH} snapshot=${snapshot.runtime.health}`,
   );
 }
 

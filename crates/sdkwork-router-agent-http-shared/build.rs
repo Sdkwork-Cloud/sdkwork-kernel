@@ -44,6 +44,13 @@ fn main() {
                 "sdkwork-agent-business/specs/openapi/agent-business-open-openapi-3.1.2.yaml",
             ),
         ),
+        (
+            "agent_internal_routes.rs",
+            "INTERNAL_ROUTES",
+            kernel_root.join(
+                "apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml",
+            ),
+        ),
     ];
 
     let mut combined_entries = Vec::new();
@@ -130,18 +137,20 @@ fn classify_auth(security: Option<&Vec<BTreeMap<String, Vec<serde_yaml::Value>>>
     };
     let mut has_auth_token = false;
     let mut has_access_token = false;
+    let mut has_api_key = false;
     for entry in entries {
         for scheme in entry.keys() {
             match scheme.as_str() {
                 "AuthToken" => has_auth_token = true,
                 "AccessToken" => has_access_token = true,
+                "ApiKey" => has_api_key = true,
                 _ => {}
             }
         }
     }
     if has_auth_token && has_access_token {
         "DualToken".to_owned()
-    } else if has_auth_token {
+    } else if has_auth_token || has_api_key {
         "ApiKey".to_owned()
     } else {
         "Public".to_owned()

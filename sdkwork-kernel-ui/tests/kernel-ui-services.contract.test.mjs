@@ -23,7 +23,9 @@ test('kernel UI services expose auth provider seam', () => {
 
   const realClientSource = fs.readFileSync(realClientPath, 'utf8');
   assert.match(realClientSource, /auth\?: KernelUiAuthProvider/);
-  assert.match(realClientSource, /buildKernelUiAuthHeaders/);
+  assert.match(realClientSource, /@sdkwork\/agent-internal-sdk/);
+  assert.match(realClientSource, /createClient\(/);
+  assert.match(realClientSource, /setApiKey\(/);
 });
 
 test('kernel UI commons exposes english i18n catalog', () => {

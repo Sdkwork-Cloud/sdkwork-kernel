@@ -1,23 +1,39 @@
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
-    response::sse::{Event, Sse},
+    extract::{Extension, Path, Query, State},
+    http::{HeaderMap, StatusCode},
+    response::sse::{Event, KeepAlive, Sse},
     Json,
 };
-use futures::stream::{self, Stream};
+use futures::stream::{self, Stream, StreamExt};
+use sdkwork_agent_api_bridge::BridgeSessionConfig;
 use sdkwork_agent_database::{EventRow, MessageRow, SessionRow, TaskRow};
-use sdkwork_agent_session::{MessageConfig, SessionConfig, SessionQuery};
+use sdkwork_agent_kernel::ModelRequest;
+use sdkwork_agent_session::{SessionConfig, SessionQuery};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio::sync::broadcast;
 
+type SessionEventStream = Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>>;
+
+use crate::access::{assert_session_access, stamp_session_ownership, AccessPolicy};
+use crate::agent_registry::{apply_hosted_agent_defaults, validate_hosted_agent_id};
+use crate::config::ServerConfig;
+use crate::middleware::RequestContext;
 use crate::persistence::PersistenceState;
+use crate::runtime::RuntimeState;
 
 /// Shared kernel UI API state.
 #[derive(Clone)]
 pub struct KernelApiState {
     pub persistence: Arc<PersistenceState>,
+    pub config: Arc<ServerConfig>,
+    pub access_policy: AccessPolicy,
+    pub runtime: RuntimeState,
+    pub sse_event_counter: Arc<tokio::sync::Mutex<u64>>,
     permissions: Arc<Mutex<HashMap<String, PermissionRecord>>>,
 }
 
@@ -215,6 +231,36 @@ pub struct ModelDescriptorJson {
     pub capabilities: Vec<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionListResponseJson {
+    pub items: Vec<SessionViewJson>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageListResponseJson {
+    pub items: Vec<MessageViewJson>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskListResponseJson {
+    pub items: Vec<TaskViewJson>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelListResponseJson {
+    pub items: Vec<ModelDescriptorJson>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolListResponseJson {
+    pub items: Vec<serde_json::Value>,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InvokeModelRequest {
@@ -262,18 +308,64 @@ pub struct ListMessagesQuery {
     pub offset: Option<u32>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamEventsQuery {
+    pub last_event_id: Option<String>,
+    pub live: Option<bool>,
+}
+
 impl KernelApiState {
-    pub fn new(persistence: Arc<PersistenceState>) -> Self {
+    pub fn new(persistence: Arc<PersistenceState>, config: Arc<ServerConfig>) -> Self {
         Self {
             persistence,
+            config: config.clone(),
+            access_policy: AccessPolicy::from_config(&config),
+            runtime: RuntimeState::for_config(&config),
+            sse_event_counter: Arc::new(tokio::sync::Mutex::new(0)),
             permissions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    fn build_snapshot(&self) -> Result<KernelUiSnapshotJson, String> {
-        let db_healthy = self.persistence.health().unwrap_or(false);
-        let runtime_health = if db_healthy { "healthy" } else { "degraded" };
-        let runtime_state = if db_healthy { "ready" } else { "degraded" };
+    pub(crate) async fn persist<F, T>(&self, operation: F) -> Result<T, String>
+    where
+        F: FnOnce(&PersistenceState) -> Result<T, String> + Send + 'static,
+        T: Send + 'static,
+    {
+        self.persistence.run(operation).await
+    }
+
+    async fn build_snapshot(&self) -> Result<KernelUiSnapshotJson, String> {
+        let db_healthy = matches!(
+            self.persist(|persistence| persistence.health()).await,
+            Ok(true)
+        );
+        let diagnostics = self.runtime.agent_runtime().diagnostics();
+        let manifest = self.runtime.agent_runtime().capability_manifest();
+        let allow_mock = self.runtime.allow_mock_fallback();
+
+        let runtime_state = diagnostics.state.clone();
+        let runtime_health = if db_healthy && (runtime_state == "ready" || allow_mock) {
+            "healthy"
+        } else {
+            "degraded"
+        };
+
+        let mut degraded_capabilities = manifest.degraded_capabilities.clone();
+        if !db_healthy {
+            degraded_capabilities.push("persistence.sqlite".to_string());
+        }
+
+        let capabilities = manifest
+            .capabilities
+            .iter()
+            .map(|capability| CapabilityJson {
+                capability_id: capability.capability_id.clone(),
+                provider_id: capability.provider_id.clone(),
+                status: capability.status.clone(),
+                required: capability.required,
+            })
+            .collect();
 
         let permissions = self
             .permissions
@@ -285,31 +377,16 @@ impl KernelApiState {
 
         Ok(KernelUiSnapshotJson {
             runtime: KernelRuntimeJson {
-                runtime_id: "runtime.local".to_string(),
-                agent_id: "agent.intelligence.general".to_string(),
+                runtime_id: diagnostics.runtime_id.clone(),
+                agent_id: diagnostics.agent_id.clone(),
                 kernel_version: env!("CARGO_PKG_VERSION").to_string(),
-                state: runtime_state.to_string(),
+                state: runtime_state,
                 health: runtime_health.to_string(),
-                capabilities: vec![
-                    CapabilityJson {
-                        capability_id: "model.chat".to_string(),
-                        provider_id: "provider.model.local".to_string(),
-                        status: "available".to_string(),
-                        required: true,
-                    },
-                    CapabilityJson {
-                        capability_id: "policy.evaluate".to_string(),
-                        provider_id: "provider.policy.local".to_string(),
-                        status: "available".to_string(),
-                        required: true,
-                    },
-                ],
-                missing_required_capabilities: Vec::new(),
-                degraded_capabilities: if db_healthy {
-                    Vec::new()
-                } else {
-                    vec!["persistence.sqlite".to_string()]
-                },
+                capabilities,
+                missing_required_capabilities: manifest
+                    .missing_required_capabilities
+                    .clone(),
+                degraded_capabilities,
             },
             events: Vec::new(),
             permissions,
@@ -397,6 +474,36 @@ fn task_row_to_view(row: TaskRow) -> TaskViewJson {
     }
 }
 
+fn event_row_to_sse(row: &EventRow, sequence: u32) -> Event {
+    let payload = event_row_to_stream(row, sequence);
+    Event::default()
+        .id(row.event_id.clone())
+        .data(serde_json::to_string(&payload).unwrap_or_default())
+}
+
+fn live_event_stream(
+    receiver: broadcast::Receiver<EventRow>,
+    session_id: String,
+    sequence: u32,
+) -> impl Stream<Item = Result<Event, Infallible>> {
+    futures::stream::unfold(
+        (receiver, session_id, sequence),
+        |(mut receiver, session_id, mut sequence)| async move {
+            loop {
+                match receiver.recv().await {
+                    Ok(row) if row.session_id.as_deref() == Some(session_id.as_str()) => {
+                        let event = event_row_to_sse(&row, sequence);
+                        sequence += 1;
+                        return Some((Ok(event), (receiver, session_id, sequence)));
+                    }
+                    Ok(_) => continue,
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => return None,
+                }
+            }
+        },
+    )
+}
 fn event_row_to_stream(row: &EventRow, sequence: u32) -> StreamEventJson {
     StreamEventJson {
         event_id: row.event_id.clone(),
@@ -407,13 +514,46 @@ fn event_row_to_stream(row: &EventRow, sequence: u32) -> StreamEventJson {
     }
 }
 
+fn events_after_cursor(events: Vec<EventRow>, last_event_id: Option<String>) -> Vec<EventRow> {
+    let Some(last_event_id) = last_event_id.filter(|event_id| !event_id.is_empty()) else {
+        return events;
+    };
+
+    match events
+        .iter()
+        .position(|row| row.event_id == last_event_id)
+    {
+        Some(index) => events.into_iter().skip(index + 1).collect(),
+        None => events,
+    }
+}
+
+fn last_event_id_from_request(headers: &HeaderMap, query: &StreamEventsQuery) -> Option<String> {
+    headers
+        .get("Last-Event-ID")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            query
+                .last_event_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+        })
+}
+
 fn parse_metadata_map(raw: Option<&str>) -> HashMap<String, String> {
     raw.and_then(|value| serde_json::from_str::<HashMap<String, String>>(value).ok())
         .unwrap_or_default()
 }
 
-fn build_session_metadata(request: &CreateKernelSessionRequest) -> Option<serde_json::Value> {
-    let mut metadata = request.metadata.clone().unwrap_or_default();
+fn apply_create_session_metadata(
+    metadata: &mut HashMap<String, String>,
+    request: &CreateKernelSessionRequest,
+) {
     if let Some(tenant_id) = &request.tenant_id {
         metadata.insert("tenantId".to_string(), tenant_id.clone());
     }
@@ -434,10 +574,41 @@ fn build_session_metadata(request: &CreateKernelSessionRequest) -> Option<serde_
             metadata.insert("workspaceRoots".to_string(), encoded);
         }
     }
-    if metadata.is_empty() {
-        None
-    } else {
-        serde_json::to_value(metadata).ok()
+}
+
+pub fn ensure_session_access(
+    state: &KernelApiState,
+    ctx: &RequestContext,
+    row: &SessionRow,
+) -> Result<(), StatusCode> {
+    assert_session_access(state.access_policy, ctx, row)
+}
+
+pub fn bridge_config_from_row(row: &SessionRow) -> BridgeSessionConfig {
+    let metadata = parse_metadata_map(row.metadata_json.as_deref());
+    BridgeSessionConfig {
+        agent_id: row.agent_id.clone(),
+        tenant_id: metadata
+            .get("tenantId")
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0),
+        user_ref: metadata.get("userRef").cloned(),
+        model: row.model.clone(),
+        instructions: metadata.get("instructions").cloned(),
+        cwd: row.cwd.clone(),
+        metadata: metadata.into_iter().collect(),
+    }
+}
+
+pub fn map_runtime_error(error: sdkwork_agent_kernel::KernelError) -> StatusCode {
+    match error {
+        sdkwork_agent_kernel::KernelError::Validation { .. } => StatusCode::BAD_REQUEST,
+        sdkwork_agent_kernel::KernelError::CapabilityMissing { .. }
+        | sdkwork_agent_kernel::KernelError::ProviderUnavailable { .. } => {
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+        sdkwork_agent_kernel::KernelError::PolicyDenied { .. } => StatusCode::FORBIDDEN,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
 
@@ -446,6 +617,7 @@ pub async fn load_snapshot(
 ) -> Result<Json<KernelUiSnapshotJson>, StatusCode> {
     state
         .build_snapshot()
+        .await
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
@@ -468,9 +640,16 @@ pub async fn decide_permission(
 
 pub async fn create_session(
     State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Json(request): Json<CreateKernelSessionRequest>,
 ) -> Result<(StatusCode, Json<SessionViewJson>), StatusCode> {
-    let metadata = build_session_metadata(&request);
+    let registered = validate_hosted_agent_id(&request.agent_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let mut metadata_map = request.metadata.clone().unwrap_or_default();
+    apply_create_session_metadata(&mut metadata_map, &request);
+    apply_hosted_agent_defaults(&mut metadata_map, registered);
+    stamp_session_ownership(&mut metadata_map, &ctx, &state.config)?;
+
     let mut config = SessionConfig::new(request.agent_id);
     if let Some(title) = request.title {
         config = config.with_title(title);
@@ -490,46 +669,73 @@ pub async fn create_session(
     if let Some(instructions) = request.instructions {
         config = config.with_instructions(instructions);
     }
-    config.metadata = metadata;
+    config.metadata = if metadata_map.is_empty() {
+        None
+    } else {
+        serde_json::to_value(metadata_map).ok()
+    };
 
     let row = state
-        .persistence
-        .create_session(config)
+        .persist(move |persistence| persistence.create_session(config))
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let _ = state
+        .runtime
+        .register_session(&row.session_id, bridge_config_from_row(&row));
+
     Ok((StatusCode::CREATED, Json(session_row_to_view(row))))
 }
 
 pub async fn get_session(
     State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
 ) -> Result<Json<SessionViewJson>, StatusCode> {
-    state
-        .persistence
-        .get_session(&session_id)
-        .map(session_row_to_view)
-        .map(Json)
-        .map_err(map_persistence_error)
+    let session_key = session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(map_persistence_error)?;
+    ensure_session_access(&state, &ctx, &row)?;
+    Ok(Json(session_row_to_view(row)))
 }
 
 pub async fn list_sessions(
     State(state): State<Arc<KernelApiState>>,
-) -> Result<Json<Vec<SessionViewJson>>, StatusCode> {
+    Extension(ctx): Extension<RequestContext>,
+) -> Result<Json<SessionListResponseJson>, StatusCode> {
+    let query = SessionQuery {
+        limit: Some(100),
+        ..SessionQuery::default()
+    };
     let rows = state
-        .persistence
-        .list_sessions(SessionQuery::default())
+        .persist(move |persistence| persistence.list_sessions(query))
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(
-        rows.into_iter().map(session_row_to_view).collect(),
-    ))
+    let mut views = Vec::new();
+    for row in rows {
+        if ensure_session_access(&state, &ctx, &row).is_ok() {
+            views.push(session_row_to_view(row));
+        }
+    }
+    Ok(Json(SessionListResponseJson { items: views }))
 }
 
 pub async fn close_session(
     State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
 ) -> Result<Json<SessionViewJson>, StatusCode> {
+    let session_key = session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(map_persistence_error)?;
+    ensure_session_access(&state, &ctx, &row)?;
     state
-        .persistence
-        .close_session(&session_id)
+        .persist(move |persistence| persistence.close_session(&session_id))
+        .await
         .map(session_row_to_view)
         .map(Json)
         .map_err(map_persistence_error)
@@ -537,9 +743,24 @@ pub async fn close_session(
 
 pub async fn delete_session(
     State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
 ) -> StatusCode {
-    match state.persistence.delete_session(&session_id) {
+    let session_key = session_id.clone();
+    let row = match state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+    {
+        Ok(row) => row,
+        Err(error) => return map_persistence_error(error),
+    };
+    if ensure_session_access(&state, &ctx, &row).is_err() {
+        return StatusCode::FORBIDDEN;
+    }
+    match state
+        .persist(move |persistence| persistence.delete_session(&session_id))
+        .await
+    {
         Ok(()) => StatusCode::NO_CONTENT,
         Err(error) => map_persistence_error(error),
     }
@@ -547,162 +768,340 @@ pub async fn delete_session(
 
 pub async fn send_message(
     State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
     Json(request): Json<SendKernelMessageRequest>,
 ) -> Result<(StatusCode, Json<MessageViewJson>), StatusCode> {
+    let session_key = session_id.clone();
     let row = state
-        .persistence
-        .send_message(&session_id, MessageConfig::user(request.content))
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
         .map_err(map_persistence_error)?;
+    ensure_session_access(&state, &ctx, &row)?;
+    let content = request.content.clone();
+    let (row, bridge_response) = crate::message_dispatch::dispatch_user_message(
+        &state,
+        &session_id,
+        &content,
+        &row,
+    )
+    .await?;
+    let _ = bridge_response;
     Ok((StatusCode::CREATED, Json(message_row_to_view(row))))
 }
 
 pub async fn get_messages(
     State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
     Query(query): Query<ListMessagesQuery>,
-) -> Result<Json<Vec<MessageViewJson>>, StatusCode> {
-    let mut rows = state
-        .persistence
-        .get_messages(&session_id, query.limit.map(i64::from))
+) -> Result<Json<MessageListResponseJson>, StatusCode> {
+    let session_key = session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
         .map_err(map_persistence_error)?;
-    if let Some(offset) = query.offset {
-        let offset = offset as usize;
-        if offset < rows.len() {
-            rows = rows[offset..].to_vec();
-        } else {
-            rows.clear();
-        }
-    }
-    Ok(Json(rows.into_iter().map(message_row_to_view).collect()))
+    ensure_session_access(&state, &ctx, &row)?;
+
+    let limit = query.limit.unwrap_or(100).min(500);
+    let offset = query.offset.unwrap_or(0);
+    let fetch_limit = i64::from(limit) + i64::from(offset);
+    let rows = state
+        .persist(move |persistence| persistence.get_messages(&session_id, Some(fetch_limit)))
+        .await
+        .map_err(map_persistence_error)?;
+    let rows = rows
+        .into_iter()
+        .skip(offset as usize)
+        .take(limit as usize)
+        .map(message_row_to_view)
+        .collect();
+    Ok(Json(MessageListResponseJson { items: rows }))
 }
 
 pub async fn submit_task(
     State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
     Json(request): Json<SubmitTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskViewJson>), StatusCode> {
+    let session_key = session_id.clone();
+    let session = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(map_persistence_error)?;
+    ensure_session_access(&state, &ctx, &session)?;
+    let instruction = request.instruction.clone();
     let row = state
-        .persistence
-        .create_task(&session_id, &request.instruction)
+        .persist(move |persistence| persistence.create_task(&session_id, &instruction))
+        .await
         .map_err(map_persistence_error)?;
     Ok((StatusCode::CREATED, Json(task_row_to_view(row))))
 }
 
 pub async fn get_task(
     State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskViewJson>, StatusCode> {
-    state
-        .persistence
-        .get_task(&task_id)
-        .map(task_row_to_view)
-        .map(Json)
-        .map_err(map_persistence_error)
+    let task_key = task_id.clone();
+    let task = state
+        .persist(move |persistence| persistence.get_task(&task_key))
+        .await
+        .map_err(map_persistence_error)?;
+    let session_key = task.session_id.clone();
+    let session = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(map_persistence_error)?;
+    ensure_session_access(&state, &ctx, &session)?;
+    Ok(Json(task_row_to_view(task)))
 }
 
 pub async fn list_tasks(
     State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
-) -> Result<Json<Vec<TaskViewJson>>, StatusCode> {
-    let rows = state
-        .persistence
-        .list_tasks(&session_id)
+) -> Result<Json<TaskListResponseJson>, StatusCode> {
+    let session_key = session_id.clone();
+    let session = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
         .map_err(map_persistence_error)?;
-    Ok(Json(rows.into_iter().map(task_row_to_view).collect()))
+    ensure_session_access(&state, &ctx, &session)?;
+    let rows = state
+        .persist(move |persistence| persistence.list_tasks(&session_id))
+        .await
+        .map_err(map_persistence_error)?;
+    Ok(Json(TaskListResponseJson {
+        items: rows.into_iter().map(task_row_to_view).collect(),
+    }))
 }
 
 pub async fn cancel_task(
     State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskViewJson>, StatusCode> {
+    let task_key = task_id.clone();
+    let task = state
+        .persist(move |persistence| persistence.get_task(&task_key))
+        .await
+        .map_err(map_persistence_error)?;
+    let session_key = task.session_id.clone();
+    let session = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(map_persistence_error)?;
+    ensure_session_access(&state, &ctx, &session)?;
     state
-        .persistence
-        .cancel_task(&task_id)
+        .persist(move |persistence| persistence.cancel_task(&task_id))
+        .await
         .map(task_row_to_view)
         .map(Json)
         .map_err(map_persistence_error)
 }
 
-pub async fn list_models() -> Json<Vec<ModelDescriptorJson>> {
-    Json(vec![ModelDescriptorJson {
-        model_id: "model.local.default".to_string(),
-        provider_id: "provider.model.local".to_string(),
-        display_name: "Local Default Model".to_string(),
-        family: "local".to_string(),
-        capabilities: vec!["chat".to_string()],
-    }])
+pub async fn list_models(
+    State(state): State<Arc<KernelApiState>>,
+) -> Result<Json<ModelListResponseJson>, StatusCode> {
+    let models = state
+        .runtime
+        .list_models()
+        .map_err(map_runtime_error)?;
+    Ok(Json(ModelListResponseJson {
+        items: models
+            .into_iter()
+            .map(|model| ModelDescriptorJson {
+                model_id: model.model_id,
+                provider_id: model.provider_id,
+                display_name: model.display_name,
+                family: model.family,
+                capabilities: model.capabilities,
+            })
+            .collect(),
+    }))
 }
 
 pub async fn invoke_model(
     State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
     Json(request): Json<InvokeModelRequest>,
 ) -> Result<Json<ModelResponseJson>, StatusCode> {
-    let _session = state
-        .persistence
-        .get_session(&session_id)
+    let session_key = session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
         .map_err(map_persistence_error)?;
+    ensure_session_access(&state, &ctx, &row)?;
+    let _ = state
+        .runtime
+        .register_session(&session_id, bridge_config_from_row(&row));
+
     let model_id = request
         .model_id
         .unwrap_or_else(|| "model.local.default".to_string());
-    Ok(Json(ModelResponseJson {
+    let model_request = ModelRequest {
         model_request_id: format!("model-req.{}", generate_id()),
-        provider_id: "provider.model.local".to_string(),
-        status: "succeeded".to_string(),
-        messages: vec![format!("Model {model_id} acknowledged session {session_id}")],
-        tool_calls: Vec::new(),
+        model_id: Some(model_id),
+        session_id: Some(session_id.clone()),
+        task_id: None,
+        run_id: None,
+        step_id: None,
+        messages: Vec::new(),
+        context_frame_ids: Vec::new(),
+        context_frames: Vec::new(),
+        tool_descriptors: Vec::new(),
+        response_format: None,
+        policy_request_id: None,
+        trace_context: None,
+        timeout_ms: None,
+        metadata: Vec::new(),
+    };
+
+    let result = state
+        .runtime
+        .invoke_model(model_request)
+        .map_err(map_runtime_error)?;
+
+    Ok(Json(ModelResponseJson {
+        model_request_id: result.response.model_request_id,
+        provider_id: result.response.provider_id,
+        status: format!("{:?}", result.response.status).to_lowercase(),
+        messages: result.response.messages,
+        tool_calls: result
+            .response
+            .tool_calls
+            .into_iter()
+            .map(|call| {
+                serde_json::json!({
+                    "toolCallId": call.tool_call_id,
+                    "toolId": call.tool_id,
+                    "input": call.arguments,
+                })
+            })
+            .collect(),
     }))
 }
 
 pub async fn list_tools(
     State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
-) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
-    let _session = state
-        .persistence
-        .get_session(&session_id)
+) -> Result<Json<ToolListResponseJson>, StatusCode> {
+    let session_key = session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
         .map_err(map_persistence_error)?;
-    Ok(Json(Vec::new()))
+    ensure_session_access(&state, &ctx, &row)?;
+
+    let tools = state
+        .runtime
+        .list_tools()
+        .map_err(map_runtime_error)?;
+    Ok(Json(ToolListResponseJson {
+        items: tools
+            .into_iter()
+            .map(|tool| {
+                serde_json::json!({
+                    "toolId": tool.tool_id,
+                    "providerId": tool.provider_id,
+                    "name": tool.name,
+                    "displayName": tool.display_name,
+                    "description": tool.description,
+                    "sideEffectLevel": tool.side_effect_level.as_str(),
+                    "policyCategories": tool.policy_categories,
+                    "timeoutMs": tool.timeout_ms,
+                })
+            })
+            .collect(),
+    }))
 }
 
 pub async fn execute_tool(
     State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path((session_id, tool_name)): Path<(String, String)>,
     Json(request): Json<ExecuteToolRequest>,
 ) -> Result<Json<ToolCallJson>, StatusCode> {
-    let _session = state
-        .persistence
-        .get_session(&session_id)
+    let session_key = session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
         .map_err(map_persistence_error)?;
+    ensure_session_access(&state, &ctx, &row)?;
+    let _ = state
+        .runtime
+        .register_session(&session_id, bridge_config_from_row(&row));
+
+    let result = state
+        .runtime
+        .execute_tool(&session_id, &tool_name, &request.input)
+        .map_err(map_runtime_error)?;
+
     Ok(Json(ToolCallJson {
-        tool_call_id: format!("tool-call.{}", generate_id()),
+        tool_call_id: result.call_id,
         tool_id: tool_name,
         input: request.input,
-        status: "succeeded".to_string(),
-        output: Some("{\"ok\":true}".to_string()),
+        status: result.result.status,
+        output: Some(result.result.output),
     }))
 }
 
 pub async fn stream_session_events(
     State(state): State<Arc<KernelApiState>>,
+    Extension(ctx): Extension<RequestContext>,
+    headers: HeaderMap,
     Path(session_id): Path<String>,
+    Query(query): Query<StreamEventsQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
-    let events = state
-        .persistence
-        .load_session_events(&session_id, Some(100))
+    let session_key = session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
         .map_err(map_persistence_error)?;
-    let stream = stream::iter(events.into_iter().enumerate().map(|(index, row)| {
-        let payload = event_row_to_stream(&row, index as u32);
-        let event = Event::default().data(serde_json::to_string(&payload).unwrap_or_default());
-        Ok(event)
+    ensure_session_access(&state, &ctx, &row)?;
+
+    let last_event_id = last_event_id_from_request(&headers, &query);
+    let live = query.live.unwrap_or(true);
+    let session_for_events = session_id.clone();
+    let events = state
+        .persist(move |persistence| persistence.load_session_events(&session_for_events, Some(100)))
+        .await
+        .map_err(map_persistence_error)?;
+    let events = events_after_cursor(events, last_event_id);
+    let replay_count = events.len();
+    let replay = stream::iter(events.into_iter().enumerate().map(|(index, row)| {
+        Ok(event_row_to_sse(&row, index as u32))
     }));
-    Ok(Sse::new(stream))
+
+    let stream: SessionEventStream = if live {
+        let live_stream = live_event_stream(
+            state.persistence.event_bus().subscribe(),
+            session_id,
+            replay_count as u32,
+        );
+        Box::pin(replay.chain(live_stream))
+    } else {
+        Box::pin(replay)
+    };
+
+    Ok(
+        Sse::new(stream).keep_alive(
+            KeepAlive::new()
+                .interval(Duration::from_secs(15))
+                .text("keep-alive"),
+        ),
+    )
 }
 
 fn map_persistence_error(error: String) -> StatusCode {
     if error.contains("not found") {
         StatusCode::NOT_FOUND
+    } else if error.contains("is closed") {
+        StatusCode::CONFLICT
     } else {
         StatusCode::INTERNAL_SERVER_ERROR
     }
@@ -720,12 +1119,49 @@ fn generate_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::extract::{Path, State};
+    use axum::extract::{Extension, Path, State};
+    use crate::config::ServerConfig;
+    use crate::middleware::RequestContext;
 
     fn test_state() -> Arc<KernelApiState> {
-        Arc::new(KernelApiState::new(Arc::new(
-            PersistenceState::memory().expect("persistence"),
-        )))
+        Arc::new(KernelApiState::new(
+            Arc::new(PersistenceState::memory().expect("persistence")),
+            Arc::new(ServerConfig::default()),
+        ))
+    }
+
+    fn test_context() -> Extension<RequestContext> {
+        Extension(RequestContext {
+            request_id: "req.test".to_string(),
+            tenant_id: None,
+            user_id: None,
+            subject_id: None,
+        })
+    }
+
+    #[test]
+    fn events_after_cursor_skips_prior_events() {
+        let events = vec![
+            EventRow {
+                event_id: "evt.1".to_string(),
+                session_id: Some("session.1".to_string()),
+                event_type: "session.created".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+            },
+            EventRow {
+                event_id: "evt.2".to_string(),
+                session_id: Some("session.1".to_string()),
+                event_type: "session.closed".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-01-01T00:00:01Z".to_string(),
+            },
+        ];
+        let filtered = events_after_cursor(events, Some("evt.1".to_string()));
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].event_id, "evt.2");
     }
 
     #[tokio::test]
@@ -739,6 +1175,7 @@ mod tests {
 
         let (status, Json(session)) = create_session(
             State(state.clone()),
+            test_context(),
             Json(CreateKernelSessionRequest {
                 agent_id: "agent.1".to_string(),
                 tenant_id: Some("tenant.1".to_string()),
@@ -761,9 +1198,13 @@ mod tests {
         assert_eq!(status, StatusCode::CREATED);
         assert_eq!(session.agent_id, "agent.1");
 
-        let Json(loaded) = get_session(State(state.clone()), Path(session.session_id.clone()))
-            .await
-            .expect("loaded");
+        let Json(loaded) = get_session(
+            State(state.clone()),
+            test_context(),
+            Path(session.session_id.clone()),
+        )
+        .await
+        .expect("loaded");
         assert_eq!(loaded.tenant_id, Some("tenant.1".to_string()));
     }
 }

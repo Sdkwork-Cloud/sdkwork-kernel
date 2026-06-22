@@ -1,18 +1,32 @@
+use std::sync::Arc;
+
 use crate::types::{generate_id, BridgeEvent, BridgeEventSeverity, BridgeModelResult};
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentSession, ContextFrame, KernelResult, ModelDescriptor, ModelRequest,
-    ModelResponse, ModelStreamChunk, ModelUsage,
+    AgentMessage, AgentRuntime, AgentSession, ContextFrame, KernelResult,
+    ModelDescriptor, ModelRequest, ModelResponse, ModelStreamChunk, ModelUsage,
 };
 
 /// Handles model invocations and response processing
 pub struct ModelBridge {
     default_model: String,
+    agent_runtime: Option<Arc<AgentRuntime>>,
+    allow_mock_fallback: bool,
 }
 
 impl ModelBridge {
     pub fn new() -> Self {
         Self {
             default_model: "gpt-4".to_string(),
+            agent_runtime: None,
+            allow_mock_fallback: true,
+        }
+    }
+
+    pub fn with_agent_runtime(agent_runtime: Arc<AgentRuntime>, allow_mock_fallback: bool) -> Self {
+        Self {
+            default_model: "gpt-4".to_string(),
+            agent_runtime: Some(agent_runtime),
+            allow_mock_fallback,
         }
     }
 
@@ -29,7 +43,6 @@ impl ModelBridge {
             .clone()
             .unwrap_or_else(|| self.default_model.clone());
 
-        // Collect messages as strings
         let mut messages = Vec::new();
         for msg in history {
             for part in &msg.parts {
@@ -39,7 +52,6 @@ impl ModelBridge {
             }
         }
 
-        // Add context frames as messages
         for frame in context {
             messages.push(format!("[context:{}] {}", frame.source, frame.content));
         }
@@ -49,9 +61,126 @@ impl ModelBridge {
             .for_session(session_id)
     }
 
-    /// Invoke the model (mock implementation)
-    pub fn invoke(&self, request: &ModelRequest) -> KernelResult<BridgeModelResult> {
-        // Mock implementation - in production this would call the actual model provider
+    /// Invoke the typed provider when registered, otherwise use the mock bridge path.
+    pub fn invoke(
+        &self,
+        request: &ModelRequest,
+        model_provider_id: Option<&str>,
+    ) -> KernelResult<BridgeModelResult> {
+        if let Some(runtime) = &self.agent_runtime {
+            match self.invoke_typed(runtime, request, model_provider_id) {
+                Ok(result) => return Ok(result),
+                Err(error) if self.allow_mock_fallback && error.retryable() => {}
+                Err(error) => return Err(error),
+            }
+        }
+
+        self.invoke_mock(request)
+    }
+
+    /// Stream model response (typed provider when registered, otherwise mock bridge path).
+    pub fn stream(
+        &self,
+        request: &ModelRequest,
+        model_provider_id: Option<&str>,
+    ) -> KernelResult<Vec<ModelStreamChunk>> {
+        if let Some(runtime) = &self.agent_runtime {
+            match self.stream_typed(runtime, request, model_provider_id) {
+                Ok(chunks) => {
+                    if !chunks.is_empty() || !self.allow_mock_fallback {
+                        return Ok(chunks);
+                    }
+                }
+                Err(error) if self.allow_mock_fallback => {}
+                Err(error) => return Err(error),
+            }
+        }
+
+        self.stream_mock(request)
+    }
+
+    /// Get available model descriptors
+    pub fn list_models(&self) -> Vec<ModelDescriptor> {
+        if let Some(runtime) = &self.agent_runtime {
+            if let Ok(provider) = runtime.model_provider() {
+                let models = provider.list_models();
+                if !models.is_empty() {
+                    return models;
+                }
+            }
+        }
+
+        self.list_models_mock()
+    }
+
+    fn stream_typed(
+        &self,
+        runtime: &AgentRuntime,
+        request: &ModelRequest,
+        model_provider_id: Option<&str>,
+    ) -> KernelResult<Vec<ModelStreamChunk>> {
+        let provider = self.resolve_model_provider(runtime, model_provider_id)?;
+        provider.stream(request.clone())
+    }
+
+    fn stream_mock(&self, request: &ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
+        let text = format!(
+            "This is a mock streamed response. Model: {}, Messages: {}",
+            request.model_id.as_deref().unwrap_or("unknown"),
+            request.messages.len()
+        );
+        Ok(text
+            .split_whitespace()
+            .enumerate()
+            .map(|(index, word)| {
+                ModelStreamChunk::output(
+                    &request.model_request_id,
+                    index as u64,
+                    format!("{word} "),
+                )
+            })
+            .collect())
+    }
+
+    fn resolve_model_provider<'a>(
+        &self,
+        runtime: &'a AgentRuntime,
+        model_provider_id: Option<&str>,
+    ) -> KernelResult<&'a (dyn sdkwork_agent_kernel::ModelProvider + Send + Sync)> {
+        match model_provider_id.filter(|value| !value.is_empty()) {
+            Some(provider_id) => runtime.model_provider_by_id(provider_id),
+            None => runtime.model_provider(),
+        }
+    }
+
+    fn invoke_typed(
+        &self,
+        runtime: &AgentRuntime,
+        request: &ModelRequest,
+        model_provider_id: Option<&str>,
+    ) -> KernelResult<BridgeModelResult> {
+        let provider = self.resolve_model_provider(runtime, model_provider_id)?;
+        let response = provider.invoke(request.clone())?;
+        let events = vec![BridgeEvent {
+            event_type: "agent.model.invoked".to_string(),
+            session_id: request.session_id.clone(),
+            task_id: None,
+            payload: format!(
+                "provider={};model={}",
+                response.provider_id,
+                request.model_id.as_deref().unwrap_or("default")
+            ),
+            severity: BridgeEventSeverity::Info,
+        }];
+
+        Ok(BridgeModelResult {
+            response,
+            tool_calls: Vec::new(),
+            events,
+        })
+    }
+
+    fn invoke_mock(&self, request: &ModelRequest) -> KernelResult<BridgeModelResult> {
         let response = ModelResponse::text(
             &request.model_request_id,
             "provider.mock",
@@ -81,22 +210,7 @@ impl ModelBridge {
         })
     }
 
-    /// Stream model response (mock implementation)
-    pub fn stream(&self, request: &ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
-        // Mock implementation - in production this would stream from the model provider
-        let chunks = vec![
-            ModelStreamChunk::output(&request.model_request_id, 0, "This "),
-            ModelStreamChunk::output(&request.model_request_id, 1, "is "),
-            ModelStreamChunk::output(&request.model_request_id, 2, "a "),
-            ModelStreamChunk::output(&request.model_request_id, 3, "streamed "),
-            ModelStreamChunk::output(&request.model_request_id, 4, "response."),
-        ];
-
-        Ok(chunks)
-    }
-
-    /// Get available model descriptors
-    pub fn list_models(&self) -> Vec<ModelDescriptor> {
+    fn list_models_mock(&self) -> Vec<ModelDescriptor> {
         vec![
             ModelDescriptor::new("gpt-4", "provider.openai", "GPT-4", "gpt")
                 .with_context_window_tokens(128000)
@@ -146,7 +260,7 @@ mod tests {
         let bridge = ModelBridge::new();
         let request = ModelRequest::new("req.1", vec!["Hello".to_string()]);
 
-        let result = bridge.invoke(&request).expect("invoked");
+        let result = bridge.invoke(&request, None).expect("invoked");
         assert!(!result.response.messages.is_empty());
     }
 
@@ -155,8 +269,9 @@ mod tests {
         let bridge = ModelBridge::new();
         let request = ModelRequest::new("req.1", vec!["Hello".to_string()]);
 
-        let chunks = bridge.stream(&request).expect("streamed");
-        assert_eq!(chunks.len(), 5);
+        let chunks = bridge.stream(&request, None).expect("streamed");
+        assert!(!chunks.is_empty());
+        assert!(chunks.iter().all(|chunk| !chunk.content.is_empty()));
     }
 
     #[test]

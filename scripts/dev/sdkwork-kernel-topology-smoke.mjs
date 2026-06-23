@@ -13,7 +13,6 @@ import {
 const PROFILE_ID = 'self-hosted.unified-process.development';
 const HEALTH_PATH = '/health';
 const INTERNAL_RUNTIME_SNAPSHOT_PATH = '/internal/v3/api/intelligence/runtime/snapshot';
-const LEGACY_KERNEL_SNAPSHOT_PATH = '/api/kernel/snapshot';
 const STARTUP_TIMEOUT_MS = 120_000;
 
 function cargoCommand() {
@@ -100,7 +99,6 @@ async function main() {
   }
 
   const snapshot = await probeSnapshot(INTERNAL_RUNTIME_SNAPSHOT_PATH);
-  await probeSnapshot(LEGACY_KERNEL_SNAPSHOT_PATH);
 
   console.log(
     `[sdkwork-kernel-topology-smoke] ok profile=${PROFILE_ID} url=${healthUrl}${HEALTH_PATH} internal=${INTERNAL_RUNTIME_SNAPSHOT_PATH} snapshot=${snapshot.runtime.health}`,

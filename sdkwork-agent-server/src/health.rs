@@ -47,7 +47,7 @@ impl Default for HealthState {
     }
 }
 
-fn persistence_component(health: Result<bool, String>) -> ComponentHealth {
+pub(crate) fn persistence_component_for_metrics(health: Result<bool, String>) -> ComponentHealth {
     match health {
         Ok(true) => ComponentHealth {
             name: "persistence".to_string(),
@@ -67,7 +67,7 @@ fn persistence_component(health: Result<bool, String>) -> ComponentHealth {
     }
 }
 
-fn aggregate_status(components: &[ComponentHealth]) -> String {
+pub(crate) fn aggregate_component_status(components: &[ComponentHealth]) -> String {
     if components
         .iter()
         .any(|component| component.status == "unavailable")
@@ -94,9 +94,9 @@ pub async fn health_check(
             status: "available".to_string(),
             message: None,
         },
-        persistence_component(persistence_health),
+        persistence_component_for_metrics(persistence_health),
     ];
-    let status = aggregate_status(&components);
+    let status = aggregate_component_status(&components);
     let code = if status == "unhealthy" {
         StatusCode::SERVICE_UNAVAILABLE
     } else {
@@ -118,7 +118,7 @@ pub async fn readiness_check(
     State((health_state, persistence)): State<(Arc<HealthState>, Arc<PersistenceState>)>,
 ) -> (StatusCode, Json<HealthResponse>) {
     let persistence_health = persistence.run(|state| state.health()).await;
-    let components = vec![persistence_component(persistence_health)];
+    let components = vec![persistence_component_for_metrics(persistence_health)];
     let persistence_ready = components
         .first()
         .is_some_and(|component| component.status == "available");

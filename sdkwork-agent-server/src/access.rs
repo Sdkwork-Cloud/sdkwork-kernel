@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::config::ServerConfig;
 use crate::middleware::RequestContext;
+use crate::security_audit;
 
 /// Session ownership policy derived from ingress auth configuration.
 #[derive(Debug, Clone, Copy)]
@@ -14,7 +15,7 @@ pub struct AccessPolicy {
 impl AccessPolicy {
     pub fn from_config(config: &ServerConfig) -> Self {
         Self {
-            enforce_session_scope: config.ingress_auth_mode.eq_ignore_ascii_case("token"),
+            enforce_session_scope: config.ingress_auth_secured(),
         }
     }
 }
@@ -24,7 +25,7 @@ pub fn stamp_session_ownership(
     ctx: &RequestContext,
     config: &ServerConfig,
 ) -> Result<(), StatusCode> {
-    if !config.ingress_auth_mode.eq_ignore_ascii_case("token") {
+    if !config.ingress_auth_secured() {
         return Ok(());
     }
 
@@ -58,6 +59,14 @@ pub fn assert_session_access(
 
     let caller_tenant = ctx.tenant_id.as_deref().ok_or(StatusCode::FORBIDDEN)?;
     if owner_tenant.is_some_and(|owner| owner != caller_tenant) {
+        security_audit::log_access_denied(
+            "session.owner_tenant_mismatch",
+            Some(&ctx.request_id),
+            &row.session_id,
+            ctx.tenant_id.as_deref(),
+            ctx.user_id.as_deref(),
+            "session tenant owner mismatch",
+        );
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -67,6 +76,49 @@ pub fn assert_session_access(
         .or_else(|| ctx.subject_id.as_deref())
         .ok_or(StatusCode::FORBIDDEN)?;
     if owner_user.is_some_and(|owner| owner != caller_user) {
+        security_audit::log_access_denied(
+            "session.owner_user_mismatch",
+            Some(&ctx.request_id),
+            &row.session_id,
+            ctx.tenant_id.as_deref(),
+            ctx.user_id.as_deref(),
+            "session user owner mismatch",
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    Ok(())
+}
+
+pub fn assert_permission_access(
+    policy: AccessPolicy,
+    ctx: &RequestContext,
+    owner_tenant_id: Option<&str>,
+    owner_user_ref: Option<&str>,
+    permission_request_id: &str,
+) -> Result<(), StatusCode> {
+    if !policy.enforce_session_scope {
+        return Ok(());
+    }
+
+    let caller_tenant = ctx.tenant_id.as_deref().ok_or(StatusCode::FORBIDDEN)?;
+    let caller_user = ctx
+        .user_id
+        .as_deref()
+        .or_else(|| ctx.subject_id.as_deref())
+        .ok_or(StatusCode::FORBIDDEN)?;
+
+    if owner_tenant_id.is_some_and(|owner| owner != caller_tenant)
+        || owner_user_ref.is_some_and(|owner| owner != caller_user)
+    {
+        security_audit::log_access_denied(
+            "permission.owner_mismatch",
+            Some(&ctx.request_id),
+            permission_request_id,
+            ctx.tenant_id.as_deref(),
+            ctx.user_id.as_deref(),
+            "permission request owned by another caller",
+        );
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -117,9 +169,12 @@ mod tests {
         };
         let ctx = RequestContext {
             request_id: "req.1".to_string(),
+            trace_id: None,
             tenant_id: Some("other".to_string()),
             user_id: Some("other".to_string()),
             subject_id: None,
+            api_surface: None,
+            route_template: String::new(),
         };
         assert!(assert_session_access(policy, &ctx, &session_with_owner("tenant.1", "user.1")).is_ok());
     }
@@ -151,9 +206,12 @@ mod tests {
         };
         let ctx = RequestContext {
             request_id: "req.1".to_string(),
+            trace_id: None,
             tenant_id: Some("tenant.1".to_string()),
             user_id: Some("user.1".to_string()),
             subject_id: None,
+            api_surface: None,
+            route_template: String::new(),
         };
         assert_eq!(
             assert_session_access(policy, &ctx, &session_without_owner()),
@@ -168,9 +226,12 @@ mod tests {
         };
         let ctx = RequestContext {
             request_id: "req.1".to_string(),
+            trace_id: None,
             tenant_id: Some("tenant.2".to_string()),
             user_id: Some("user.1".to_string()),
             subject_id: None,
+            api_surface: None,
+            route_template: String::new(),
         };
         assert_eq!(
             assert_session_access(policy, &ctx, &session_with_owner("tenant.1", "user.1")),
@@ -185,9 +246,12 @@ mod tests {
         };
         let ctx = RequestContext {
             request_id: "req.1".to_string(),
+            trace_id: None,
             tenant_id: None,
             user_id: None,
             subject_id: None,
+            api_surface: None,
+            route_template: String::new(),
         };
         assert_eq!(
             assert_session_access(policy, &ctx, &session_with_owner("tenant.1", "user.1")),
@@ -204,9 +268,12 @@ mod tests {
         let mut metadata = HashMap::new();
         let ctx = RequestContext {
             request_id: "req.1".to_string(),
+            trace_id: None,
             tenant_id: None,
             user_id: Some("user.1".to_string()),
             subject_id: None,
+            api_surface: None,
+            route_template: String::new(),
         };
         assert_eq!(
             stamp_session_ownership(&mut metadata, &ctx, &config),

@@ -22,6 +22,10 @@ paths:
       x-sdkwork-domain: intelligence
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       responses:
         '200':
           description: Kernel UI snapshot
@@ -46,6 +50,9 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/PermissionRequestIdPath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       requestBody:
         required: true
         content:
@@ -74,6 +81,10 @@ paths:
       x-sdkwork-domain: intelligence
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       responses:
         '200':
           description: Session list
@@ -95,6 +106,10 @@ paths:
       x-sdkwork-domain: intelligence
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       requestBody:
         required: true
         content:
@@ -125,6 +140,9 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       responses:
         '200':
           description: Session
@@ -148,6 +166,9 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       responses:
         '204':
           description: Session deleted
@@ -168,6 +189,9 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       responses:
         '200':
           description: Closed session
@@ -194,6 +218,9 @@ paths:
         - $ref: '#/components/parameters/SessionIdPath'
         - $ref: '#/components/parameters/MessageLimitQuery'
         - $ref: '#/components/parameters/MessageOffsetQuery'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       responses:
         '200':
           description: Message list
@@ -217,6 +244,9 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       requestBody:
         required: true
         content:
@@ -247,6 +277,9 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       responses:
         '200':
           description: Task list
@@ -270,6 +303,9 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       requestBody:
         required: true
         content:
@@ -300,6 +336,9 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/TaskIdPath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       responses:
         '200':
           description: Task
@@ -324,6 +363,9 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/TaskIdPath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       responses:
         '200':
           description: Cancelled task
@@ -346,6 +388,10 @@ paths:
       x-sdkwork-domain: intelligence
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       responses:
         '200':
           description: Model catalog
@@ -370,6 +416,9 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       requestBody:
         required: true
         content:
@@ -400,6 +449,9 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       responses:
         '200':
           description: Tool catalog
@@ -425,6 +477,9 @@ paths:
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
         - $ref: '#/components/parameters/ToolNamePath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       requestBody:
         required: true
         content:
@@ -457,6 +512,9 @@ paths:
         - $ref: '#/components/parameters/SessionIdPath'
         - $ref: '#/components/parameters/LastEventIdQuery'
         - $ref: '#/components/parameters/LiveQuery'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       responses:
         '200':
           description: Server-sent events stream
@@ -498,6 +556,27 @@ components:
       required: true
       schema:
         type: string
+    SdkworkTenantIdHeader:
+      name: x-sdkwork-tenant-id
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Caller tenant identity for session ownership in token ingress mode.
+    SdkworkUserIdHeader:
+      name: x-sdkwork-user-id
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Caller user identity for session ownership in token ingress mode.
+    SdkworkIdentityMacHeader:
+      name: x-sdkwork-identity-mac
+      in: header
+      required: false
+      schema:
+        type: string
+      description: HMAC-SHA256 hex proof over "{tenantId}\n{userId}" keyed by the ingress token; required for non-loopback signed identity mode.
     LastEventIdQuery:
       name: lastEventId
       in: query
@@ -560,6 +639,7 @@ components:
       properties:
         decision:
           type: string
+          enum: [allow, deny]
     PermissionRequest:
       type: object
       additionalProperties: true

@@ -19,16 +19,17 @@ use tokio::sync::broadcast;
 
 type SessionEventStream = Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>>;
 
-use crate::access::{assert_session_access, stamp_session_ownership, AccessPolicy};
+use crate::access::{assert_permission_access, assert_session_access, stamp_session_ownership, AccessPolicy};
 use crate::agent_registry::{apply_hosted_agent_defaults, validate_hosted_agent_id};
 use crate::config::ServerConfig;
+use crate::metrics::MetricsRegistry;
 use crate::middleware::RequestContext;
 use crate::persistence::PersistenceState;
 use crate::runtime::RuntimeState;
 
-/// Shared kernel UI API state.
+/// Shared internal-api runtime HTTP handler state.
 #[derive(Clone)]
-pub struct KernelApiState {
+pub struct InternalRuntimeApiState {
     pub persistence: Arc<PersistenceState>,
     pub config: Arc<ServerConfig>,
     pub access_policy: AccessPolicy,
@@ -40,6 +41,8 @@ pub struct KernelApiState {
 #[derive(Debug, Clone)]
 struct PermissionRecord {
     view: PermissionRequestJson,
+    owner_tenant_id: Option<String>,
+    owner_user_ref: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -315,16 +318,19 @@ pub struct StreamEventsQuery {
     pub live: Option<bool>,
 }
 
-impl KernelApiState {
-    pub fn new(persistence: Arc<PersistenceState>, config: Arc<ServerConfig>) -> Self {
-        Self {
+impl InternalRuntimeApiState {
+    pub fn new(
+        persistence: Arc<PersistenceState>,
+        config: Arc<ServerConfig>,
+    ) -> Result<Self, sdkwork_agent_kernel::KernelError> {
+        Ok(Self {
             persistence,
             config: config.clone(),
             access_policy: AccessPolicy::from_config(&config),
-            runtime: RuntimeState::for_config(&config),
+            runtime: RuntimeState::try_for_config(&config)?,
             sse_event_counter: Arc::new(tokio::sync::Mutex::new(0)),
             permissions: Arc::new(Mutex::new(HashMap::new())),
-        }
+        })
     }
 
     pub(crate) async fn persist<F, T>(&self, operation: F) -> Result<T, String>
@@ -577,7 +583,7 @@ fn apply_create_session_metadata(
 }
 
 pub fn ensure_session_access(
-    state: &KernelApiState,
+    state: &InternalRuntimeApiState,
     ctx: &RequestContext,
     row: &SessionRow,
 ) -> Result<(), StatusCode> {
@@ -613,7 +619,7 @@ pub fn map_runtime_error(error: sdkwork_agent_kernel::KernelError) -> StatusCode
 }
 
 pub async fn load_snapshot(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
 ) -> Result<Json<KernelUiSnapshotJson>, StatusCode> {
     state
         .build_snapshot()
@@ -623,14 +629,41 @@ pub async fn load_snapshot(
 }
 
 pub async fn decide_permission(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
+    Extension(ctx): Extension<RequestContext>,
     Path(permission_request_id): Path<String>,
     Json(body): Json<PermissionDecisionBody>,
 ) -> Result<Json<PermissionRequestJson>, StatusCode> {
+    if state.access_policy.enforce_session_scope {
+        if ctx.tenant_id.as_deref().is_none_or(str::is_empty)
+            || ctx
+                .user_id
+                .as_deref()
+                .or_else(|| ctx.subject_id.as_deref())
+                .is_none_or(str::is_empty)
+        {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+
+    if !matches!(body.decision.as_str(), "allow" | "deny") {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
     let mut permissions = state
         .permissions
         .lock()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let record = permissions
+        .get(&permission_request_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    assert_permission_access(
+        state.access_policy,
+        &ctx,
+        record.owner_tenant_id.as_deref(),
+        record.owner_user_ref.as_deref(),
+        &permission_request_id,
+    )?;
     let record = permissions
         .get_mut(&permission_request_id)
         .ok_or(StatusCode::NOT_FOUND)?;
@@ -639,7 +672,7 @@ pub async fn decide_permission(
 }
 
 pub async fn create_session(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Json(request): Json<CreateKernelSessionRequest>,
 ) -> Result<(StatusCode, Json<SessionViewJson>), StatusCode> {
@@ -688,7 +721,7 @@ pub async fn create_session(
 }
 
 pub async fn get_session(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
 ) -> Result<Json<SessionViewJson>, StatusCode> {
@@ -702,7 +735,7 @@ pub async fn get_session(
 }
 
 pub async fn list_sessions(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
 ) -> Result<Json<SessionListResponseJson>, StatusCode> {
     let query = SessionQuery {
@@ -723,7 +756,7 @@ pub async fn list_sessions(
 }
 
 pub async fn close_session(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
 ) -> Result<Json<SessionViewJson>, StatusCode> {
@@ -742,7 +775,7 @@ pub async fn close_session(
 }
 
 pub async fn delete_session(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
 ) -> StatusCode {
@@ -767,7 +800,7 @@ pub async fn delete_session(
 }
 
 pub async fn send_message(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
     Json(request): Json<SendKernelMessageRequest>,
@@ -791,7 +824,7 @@ pub async fn send_message(
 }
 
 pub async fn get_messages(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
     Query(query): Query<ListMessagesQuery>,
@@ -820,7 +853,7 @@ pub async fn get_messages(
 }
 
 pub async fn submit_task(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
     Json(request): Json<SubmitTaskRequest>,
@@ -840,7 +873,7 @@ pub async fn submit_task(
 }
 
 pub async fn get_task(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskViewJson>, StatusCode> {
@@ -859,7 +892,7 @@ pub async fn get_task(
 }
 
 pub async fn list_tasks(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
 ) -> Result<Json<TaskListResponseJson>, StatusCode> {
@@ -879,7 +912,7 @@ pub async fn list_tasks(
 }
 
 pub async fn cancel_task(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(task_id): Path<String>,
 ) -> Result<Json<TaskViewJson>, StatusCode> {
@@ -903,7 +936,7 @@ pub async fn cancel_task(
 }
 
 pub async fn list_models(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
 ) -> Result<Json<ModelListResponseJson>, StatusCode> {
     let models = state
         .runtime
@@ -924,8 +957,9 @@ pub async fn list_models(
 }
 
 pub async fn invoke_model(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
+    Extension(metrics): Extension<Arc<MetricsRegistry>>,
     Path(session_id): Path<String>,
     Json(request): Json<InvokeModelRequest>,
 ) -> Result<Json<ModelResponseJson>, StatusCode> {
@@ -965,6 +999,20 @@ pub async fn invoke_model(
         .invoke_model(model_request)
         .map_err(map_runtime_error)?;
 
+    let status_label = format!("{:?}", result.response.status).to_lowercase();
+    metrics.record_model_invocation(&result.response.provider_id, &status_label);
+    if let Some(usage) = result.response.usage.as_ref() {
+        crate::usage_meter::record_model_token_usage(
+            ctx.tenant_id.as_deref(),
+            ctx.user_id.as_deref(),
+            &session_id,
+            &result.response.provider_id,
+            usage,
+        );
+        metrics.record_model_token_usage(&result.response.provider_id, "input", u64::from(usage.input_tokens));
+        metrics.record_model_token_usage(&result.response.provider_id, "output", u64::from(usage.output_tokens));
+    }
+
     Ok(Json(ModelResponseJson {
         model_request_id: result.response.model_request_id,
         provider_id: result.response.provider_id,
@@ -986,7 +1034,7 @@ pub async fn invoke_model(
 }
 
 pub async fn list_tools(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
 ) -> Result<Json<ToolListResponseJson>, StatusCode> {
@@ -1021,7 +1069,7 @@ pub async fn list_tools(
 }
 
 pub async fn execute_tool(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path((session_id, tool_name)): Path<(String, String)>,
     Json(request): Json<ExecuteToolRequest>,
@@ -1051,7 +1099,7 @@ pub async fn execute_tool(
 }
 
 pub async fn stream_session_events(
-    State(state): State<Arc<KernelApiState>>,
+    State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     headers: HeaderMap,
     Path(session_id): Path<String>,
@@ -1123,19 +1171,25 @@ mod tests {
     use crate::config::ServerConfig;
     use crate::middleware::RequestContext;
 
-    fn test_state() -> Arc<KernelApiState> {
-        Arc::new(KernelApiState::new(
-            Arc::new(PersistenceState::memory().expect("persistence")),
-            Arc::new(ServerConfig::default()),
-        ))
+    fn test_state() -> Arc<InternalRuntimeApiState> {
+        Arc::new(
+            InternalRuntimeApiState::new(
+                Arc::new(PersistenceState::memory().expect("persistence")),
+                Arc::new(ServerConfig::default()),
+            )
+            .expect("runtime state should initialize for tests"),
+        )
     }
 
     fn test_context() -> Extension<RequestContext> {
         Extension(RequestContext {
             request_id: "req.test".to_string(),
+            trace_id: None,
             tenant_id: None,
             user_id: None,
             subject_id: None,
+            api_surface: None,
+            route_template: String::new(),
         })
     }
 
@@ -1165,7 +1219,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn kernel_snapshot_and_session_roundtrip() {
+    async fn internal_runtime_snapshot_and_session_roundtrip() {
         let state = test_state();
         let snapshot = load_snapshot(State(state.clone()))
             .await

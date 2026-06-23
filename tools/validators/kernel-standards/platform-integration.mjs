@@ -215,6 +215,154 @@ export function validatePlatformIntegration({ kernelRoot, errors, ensureFile, re
       'crates/sdkwork-router-agent-internal-api/src/lib.rs must export internal_route_manifest for internal-api route boundary'
     );
   }
+  if (internalRouterLib && !internalRouterLib.includes('build_internal_runtime_routes')) {
+    errors.push(
+      'crates/sdkwork-router-agent-internal-api/src/lib.rs must re-export build_internal_runtime_routes'
+    );
+  }
+
+  const internalRuntimeHandler = path.join(
+    kernelRoot,
+    'sdkwork-agent-server',
+    'src',
+    'api',
+    'internal_runtime.rs'
+  );
+  if (!fs.existsSync(internalRuntimeHandler)) {
+    errors.push(
+      'sdkwork-agent-server/src/api/internal_runtime.rs must exist for internal-api runtime handlers'
+    );
+  }
+  const legacyKernelHandler = path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'api', 'kernel.rs');
+  if (fs.existsSync(legacyKernelHandler)) {
+    errors.push('sdkwork-agent-server/src/api/kernel.rs is retired; use internal_runtime.rs');
+  }
+
+  const runtimeRoutes = readFileIfExists(
+    path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'runtime_routes.rs')
+  );
+  if (runtimeRoutes) {
+    if (!runtimeRoutes.includes('build_internal_runtime_routes')) {
+      errors.push('sdkwork-agent-server/src/runtime_routes.rs must export build_internal_runtime_routes');
+    }
+    if (!runtimeRoutes.includes('INTERNAL_RUNTIME_MOUNT_PREFIX')) {
+      errors.push('sdkwork-agent-server/src/runtime_routes.rs must declare INTERNAL_RUNTIME_MOUNT_PREFIX');
+    }
+    if (
+      runtimeRoutes.includes('LEGACY_KERNEL_MOUNT_PREFIX')
+      || runtimeRoutes.includes('build_kernel_runtime_routes')
+    ) {
+      errors.push('sdkwork-agent-server/src/runtime_routes.rs must not retain retired kernel mount helpers');
+    }
+  }
+
+  const serverApp = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'app.rs'));
+  if (
+    serverApp
+    && (serverApp.includes('/api/sessions')
+      || serverApp.includes('/api/chat')
+      || serverApp.includes('/api/kernel'))
+  ) {
+    errors.push('sdkwork-agent-server/src/app.rs must not mount retired legacy HTTP prefixes');
+  }
+  if (serverApp && !serverApp.includes('"/metrics"')) {
+    errors.push('sdkwork-agent-server/src/app.rs must expose GET /metrics for production observability');
+  }
+
+  const serverMetrics = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'metrics.rs'));
+  if (!serverMetrics || !serverMetrics.includes('sdkwork_kernel_http_requests_total')) {
+    errors.push(
+      'sdkwork-agent-server/src/metrics.rs must expose sdkwork_kernel_http_requests_total per OBSERVABILITY_SPEC.md'
+    );
+  }
+  if (serverMetrics && !serverMetrics.includes('sdkwork_kernel_runtime_persistence_backend_info')) {
+    errors.push(
+      'sdkwork-agent-server/src/metrics.rs must expose runtime persistence backend gauge for multi-replica ops'
+    );
+  }
+  if (serverMetrics && !serverMetrics.includes('sdkwork_kernel_rate_limit_backend_info')) {
+    errors.push(
+      'sdkwork-agent-server/src/metrics.rs must expose rate-limit backend gauge for distributed limiter ops'
+    );
+  }
+
+  const serverPersistence = readFileIfExists(
+    path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'persistence.rs')
+  );
+  if (!serverPersistence || !serverPersistence.includes('PersistenceBackend')) {
+    errors.push(
+      'sdkwork-agent-server/src/persistence.rs must define PersistenceBackend for sqlite/postgres runtime sessions'
+    );
+  }
+
+  const serverRateLimit = readFileIfExists(
+    path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'rate_limit.rs')
+  );
+  if (!serverRateLimit || !serverRateLimit.includes('uses_redis')) {
+    errors.push(
+      'sdkwork-agent-server/src/rate_limit.rs must expose uses_redis for distributed rate limiting'
+    );
+  }
+  if (serverRateLimit && !serverRateLimit.includes('tenant_overrides')) {
+    errors.push(
+      'sdkwork-agent-server/src/rate_limit.rs must apply per-tenant rate limit overrides for commercial tenancy'
+    );
+  }
+
+  const serverIngressJwt = readFileIfExists(
+    path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'ingress_jwt.rs')
+  );
+  if (!serverIngressJwt || !serverIngressJwt.includes('validate_ingress_jwt')) {
+    errors.push(
+      'sdkwork-agent-server/src/ingress_jwt.rs must validate enterprise ingress JWT credentials'
+    );
+  }
+  if (serverIngressJwt && !serverIngressJwt.includes('load_jwks_file')) {
+    errors.push(
+      'sdkwork-agent-server/src/ingress_jwt.rs must support local JWKS file material for RS256 enterprise ingress'
+    );
+  }
+  if (serverIngressJwt && !serverIngressJwt.includes('fetch_jwks_url')) {
+    errors.push(
+      'sdkwork-agent-server/src/ingress_jwt.rs must fetch remote JWKS URL material at startup for enterprise OIDC ingress'
+    );
+  }
+
+  const serverUsageMeter = readFileIfExists(
+    path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'usage_meter.rs')
+  );
+  if (!serverUsageMeter || !serverUsageMeter.includes('usage_meter')) {
+    errors.push(
+      'sdkwork-agent-server/src/usage_meter.rs must emit structured commercial usage facts'
+    );
+  }
+
+  const serverConfig = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'config.rs'));
+  if (
+    serverConfig &&
+    (!serverConfig.includes('runtime_database_engine') ||
+      !serverConfig.includes('requires_distributed_rate_limit'))
+  ) {
+    errors.push(
+      'sdkwork-agent-server/src/config.rs must declare runtime_database_engine and requires_distributed_rate_limit'
+    );
+  }
+
+  const serverMiddleware = readFileIfExists(
+    path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'middleware.rs')
+  );
+  if (serverMiddleware && !serverMiddleware.includes('route_template')) {
+    errors.push(
+      'sdkwork-agent-server/src/middleware.rs must log route templates instead of raw paths per OBSERVABILITY_SPEC.md'
+    );
+  }
+
+  const serverHttpSurface = readFileIfExists(
+    path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'http_surface.rs')
+  );
+  if (serverHttpSurface && !serverHttpSurface.includes('fn route_template')) {
+    errors.push('sdkwork-agent-server/src/http_surface.rs must define route_template for observability labels');
+  }
 
   const agentBusinessCargo = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-business', 'Cargo.toml'));
   if (agentBusinessCargo) {
@@ -254,6 +402,17 @@ export function validatePlatformIntegration({ kernelRoot, errors, ensureFile, re
   if (agentDatabaseCargo && agentDatabaseCargo.includes('postgres = [')) {
     errors.push(
       'sdkwork-agent-database must not ship a broken postgres feature stub; use sdkwork-database for PostgreSQL pools'
+    );
+  }
+  const agentDatabasePostgresPool = readFileIfExists(
+    path.join(kernelRoot, 'sdkwork-agent-database', 'src', 'postgres_pool.rs')
+  );
+  if (
+    agentDatabaseCargo?.includes('postgres-sync') &&
+    (!agentDatabasePostgresPool || !agentDatabasePostgresPool.includes('create_pool_from_config'))
+  ) {
+    errors.push(
+      'sdkwork-agent-database/src/postgres_pool.rs must bootstrap pools through sdkwork-database-sqlx when postgres-sync is enabled'
     );
   }
 

@@ -42,7 +42,7 @@
     "previews": []
   },
   "publish": {
-    "status": "INTERNAL",
+    "status": "BETA",
     "platforms": ["API", "WEB", "CLI"],
     "installPlatforms": ["API"],
     "installSkill": false
@@ -103,7 +103,7 @@
   "security": {
     "checksumRequired": true,
     "signatureRequired": false,
-    "sbomRequired": false
+    "sbomRequired": true
   },
   "metadata": {
     "topologySpec": "specs/topology.spec.json",

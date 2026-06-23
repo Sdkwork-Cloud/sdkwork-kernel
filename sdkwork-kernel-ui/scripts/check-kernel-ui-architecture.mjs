@@ -119,8 +119,8 @@ for (const packageDir of expectedPackages) {
       if (!/@sdkwork\/agent-internal-sdk/.test(realClientSource)) {
         errors.push('kernel-ui.real.ts must import @sdkwork/agent-internal-sdk');
       }
-      if (/\/api\/kernel\//.test(realClientSource)) {
-        errors.push('kernel-ui.real.ts must not call legacy /api/kernel paths directly');
+      if (/\/api\/(kernel|sessions|chat)\//.test(realClientSource)) {
+        errors.push('kernel-ui.real.ts must not call retired /api/kernel, /api/sessions, or /api/chat paths');
       }
       if (/new EventSource\(/.test(realClientSource)) {
         errors.push('kernel-ui.real.ts must not use browser EventSource without auth headers');

@@ -14,7 +14,7 @@ This README is the SDKWork module entrypoint for `@sdkwork/kernel-ui-services`. 
 ## Required SDK Surface
 
 - `@sdkwork/agent-internal-sdk` (`sdkwork-agent-internal-sdk` / `sdkwork-agent-internal-api`)
-- Runtime calls use `/internal/v3/api/intelligence/runtime/*` through `createClient()`; do not call `/api/kernel/*` directly.
+- Runtime calls use `/internal/v3/api/intelligence/runtime/*` through `createClient()`.
 
 ## Configuration
 
@@ -26,7 +26,7 @@ This component follows the deployment and runtime rules referenced by its `canon
 
 ## Security
 
-Ingress token auth is applied through the generated internal SDK (`setApiKey`) plus optional `x-sdkwork-tenant-id` / `x-sdkwork-user-id` headers from `KernelUiAuthProvider`. Do not add raw `fetch` clients or hand-built auth headers in UI modules.
+Ingress token auth is applied through `buildKernelUiAuthHeaders()` (`Authorization`, `X-API-Key`, `x-sdkwork-tenant-id`, `x-sdkwork-user-id`, and signed `x-sdkwork-identity-mac`). Do not add raw `fetch` clients or hand-built auth headers in UI modules.
 
 ## Extension Points
 

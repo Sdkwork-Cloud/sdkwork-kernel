@@ -3,6 +3,11 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { AGENT_SDK_FAMILIES } from '../../../sdks/_shared/agent-sdk-families.mjs';
+import {
+  ensureTrailingNewline,
+  materializeInternalOpenApiAuthority,
+  materializeInternalOpenApiSdkgen
+} from '../../../sdks/_shared/materialize-internal-openapi.mjs';
 import { SDKWORK_SDKGEN_STANDARD } from '../../../sdks/_shared/sdkgen-standard.mjs';
 import { validateGeneratedAgentApi } from './generated-typescript-api-surface-checks.mjs';
 import { validateOpenApi } from './openapi-checks.mjs';
@@ -84,6 +89,9 @@ for (const family of families) {
   const sdkgen = readIfExists(sdkgenPath);
   validateOpenApi({ label: `${family.familyDir} authority`, content: authority, family, errors });
   validateOpenApi({ label: `${family.familyDir} sdkgen`, content: sdkgen, family, errors });
+  if (family.key === 'internal') {
+    validateMaterializedInternalOpenApi({ root, family, authority, sdkgen, errors, readIfExists });
+  }
   if (sdkgen.includes("$ref: '#/components/responses/Problem'")) {
     errors.push(`${family.familyDir} sdkgen input must inline explicit problem responses`);
   }
@@ -134,6 +142,45 @@ function readJsonIfExists(filePath) {
   } catch (error) {
     errors.push(`invalid json: ${path.relative(root, filePath)}: ${error.message}`);
     return null;
+  }
+}
+
+function validateMaterializedInternalOpenApi({
+  root,
+  family,
+  authority,
+  sdkgen,
+  errors,
+  readIfExists
+}) {
+  const sourcePath = path.join(root, family.authorityOpenApi);
+  const source = readIfExists(sourcePath);
+  if (!source) {
+    errors.push(`missing internal-api authority source: ${family.authorityOpenApi}`);
+    return;
+  }
+
+  let expectedAuthority;
+  let expectedSdkgen;
+  try {
+    expectedAuthority = materializeInternalOpenApiAuthority(source, family);
+    expectedSdkgen = materializeInternalOpenApiSdkgen(expectedAuthority, family.authority);
+  } catch (error) {
+    errors.push(
+      `failed to materialize ${family.authorityOpenApi}: ${error instanceof Error ? error.message : String(error)}`
+    );
+    return;
+  }
+
+  if (ensureTrailingNewline(authority) !== expectedAuthority) {
+    errors.push(
+      `${family.familyDir}/openapi/${family.authority}.openapi.yaml is stale; run node sdks/materialize-agent-internal-api-openapi.mjs`
+    );
+  }
+  if (ensureTrailingNewline(sdkgen) !== expectedSdkgen) {
+    errors.push(
+      `${family.familyDir}/openapi/${family.authority}.sdkgen.yaml is stale; run node sdks/materialize-agent-internal-api-openapi.mjs`
+    );
   }
 }
 }

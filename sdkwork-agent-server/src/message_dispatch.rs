@@ -3,7 +3,9 @@ use sdkwork_agent_database::{MessageRow, SessionRow};
 use sdkwork_agent_kernel::ModelStreamChunk;
 use sdkwork_agent_session::MessageConfig;
 
-use crate::api::kernel::{bridge_config_from_row, map_runtime_error, KernelApiState};
+use crate::api::internal_runtime::{
+    bridge_config_from_row, map_runtime_error, InternalRuntimeApiState,
+};
 
 /// Extract assistant-visible text from a bridge turn response.
 pub fn assistant_content_from_bridge(response: &BridgeMessageResponse) -> String {
@@ -23,7 +25,7 @@ pub fn assistant_content_from_bridge(response: &BridgeMessageResponse) -> String
 
 /// Persist the user message, run the runtime bridge turn, then persist the assistant reply.
 pub async fn dispatch_user_message(
-    state: &KernelApiState,
+    state: &InternalRuntimeApiState,
     session_id: &str,
     content: &str,
     row: &SessionRow,
@@ -68,7 +70,7 @@ pub async fn dispatch_user_message(
 
 /// Persist the user message, stream a runtime bridge turn, then persist the assistant reply.
 pub async fn dispatch_user_message_stream(
-    state: &KernelApiState,
+    state: &InternalRuntimeApiState,
     session_id: &str,
     content: &str,
     row: &SessionRow,
@@ -113,7 +115,7 @@ pub async fn dispatch_user_message_stream(
 }
 
 async fn emit_turn_completed(
-    state: &KernelApiState,
+    state: &InternalRuntimeApiState,
     session_id: &str,
     user_message_id: &str,
 ) -> Result<(), axum::http::StatusCode> {
@@ -151,7 +153,8 @@ mod tests {
         let persistence = Arc::new(
             PersistenceState::memory().expect("in-memory persistence should initialize for tests"),
         );
-        let state = KernelApiState::new(persistence.clone(), config);
+        let state = InternalRuntimeApiState::new(persistence.clone(), config)
+            .expect("runtime state should initialize for tests");
         let session = persistence
             .create_session(SessionConfig::new("agent.1"))
             .expect("session should be created");

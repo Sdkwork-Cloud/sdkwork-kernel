@@ -7,6 +7,7 @@ import {
 export function validateSdkgenStandard({ root, errors, ensureFile, readIfExists, readJsonIfExists, families }) {
   ensureFile('sdks/README.md');
   ensureFile('sdks/materialize-agent-v3-openapi-boundaries.mjs');
+  ensureFile('sdks/materialize-agent-internal-api-openapi.mjs');
   ensureFile('sdks/workspace-agent-sdkgen.mjs');
   ensureFile('specs/SDK_SPEC.md');
 

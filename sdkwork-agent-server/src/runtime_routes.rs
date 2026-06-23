@@ -1,56 +1,66 @@
-//! Canonical internal-api runtime route tree and legacy `/api/kernel` mount prefixes.
+//! Canonical internal-api runtime route tree for `application.public-ingress`.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::{
+    http::StatusCode,
     routing::{get, post},
     Router,
 };
+use tower_http::timeout::TimeoutLayer;
 
-use crate::api::kernel;
+use crate::api::internal_runtime;
 
 /// Canonical internal-api mount prefix on `application.public-ingress`.
 pub const INTERNAL_RUNTIME_MOUNT_PREFIX: &str = "/internal/v3/api/intelligence/runtime";
 
-/// Legacy kernel UI alias mount prefix (deprecated for new consumers).
-pub const LEGACY_KERNEL_MOUNT_PREFIX: &str = "/api/kernel";
+/// Builds the internal-api runtime route tree nested under [`INTERNAL_RUNTIME_MOUNT_PREFIX`].
+pub fn build_internal_runtime_routes(state: Arc<internal_runtime::InternalRuntimeApiState>) -> Router {
+    let sse_timeout = Duration::from_secs(state.config.sse_request_timeout_secs);
 
-/// Builds the shared runtime route tree nested under internal-api and legacy kernel mounts.
-pub fn build_kernel_runtime_routes(state: Arc<kernel::KernelApiState>) -> Router {
     Router::new()
-        .route("/snapshot", get(kernel::load_snapshot))
+        .route("/snapshot", get(internal_runtime::load_snapshot))
         .route(
             "/permissions/{permission_request_id}",
-            post(kernel::decide_permission),
+            post(internal_runtime::decide_permission),
         )
         .route(
             "/sessions",
-            post(kernel::create_session).get(kernel::list_sessions),
+            post(internal_runtime::create_session).get(internal_runtime::list_sessions),
         )
         .route(
             "/sessions/{session_id}",
-            get(kernel::get_session).delete(kernel::delete_session),
+            get(internal_runtime::get_session).delete(internal_runtime::delete_session),
         )
-        .route("/sessions/{session_id}/close", post(kernel::close_session))
+        .route("/sessions/{session_id}/close", post(internal_runtime::close_session))
         .route(
             "/sessions/{session_id}/messages",
-            post(kernel::send_message).get(kernel::get_messages),
+            post(internal_runtime::send_message).get(internal_runtime::get_messages),
         )
         .route(
             "/sessions/{session_id}/tasks",
-            post(kernel::submit_task).get(kernel::list_tasks),
+            post(internal_runtime::submit_task).get(internal_runtime::list_tasks),
         )
-        .route("/tasks/{task_id}", get(kernel::get_task))
-        .route("/tasks/{task_id}/cancel", post(kernel::cancel_task))
-        .route("/models", get(kernel::list_models))
+        .route("/tasks/{task_id}", get(internal_runtime::get_task))
+        .route("/tasks/{task_id}/cancel", post(internal_runtime::cancel_task))
+        .route("/models", get(internal_runtime::list_models))
         .route(
             "/sessions/{session_id}/model/invoke",
-            post(kernel::invoke_model),
+            post(internal_runtime::invoke_model),
         )
-        .route("/sessions/{session_id}/tools", get(kernel::list_tools))
+        .route("/sessions/{session_id}/tools", get(internal_runtime::list_tools))
         .route(
             "/sessions/{session_id}/tools/{tool_name}/execute",
-            post(kernel::execute_tool),
+            post(internal_runtime::execute_tool),
+        )
+        .route(
+            "/sessions/{session_id}/events/stream",
+            get(internal_runtime::stream_session_events)
+                .layer(TimeoutLayer::with_status_code(
+                    StatusCode::REQUEST_TIMEOUT,
+                    sse_timeout,
+                )),
         )
         .with_state(state)
 }

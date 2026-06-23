@@ -43,17 +43,15 @@
     {
       "file": "AGENT_SERVER_HTTP_SURFACE.md",
       "path": "../../sdkwork-agent-server/specs/AGENT_SERVER_HTTP_SURFACE.md",
-      "purpose": "Runtime HTTP mount prefixes and legacy alias policy."
+      "purpose": "Runtime HTTP mount prefixes for internal-api."
     }
   ],
   "contracts": {
     "publicExports": ["."],
     "runtimeEntrypoints": [
       "build_router",
-      "build_legacy_router",
       "internal_route_manifest",
-      "INTERNAL_RUNTIME_MOUNT_PREFIX",
-      "LEGACY_KERNEL_MOUNT_PREFIX"
+      "INTERNAL_RUNTIME_MOUNT_PREFIX"
     ],
     "routeManifest": "apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml",
     "authMode": "ingress-token",

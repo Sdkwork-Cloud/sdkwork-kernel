@@ -30,6 +30,16 @@
       "purpose": "Runtime lifecycle, execution, and host integration rules."
     },
     {
+      "file": "INTERNAL_API_SPEC.md",
+      "path": "../../sdkwork-specs/INTERNAL_API_SPEC.md",
+      "purpose": "Internal-api ingress surface, auth, and runtime route authority."
+    },
+    {
+      "file": "AGENT_SERVER_HTTP_SURFACE.md",
+      "path": "../sdkwork-agent-server/specs/AGENT_SERVER_HTTP_SURFACE.md",
+      "purpose": "Agent-server mounted HTTP routes and retired legacy prefixes."
+    },
+    {
       "file": "COMPONENT_SPEC.md",
       "path": "../../sdkwork-specs/COMPONENT_SPEC.md",
       "purpose": "Component-local contract and discovery rules."
@@ -63,6 +73,11 @@
       "AgentBridgePluginRegistry",
       "AgentBridgeProvider",
       "ChatClient",
+      "compute_identity_mac",
+      "INGRESS_IDENTITY_MAC_HEADER",
+      "INGRESS_TENANT_HEADER",
+      "INGRESS_USER_HEADER",
+      "INTERNAL_RUNTIME_MOUNT_PREFIX",
       "SseChatClient",
       "WebSocketChatClient"
     ],
@@ -70,7 +85,9 @@
     "routeManifest": null,
     "sdkDependencies": [],
     "dependencyApiExports": [],
-    "dependencyApiSurfaces": [],
+    "dependencyApiSurfaces": [
+      "sdkwork-agent-internal-api: internal-api"
+    ],
     "sdkClients": [],
     "events": [],
     "configKeys": []

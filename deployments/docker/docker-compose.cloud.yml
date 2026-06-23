@@ -1,0 +1,64 @@
+# Cloud split-services reference stack for sdkwork-agent-server.
+# Secrets are injected at deploy time; never commit real tokens.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sdkwork
+      POSTGRES_PASSWORD: ${SDKWORK_AGENT_RUNTIME_POSTGRES_PASSWORD:-sdkwork}
+      POSTGRES_DB: sdkwork_agent_runtime
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sdkwork -d sdkwork_agent_runtime"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  agent-server:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile
+    image: sdkwork-kernel-agent-server:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "18280:18280"
+    environment:
+      SDKWORK_KERNEL_ENVIRONMENT: production
+      SDKWORK_KERNEL_HOSTING: cloud-hosted
+      SDKWORK_KERNEL_RUNTIME_TARGET: server
+      SDKWORK_KERNEL_INGRESS_AUTH_MODE: token
+      SDKWORK_KERNEL_INGRESS_TOKEN: ${SDKWORK_KERNEL_INGRESS_TOKEN:?set SDKWORK_KERNEL_INGRESS_TOKEN}
+      SDKWORK_KERNEL_METRICS_AUTH_MODE: token
+      SDKWORK_KERNEL_METRICS_TOKEN: ${SDKWORK_KERNEL_METRICS_TOKEN:-${SDKWORK_KERNEL_INGRESS_TOKEN}}
+      SDKWORK_CORS_ORIGINS: ${SDKWORK_CORS_ORIGINS:-https://kernel.sdkwork.com,https://app.sdkwork.com}
+      SDKWORK_RATE_LIMIT_RPS: "100"
+      SDKWORK_RATE_LIMIT_BURST: "200"
+      SDKWORK_RATE_LIMIT_REDIS_URL: redis://redis:6379/0
+      SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE: postgres
+      SDKWORK_AGENT_RUNTIME_DATABASE_URL: postgresql://sdkwork:${SDKWORK_AGENT_RUNTIME_POSTGRES_PASSWORD:-sdkwork}@postgres:5432/sdkwork_agent_runtime
+      SDKWORK_OTEL_EXPORTER_OTLP_ENDPOINT: ${SDKWORK_OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18280/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

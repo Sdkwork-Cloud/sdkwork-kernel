@@ -8,13 +8,23 @@ description = "SDKWork Agent Server - runnable server binary with config, prefli
 name = "sdkwork-agent-server"
 path = "src/main.rs"
 
+[features]
+default = ["observability-otel"]
+observability-otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry-otlp",
+    "dep:opentelemetry_sdk",
+    "dep:tracing-opentelemetry",
+]
+
 [dependencies]
 sdkwork-agent-kernel = { path = "../sdkwork-agent-kernel" }
 sdkwork-code-kernel = { path = "../sdkwork-code-kernel" }
 sdkwork-agent-business = { path = "../sdkwork-agent-business", features = ["http-axum"] }
 sdkwork-agent-api-bridge = { path = "../sdkwork-agent-api-bridge" }
 sdkwork-agent-streaming = { path = "../sdkwork-agent-streaming" }
-sdkwork-agent-database = { path = "../sdkwork-agent-database", features = ["sqlite"] }
+sdkwork-agent-database = { path = "../sdkwork-agent-database", features = ["sqlite", "postgres-sync"] }
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 sdkwork-agent-session = { path = "../sdkwork-agent-session" }
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
@@ -25,12 +35,23 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+opentelemetry = { version = "0.27", optional = true }
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.27", features = ["http-proto", "reqwest-client"], optional = true }
+tracing-opentelemetry = { version = "0.28", optional = true }
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 subtle = "2"
+hmac = "0.12"
+sha2 = "0.10"
+jsonwebtoken = "9"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
 sdkwork-agent-plugin-core = { path = "../sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core" }
 sdkwork-agent-plugin-rig = { path = "../sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig" }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+jsonwebtoken = "9"
+chrono = "0.4"
+tempfile = "3"

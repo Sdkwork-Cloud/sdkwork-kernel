@@ -404,6 +404,6 @@ impl SessionRouter {
 | `sdkwork-agent-session/src/lib.rs` | 统一会话管理 |
 | `sdkwork-agent-session/src/router.rs` | 会话路由 |
 | `sdkwork-agent-session/src/conversation.rs` | 对话管理 |
-| `sdkwork-agent-server/src/api/sessions.rs` | 会话API |
+| `sdkwork-agent-server/src/api/internal_runtime.rs` | internal-api runtime handlers |
 | `sdkwork-agent-server/src/api/messages.rs` | 消息API |
 | `sdkwork-kernel-ui-desktop/src-tauri/src/commands.rs` | Tauri命令 |

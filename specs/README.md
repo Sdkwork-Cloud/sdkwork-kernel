@@ -146,5 +146,8 @@ implementations mature.
 - [ ] Every adapter maps external protocol objects to SDKWork kernel objects.
 - [ ] Every code object required by UI/IPC/RPC maps to a shared protocol
       envelope with namespaced metadata.
-- [ ] Every UI package uses typed clients/service adapters.
+- [x] Every UI package uses typed clients/service adapters.
+- [x] Runtime HTTP uses canonical internal-api paths only (retired `/api/kernel/*` guarded).
+- [x] Production deployment reference assets exist under `deployments/` (Docker, Kubernetes, runbook).
+- [x] Release supply-chain evidence includes SBOM and checksum validation scripts.
 - [ ] Every compatibility claim is backed by a conformance profile.

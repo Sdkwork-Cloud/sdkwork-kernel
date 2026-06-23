@@ -37,6 +37,13 @@ impl From<serde_json::Error> for DatabaseError {
     }
 }
 
+#[cfg(feature = "postgres-sync")]
+impl From<sqlx::Error> for DatabaseError {
+    fn from(err: sqlx::Error) -> Self {
+        DatabaseError::Query(err.to_string())
+    }
+}
+
 #[cfg(feature = "sqlite")]
 impl From<rusqlite::Error> for DatabaseError {
     fn from(err: rusqlite::Error) -> Self {

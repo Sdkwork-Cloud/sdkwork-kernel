@@ -1,6 +1,7 @@
 import type { KernelUiAuthProvider, KernelUiAuthSession } from '@sdkwork/kernel-ui-types';
 
 const KERNEL_UI_AUTH_SESSION_KEY = 'sdkwork.kernel-ui.auth.session';
+export const INGRESS_IDENTITY_MAC_HEADER = 'x-sdkwork-identity-mac';
 
 export function createStaticKernelUiAuthProvider(
   session: KernelUiAuthSession | null
@@ -75,6 +76,29 @@ export function clearBrowserKernelUiAuthSession(storageKey = KERNEL_UI_AUTH_SESS
   globalThis.sessionStorage.removeItem(storageKey);
 }
 
+export async function computeIngressIdentityMac(
+  ingressToken: string,
+  tenantId: string,
+  userId: string
+): Promise<string> {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(ingressToken),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    encoder.encode(`${tenantId}\n${userId}`)
+  );
+  return Array.from(new Uint8Array(signature))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 export async function buildKernelUiAuthHeaders(
   auth?: KernelUiAuthProvider
 ): Promise<Record<string, string>> {
@@ -88,7 +112,8 @@ export async function buildKernelUiAuthHeaders(
   }
 
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${session.accessToken}`
+    Authorization: `Bearer ${session.accessToken}`,
+    'x-api-key': session.accessToken
   };
 
   if (session.tenantId) {
@@ -96,6 +121,13 @@ export async function buildKernelUiAuthHeaders(
   }
   if (session.userId) {
     headers['x-sdkwork-user-id'] = session.userId;
+  }
+  if (session.tenantId && session.userId) {
+    headers[INGRESS_IDENTITY_MAC_HEADER] = await computeIngressIdentityMac(
+      session.accessToken,
+      session.tenantId,
+      session.userId
+    );
   }
 
   return headers;

@@ -32,6 +32,7 @@ const commands = [
   ['node', ['scripts/sdk-backend-workers/engine-sdk-live.test.mjs']],
   ['node', ['--test', 'tests/kernel_workspace_structure.test.mjs']],
   ['node', ['--test', 'tests/kernel_topology_alignment.test.mjs']],
+  ['node', ['--test', 'tests/kernel_deployment_release.test.mjs']],
   ['node', ['--test', 'tests/kernel_ui_server_api_alignment.test.mjs']],
   ['node', ['--test', 'scripts/dev/sdkwork-kernel-topology-baggage.test.mjs']],
   [
@@ -48,8 +49,20 @@ const commands = [
     'cargo',
     [
       'test',
+      '--features',
+      'postgres-sync',
+      '--manifest-path',
+      'sdkwork-agent-database/Cargo.toml',
+      '-q'
+    ]
+  ],
+  ['cargo', ['test', '-p', 'sdkwork-router-agent-internal-api', '-q']],
+  [
+    'cargo',
+    [
+      'test',
       '--test',
-      'http_kernel_contracts',
+      'http_internal_runtime_contracts',
       '--manifest-path',
       'sdkwork-agent-server/Cargo.toml',
       '-q'
@@ -96,10 +109,13 @@ const commands = [
       '-q'
     ]
   ],
+  ['pnpm', ['--dir', 'sdkwork-kernel-ui', '--filter', '@sdkwork/agent-internal-sdk', 'build']],
   ['pnpm', ['--dir', 'sdkwork-kernel-ui', 'typecheck']]
 ];
 
 const postgresUri = process.env.SDKWORK_AGENT_BUSINESS_POSTGRES_URI;
+const runtimePostgresUri =
+  process.env.SDKWORK_AGENT_RUNTIME_POSTGRES_URI ?? process.env.SDKWORK_AGENT_BUSINESS_POSTGRES_URI;
 if (postgresUri) {
   commands.push([
     'cargo',
@@ -120,6 +136,29 @@ if (postgresUri) {
 } else {
   console.log(
     'SKIP: live PostgreSQL contract (set SDKWORK_AGENT_BUSINESS_POSTGRES_URI to enable locally; CI postgres-live job covers this).'
+  );
+}
+
+if (runtimePostgresUri) {
+  commands.push([
+    'cargo',
+    [
+      'test',
+      '--features',
+      'postgres-sync',
+      '--test',
+      'agent_runtime_postgres_contracts',
+      '--manifest-path',
+      'sdkwork-agent-database/Cargo.toml',
+      '-q',
+      'live_postgres_session_message_roundtrip_when_uri_configured',
+      '--',
+      '--nocapture'
+    ]
+  ]);
+} else {
+  console.log(
+    'SKIP: live runtime PostgreSQL contract (set SDKWORK_AGENT_RUNTIME_POSTGRES_URI to enable locally).'
   );
 }
 

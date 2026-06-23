@@ -97,6 +97,7 @@ pub enum ChatEvent {
 
 /// Session configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionConfig {
     pub agent_id: String,
     pub model: Option<String>,
@@ -132,6 +133,7 @@ impl SessionConfig {
 
 /// Session info
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionInfo {
     pub session_id: String,
     pub agent_id: String,

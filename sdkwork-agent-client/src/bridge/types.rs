@@ -153,6 +153,35 @@ impl AgentAuth {
             credentials,
         }
     }
+
+    /// Ingress token plus tenant/user identity for non-loopback Signed mode.
+    pub fn ingress_session(
+        token: impl Into<String>,
+        tenant_id: impl Into<String>,
+        user_id: impl Into<String>,
+    ) -> Self {
+        Self::bearer_token(token).with_tenant_user(tenant_id, user_id)
+    }
+
+    /// Platform-issued ingress JWT; server validates claims and ignores identity MAC headers.
+    pub fn ingress_jwt(token: impl Into<String>) -> Self {
+        let mut auth = Self::bearer_token(token);
+        auth.credentials
+            .insert("ingress_profile".to_string(), "jwt".to_string());
+        auth
+    }
+
+    pub fn with_tenant_user(
+        mut self,
+        tenant_id: impl Into<String>,
+        user_id: impl Into<String>,
+    ) -> Self {
+        self.credentials
+            .insert("tenant_id".to_string(), tenant_id.into());
+        self.credentials
+            .insert("user_id".to_string(), user_id.into());
+        self
+    }
 }
 
 /// Fallback strategy for hybrid mode

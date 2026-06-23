@@ -1,129 +1,129 @@
 use axum::{
     http::StatusCode,
     middleware as axum_middleware,
-    routing::{delete, get, post},
+    routing::get,
     Router,
 };
+use axum::extract::FromRef;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 
-use crate::api::{chat, kernel, messages, sessions, sse};
+use crate::api::internal_runtime;
 use crate::config::ServerConfig;
 use crate::health;
+use crate::metrics;
 use crate::middleware;
 use crate::persistence::PersistenceState;
-use crate::runtime_routes::{
-    build_kernel_runtime_routes, INTERNAL_RUNTIME_MOUNT_PREFIX, LEGACY_KERNEL_MOUNT_PREFIX,
-};
+use crate::runtime_routes::{build_internal_runtime_routes, INTERNAL_RUNTIME_MOUNT_PREFIX};
+
+impl FromRef<OperationalRoutesState> for (
+    Arc<metrics::MetricsRegistry>,
+    Arc<health::HealthState>,
+    Arc<PersistenceState>,
+    metrics::OperationalProfile,
+) {
+    fn from_ref(input: &OperationalRoutesState) -> Self {
+        (
+            input.metrics.clone(),
+            input.health.clone(),
+            input.persistence.clone(),
+            input.operational_profile.clone(),
+        )
+    }
+}
+
+/// Shared router state for operational endpoints (health + metrics).
+#[derive(Clone)]
+pub struct OperationalRoutesState {
+    pub health: Arc<health::HealthState>,
+    pub persistence: Arc<PersistenceState>,
+    pub metrics: Arc<metrics::MetricsRegistry>,
+    pub operational_profile: metrics::OperationalProfile,
+}
+
+impl FromRef<OperationalRoutesState> for (Arc<health::HealthState>, Arc<PersistenceState>) {
+    fn from_ref(input: &OperationalRoutesState) -> Self {
+        (input.health.clone(), input.persistence.clone())
+    }
+}
+
+impl FromRef<OperationalRoutesState> for (
+    Arc<metrics::MetricsRegistry>,
+    Arc<health::HealthState>,
+    Arc<PersistenceState>,
+) {
+    fn from_ref(input: &OperationalRoutesState) -> Self {
+        (
+            input.metrics.clone(),
+            input.health.clone(),
+            input.persistence.clone(),
+        )
+    }
+}
 
 /// Build the agent-server Axum router with ingress auth, logging, and CORS layers applied.
 pub fn build_app(
     config: Arc<ServerConfig>,
     health_state: Arc<health::HealthState>,
     persistence: Arc<PersistenceState>,
-    kernel_state: Arc<kernel::KernelApiState>,
+    runtime_state: Arc<internal_runtime::InternalRuntimeApiState>,
 ) -> Router {
+    let metrics_registry = metrics::MetricsRegistry::from_config(config.as_ref());
+    let rate_limit = Arc::new(crate::rate_limit::RateLimitState::from_config(config.as_ref()));
+    let operational_profile = metrics::OperationalProfile::from_runtime(
+        persistence.persistence_backend_label(),
+        rate_limit.uses_redis(),
+    );
+    let operational_state = OperationalRoutesState {
+        health: health_state,
+        persistence: persistence.clone(),
+        metrics: metrics_registry.clone(),
+        operational_profile,
+    };
+
+    let ingress_state = Arc::new(
+        crate::ingress_state::IngressMiddlewareState::from_config(config.clone())
+            .expect("ingress middleware state should initialize"),
+    );
+
     let health_routes = Router::new()
         .route(&config.health_path, get(health::health_check))
         .route("/ready", get(health::readiness_check))
         .route("/live", get(health::liveness_check))
-        .with_state((health_state, persistence.clone()));
+        .route("/metrics", get(metrics::prometheus_metrics))
+        .with_state(operational_state);
 
-    let session_routes = Router::new()
-        .route(
-            "/api/sessions",
-            post(sessions::create_session).get(sessions::list_sessions),
+    let internal_runtime = Router::new()
+        .nest(
+            INTERNAL_RUNTIME_MOUNT_PREFIX,
+            build_internal_runtime_routes(runtime_state),
         )
-        .route(
-            "/api/sessions/{session_id}",
-            get(sessions::get_session).delete(sessions::delete_session),
-        )
-        .route(
-            "/api/sessions/{session_id}/close",
-            post(sessions::close_session),
-        )
-        .with_state(kernel_state.clone());
-
-    let message_routes = Router::new()
-        .route(
-            "/api/sessions/{session_id}/messages",
-            post(messages::send_message).get(messages::get_messages),
-        )
-        .route(
-            "/api/sessions/{session_id}/messages/count",
-            get(messages::message_count),
-        )
-        .route(
-            "/api/sessions/{session_id}/messages",
-            delete(messages::delete_messages),
-        )
-        .with_state(kernel_state.clone());
-
-    let chat_routes = Router::new()
-        .route("/api/chat/send", post(chat::send_chat))
-        .route(
-            "/api/chat/history/{session_id}",
-            get(chat::get_chat_history),
-        )
-        .with_state(kernel_state.clone());
-
-    let kernel_legacy = Router::new().nest(
-        LEGACY_KERNEL_MOUNT_PREFIX,
-        build_kernel_runtime_routes(kernel_state.clone()),
-    );
-    let kernel_internal = Router::new().nest(
-        INTERNAL_RUNTIME_MOUNT_PREFIX,
-        build_kernel_runtime_routes(kernel_state.clone()),
-    );
-
-    let stream_routes = Router::new()
-        .route("/api/chat/stream", post(sse::stream_chat))
-        .route(
-            "/api/sessions/{session_id}/events",
-            get(kernel::stream_session_events),
-        )
-        .route(
-            &format!("{LEGACY_KERNEL_MOUNT_PREFIX}/sessions/{{session_id}}/events/stream"),
-            get(kernel::stream_session_events),
-        )
-        .route(
-            &format!("{INTERNAL_RUNTIME_MOUNT_PREFIX}/sessions/{{session_id}}/events/stream"),
-            get(kernel::stream_session_events),
-        )
-        .with_state(kernel_state)
-        .layer(TimeoutLayer::with_status_code(
-            StatusCode::REQUEST_TIMEOUT,
-            Duration::from_secs(config.sse_request_timeout_secs),
-        ));
-
-    let standard_routes = Router::new()
-        .merge(health_routes)
-        .merge(kernel_legacy)
-        .merge(kernel_internal)
-        .merge(session_routes)
-        .merge(message_routes)
-        .merge(chat_routes)
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
             Duration::from_secs(config.request_timeout_secs),
         ));
 
-    let rate_limit = Arc::new(middleware::RateLimitState::from_config(config.as_ref()));
+    let standard_routes = Router::new().merge(health_routes).merge(internal_runtime);
 
     Router::new()
         .merge(standard_routes)
-        .merge(stream_routes)
+        .layer(axum::Extension(metrics_registry))
         .layer(RequestBodyLimitLayer::new(config.max_body_size))
-        .layer(axum_middleware::from_fn_with_state(
-            config.clone(),
-            middleware::ingress_auth_middleware,
-        ))
         .layer(axum_middleware::from_fn_with_state(
             rate_limit,
             middleware::rate_limit_middleware,
         ))
+        .layer(axum_middleware::from_fn_with_state(
+            ingress_state.clone(),
+            middleware::ingress_identity_middleware,
+        ))
+        .layer(axum_middleware::from_fn_with_state(
+            ingress_state,
+            middleware::ingress_auth_middleware,
+        ))
+        .layer(axum_middleware::from_fn(middleware::security_headers_middleware))
         .layer(axum_middleware::from_fn(middleware::logging_middleware))
         .layer(axum_middleware::from_fn(
             middleware::request_context_middleware,
@@ -137,11 +137,11 @@ pub fn build_test_app(config: Arc<ServerConfig>) -> Router {
     let persistence = Arc::new(
         PersistenceState::memory().expect("in-memory persistence should initialize for tests"),
     );
-    let kernel_state = Arc::new(kernel::KernelApiState::new(
-        persistence.clone(),
-        config.clone(),
-    ));
-    build_app(config, health_state, persistence, kernel_state)
+    let runtime_state = Arc::new(
+        internal_runtime::InternalRuntimeApiState::new(persistence.clone(), config.clone())
+            .expect("runtime state should initialize for tests"),
+    );
+    build_app(config, health_state, persistence, runtime_state)
 }
 
 #[cfg(test)]

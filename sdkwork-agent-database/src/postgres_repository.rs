@@ -1,0 +1,471 @@
+use sqlx::Row;
+
+use crate::error::{DatabaseError, DatabaseResult};
+use crate::postgres::PostgresDatabase;
+use crate::traits::*;
+use crate::types::*;
+
+fn map_session_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<SessionRow> {
+    Ok(SessionRow {
+        session_id: row.try_get("session_id").map_err(map_sqlx_error)?,
+        agent_id: row.try_get("agent_id").map_err(map_sqlx_error)?,
+        kind: row.try_get("kind").map_err(map_sqlx_error)?,
+        source: row.try_get("source").map_err(map_sqlx_error)?,
+        state: row.try_get("state").map_err(map_sqlx_error)?,
+        title: row.try_get("title").ok(),
+        model: row.try_get("model").ok(),
+        cwd: row.try_get("cwd").ok(),
+        provider_id: row.try_get("provider_id").ok(),
+        bridge_id: row.try_get("bridge_id").ok(),
+        token_usage_json: row.try_get("token_usage_json").ok(),
+        message_count: row.try_get("message_count").map_err(map_sqlx_error)?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").ok(),
+        metadata_json: row.try_get("metadata_json").ok(),
+    })
+}
+
+fn map_message_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<MessageRow> {
+    Ok(MessageRow {
+        message_id: row.try_get("message_id").map_err(map_sqlx_error)?,
+        session_id: row.try_get("session_id").map_err(map_sqlx_error)?,
+        role: row.try_get("role").map_err(map_sqlx_error)?,
+        content: row.try_get("content").map_err(map_sqlx_error)?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        metadata_json: row.try_get("metadata_json").ok(),
+    })
+}
+
+fn map_task_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<TaskRow> {
+    Ok(TaskRow {
+        task_id: row.try_get("task_id").map_err(map_sqlx_error)?,
+        session_id: row.try_get("session_id").map_err(map_sqlx_error)?,
+        instruction: row.try_get("instruction").map_err(map_sqlx_error)?,
+        state: row.try_get("state").map_err(map_sqlx_error)?,
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").ok(),
+    })
+}
+
+fn map_event_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<EventRow> {
+    Ok(EventRow {
+        event_id: row.try_get("event_id").map_err(map_sqlx_error)?,
+        session_id: row.try_get("session_id").ok(),
+        event_type: row.try_get("event_type").map_err(map_sqlx_error)?,
+        severity: row.try_get("severity").map_err(map_sqlx_error)?,
+        payload: row.try_get("payload").ok(),
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+    })
+}
+
+fn map_sqlx_error(error: sqlx::Error) -> DatabaseError {
+    DatabaseError::Query(error.to_string())
+}
+
+impl SessionRepository for PostgresDatabase {
+    fn save_session(&self, session: &SessionRow) -> DatabaseResult<()> {
+        let pool = self.pool.pool().clone();
+        let session = session.clone();
+        self.pool.run_db(async move {
+            sqlx::query(
+                "INSERT INTO sessions (
+                    session_id, agent_id, kind, source, state, title, model, cwd,
+                    provider_id, bridge_id, token_usage_json, message_count,
+                    created_at, updated_at, metadata_json
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                ON CONFLICT (session_id) DO UPDATE SET
+                    agent_id = EXCLUDED.agent_id,
+                    kind = EXCLUDED.kind,
+                    source = EXCLUDED.source,
+                    state = EXCLUDED.state,
+                    title = EXCLUDED.title,
+                    model = EXCLUDED.model,
+                    cwd = EXCLUDED.cwd,
+                    provider_id = EXCLUDED.provider_id,
+                    bridge_id = EXCLUDED.bridge_id,
+                    token_usage_json = EXCLUDED.token_usage_json,
+                    message_count = EXCLUDED.message_count,
+                    created_at = EXCLUDED.created_at,
+                    updated_at = EXCLUDED.updated_at,
+                    metadata_json = EXCLUDED.metadata_json",
+            )
+            .bind(&session.session_id)
+            .bind(&session.agent_id)
+            .bind(&session.kind)
+            .bind(&session.source)
+            .bind(&session.state)
+            .bind(&session.title)
+            .bind(&session.model)
+            .bind(&session.cwd)
+            .bind(&session.provider_id)
+            .bind(&session.bridge_id)
+            .bind(&session.token_usage_json)
+            .bind(session.message_count)
+            .bind(&session.created_at)
+            .bind(&session.updated_at)
+            .bind(&session.metadata_json)
+            .execute(&pool)
+            .await?;
+            Ok(())
+        })
+    }
+
+    fn load_session(&self, session_id: &str) -> DatabaseResult<Option<SessionRow>> {
+        let pool = self.pool.pool().clone();
+        let session_id = session_id.to_owned();
+        self.pool.run_db(async move {
+            let row = sqlx::query(
+                "SELECT session_id, agent_id, kind, source, state, title, model, cwd,
+                        provider_id, bridge_id, token_usage_json, message_count,
+                        created_at, updated_at, metadata_json
+                 FROM sessions WHERE session_id = $1",
+            )
+            .bind(&session_id)
+            .fetch_optional(&pool)
+            .await?;
+            row.map(|row| map_session_row(&row)).transpose()
+        })
+    }
+
+    fn list_sessions(&self, query: &SessionQuery) -> DatabaseResult<Vec<SessionRow>> {
+        let pool = self.pool.pool().clone();
+        let query = query.clone();
+        self.pool.run_db(async move {
+            let mut builder = sqlx::QueryBuilder::new(
+                "SELECT session_id, agent_id, kind, source, state, title, model, cwd,
+                        provider_id, bridge_id, token_usage_json, message_count,
+                        created_at, updated_at, metadata_json
+                 FROM sessions WHERE 1 = 1",
+            );
+            if let Some(agent_id) = query.agent_id.as_deref() {
+                builder.push(" AND agent_id = ");
+                builder.push_bind(agent_id);
+            }
+            if let Some(state) = query.state.as_deref() {
+                builder.push(" AND state = ");
+                builder.push_bind(state);
+            }
+            if let Some(kind) = query.kind.as_deref() {
+                builder.push(" AND kind = ");
+                builder.push_bind(kind);
+            }
+            if let Some(provider_id) = query.provider_id.as_deref() {
+                builder.push(" AND provider_id = ");
+                builder.push_bind(provider_id);
+            }
+            if let Some(bridge_id) = query.bridge_id.as_deref() {
+                builder.push(" AND bridge_id = ");
+                builder.push_bind(bridge_id);
+            }
+            builder.push(" ORDER BY COALESCE(updated_at, created_at) DESC");
+            if let Some(limit) = query.limit {
+                builder.push(" LIMIT ");
+                builder.push_bind(limit);
+            }
+            if let Some(offset) = query.offset {
+                builder.push(" OFFSET ");
+                builder.push_bind(offset);
+            }
+            let rows = builder.build().fetch_all(&pool).await?;
+            rows.iter().map(map_session_row).collect()
+        })
+    }
+
+    fn update_session(&self, session: &SessionRow) -> DatabaseResult<()> {
+        self.save_session(session)
+    }
+
+    fn delete_session(&self, session_id: &str) -> DatabaseResult<()> {
+        let pool = self.pool.pool().clone();
+        let session_id = session_id.to_owned();
+        self.pool.run_db(async move {
+            sqlx::query("DELETE FROM sessions WHERE session_id = $1")
+                .bind(&session_id)
+                .execute(&pool)
+                .await?;
+            Ok(())
+        })
+    }
+}
+
+impl MessageRepository for PostgresDatabase {
+    fn save_message(&self, message: &MessageRow) -> DatabaseResult<()> {
+        let pool = self.pool.pool().clone();
+        let message = message.clone();
+        self.pool.run_db(async move {
+            sqlx::query(
+                "INSERT INTO messages (
+                    message_id, session_id, role, content, created_at, metadata_json
+                ) VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (message_id) DO UPDATE SET
+                    session_id = EXCLUDED.session_id,
+                    role = EXCLUDED.role,
+                    content = EXCLUDED.content,
+                    created_at = EXCLUDED.created_at,
+                    metadata_json = EXCLUDED.metadata_json",
+            )
+            .bind(&message.message_id)
+            .bind(&message.session_id)
+            .bind(&message.role)
+            .bind(&message.content)
+            .bind(&message.created_at)
+            .bind(&message.metadata_json)
+            .execute(&pool)
+            .await?;
+            Ok(())
+        })
+    }
+
+    fn load_messages(
+        &self,
+        session_id: &str,
+        query: &MessageQuery,
+    ) -> DatabaseResult<Vec<MessageRow>> {
+        let pool = self.pool.pool().clone();
+        let session_id = session_id.to_owned();
+        let query = query.clone();
+        self.pool.run_db(async move {
+            let mut builder = sqlx::QueryBuilder::new(
+                "SELECT message_id, session_id, role, content, created_at, metadata_json
+                 FROM messages WHERE session_id = ",
+            );
+            builder.push_bind(&session_id);
+            builder.push(" ORDER BY created_at ASC");
+            if let Some(limit) = query.limit {
+                builder.push(" LIMIT ");
+                builder.push_bind(limit);
+            }
+            if let Some(offset) = query.offset {
+                builder.push(" OFFSET ");
+                builder.push_bind(offset);
+            }
+            let rows = builder.build().fetch_all(&pool).await?;
+            rows.iter().map(map_message_row).collect()
+        })
+    }
+
+    fn message_count(&self, session_id: &str) -> DatabaseResult<i64> {
+        let pool = self.pool.pool().clone();
+        let session_id = session_id.to_owned();
+        self.pool.run_db(async move {
+            let row: (i64,) =
+                sqlx::query_as("SELECT COUNT(*) FROM messages WHERE session_id = $1")
+                    .bind(&session_id)
+                    .fetch_one(&pool)
+                    .await?;
+            Ok(row.0)
+        })
+    }
+
+    fn delete_messages(&self, session_id: &str) -> DatabaseResult<()> {
+        let pool = self.pool.pool().clone();
+        let session_id = session_id.to_owned();
+        self.pool.run_db(async move {
+            sqlx::query("DELETE FROM messages WHERE session_id = $1")
+                .bind(&session_id)
+                .execute(&pool)
+                .await?;
+            Ok(())
+        })
+    }
+}
+
+impl TaskRepository for PostgresDatabase {
+    fn save_task(&self, task: &TaskRow) -> DatabaseResult<()> {
+        let pool = self.pool.pool().clone();
+        let task = task.clone();
+        self.pool.run_db(async move {
+            sqlx::query(
+                "INSERT INTO tasks (
+                    task_id, session_id, instruction, state, created_at, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (task_id) DO UPDATE SET
+                    session_id = EXCLUDED.session_id,
+                    instruction = EXCLUDED.instruction,
+                    state = EXCLUDED.state,
+                    created_at = EXCLUDED.created_at,
+                    updated_at = EXCLUDED.updated_at",
+            )
+            .bind(&task.task_id)
+            .bind(&task.session_id)
+            .bind(&task.instruction)
+            .bind(&task.state)
+            .bind(&task.created_at)
+            .bind(&task.updated_at)
+            .execute(&pool)
+            .await?;
+            Ok(())
+        })
+    }
+
+    fn load_task(&self, task_id: &str) -> DatabaseResult<Option<TaskRow>> {
+        let pool = self.pool.pool().clone();
+        let task_id = task_id.to_owned();
+        self.pool.run_db(async move {
+            let row = sqlx::query(
+                "SELECT task_id, session_id, instruction, state, created_at, updated_at
+                 FROM tasks WHERE task_id = $1",
+            )
+            .bind(&task_id)
+            .fetch_optional(&pool)
+            .await?;
+            row.map(|row| map_task_row(&row)).transpose()
+        })
+    }
+
+    fn load_tasks(&self, session_id: &str) -> DatabaseResult<Vec<TaskRow>> {
+        let pool = self.pool.pool().clone();
+        let session_id = session_id.to_owned();
+        self.pool.run_db(async move {
+            let rows = sqlx::query(
+                "SELECT task_id, session_id, instruction, state, created_at, updated_at
+                 FROM tasks WHERE session_id = $1 ORDER BY created_at ASC",
+            )
+            .bind(&session_id)
+            .fetch_all(&pool)
+            .await?;
+            rows.iter().map(map_task_row).collect()
+        })
+    }
+
+    fn update_task(&self, task: &TaskRow) -> DatabaseResult<()> {
+        self.save_task(task)
+    }
+
+    fn delete_task(&self, task_id: &str) -> DatabaseResult<()> {
+        let pool = self.pool.pool().clone();
+        let task_id = task_id.to_owned();
+        self.pool.run_db(async move {
+            sqlx::query("DELETE FROM tasks WHERE task_id = $1")
+                .bind(&task_id)
+                .execute(&pool)
+                .await?;
+            Ok(())
+        })
+    }
+}
+
+impl EventRepository for PostgresDatabase {
+    fn save_event(&self, event: &EventRow) -> DatabaseResult<()> {
+        let pool = self.pool.pool().clone();
+        let event = event.clone();
+        self.pool.run_db(async move {
+            sqlx::query(
+                "INSERT INTO events (
+                    event_id, session_id, event_type, severity, payload, created_at
+                ) VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (event_id) DO UPDATE SET
+                    session_id = EXCLUDED.session_id,
+                    event_type = EXCLUDED.event_type,
+                    severity = EXCLUDED.severity,
+                    payload = EXCLUDED.payload,
+                    created_at = EXCLUDED.created_at",
+            )
+            .bind(&event.event_id)
+            .bind(&event.session_id)
+            .bind(&event.event_type)
+            .bind(&event.severity)
+            .bind(&event.payload)
+            .bind(&event.created_at)
+            .execute(&pool)
+            .await?;
+            Ok(())
+        })
+    }
+
+    fn load_events(&self, session_id: &str, query: &EventQuery) -> DatabaseResult<Vec<EventRow>> {
+        let pool = self.pool.pool().clone();
+        let session_id = session_id.to_owned();
+        let query = query.clone();
+        self.pool.run_db(async move {
+            let mut builder = sqlx::QueryBuilder::new(
+                "SELECT event_id, session_id, event_type, severity, payload, created_at
+                 FROM events WHERE session_id = ",
+            );
+            builder.push_bind(&session_id);
+            if let Some(event_type) = query.event_type.as_deref() {
+                builder.push(" AND event_type = ");
+                builder.push_bind(event_type);
+            }
+            if let Some(severity) = query.severity.as_deref() {
+                builder.push(" AND severity = ");
+                builder.push_bind(severity);
+            }
+            builder.push(" ORDER BY created_at ASC");
+            if let Some(limit) = query.limit {
+                builder.push(" LIMIT ");
+                builder.push_bind(limit);
+            }
+            if let Some(offset) = query.offset {
+                builder.push(" OFFSET ");
+                builder.push_bind(offset);
+            }
+            let rows = builder.build().fetch_all(&pool).await?;
+            rows.iter().map(map_event_row).collect()
+        })
+    }
+
+    fn delete_events(&self, session_id: &str) -> DatabaseResult<()> {
+        let pool = self.pool.pool().clone();
+        let session_id = session_id.to_owned();
+        self.pool.run_db(async move {
+            sqlx::query("DELETE FROM events WHERE session_id = $1")
+                .bind(&session_id)
+                .execute(&pool)
+                .await?;
+            Ok(())
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_session(id: &str) -> SessionRow {
+        SessionRow {
+            session_id: id.to_string(),
+            agent_id: "agent.1".to_string(),
+            kind: "main".to_string(),
+            source: "api".to_string(),
+            state: "active".to_string(),
+            title: Some("Test".to_string()),
+            model: Some("gpt-4".to_string()),
+            cwd: None,
+            provider_id: Some("codex".to_string()),
+            bridge_id: Some("bridge.codex".to_string()),
+            token_usage_json: None,
+            message_count: 0,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: Some("2026-01-02T00:00:00Z".to_string()),
+            metadata_json: None,
+        }
+    }
+
+    fn open_postgres_or_skip() -> Option<PostgresDatabase> {
+        let uri = std::env::var("SDKWORK_AGENT_RUNTIME_POSTGRES_URI")
+            .or_else(|_| std::env::var("SDKWORK_AGENT_BUSINESS_POSTGRES_URI"))
+            .ok()?;
+        let trimmed = uri.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        PostgresDatabase::connect_migrated(trimmed).ok()
+    }
+
+    #[test]
+    fn postgres_session_repository_roundtrip_when_uri_configured() {
+        let Some(db) = open_postgres_or_skip() else {
+            return;
+        };
+        db.save_session(&sample_session("session.pg.1"))
+            .expect("saved");
+        let loaded = db
+            .load_session("session.pg.1")
+            .expect("loaded")
+            .expect("found");
+        assert_eq!(loaded.agent_id, "agent.1");
+        assert_eq!(loaded.provider_id.as_deref(), Some("codex"));
+        let _ = db.delete_session("session.pg.1");
+    }
+}

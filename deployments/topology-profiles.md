@@ -33,6 +33,9 @@ These dispatch through `scripts/sdkwork-command.mjs` into `scripts/kernel-dev.mj
 
 - Workflow config: [`../sdkwork.workflow.json`](../sdkwork.workflow.json)
 - GitHub packaging entry: [`.github/workflows/package.yml`](../.github/workflows/package.yml)
+- Container reference: [`docker/Dockerfile`](./docker/Dockerfile) and [`docker/docker-compose.cloud.yml`](./docker/docker-compose.cloud.yml)
+- Kubernetes reference: [`kubernetes/`](./kubernetes/)
+- Production runbook: [`runbooks/production-rollout.md`](./runbooks/production-rollout.md)
 - Merge-ready verification: `pnpm verify`
 
 Related specs: `../sdkwork-specs/DEPLOYMENT_SPEC.md`, `../sdkwork-specs/APP_RUNTIME_TOPOLOGY_SPEC.md`, `../sdkwork-specs/GITHUB_WORKFLOW_SPEC.md`.

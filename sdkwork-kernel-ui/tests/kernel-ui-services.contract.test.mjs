@@ -25,7 +25,14 @@ test('kernel UI services expose auth provider seam', () => {
   assert.match(realClientSource, /auth\?: KernelUiAuthProvider/);
   assert.match(realClientSource, /@sdkwork\/agent-internal-sdk/);
   assert.match(realClientSource, /createClient\(/);
-  assert.match(realClientSource, /setApiKey\(/);
+  assert.match(realClientSource, /buildKernelUiAuthHeaders/);
+  assert.match(authProviderSource, /x-api-key/);
+  assert.match(authProviderSource, /x-sdkwork-identity-mac/);
+  assert.match(realClientSource, /response\.items \?\? \[\]/);
+  assert.doesNotMatch(realClientSource, /\/api\/kernel\//);
+  assert.doesNotMatch(realClientSource, /\/api\/sessions/);
+  assert.doesNotMatch(realClientSource, /\/api\/chat/);
+  assert.doesNotMatch(realClientSource, /new EventSource\(/);
 });
 
 test('kernel UI commons exposes english i18n catalog', () => {
@@ -48,6 +55,8 @@ test('kernel UI shell exposes session gate for remote API without env tokens', (
   assert.match(appSource, /needsKernelUiSessionGate/);
   assert.match(clientSource, /needsKernelUiSessionGate/);
   assert.match(clientSource, /readBrowserKernelUiAuthSession/);
+  assert.match(clientSource, /VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL/);
+  assert.match(clientSource, /createKernelUiClient\(/);
 });
 
 test('kernel UI types export auth contracts', () => {

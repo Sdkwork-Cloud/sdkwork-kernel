@@ -1,0 +1,12 @@
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "n": "osvuPcbMruG1JfF7ny0WsZqT922jF_agquJ1Om7BoprpIx7bqrV8XPkJj_NLCrh7_hHj1R4m5GGhpSo4giX2p6H2hpI3xWkR3V6yHddWDddu4u4NYr8Qkmz-sFCYed-HQYWdtvdxm7X6XRkZYhjSmJZ8W1rEEkJFBQG5ibdaHe625JhLsiLfIfksd88D2fxrncRSRmJ1hehP2eAvuKcd2I9e8ZyOi-5KVCTFy2QNT9X7R8njqTC7UwFR0Vv_RgaTSYhZsRccjFneDuk5e5YlUaFkS3bt3Kl96s0f9Kr63L8otsuUoT-PXW2byuSAralxLQPPu0znHHP-kT-1WPNGKQ",
+      "e": "AQAB",
+      "kid": "ingress-test-key",
+      "alg": "RS256",
+      "use": "sig"
+    }
+  ]
+}

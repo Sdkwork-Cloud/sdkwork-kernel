@@ -4,30 +4,44 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::sync::Arc;
 use subtle::ConstantTimeEq;
 use tracing::{info, warn};
 
 use crate::config::ServerConfig;
+use crate::http_surface::{classify_api_surface, route_template};
+use crate::ingress_identity;
+use crate::ingress_state::IngressMiddlewareState;
+use crate::metrics::MetricsRegistry;
+use crate::rate_limit::RateLimitState;
+use crate::security_audit;
 
 /// Request context extracted from headers
 #[derive(Debug, Clone)]
 pub struct RequestContext {
     pub request_id: String,
+    pub trace_id: Option<String>,
     pub tenant_id: Option<String>,
     pub user_id: Option<String>,
     pub subject_id: Option<String>,
+    pub api_surface: Option<&'static str>,
+    pub route_template: String,
 }
 
 impl RequestContext {
-    pub fn from_headers(headers: &axum::http::HeaderMap) -> Self {
+    pub fn from_headers_and_path(headers: &axum::http::HeaderMap, path: &str) -> Self {
+        let trace_id = headers
+            .get("traceparent")
+            .and_then(|value| value.to_str().ok())
+            .and_then(crate::observability::trace_id_from_traceparent);
         Self {
-            request_id: extract_header(headers, "x-request-id").unwrap_or_else(generate_request_id),
+            request_id: generate_request_id(),
+            trace_id,
             tenant_id: extract_header(headers, "x-sdkwork-tenant-id"),
             user_id: extract_header(headers, "x-sdkwork-user-id"),
             subject_id: extract_header(headers, "x-subject-id"),
+            api_surface: classify_api_surface(path),
+            route_template: route_template(path),
         }
     }
 }
@@ -50,29 +64,45 @@ fn generate_request_id() -> String {
 
 /// Attach request context for downstream handlers and logging.
 pub async fn request_context_middleware(mut request: Request, next: Next) -> Response {
-    let ctx = RequestContext::from_headers(request.headers());
+    let path = request.uri().path();
+    let mut ctx = RequestContext::from_headers_and_path(request.headers(), path);
+    ctx.request_id = generate_request_id();
     request.extensions_mut().insert(ctx);
     next.run(request).await
 }
 
+fn is_health_probe(path: &str) -> bool {
+    matches!(path, "/health" | "/ready" | "/live")
+}
+
+fn is_metrics_path(path: &str) -> bool {
+    path == "/metrics"
+}
+
+fn is_operational_probe(path: &str) -> bool {
+    is_health_probe(path) || is_metrics_path(path)
+}
+
 /// Logging middleware
 pub async fn logging_middleware(request: Request, next: Next) -> Response {
+    let metrics = request.extensions().get::<Arc<MetricsRegistry>>().cloned();
     let ctx = request
         .extensions()
         .get::<RequestContext>()
         .cloned()
-        .unwrap_or_else(|| RequestContext::from_headers(request.headers()));
+        .unwrap_or_else(|| RequestContext::from_headers_and_path(request.headers(), request.uri().path()));
     let method = request.method().clone();
-    let uri = request.uri().clone();
     let start = std::time::Instant::now();
 
     info!(
         request_id = %ctx.request_id,
+        trace_id = ?ctx.trace_id,
         tenant_id = ?ctx.tenant_id,
         user_id = ?ctx.user_id,
-        "{} {}",
-        method,
-        uri
+        api_surface = ?ctx.api_surface,
+        route = %ctx.route_template,
+        method = %method,
+        "http.request.start"
     );
 
     let mut response = next.run(request).await;
@@ -82,33 +112,203 @@ pub async fn logging_middleware(request: Request, next: Next) -> Response {
     }
 
     let duration = start.elapsed();
+    let status = response.status().as_u16();
+    if let Some(metrics) = metrics {
+        metrics.record_request(
+            method.as_str(),
+            &ctx.route_template,
+            status,
+            ctx.api_surface,
+            duration.as_secs_f64(),
+        );
+    }
+
     info!(
         request_id = %ctx.request_id,
+        trace_id = ?ctx.trace_id,
         tenant_id = ?ctx.tenant_id,
         user_id = ?ctx.user_id,
-        status = %response.status(),
+        api_surface = ?ctx.api_surface,
+        route = %ctx.route_template,
+        method = %method,
+        status = status,
         duration_ms = duration.as_secs_f64() * 1000.0,
-        "{} {} -> {}",
-        method,
-        uri,
-        response.status()
+        "http.request.complete"
     );
 
     response
 }
 
-/// Optional ingress token auth for non-health API routes.
-pub async fn ingress_auth_middleware(
-    State(config): State<Arc<ServerConfig>>,
-    request: Request,
+/// Resolve and validate caller identity after ingress token auth succeeds.
+pub async fn ingress_identity_middleware(
+    State(ingress): State<Arc<IngressMiddlewareState>>,
+    mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    if !config.ingress_auth_mode.eq_ignore_ascii_case("token") {
+    let config = ingress.config.as_ref();
+    if config.ingress_auth_mode.eq_ignore_ascii_case("open") {
         return Ok(next.run(request).await);
     }
 
     let path = request.uri().path();
-    if path == "/health" || path == "/ready" || path == "/live" {
+    if is_health_probe(path) || is_metrics_path(path) {
+        return Ok(next.run(request).await);
+    }
+
+    if config.ingress_auth_mode.eq_ignore_ascii_case("jwt") {
+        let ctx = request
+            .extensions()
+            .get::<RequestContext>()
+            .cloned()
+            .unwrap_or_else(|| RequestContext::from_headers_and_path(request.headers(), path));
+        let has_identity = ctx
+            .tenant_id
+            .as_deref()
+            .is_some_and(|value| !value.is_empty())
+            && ctx
+                .user_id
+                .as_deref()
+                .is_some_and(|value| !value.is_empty());
+        if has_identity {
+            request.extensions_mut().insert(ctx);
+            return Ok(next.run(request).await);
+        }
+        security_audit::log_auth_failure(
+            "ingress.identity_rejected",
+            Some(ctx.request_id.as_str()),
+            path,
+            ctx.tenant_id.as_deref(),
+            ctx.user_id.as_deref(),
+            "jwt ingress missing verified tenant/user identity",
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    let ctx = request
+        .extensions()
+        .get::<RequestContext>()
+        .cloned()
+        .unwrap_or_else(|| RequestContext::from_headers_and_path(request.headers(), path));
+    let resolved = ingress_identity::resolve_request_identity(config, request.headers(), ctx);
+    let resolved = match resolved {
+        Ok(ctx) => ctx,
+        Err(status) => {
+            let path = request.uri().path();
+            let ctx = request.extensions().get::<RequestContext>();
+            security_audit::log_auth_failure(
+                "ingress.identity_rejected",
+                ctx.map(|value| value.request_id.as_str()),
+                path,
+                ctx.and_then(|value| value.tenant_id.as_deref()),
+                ctx.and_then(|value| value.user_id.as_deref()),
+                &format!("status={status}"),
+            );
+            return Err(status);
+        }
+    };
+    request.extensions_mut().insert(resolved);
+    Ok(next.run(request).await)
+}
+
+/// Attach baseline security headers required by SECURITY_SPEC.
+pub async fn security_headers_middleware(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
+    headers.insert(
+        "referrer-policy",
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(
+        "permissions-policy",
+        HeaderValue::from_static("geolocation=(), microphone=(), camera=()"),
+    );
+    response
+}
+
+/// Optional ingress token or JWT auth for non-health API routes.
+pub async fn ingress_auth_middleware(
+    State(ingress): State<Arc<IngressMiddlewareState>>,
+    mut request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let config = ingress.config.as_ref();
+    let auth_mode = config.ingress_auth_mode.to_ascii_lowercase();
+    if auth_mode != "token" && auth_mode != "jwt" {
+        return Ok(next.run(request).await);
+    }
+
+    let path = request.uri().path();
+    if is_health_probe(path) {
+        return Ok(next.run(request).await);
+    }
+
+    if is_metrics_path(path) {
+        if !config.metrics_auth_required() {
+            return Ok(next.run(request).await);
+        }
+        let expected = config.effective_metrics_token().ok_or_else(|| {
+            warn!("metrics auth mode token is enabled but no metrics token is configured");
+            StatusCode::SERVICE_UNAVAILABLE
+        })?;
+        if authorize_request(request.headers(), expected) {
+            return Ok(next.run(request).await);
+        }
+        let ctx = request.extensions().get::<RequestContext>();
+        security_audit::log_auth_failure(
+            "metrics.token_rejected",
+            ctx.map(|value| value.request_id.as_str()),
+            path,
+            ctx.and_then(|value| value.tenant_id.as_deref()),
+            ctx.and_then(|value| value.user_id.as_deref()),
+            "invalid or missing metrics credential",
+        );
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    if auth_mode == "jwt" {
+        let bearer = bearer_token(request.headers()).ok_or_else(|| {
+            let ctx = request.extensions().get::<RequestContext>();
+            security_audit::log_auth_failure(
+                "ingress.jwt_rejected",
+                ctx.map(|value| value.request_id.as_str()),
+                path,
+                ctx.and_then(|value| value.tenant_id.as_deref()),
+                ctx.and_then(|value| value.user_id.as_deref()),
+                "missing bearer jwt",
+            );
+            StatusCode::UNAUTHORIZED
+        })?;
+        let identity = ingress
+            .jwt_validator
+            .as_ref()
+            .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
+            .validate(&bearer)
+            .map_err(|status| {
+                let ctx = request.extensions().get::<RequestContext>();
+                security_audit::log_auth_failure(
+                    "ingress.jwt_rejected",
+                    ctx.map(|value| value.request_id.as_str()),
+                    path,
+                    ctx.and_then(|value| value.tenant_id.as_deref()),
+                    ctx.and_then(|value| value.user_id.as_deref()),
+                    &format!("status={status}"),
+                );
+                status
+            })?;
+        let mut ctx = request
+            .extensions()
+            .get::<RequestContext>()
+            .cloned()
+            .unwrap_or_else(|| RequestContext::from_headers_and_path(request.headers(), path));
+        ctx.tenant_id = Some(identity.tenant_id);
+        ctx.user_id = Some(identity.user_id);
+        ctx.subject_id = None;
+        request.extensions_mut().insert(ctx);
         return Ok(next.run(request).await);
     }
 
@@ -124,6 +324,16 @@ pub async fn ingress_auth_middleware(
     if authorize_request(request.headers(), expected) {
         Ok(next.run(request).await)
     } else {
+        let path = request.uri().path();
+        let ctx = request.extensions().get::<RequestContext>();
+        security_audit::log_auth_failure(
+            "ingress.token_rejected",
+            ctx.map(|value| value.request_id.as_str()),
+            path,
+            ctx.and_then(|value| value.tenant_id.as_deref()),
+            ctx.and_then(|value| value.user_id.as_deref()),
+            "invalid or missing ingress credential",
+        );
         Err(StatusCode::UNAUTHORIZED)
     }
 }
@@ -146,80 +356,45 @@ fn constant_time_eq(left: &str, right: &str) -> bool {
 
 fn bearer_token(headers: &HeaderMap) -> Option<String> {
     let value = headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?;
-    let prefix = "Bearer ";
-    value
-        .strip_prefix(prefix)
-        .map(|token| token.trim().to_string())
-}
-
-#[derive(Debug)]
-struct RateBucket {
-    tokens: f64,
-    last_refill: Instant,
-}
-
-/// Shared token-bucket rate limiter keyed by tenant/user or client address.
-#[derive(Debug, Clone)]
-pub struct RateLimitState {
-    rps: u32,
-    burst: u32,
-    buckets: Arc<Mutex<HashMap<String, RateBucket>>>,
-}
-
-impl RateLimitState {
-    pub fn from_config(config: &ServerConfig) -> Self {
-        Self {
-            rps: config.rate_limit_rps,
-            burst: config.rate_limit_burst.max(1),
-            buckets: Arc::new(Mutex::new(HashMap::new())),
-        }
+    const PREFIX: &str = "Bearer ";
+    if value.len() <= PREFIX.len() {
+        return None;
     }
-
-    pub fn is_enabled(&self) -> bool {
-        self.rps > 0
+    if !value[..PREFIX.len()].eq_ignore_ascii_case(PREFIX) {
+        return None;
     }
-
-    pub fn try_acquire(&self, key: &str) -> bool {
-        if !self.is_enabled() {
-            return true;
-        }
-
-        let mut buckets = self
-            .buckets
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        let now = Instant::now();
-        let bucket = buckets.entry(key.to_string()).or_insert(RateBucket {
-            tokens: f64::from(self.burst),
-            last_refill: now,
-        });
-
-        let elapsed = now.duration_since(bucket.last_refill).as_secs_f64();
-        bucket.tokens = (bucket.tokens + elapsed * f64::from(self.rps)).min(f64::from(self.burst));
-        bucket.last_refill = now;
-
-        if bucket.tokens >= 1.0 {
-            bucket.tokens -= 1.0;
-            true
-        } else {
-            false
-        }
-    }
+    Some(value[PREFIX.len()..].trim().to_string())
 }
 
 fn rate_limit_key(headers: &HeaderMap, ctx: Option<&RequestContext>) -> String {
     if let Some(ctx) = ctx {
         if let (Some(tenant), Some(user)) = (&ctx.tenant_id, &ctx.user_id) {
-            return format!("{tenant}:{user}");
+            if !tenant.is_empty() && !user.is_empty() {
+                return format!("identity:{tenant}:{user}");
+            }
         }
         if let Some(tenant) = &ctx.tenant_id {
-            return format!("tenant:{tenant}");
+            if !tenant.is_empty() {
+                return format!("tenant:{tenant}");
+            }
         }
     }
 
-    extract_header(headers, "x-forwarded-for")
-        .or_else(|| extract_header(headers, "x-real-ip"))
-        .unwrap_or_else(|| "global".to_string())
+    if let Some(token) = bearer_token(headers)
+        .or_else(|| extract_header(headers, "x-api-key"))
+        .or_else(|| extract_header(headers, "x-sdkwork-access-token"))
+    {
+        return format!("ingress-token:{:x}", md5_token_fingerprint(&token));
+    }
+
+    "global".to_string()
+}
+
+fn md5_token_fingerprint(token: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    token.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Reject excess ingress traffic before handlers run.
@@ -233,15 +408,20 @@ pub async fn rate_limit_middleware(
     }
 
     let path = request.uri().path();
-    if path == "/health" || path == "/ready" || path == "/live" {
+    if is_operational_probe(path) {
         return Ok(next.run(request).await);
     }
 
+    let metrics = request.extensions().get::<Arc<MetricsRegistry>>().cloned();
     let ctx = request.extensions().get::<RequestContext>().cloned();
+    let tenant_id = ctx.as_ref().and_then(|value| value.tenant_id.as_deref());
     let key = rate_limit_key(request.headers(), ctx.as_ref());
-    if rate_limit.try_acquire(&key) {
+    if rate_limit.try_acquire(&key, tenant_id).await {
         Ok(next.run(request).await)
     } else {
+        if let Some(metrics) = metrics {
+            metrics.record_rate_limited();
+        }
         Err(StatusCode::TOO_MANY_REQUESTS)
     }
 }
@@ -263,9 +443,11 @@ pub fn cors_layer(config: &ServerConfig) -> tower_http::cors::CorsLayer {
             axum::http::header::CONTENT_TYPE,
             axum::http::header::AUTHORIZATION,
             HeaderName::from_static("x-request-id"),
+            HeaderName::from_static("x-api-key"),
             HeaderName::from_static("x-sdkwork-tenant-id"),
             HeaderName::from_static("x-sdkwork-user-id"),
             HeaderName::from_static("x-sdkwork-access-token"),
+            HeaderName::from_static("x-sdkwork-identity-mac"),
             HeaderName::from_static("x-subject-id"),
         ]);
 
@@ -290,13 +472,17 @@ mod tests {
     #[test]
     fn request_context_from_headers() {
         let mut headers = axum::http::HeaderMap::new();
-        headers.insert("x-request-id", HeaderValue::from_static("req.1"));
+        headers.insert("x-request-id", HeaderValue::from_static("req.client"));
         headers.insert("x-sdkwork-tenant-id", HeaderValue::from_static("tenant.1"));
 
-        let ctx = RequestContext::from_headers(&headers);
-        assert_eq!(ctx.request_id, "req.1");
+        let ctx = RequestContext::from_headers_and_path(
+            &headers,
+            "/internal/v3/api/intelligence/runtime/snapshot",
+        );
+        assert_ne!(ctx.request_id, "req.client");
         assert_eq!(ctx.tenant_id, Some("tenant.1".to_string()));
         assert_eq!(ctx.user_id, None);
+        assert_eq!(ctx.api_surface, Some("internal-api"));
     }
 
     #[test]
@@ -311,13 +497,18 @@ mod tests {
 
     #[test]
     fn rate_limit_rejects_when_burst_exhausted() {
-        let state = RateLimitState {
-            rps: 1,
-            burst: 1,
-            buckets: Arc::new(Mutex::new(HashMap::new())),
-        };
-        assert!(state.try_acquire("client.1"));
-        assert!(!state.try_acquire("client.1"));
-        assert!(state.try_acquire("client.2"));
+        use crate::rate_limit::RateLimitState;
+
+        let state = RateLimitState::from_config(&ServerConfig {
+            rate_limit_rps: 1,
+            rate_limit_burst: 1,
+            ..Default::default()
+        });
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        runtime.block_on(async {
+            assert!(state.try_acquire("client.1", None).await);
+            assert!(!state.try_acquire("client.1", None).await);
+            assert!(state.try_acquire("client.2", None).await);
+        });
     }
 }

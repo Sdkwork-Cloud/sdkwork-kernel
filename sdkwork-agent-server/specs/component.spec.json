@@ -57,7 +57,12 @@
     {
       "file": "AGENT_SERVER_HTTP_SURFACE.md",
       "path": "specs/AGENT_SERVER_HTTP_SURFACE.md",
-      "purpose": "Runtime HTTP route manifest for internal-api and legacy compatibility aliases."
+      "purpose": "Runtime HTTP route manifest for internal-api."
+    },
+    {
+      "file": "OBSERVABILITY_SPEC.md",
+      "path": "../../sdkwork-specs/OBSERVABILITY_SPEC.md",
+      "purpose": "Structured logs, route templates, and Prometheus metrics for production operations."
     },
     {
       "file": "TEST_SPEC.md",
@@ -67,7 +72,10 @@
   ],
   "contracts": {
     "publicExports": [
-      "sdkwork-agent-server"
+      "sdkwork-agent-server",
+      "build_internal_runtime_routes",
+      "INTERNAL_RUNTIME_MOUNT_PREFIX",
+      "InternalRuntimeApiState"
     ],
     "runtimeEntrypoints": [
       "src/main.rs",
@@ -82,7 +90,23 @@
     ],
     "sdkClients": [],
     "events": [],
-    "configKeys": []
+    "configKeys": [
+      "SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE",
+      "SDKWORK_AGENT_RUNTIME_DATABASE_URL",
+      "SDKWORK_AGENT_RUNTIME_POSTGRES_URI",
+      "SDKWORK_RATE_LIMIT_REDIS_URL",
+      "SDKWORK_RATE_LIMIT_RPS",
+      "SDKWORK_KERNEL_INGRESS_AUTH_MODE",
+      "SDKWORK_KERNEL_INGRESS_JWT_SECRET",
+      "SDKWORK_KERNEL_INGRESS_JWT_ISSUER",
+      "SDKWORK_KERNEL_INGRESS_JWT_AUDIENCE",
+      "SDKWORK_KERNEL_INGRESS_JWT_ALGORITHM",
+      "SDKWORK_KERNEL_INGRESS_JWT_RSA_PUBLIC_KEY_PEM",
+      "SDKWORK_KERNEL_INGRESS_JWT_JWKS_FILE",
+      "SDKWORK_KERNEL_INGRESS_JWT_JWKS_URL",
+      "SDKWORK_TENANT_RATE_LIMIT_OVERRIDES",
+      "SDKWORK_KERNEL_METRICS_AUTH_MODE"
+    ]
   },
   "verification": {
     "commands": [

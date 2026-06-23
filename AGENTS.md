@@ -115,3 +115,5 @@ History uses Conventional Commit style, for example `feat(agent-business): add e
 ### Security & Architecture Notes
 
 Kernel crates must not depend on React, Vite, product UI, or `external/` source trees. UI packages must use typed service adapters rather than raw kernel mutations. Generated SDK contracts, schemas, and provider manifests should be updated deliberately and reviewed as compatibility surfaces.
+
+Agent runtime HTTP on `application.public-ingress` uses the SDKWork `internal-api` surface only (`/internal/v3/api/intelligence/runtime/*`). Authoritative OpenAPI lives under `apis/internal-api/`; SDK family materialization runs through `node sdks/materialize-agent-internal-api-openapi.mjs` before `node scripts/check-agent-sdk-workspace.mjs`. Retired application-local prefixes such as `/api/kernel/*` must not be remounted.

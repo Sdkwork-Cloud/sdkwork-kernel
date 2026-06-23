@@ -93,16 +93,16 @@
     ],
     "sign": [
       {
-        "name": "Signing policy placeholder",
+        "name": "Record signing policy for server binaries",
         "shell": "node",
-        "run": "console.log(`Signing is not required for ${process.env.SDKWORK_PACKAGE_ID}.`);"
+        "run": "const fs=require('node:fs');const p='dist/release/signing-policy.json';fs.mkdirSync('dist/release',{recursive:true});fs.writeFileSync(p,JSON.stringify({packageId:process.env.SDKWORK_PACKAGE_ID,signingRequired:false,reason:'Kernel server binaries use checksum+SBOM until org signing keys are provisioned',generatedAt:new Date().toISOString()},null,2)+'\\n');console.log('Signing policy recorded:',p);"
       }
     ],
     "sbom": [
       {
-        "name": "SBOM policy placeholder",
+        "name": "Generate CycloneDX SBOM for agent server",
         "shell": "node",
-        "run": "console.log(`SBOM generation is not required for ${process.env.SDKWORK_PACKAGE_ID}.`);"
+        "run": "node scripts/release/generate-kernel-sbom.mjs"
       }
     ],
     "validate": [
@@ -110,6 +110,16 @@
         "name": "Validate release binary exists",
         "shell": "pwsh",
         "run": "$ErrorActionPreference = \"Stop\"\n$suffix = if ($IsWindows) { \".exe\" } else { \"\" }\n$binary = Join-Path (Get-Location) \"target/release/sdkwork-agent-server$suffix\"\nif (-not (Test-Path -LiteralPath $binary)) { throw \"Missing release binary: $binary\" }"
+      },
+      {
+        "name": "Generate release checksums",
+        "shell": "node",
+        "run": "node scripts/release/generate-kernel-checksums.mjs"
+      },
+      {
+        "name": "Validate release supply-chain evidence",
+        "shell": "node",
+        "run": "node scripts/release/validate-release-artifacts.mjs"
       }
     ]
   },
@@ -147,7 +157,7 @@
   ],
   "security": {
     "artifactAttestations": true,
-    "sbomRequired": false,
+    "sbomRequired": true,
     "signingRequired": false
   },
   "publish": {

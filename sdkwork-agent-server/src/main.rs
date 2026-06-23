@@ -1,9 +1,8 @@
 use std::sync::Arc;
 use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use sdkwork_agent_server::{
-    api::kernel,
+    api::internal_runtime,
     app,
     config::ServerConfig,
     health,
@@ -16,12 +15,20 @@ async fn main() -> anyhow::Result<()> {
     let config = ServerConfig::from_env()?;
     let config = Arc::new(config);
 
-    init_logging(&config.log_level)?;
+    init_logging(config.as_ref())?;
 
     info!("SDKWork Agent Server starting...");
     info!("Version: {}", env!("CARGO_PKG_VERSION"));
     info!("Bind address: {}", config.bind_addr());
-    info!("Database path: {}", config.database_path);
+    info!(
+        "Runtime database engine: {}",
+        config.runtime_database_engine
+    );
+    if config.uses_postgres_runtime_database() {
+        info!("Runtime database: PostgreSQL (SDKWORK_AGENT_RUNTIME_*)");
+    } else {
+        info!("Runtime database path: {}", config.database_path);
+    }
     info!("Environment: {}", config.environment);
     info!("Ingress auth mode: {}", config.ingress_auth_mode);
 
@@ -33,17 +40,17 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let health_state = Arc::new(health::HealthState::new());
-    let persistence = Arc::new(PersistenceState::open(&config.database_path)?);
-    let kernel_state = Arc::new(kernel::KernelApiState::new(
-        persistence.clone(),
-        config.clone(),
-    ));
+    let persistence = Arc::new(PersistenceState::open_from_config(config.as_ref())?);
+    let runtime_state = Arc::new(
+        internal_runtime::InternalRuntimeApiState::new(persistence.clone(), config.clone())
+            .map_err(|error| anyhow::anyhow!("agent runtime bootstrap failed: {error}"))?,
+    );
 
     let app = app::build_app(
         config.clone(),
         health_state,
         persistence,
-        kernel_state,
+        runtime_state,
     );
 
     let bind_addr = config.bind_addr();
@@ -51,8 +58,6 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Server listening on {}", bind_addr);
     info!("Internal runtime API: /internal/v3/api/intelligence/runtime/*");
-    info!("Legacy kernel UI alias: /api/kernel/*");
-    info!("Legacy session API: /api/sessions/*");
 
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown::shutdown_signal())
@@ -63,13 +68,6 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn init_logging(level: &str) -> anyhow::Result<()> {
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
-
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(tracing_subscriber::fmt::layer())
-        .init();
-
-    Ok(())
+fn init_logging(config: &ServerConfig) -> anyhow::Result<()> {
+    sdkwork_agent_server::observability::init_tracing(config)
 }

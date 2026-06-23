@@ -1,10 +1,11 @@
-use sdkwork_agent_database::{EventRow, MessageRow, SessionRow, TaskRow, SqliteDatabase};
+use sdkwork_agent_database::{EventRow, MessageRow, PostgresDatabase, SessionRow, SqliteDatabase, TaskRow};
 use sdkwork_agent_session::{MessageConfig, SessionConfig, SessionQuery, UnifiedSessionManager};
 use std::sync::{Arc, Mutex};
 
+use crate::config::ServerConfig;
 use crate::event_bus::SessionEventBus;
 
-pub type AppSessionManager = UnifiedSessionManager<
+type AppSessionManagerSqlite = UnifiedSessionManager<
     SqliteDatabase,
     SqliteDatabase,
     SqliteDatabase,
@@ -12,14 +13,62 @@ pub type AppSessionManager = UnifiedSessionManager<
     SqliteDatabase,
 >;
 
-/// Shared SQLite-backed session persistence for server handlers.
+type AppSessionManagerPostgres = UnifiedSessionManager<
+    PostgresDatabase,
+    PostgresDatabase,
+    PostgresDatabase,
+    PostgresDatabase,
+    PostgresDatabase,
+>;
+
+#[derive(Clone)]
+enum ManagerInner {
+    Sqlite(Arc<Mutex<AppSessionManagerSqlite>>),
+    Postgres(Arc<Mutex<AppSessionManagerPostgres>>),
+}
+
+macro_rules! with_manager {
+    ($self:expr, |$mgr:ident| $body:expr) => {{
+        match &$self.manager {
+            ManagerInner::Sqlite(inner) => {
+                let $mgr = inner
+                    .lock()
+                    .map_err(|error| format!("lock poisoned: {error}"))?;
+                $body
+            }
+            ManagerInner::Postgres(inner) => {
+                let $mgr = inner
+                    .lock()
+                    .map_err(|error| format!("lock poisoned: {error}"))?;
+                $body
+            }
+        }
+    }};
+}
+
+/// Shared session persistence for server handlers (SQLite or PostgreSQL).
 #[derive(Clone)]
 pub struct PersistenceState {
-    manager: Arc<Mutex<AppSessionManager>>,
+    manager: ManagerInner,
     event_bus: SessionEventBus,
+    backend: PersistenceBackend,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PersistenceBackend {
+    Sqlite,
+    Postgres,
 }
 
 impl PersistenceState {
+    pub fn open_from_config(config: &ServerConfig) -> anyhow::Result<Self> {
+        if config.uses_postgres_runtime_database() {
+            Self::open_postgres_with_event_bus(SessionEventBus::new())
+        } else {
+            Self::open_with_event_bus(&config.database_path, SessionEventBus::new())
+        }
+    }
+
     pub fn open(database_path: &str) -> anyhow::Result<Self> {
         Self::open_with_event_bus(database_path, SessionEventBus::new())
     }
@@ -29,7 +78,16 @@ impl PersistenceState {
         event_bus: SessionEventBus,
     ) -> anyhow::Result<Self> {
         let db = SqliteDatabase::open_migrated(database_path)?;
-        Ok(Self::from_database(db, event_bus))
+        Ok(Self::from_sqlite_database(db, event_bus))
+    }
+
+    pub fn open_postgres() -> anyhow::Result<Self> {
+        Self::open_postgres_with_event_bus(SessionEventBus::new())
+    }
+
+    pub fn open_postgres_with_event_bus(event_bus: SessionEventBus) -> anyhow::Result<Self> {
+        let db = PostgresDatabase::connect_from_sdkwork_env("AGENT_RUNTIME")?;
+        Ok(Self::from_postgres_database(db, event_bus))
     }
 
     pub fn memory() -> anyhow::Result<Self> {
@@ -38,17 +96,41 @@ impl PersistenceState {
 
     pub fn memory_with_event_bus(event_bus: SessionEventBus) -> anyhow::Result<Self> {
         let db = SqliteDatabase::memory_migrated()?;
-        Ok(Self::from_database(db, event_bus))
+        Ok(Self::from_sqlite_database(db, event_bus))
     }
 
-    fn from_database(db: SqliteDatabase, event_bus: SessionEventBus) -> Self {
+    pub fn backend(&self) -> PersistenceBackend {
+        self.backend
+    }
+
+    pub fn persistence_backend_label(&self) -> &'static str {
+        match self.backend {
+            PersistenceBackend::Sqlite => "sqlite",
+            PersistenceBackend::Postgres => "postgres",
+        }
+    }
+
+    fn from_sqlite_database(db: SqliteDatabase, event_bus: SessionEventBus) -> Self {
         let mut manager =
             UnifiedSessionManager::new(db.clone(), db.clone(), db.clone(), db.clone(), db);
         let bus = event_bus.clone();
         manager.set_event_listener(Arc::new(move |event| bus.publish(event)));
         Self {
-            manager: Arc::new(Mutex::new(manager)),
+            manager: ManagerInner::Sqlite(Arc::new(Mutex::new(manager))),
             event_bus,
+            backend: PersistenceBackend::Sqlite,
+        }
+    }
+
+    fn from_postgres_database(db: PostgresDatabase, event_bus: SessionEventBus) -> Self {
+        let mut manager =
+            UnifiedSessionManager::new(db.clone(), db.clone(), db.clone(), db.clone(), db);
+        let bus = event_bus.clone();
+        manager.set_event_listener(Arc::new(move |event| bus.publish(event)));
+        Self {
+            manager: ManagerInner::Postgres(Arc::new(Mutex::new(manager))),
+            event_bus,
+            backend: PersistenceBackend::Postgres,
         }
     }
 
@@ -57,43 +139,23 @@ impl PersistenceState {
     }
 
     pub fn create_session(&self, config: SessionConfig) -> Result<SessionRow, String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.create_session(config)
+        with_manager!(self, |manager| manager.create_session(config))
     }
 
     pub fn get_session(&self, session_id: &str) -> Result<SessionRow, String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.get_session(session_id)
+        with_manager!(self, |manager| manager.get_session(session_id))
     }
 
     pub fn list_sessions(&self, query: SessionQuery) -> Result<Vec<SessionRow>, String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.list_sessions(query)
+        with_manager!(self, |manager| manager.list_sessions(query))
     }
 
     pub fn close_session(&self, session_id: &str) -> Result<SessionRow, String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.close_session(session_id)
+        with_manager!(self, |manager| manager.close_session(session_id))
     }
 
     pub fn delete_session(&self, session_id: &str) -> Result<(), String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.delete_session(session_id)
+        with_manager!(self, |manager| manager.delete_session(session_id))
     }
 
     pub fn send_message(
@@ -101,11 +163,7 @@ impl PersistenceState {
         session_id: &str,
         config: MessageConfig,
     ) -> Result<MessageRow, String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.send_message(session_id, config)
+        with_manager!(self, |manager| manager.send_message(session_id, config))
     }
 
     pub fn emit_session_event(
@@ -115,11 +173,9 @@ impl PersistenceState {
         severity: &str,
         payload: Option<&str>,
     ) -> Result<(), String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.emit_session_event(session_id, event_type, severity, payload)
+        with_manager!(self, |manager| {
+            manager.emit_session_event(session_id, event_type, severity, payload)
+        })
     }
 
     pub fn get_messages(
@@ -127,67 +183,35 @@ impl PersistenceState {
         session_id: &str,
         limit: Option<i64>,
     ) -> Result<Vec<MessageRow>, String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.get_messages(session_id, limit)
+        with_manager!(self, |manager| manager.get_messages(session_id, limit))
     }
 
     pub fn message_count(&self, session_id: &str) -> Result<i64, String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.message_count(session_id)
+        with_manager!(self, |manager| manager.message_count(session_id))
     }
 
     pub fn delete_messages(&self, session_id: &str) -> Result<(), String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.delete_messages(session_id)
+        with_manager!(self, |manager| manager.delete_messages(session_id))
     }
 
     pub fn health(&self) -> Result<bool, String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.health()
+        with_manager!(self, |manager| manager.health())
     }
 
     pub fn create_task(&self, session_id: &str, instruction: &str) -> Result<TaskRow, String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.create_task(session_id, instruction)
+        with_manager!(self, |manager| manager.create_task(session_id, instruction))
     }
 
     pub fn get_task(&self, task_id: &str) -> Result<TaskRow, String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.get_task(task_id)
+        with_manager!(self, |manager| manager.get_task(task_id))
     }
 
     pub fn list_tasks(&self, session_id: &str) -> Result<Vec<TaskRow>, String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.list_tasks(session_id)
+        with_manager!(self, |manager| manager.list_tasks(session_id))
     }
 
     pub fn cancel_task(&self, task_id: &str) -> Result<TaskRow, String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.cancel_task(task_id)
+        with_manager!(self, |manager| manager.cancel_task(task_id))
     }
 
     pub fn load_session_events(
@@ -195,11 +219,7 @@ impl PersistenceState {
         session_id: &str,
         limit: Option<i64>,
     ) -> Result<Vec<EventRow>, String> {
-        let manager = self
-            .manager
-            .lock()
-            .map_err(|error| format!("lock poisoned: {error}"))?;
-        manager.load_session_events(session_id, limit)
+        with_manager!(self, |manager| manager.load_session_events(session_id, limit))
     }
 
     /// Run a blocking persistence operation off the async runtime thread pool.
@@ -229,5 +249,6 @@ mod tests {
         let event = receiver.try_recv().expect("published event");
         assert_eq!(event.session_id.as_deref(), Some(row.session_id.as_str()));
         assert_eq!(event.event_type, "session.created");
+        assert_eq!(persistence.backend(), PersistenceBackend::Sqlite);
     }
 }

@@ -17,6 +17,7 @@ import type {
   EventSubscription,
   EventSubscriptionOptions
 } from '@sdkwork/kernel-ui-types';
+import { buildKernelUiAuthHeaders } from './kernel-ui-auth.provider';
 
 export interface KernelUiClientConfig {
   baseUrl: string;
@@ -208,23 +209,12 @@ class InternalSdkKernelUiClient implements KernelUiClient {
   }
 
   private async buildSdk(): Promise<SdkworkCustomClient> {
-    const session = await this.config.auth?.getSession();
-    const headers: Record<string, string> = {};
-    if (session?.userId) {
-      headers['x-sdkwork-user-id'] = session.userId;
-    }
+    const headers = await buildKernelUiAuthHeaders(this.config.auth);
 
-    const client = createClient({
+    return createClient({
       baseUrl: this.config.baseUrl,
-      tenantId: session?.tenantId,
       headers: Object.keys(headers).length > 0 ? headers : undefined
     });
-
-    if (session?.accessToken) {
-      client.setApiKey(session.accessToken);
-    }
-
-    return client;
   }
 }
 

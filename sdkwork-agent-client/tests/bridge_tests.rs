@@ -184,3 +184,16 @@ fn test_registry_list_all_sessions_sorted_by_updated_at() {
     assert_eq!(listed[0].session_id, codex_session.session_id);
     assert_eq!(listed[0].provider_id, "codex");
 }
+
+#[test]
+fn internal_runtime_mount_prefix_matches_internal_api_authority() {
+    use sdkwork_agent_client::INTERNAL_RUNTIME_MOUNT_PREFIX;
+
+    assert_eq!(
+        INTERNAL_RUNTIME_MOUNT_PREFIX,
+        "/internal/v3/api/intelligence/runtime"
+    );
+    assert!(!INTERNAL_RUNTIME_MOUNT_PREFIX.contains("/api/kernel"));
+    assert!(!INTERNAL_RUNTIME_MOUNT_PREFIX.contains("/api/sessions"));
+    assert!(!INTERNAL_RUNTIME_MOUNT_PREFIX.contains("/api/chat"));
+}

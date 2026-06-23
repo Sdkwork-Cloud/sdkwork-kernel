@@ -9,6 +9,15 @@ pub mod sqlite;
 #[cfg(feature = "sqlite")]
 mod sqlite_repository;
 
+#[cfg(feature = "postgres-sync")]
+pub mod postgres;
+
+#[cfg(feature = "postgres-sync")]
+mod postgres_pool;
+
+#[cfg(feature = "postgres-sync")]
+mod postgres_repository;
+
 pub mod memory;
 
 pub use error::{DatabaseError, DatabaseResult};
@@ -24,3 +33,6 @@ pub use types::{
 
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteDatabase;
+
+#[cfg(feature = "postgres-sync")]
+pub use postgres::PostgresDatabase;

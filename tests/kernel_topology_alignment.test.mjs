@@ -72,6 +72,22 @@ test('kernel dev orchestrator rejects retired --topology and --hosting flags', a
 test('agent server reads topology bind env keys', async () => {
   const configSource = await read('sdkwork-agent-server/src/config.rs');
   assert.match(configSource, /SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND/);
+  assert.match(configSource, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE/);
+  assert.match(configSource, /SDKWORK_RATE_LIMIT_REDIS_URL/);
+});
+
+test('cloud production topology documents postgres and redis runtime deps', async () => {
+  const profileEnv = await read('configs/topology/cloud-hosted.split-services.production.env');
+  assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres/);
+  assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_URL/);
+  assert.match(profileEnv, /SDKWORK_RATE_LIMIT_REDIS_URL/);
+});
+
+test('self-hosted production topology documents postgres and redis runtime deps', async () => {
+  const profileEnv = await read('configs/topology/self-hosted.split-services.production.env');
+  assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres/);
+  assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_URL/);
+  assert.match(profileEnv, /SDKWORK_RATE_LIMIT_REDIS_URL/);
 });
 
 test('kernel UI client prefers topology surface env keys', async () => {
@@ -80,16 +96,21 @@ test('kernel UI client prefers topology surface env keys', async () => {
   assert.match(clientSource, /VITE_KERNEL_API_URL/);
 });
 
-test('topology smoke probes canonical internal-api snapshot path', async () => {
+test('topology smoke probes canonical internal-api snapshot path only', async () => {
   const smokeScript = await read('scripts/dev/sdkwork-kernel-topology-smoke.mjs');
   assert.match(
     smokeScript,
     /\/internal\/v3\/api\/intelligence\/runtime\/snapshot/,
     'topology smoke must probe canonical internal-api snapshot'
   );
-  assert.match(
+  assert.doesNotMatch(
     smokeScript,
     /\/api\/kernel\/snapshot/,
-    'topology smoke must retain legacy alias parity probe'
+    'topology smoke must not probe retired legacy alias'
+  );
+  assert.doesNotMatch(
+    smokeScript,
+    /\/api\/sessions/,
+    'topology smoke must not probe retired legacy session API'
   );
 });

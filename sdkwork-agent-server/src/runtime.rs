@@ -14,27 +14,23 @@ pub struct RuntimeState {
 }
 
 impl RuntimeState {
-    pub fn new() -> Self {
-        Self::for_config(&ServerConfig::default())
+    pub fn try_new() -> KernelResult<Self> {
+        Self::try_for_config(&ServerConfig::default())
     }
 
-    pub fn for_config(config: &ServerConfig) -> Self {
+    pub fn try_for_config(config: &ServerConfig) -> KernelResult<Self> {
         let allow_mock_fallback = config.allow_mock_provider_fallback();
-        let agent_runtime = Arc::new(
-            bootstrap_agent_runtime().unwrap_or_else(|error| {
-                panic!("agent runtime bootstrap failed: {error}");
-            }),
-        );
+        let agent_runtime = Arc::new(bootstrap_agent_runtime()?);
         let bridge = Arc::new(Mutex::new(AgentRuntimeBridge::with_agent_runtime(
             agent_runtime.clone(),
             allow_mock_fallback,
         )));
 
-        Self {
+        Ok(Self {
             bridge,
             agent_runtime,
             allow_mock_fallback,
-        }
+        })
     }
 
     pub fn agent_runtime(&self) -> &AgentRuntime {
@@ -109,6 +105,7 @@ impl RuntimeState {
 
 impl Default for RuntimeState {
     fn default() -> Self {
-        Self::new()
+        Self::try_for_config(&ServerConfig::default())
+            .expect("default runtime bootstrap should succeed in tests")
     }
 }

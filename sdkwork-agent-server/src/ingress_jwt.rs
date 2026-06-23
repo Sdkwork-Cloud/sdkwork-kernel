@@ -550,10 +550,10 @@ mod tests {
             ..ServerConfig::default()
         };
         let validator = IngressJwtValidator::from_config(&config).expect("validator");
-        write!(
-            file,
-            "{}",
-            include_str!("../tests/fixtures/ingress_jwt_jwks.json")
+        let path = file.path().to_string_lossy().into_owned();
+        fs::write(
+            &path,
+            include_str!("../tests/fixtures/ingress_jwt_jwks.json"),
         )
         .expect("write rotated jwks");
 

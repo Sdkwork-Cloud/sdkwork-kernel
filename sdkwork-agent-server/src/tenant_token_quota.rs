@@ -8,7 +8,7 @@ use chrono::Utc;
 use redis::aio::ConnectionManager;
 use tracing::warn;
 
-use crate::config::{ServerConfig, TenantTokenQuotaOverride};
+use crate::config::ServerConfig;
 
 const MAX_QUOTA_COUNTERS: usize = 4096;
 
@@ -209,6 +209,7 @@ mod tests {
     use std::collections::HashMap;
 
     fn quota_config(tenant: &str, daily_tokens: u64) -> ServerConfig {
+        use crate::config::TenantTokenQuotaOverride;
         let mut overrides = HashMap::new();
         overrides.insert(
             tenant.to_string(),

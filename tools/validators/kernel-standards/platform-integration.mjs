@@ -327,6 +327,20 @@ export function validatePlatformIntegration({ kernelRoot, errors, ensureFile, re
       'sdkwork-agent-server/src/ingress_jwt.rs must fetch remote JWKS URL material at startup for enterprise OIDC ingress'
     );
   }
+  if (serverIngressJwt && !serverIngressJwt.includes('try_refresh')) {
+    errors.push(
+      'sdkwork-agent-server/src/ingress_jwt.rs must refresh JWKS material on unknown kid for enterprise key rotation'
+    );
+  }
+
+  const serverTenantQuota = readFileIfExists(
+    path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'tenant_token_quota.rs')
+  );
+  if (!serverTenantQuota || !serverTenantQuota.includes('TenantTokenQuotaState')) {
+    errors.push(
+      'sdkwork-agent-server/src/tenant_token_quota.rs must enforce per-tenant daily model token quotas'
+    );
+  }
 
   const serverUsageMeter = readFileIfExists(
     path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'usage_meter.rs')

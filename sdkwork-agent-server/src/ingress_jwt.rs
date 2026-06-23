@@ -1,14 +1,14 @@
 //! Ingress JWT validation for enterprise IdP-issued application credentials.
 //!
 //! Supports HS256 shared secret, RS256 PEM public key, a local JWKS file, or a
-//! remote JWKS URL fetched once at startup. Internal API keeps a single ingress
-//! credential model (`INTERNAL_API_SPEC.md` §4).
+//! remote JWKS URL fetched at startup with refresh-on-unknown-kid for key rotation.
 
 use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
-use std::time::Duration;
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
 use jsonwebtoken::jwk::{AlgorithmParameters, JwkSet};
@@ -20,6 +20,67 @@ use crate::config::ServerConfig;
 
 const MAX_JWKS_BYTES: usize = 1_048_576;
 const JWKS_FETCH_TIMEOUT: Duration = Duration::from_secs(15);
+const JWKS_REFRESH_MIN_INTERVAL: Duration = Duration::from_secs(60);
+
+#[derive(Clone)]
+enum JwksRefreshSource {
+    Url(String),
+    File(String),
+}
+
+#[derive(Clone)]
+struct RefreshableJwksCache {
+    keys: Arc<RwLock<HashMap<String, (Algorithm, DecodingKey)>>>,
+    last_refresh_attempt: Arc<RwLock<Option<Instant>>>,
+    source: JwksRefreshSource,
+}
+
+impl RefreshableJwksCache {
+    fn new(source: JwksRefreshSource, keys: HashMap<String, (Algorithm, DecodingKey)>) -> Self {
+        Self {
+            keys: Arc::new(RwLock::new(keys)),
+            last_refresh_attempt: Arc::new(RwLock::new(None)),
+            source,
+        }
+    }
+
+    fn lookup(&self, kid: &str) -> Option<(Algorithm, DecodingKey)> {
+        self.keys
+            .read()
+            .unwrap_or_else(|error| error.into_inner())
+            .get(kid)
+            .cloned()
+    }
+
+    fn try_refresh(&self) -> bool {
+        let mut last = self
+            .last_refresh_attempt
+            .write()
+            .unwrap_or_else(|error| error.into_inner());
+        if let Some(previous) = *last {
+            if previous.elapsed() < JWKS_REFRESH_MIN_INTERVAL {
+                return false;
+            }
+        }
+        *last = Some(Instant::now());
+        drop(last);
+
+        let refreshed = match &self.source {
+            JwksRefreshSource::Url(url) => fetch_jwks_url(url),
+            JwksRefreshSource::File(path) => load_jwks_file(path),
+        };
+        match refreshed {
+            Ok(keys) => {
+                *self.keys.write().unwrap_or_else(|error| error.into_inner()) = keys;
+                true
+            }
+            Err(error) => {
+                warn!(error = %error, "ingress jwks refresh failed");
+                false
+            }
+        }
+    }
+}
 
 /// Verified tenant/user identity extracted from an ingress JWT.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,7 +104,7 @@ pub struct IngressJwtValidator {
     audience: Option<String>,
     hs256_secret: Option<String>,
     rsa_decoding_key: Option<DecodingKey>,
-    jwks_keys: Option<HashMap<String, (Algorithm, DecodingKey)>>,
+    jwks_cache: Option<RefreshableJwksCache>,
 }
 
 impl IngressJwtValidator {
@@ -59,19 +120,35 @@ impl IngressJwtValidator {
             .filter(|value| !value.is_empty())
             .map(str::to_string);
 
-        let (hs256_secret, rsa_decoding_key, jwks_keys) =
+        let (hs256_secret, rsa_decoding_key, jwks_cache) =
             if let Some(path) = config
                 .ingress_jwt_jwks_file
                 .as_deref()
                 .filter(|value| !value.is_empty())
             {
-                (None, None, Some(load_jwks_file(path)?))
+                let keys = load_jwks_file(path)?;
+                (
+                    None,
+                    None,
+                    Some(RefreshableJwksCache::new(
+                        JwksRefreshSource::File(path.to_string()),
+                        keys,
+                    )),
+                )
             } else if let Some(url) = config
                 .ingress_jwt_jwks_url
                 .as_deref()
                 .filter(|value| !value.is_empty())
             {
-                (None, None, Some(fetch_jwks_url(url)?))
+                let keys = fetch_jwks_url(url)?;
+                (
+                    None,
+                    None,
+                    Some(RefreshableJwksCache::new(
+                        JwksRefreshSource::Url(url.to_string()),
+                        keys,
+                    )),
+                )
             } else if config
                 .ingress_jwt_algorithm
                 .eq_ignore_ascii_case("rs256")
@@ -111,7 +188,7 @@ impl IngressJwtValidator {
             audience,
             hs256_secret,
             rsa_decoding_key,
-            jwks_keys,
+            jwks_cache,
         })
     }
 
@@ -145,14 +222,18 @@ impl IngressJwtValidator {
         if let Some(decoding_key) = &self.rsa_decoding_key {
             return Ok((Algorithm::RS256, decoding_key.clone()));
         }
-        if let Some(keys) = &self.jwks_keys {
+        if let Some(cache) = &self.jwks_cache {
             let header = decode_header(token).map_err(|_| StatusCode::UNAUTHORIZED)?;
             let kid = header.kid.ok_or(StatusCode::UNAUTHORIZED)?;
-            let (algorithm, key) = keys
-                .get(&kid)
-                .ok_or(StatusCode::UNAUTHORIZED)?
-                .clone();
-            return Ok((algorithm, key));
+            if let Some(entry) = cache.lookup(&kid) {
+                return Ok(entry);
+            }
+            if cache.try_refresh() {
+                if let Some(entry) = cache.lookup(&kid) {
+                    return Ok(entry);
+                }
+            }
+            return Err(StatusCode::UNAUTHORIZED);
         }
         Err(StatusCode::SERVICE_UNAVAILABLE)
     }
@@ -453,5 +534,50 @@ mod tests {
         .expect("jwt encode");
         let identity = validator.validate(&token).expect("jwks url jwt should validate");
         assert_eq!(identity.tenant_id, "tenant-url");
+    }
+
+    #[test]
+    fn refreshes_jwks_file_on_unknown_kid() {
+        let mut file = tempfile::NamedTempFile::new().expect("temp jwks");
+        let stale_jwks = include_str!("../tests/fixtures/ingress_jwt_jwks.json")
+            .replace("ingress-test-key", "stale-kid");
+        write!(file, "{stale_jwks}").expect("write stale jwks");
+        let config = ServerConfig {
+            ingress_auth_mode: "jwt".to_string(),
+            ingress_jwt_jwks_file: Some(file.path().to_string_lossy().into_owned()),
+            ingress_jwt_issuer: Some("sdkwork-kernel".to_string()),
+            ingress_jwt_audience: Some("internal-api".to_string()),
+            ..ServerConfig::default()
+        };
+        let validator = IngressJwtValidator::from_config(&config).expect("validator");
+        write!(
+            file,
+            "{}",
+            include_str!("../tests/fixtures/ingress_jwt_jwks.json")
+        )
+        .expect("write rotated jwks");
+
+        let private_pem = include_str!("../tests/fixtures/ingress_jwt_rs256_private.pem");
+        let exp = (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize;
+        let claims = serde_json::json!({
+            "sub": "user-rotated",
+            "tenant_id": "tenant-rotated",
+            "user_id": "user-rotated",
+            "exp": exp,
+            "iss": "sdkwork-kernel",
+            "aud": "internal-api",
+        });
+        let mut header = Header::new(Algorithm::RS256);
+        header.kid = Some("ingress-test-key".to_string());
+        let token = encode(
+            &header,
+            &claims,
+            &EncodingKey::from_rsa_pem(private_pem.as_bytes()).expect("private key"),
+        )
+        .expect("jwt encode");
+        let identity = validator
+            .validate(&token)
+            .expect("jwks refresh should load rotated kid");
+        assert_eq!(identity.tenant_id, "tenant-rotated");
     }
 }

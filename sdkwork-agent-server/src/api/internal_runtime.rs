@@ -26,6 +26,7 @@ use crate::metrics::MetricsRegistry;
 use crate::middleware::RequestContext;
 use crate::persistence::PersistenceState;
 use crate::runtime::RuntimeState;
+use crate::tenant_token_quota::TenantTokenQuotaState;
 
 /// Shared internal-api runtime HTTP handler state.
 #[derive(Clone)]
@@ -34,6 +35,7 @@ pub struct InternalRuntimeApiState {
     pub config: Arc<ServerConfig>,
     pub access_policy: AccessPolicy,
     pub runtime: RuntimeState,
+    pub tenant_token_quota: Arc<TenantTokenQuotaState>,
     pub sse_event_counter: Arc<tokio::sync::Mutex<u64>>,
     permissions: Arc<Mutex<HashMap<String, PermissionRecord>>>,
 }
@@ -328,6 +330,7 @@ impl InternalRuntimeApiState {
             config: config.clone(),
             access_policy: AccessPolicy::from_config(&config),
             runtime: RuntimeState::try_for_config(&config)?,
+            tenant_token_quota: Arc::new(TenantTokenQuotaState::from_config(&config)),
             sse_event_counter: Arc::new(tokio::sync::Mutex::new(0)),
             permissions: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -973,6 +976,21 @@ pub async fn invoke_model(
         .runtime
         .register_session(&session_id, bridge_config_from_row(&row));
 
+    if let Some(tenant_id) = ctx.tenant_id.as_deref() {
+        if let Err(status) = state.tenant_token_quota.check_allowed(tenant_id).await {
+            crate::security_audit::log_auth_failure(
+                "quota.token_rejected",
+                Some(&ctx.request_id),
+                "/internal/v3/api/intelligence/runtime/sessions/{session_id}/model/invoke",
+                Some(tenant_id),
+                ctx.user_id.as_deref(),
+                "tenant daily model token quota exhausted",
+            );
+            metrics.record_tenant_token_quota_rejection();
+            return Err(status);
+        }
+    }
+
     let model_id = request
         .model_id
         .unwrap_or_else(|| "model.local.default".to_string());
@@ -1011,6 +1029,12 @@ pub async fn invoke_model(
         );
         metrics.record_model_token_usage(&result.response.provider_id, "input", u64::from(usage.input_tokens));
         metrics.record_model_token_usage(&result.response.provider_id, "output", u64::from(usage.output_tokens));
+        if let Some(tenant_id) = ctx.tenant_id.as_deref() {
+            state
+                .tenant_token_quota
+                .record_usage(tenant_id, u64::from(usage.total_tokens()))
+                .await;
+        }
     }
 
     Ok(Json(ModelResponseJson {

@@ -8,6 +8,12 @@ pub struct TenantRateLimitOverride {
     pub burst: u32,
 }
 
+/// Per-tenant daily model token quota for commercial billing enforcement.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TenantTokenQuotaOverride {
+    pub daily_tokens: u64,
+}
+
 /// Server configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
@@ -67,6 +73,8 @@ pub struct ServerConfig {
     pub rate_limit_redis_url: Option<String>,
     /// Optional per-tenant rate limit overrides keyed by tenant id.
     pub tenant_rate_limit_overrides: HashMap<String, TenantRateLimitOverride>,
+    /// Optional per-tenant daily model token quotas keyed by tenant id.
+    pub tenant_token_quota_overrides: HashMap<String, TenantTokenQuotaOverride>,
     /// Metrics scrape auth mode: open | token
     pub metrics_auth_mode: String,
     /// Bearer token for `/metrics` when metrics_auth_mode is token.
@@ -111,6 +119,7 @@ impl Default for ServerConfig {
             rate_limit_burst: 200,
             rate_limit_redis_url: None,
             tenant_rate_limit_overrides: HashMap::new(),
+            tenant_token_quota_overrides: HashMap::new(),
             metrics_auth_mode: "open".to_string(),
             metrics_token: None,
             otel_exporter_otlp_endpoint: None,
@@ -240,6 +249,17 @@ impl ServerConfig {
                     serde_json::from_str(trimmed).map_err(|error| {
                         anyhow::anyhow!(
                             "SDKWORK_TENANT_RATE_LIMIT_OVERRIDES must be JSON object: {error}"
+                        )
+                    })?;
+            }
+        }
+        if let Ok(overrides) = std::env::var("SDKWORK_TENANT_TOKEN_QUOTA_OVERRIDES") {
+            let trimmed = overrides.trim();
+            if !trimmed.is_empty() {
+                config.tenant_token_quota_overrides =
+                    serde_json::from_str(trimmed).map_err(|error| {
+                        anyhow::anyhow!(
+                            "SDKWORK_TENANT_TOKEN_QUOTA_OVERRIDES must be JSON object: {error}"
                         )
                     })?;
             }

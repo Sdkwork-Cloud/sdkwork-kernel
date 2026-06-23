@@ -52,7 +52,7 @@ Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork
   - `SDKWORK_KERNEL_INGRESS_JWT_SECRET` for HS256 (default algorithm)
   - `SDKWORK_KERNEL_INGRESS_JWT_RSA_PUBLIC_KEY_PEM` with `SDKWORK_KERNEL_INGRESS_JWT_ALGORITHM=rs256`
   - `SDKWORK_KERNEL_INGRESS_JWT_JWKS_FILE` pointing at a local JWKS JSON document (kid lookup; RS256 keys)
-  - `SDKWORK_KERNEL_INGRESS_JWT_JWKS_URL` fetched once at startup from an OIDC/IdP JWKS endpoint (production requires `https://`)
+  - `SDKWORK_KERNEL_INGRESS_JWT_JWKS_URL` fetched once at startup from an OIDC/IdP JWKS endpoint (production requires `https://`; unknown `kid` triggers rate-limited refresh for key rotation)
   Optional `SDKWORK_KERNEL_INGRESS_JWT_ISSUER` and `SDKWORK_KERNEL_INGRESS_JWT_AUDIENCE` tighten validation. Bearer JWT must include `tenant_id` and `user_id` (or `sub`) claims; identity MAC headers are not required.
 - Token auth accepts `Authorization: Bearer <token>`, `X-API-Key`, or `x-sdkwork-access-token` (Bearer prefix is case-insensitive).
 - Health probes (`/health`, `/ready`, `/live`) bypass ingress token auth so orchestrators can scrape without credentials.
@@ -68,6 +68,7 @@ Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork
 - Secured ingress modes require resolved caller identity on session create; access checks fail closed when caller identity is missing.
 - Rate limits apply on non-loopback binds even outside production (default 50 rps, burst 100). Production defaults to 100 rps / burst 200. Configure with `SDKWORK_RATE_LIMIT_RPS` and `SDKWORK_RATE_LIMIT_BURST`; set RPS to `0` to disable on loopback-only dev profiles.
 - **Per-tenant rate limits:** optional JSON map `SDKWORK_TENANT_RATE_LIMIT_OVERRIDES` (`{"tenant-id":{"rps":N,"burst":M}}`) applies after ingress identity resolution; keys without overrides use the global bucket.
+- **Per-tenant daily token quotas:** optional JSON map `SDKWORK_TENANT_TOKEN_QUOTA_OVERRIDES` (`{"tenant-id":{"daily_tokens":N}}`) hard-limits model invoke when a tenant's UTC-day token consumption reaches the cap (`429 Too Many Requests`). Usage is recorded after successful model invocation when provider usage facts are present. Redis-backed when `SDKWORK_RATE_LIMIT_REDIS_URL` / `SDKWORK_REDIS_URL` is configured.
 - **Distributed rate limiting (cloud/server):** set `SDKWORK_RATE_LIMIT_REDIS_URL` or `SDKWORK_REDIS_URL`. Production `cloud-hosted` / `server` profiles fail preflight when Redis is required but unset. Without Redis, non-production profiles fall back to per-process token buckets.
 - **Runtime session persistence:** default SQLite path `SDKWORK_DATABASE_PATH` for loopback dev. Multi-replica cloud/server deployments use `SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres` with `SDKWORK_AGENT_RUNTIME_DATABASE_URL` or legacy `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` (resolved via `sdkwork-database-config` service name `AGENT_RUNTIME`).
 - Responses include baseline security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`).
@@ -87,6 +88,7 @@ Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork
   - `sdkwork_kernel_rate_limit_backend_info` (gauge `1` with label `backend=memory|redis`)
   - `sdkwork_kernel_model_invocations_total` (counter by `provider_id`, `status` — bounded provider registry ids only)
   - `sdkwork_kernel_model_tokens_total` (counter by `provider_id`, `direction=input|output` — aggregate only, not billing source of truth)
+  - `sdkwork_kernel_tenant_token_quota_rejected_total` (counter — model invoke rejected by tenant daily token quota)
 - Commercial usage facts for billing pipelines are also emitted on the `usage_meter` log target (`event=model.tokens`) with tenant/user/session/provider token counts.
 - Common metric labels: `service`, `environment`, `deployment_profile`, `runtime_target` per `OBSERVABILITY_SPEC.md`.
 

@@ -250,6 +250,7 @@ test('agent-server HTTP surface spec documents kernel ingress security and readi
   assert.match(metricsSource, /sdkwork_kernel_rate_limit_backend_info/);
   assert.match(metricsSource, /sdkwork_kernel_model_invocations_total/);
   assert.match(metricsSource, /sdkwork_kernel_model_tokens_total/);
+  assert.match(metricsSource, /sdkwork_kernel_tenant_token_quota_rejected_total/);
   const ingressJwtSource = fs.readFileSync(
     path.join(root, 'sdkwork-agent-server/src/ingress_jwt.rs'),
     'utf8'
@@ -261,10 +262,16 @@ test('agent-server HTTP surface spec documents kernel ingress security and readi
   assert.match(source, /JWT ingress/i);
   assert.match(source, /SDKWORK_KERNEL_INGRESS_JWT_RSA_PUBLIC_KEY_PEM/);
   assert.match(source, /SDKWORK_KERNEL_INGRESS_JWT_JWKS_URL/);
-  assert.match(source, /SDKWORK_TENANT_RATE_LIMIT_OVERRIDES/);
+  assert.match(source, /SDKWORK_TENANT_TOKEN_QUOTA_OVERRIDES/);
   assert.match(ingressJwtSource, /validate_ingress_jwt/);
   assert.match(ingressJwtSource, /load_jwks_file/);
   assert.match(ingressJwtSource, /fetch_jwks_url/);
+  assert.match(ingressJwtSource, /try_refresh/);
+  const tenantQuotaSource = fs.readFileSync(
+    path.join(root, 'sdkwork-agent-server/src/tenant_token_quota.rs'),
+    'utf8'
+  );
+  assert.match(tenantQuotaSource, /TenantTokenQuotaState/);
   const rateLimitSource = fs.readFileSync(
     path.join(root, 'sdkwork-agent-server/src/rate_limit.rs'),
     'utf8'

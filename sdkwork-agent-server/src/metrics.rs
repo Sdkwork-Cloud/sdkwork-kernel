@@ -72,6 +72,7 @@ pub struct MetricsRegistry {
     model_token_usage: Mutex<HashMap<(String, String), u64>>,
     auth_failures_total: AtomicU64,
     rate_limited_total: AtomicU64,
+    tenant_token_quota_rejected_total: AtomicU64,
 }
 
 impl MetricsRegistry {
@@ -89,6 +90,7 @@ impl MetricsRegistry {
             model_token_usage: Mutex::new(HashMap::new()),
             auth_failures_total: AtomicU64::new(0),
             rate_limited_total: AtomicU64::new(0),
+            tenant_token_quota_rejected_total: AtomicU64::new(0),
         })
     }
 
@@ -138,6 +140,11 @@ impl MetricsRegistry {
 
     pub fn record_rate_limited(&self) {
         self.rate_limited_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn record_tenant_token_quota_rejection(&self) {
+        self.tenant_token_quota_rejected_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_model_invocation(&self, provider_id: &str, status: &str) {
@@ -241,6 +248,21 @@ impl MetricsRegistry {
             output,
             "sdkwork_kernel_http_rate_limited_total{{{base}}} {}",
             self.rate_limited_total.load(Ordering::Relaxed)
+        );
+
+        let _ = writeln!(
+            output,
+            "# HELP sdkwork_kernel_tenant_token_quota_rejected_total Model invoke requests rejected by tenant daily token quota."
+        );
+        let _ = writeln!(
+            output,
+            "# TYPE sdkwork_kernel_tenant_token_quota_rejected_total counter"
+        );
+        let _ = writeln!(
+            output,
+            "sdkwork_kernel_tenant_token_quota_rejected_total{{{base}}} {}",
+            self.tenant_token_quota_rejected_total
+                .load(Ordering::Relaxed)
         );
 
         let _ = writeln!(

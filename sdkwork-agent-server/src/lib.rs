@@ -22,4 +22,5 @@ pub mod runtime_bootstrap;
 pub mod runtime_routes;
 pub mod security_audit;
 pub mod shutdown;
+pub mod tenant_token_quota;
 pub mod usage_meter;

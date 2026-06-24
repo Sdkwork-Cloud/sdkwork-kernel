@@ -108,6 +108,11 @@ jobs:
       - name: Install UI dependencies
         run: pnpm --dir sdkwork-kernel-ui install --frozen-lockfile
 
+      - name: Build sdkwork-utils TypeScript package
+        run: |
+          pnpm --dir ../sdkwork-utils/packages/sdkwork-utils-typescript install
+          pnpm --dir ../sdkwork-utils/packages/sdkwork-utils-typescript build
+
       - name: Run kernel audit verification
         run: node scripts/verify-kernel-audit-remediation.mjs
 

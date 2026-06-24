@@ -131,12 +131,17 @@
   ],
   "license": "SDKWork manifest only; upstream licenses remain owned by each external project",
   "extensions": {
-    "sdkwork.external.initial-registration-mode": "manifest-only",
+    "sdkwork.external.initial-registration-mode": "typed-local-and-process-adapter",
     "sdkwork.external.reference-paths": [
       "external/hermes-agent",
       "external/openclaw",
       "external/rig"
     ],
-    "sdkwork.external.execution-status": "not-implemented"
+    "sdkwork.external.execution-status": "implemented-rig-openclaw-hermes-plugin-crates",
+    "sdkwork.external.implementation-crates": [
+      "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig",
+      "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-openclaw",
+      "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-hermes"
+    ]
   }
 }

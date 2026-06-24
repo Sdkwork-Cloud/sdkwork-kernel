@@ -588,6 +588,7 @@ pub fn now_iso() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sdkwork_agent_kernel::SessionState;
 
     #[test]
     fn session_config_builder() {

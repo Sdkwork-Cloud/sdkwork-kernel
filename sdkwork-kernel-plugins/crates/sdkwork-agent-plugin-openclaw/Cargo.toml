@@ -1,0 +1,13 @@
+[package]
+name = "sdkwork-agent-plugin-openclaw"
+version = "0.2.0"
+edition = "2021"
+
+[lib]
+name = "sdkwork_agent_plugin_openclaw"
+path = "src/lib.rs"
+
+[dependencies]
+sdkwork-agent-kernel.workspace = true
+sdkwork-agent-plugin-core.workspace = true
+sdkwork-agent-adapter-openclaw.workspace = true

@@ -127,6 +127,10 @@
       "external/opencode",
       "external/gemini-cli"
     ],
-    "sdkwork.external.execution-status": "not-implemented"
+    "sdkwork.external.execution-status": "implemented-codex-plugin-crates",
+    "sdkwork.external.implementation-crates": [
+      "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-codex",
+      "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex"
+    ]
   }
 }

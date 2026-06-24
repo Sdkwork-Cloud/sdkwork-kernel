@@ -1,15 +1,18 @@
 use sdkwork_agent_adapter_core::{
-    create_session_from_config, now_iso, reject_direct_mock_provider_invocation, uuid_simple,
-    ConversationManager, InMemoryConversationManager, MessageAdapter, SessionAdapter,
-    SessionConfig, SessionLifecycleProvider,
+    create_session_from_config, reject_direct_mock_provider_invocation, uuid_simple,
+    MessageAdapter, SessionAdapter, SessionConfig,
 };
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
+    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
     ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
-    SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
-    ToolResult, ToolSchema,
+    SessionState, SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
+
+#[cfg(test)]
+use sdkwork_agent_adapter_core::{ConversationManager, InMemoryConversationManager, SessionLifecycleProvider};
+#[cfg(test)]
+use sdkwork_agent_kernel::{ModelStatus, ToolCallStatus};
 
 // ============================================================================
 // OpenClaw Message Types
@@ -58,6 +61,7 @@ pub struct OpenClawGatewaySessionRow {
     pub session_id: Option<String>,
     pub kind: String,
     pub label: Option<String>,
+    pub display_name: Option<String>,
     pub title: Option<String>,
     pub model: Option<String>,
     pub status: String,
@@ -90,7 +94,7 @@ impl OpenClawAdapter {
         match status.to_lowercase().as_str() {
             "running" => SessionState::Working,
             "done" => SessionState::Closed,
-            "failed" => SessionState::Failed,
+            "failed" | "killed" | "timeout" => SessionState::Failed,
             _ => SessionState::Created,
         }
     }
@@ -113,7 +117,11 @@ impl SessionAdapter for OpenClawAdapter {
             .to_string();
         let kind = Self::map_kind(&external.kind);
         let state = Self::map_status(&external.status);
-        let title = external.title.clone().or_else(|| external.label.clone());
+        let title = external
+            .title
+            .clone()
+            .or_else(|| external.display_name.clone())
+            .or_else(|| external.label.clone());
 
         let mut config = SessionConfig::new()
             .with_source(SessionSource::Api)
@@ -353,57 +361,67 @@ impl ToolProvider for OpenClawToolProvider {
     fn list_tools(&self) -> Vec<ToolDescriptor> {
         vec![
             ToolDescriptor::new(
-                "openclaw.delegate_task",
+                "openclaw.message",
                 "provider.tool.openclaw",
-                "Delegate Task",
+                "Message",
+                SideEffectLevel::ExternalSend,
+            )
+            .with_name("message")
+            .with_description("Send a message to the current channel or thread")
+            .with_input_schema(ToolSchema::json_schema("openclaw.message.input"))
+            .with_output_schema(ToolSchema::json_schema("openclaw.message.output")),
+            ToolDescriptor::new(
+                "openclaw.sessions_spawn",
+                "provider.tool.openclaw",
+                "Sessions Spawn",
                 SideEffectLevel::SideEffectful,
             )
-            .with_name("delegate_task")
-            .with_description("Delegate a task to a sub-agent")
-            .with_input_schema(ToolSchema::json_schema("openclaw.delegate_task.input"))
-            .with_output_schema(ToolSchema::json_schema("openclaw.delegate_task.output")),
+            .with_name("sessions_spawn")
+            .with_description("Spawn a subagent session")
+            .with_input_schema(ToolSchema::json_schema("openclaw.sessions_spawn.input"))
+            .with_output_schema(ToolSchema::json_schema("openclaw.sessions_spawn.output")),
             ToolDescriptor::new(
-                "openclaw.execute_workflow",
+                "openclaw.web_search",
                 "provider.tool.openclaw",
-                "Execute Workflow",
+                "Web Search",
+                SideEffectLevel::ExternalSend,
+            )
+            .with_name("web_search")
+            .with_description("Search the web")
+            .with_input_schema(ToolSchema::json_schema("openclaw.web_search.input"))
+            .with_output_schema(ToolSchema::json_schema("openclaw.web_search.output")),
+            ToolDescriptor::new(
+                "openclaw.cron",
+                "provider.tool.openclaw",
+                "Cron",
                 SideEffectLevel::SideEffectful,
             )
-            .with_name("execute_workflow")
-            .with_description("Execute a predefined workflow")
-            .with_input_schema(ToolSchema::json_schema("openclaw.execute_workflow.input"))
-            .with_output_schema(ToolSchema::json_schema("openclaw.execute_workflow.output")),
-            ToolDescriptor::new(
-                "openclaw.query_knowledge",
-                "provider.tool.openclaw",
-                "Query Knowledge",
-                SideEffectLevel::ReadOnly,
-            )
-            .with_name("query_knowledge")
-            .with_description("Query the knowledge base")
-            .with_input_schema(ToolSchema::json_schema("openclaw.query_knowledge.input"))
-            .with_output_schema(ToolSchema::json_schema("openclaw.query_knowledge.output")),
+            .with_name("cron")
+            .with_description("Manage scheduled cron jobs")
+            .with_input_schema(ToolSchema::json_schema("openclaw.cron.input"))
+            .with_output_schema(ToolSchema::json_schema("openclaw.cron.output")),
         ]
     }
 
     fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
         let output = match call.tool_id.as_str() {
-            "openclaw.delegate_task" => {
+            "openclaw.message" => {
+                format!("[OpenClaw Message] Mock send: {}", call.arguments)
+            }
+            "openclaw.sessions_spawn" => {
                 format!(
-                    "[OpenClaw DelegateTask] Mock delegation: {}",
+                    "[OpenClaw SessionsSpawn] Mock subagent spawn: {}",
                     call.arguments
                 )
             }
-            "openclaw.execute_workflow" => {
+            "openclaw.web_search" => {
                 format!(
-                    "[OpenClaw ExecuteWorkflow] Mock workflow execution: {}",
+                    "[OpenClaw WebSearch] Mock search results for: {}",
                     call.arguments
                 )
             }
-            "openclaw.query_knowledge" => {
-                format!(
-                    "[OpenClaw QueryKnowledge] Mock query result: {}",
-                    call.arguments
-                )
+            "openclaw.cron" => {
+                format!("[OpenClaw Cron] Mock cron operation: {}", call.arguments)
             }
             _ => {
                 return Err(KernelError::CapabilityMissing {
@@ -426,7 +444,7 @@ sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(
 );
 
 pub mod sdk_integration;
-pub use sdk_integration::{openclaw_binding_manifest, OpenClawSdkIntegration};
+pub use sdk_integration::{openclaw_binding_manifest, OpenClawSdkIntegration, OPENCLAW_NPM_PACKAGE};
 
 // ============================================================================
 // Tests
@@ -442,6 +460,7 @@ mod tests {
             session_id: Some("oc.session.1".to_string()),
             kind: "direct".to_string(),
             label: Some("Direct Chat".to_string()),
+            display_name: None,
             title: None,
             model: Some("claude-3".to_string()),
             status: "running".to_string(),
@@ -526,6 +545,26 @@ mod tests {
         ext.status = "failed".to_string();
         let session = adapter.to_agent_session(&ext).unwrap();
         assert_eq!(session.state, SessionState::Failed);
+    }
+
+    #[test]
+    fn maps_timeout_to_failed() {
+        let adapter = OpenClawAdapter::new();
+        let mut ext = sample_openclaw_session();
+        ext.status = "timeout".to_string();
+        let session = adapter.to_agent_session(&ext).unwrap();
+        assert_eq!(session.state, SessionState::Failed);
+    }
+
+    #[test]
+    fn prefers_display_name_for_title() {
+        let adapter = OpenClawAdapter::new();
+        let mut ext = sample_openclaw_session();
+        ext.display_name = Some("Display".to_string());
+        ext.title = None;
+        ext.label = Some("Label".to_string());
+        let session = adapter.to_agent_session(&ext).unwrap();
+        assert_eq!(session.title, Some("Display".to_string()));
     }
 
     #[test]
@@ -619,7 +658,7 @@ mod tests {
             goal: None,
             tool_calls: Some(vec![OpenClawToolCall {
                 id: "tc.1".to_string(),
-                function_name: "delegate_task".to_string(),
+                function_name: "sessions_spawn".to_string(),
                 arguments: "{}".to_string(),
             }]),
             tool_call_id: None,
@@ -673,29 +712,22 @@ mod tests {
     fn tool_provider_list_tools() {
         let provider = OpenClawToolProvider::new();
         let tools = provider.list_tools();
-        assert_eq!(tools.len(), 3);
-        assert!(tools.iter().any(|t| t.tool_id == "openclaw.delegate_task"));
+        assert_eq!(tools.len(), 4);
+        assert!(tools.iter().any(|t| t.tool_id == "openclaw.message"));
         assert!(tools
             .iter()
-            .any(|t| t.tool_id == "openclaw.execute_workflow"));
-        assert!(tools
-            .iter()
-            .any(|t| t.tool_id == "openclaw.query_knowledge"));
-
-        let query = tools
-            .iter()
-            .find(|t| t.tool_id == "openclaw.query_knowledge")
-            .unwrap();
-        assert_eq!(query.side_effect_level, SideEffectLevel::ReadOnly);
+            .any(|t| t.tool_id == "openclaw.sessions_spawn"));
+        assert!(tools.iter().any(|t| t.tool_id == "openclaw.web_search"));
+        assert!(tools.iter().any(|t| t.tool_id == "openclaw.cron"));
     }
 
     #[test]
-    fn tool_provider_invoke_delegate() {
+    fn tool_provider_invoke_spawn() {
         let provider = OpenClawToolProvider::new();
-        let call = ToolCall::new("c.1", "openclaw.delegate_task", r#"{"task":"fix auth"}"#);
+        let call = ToolCall::new("c.1", "openclaw.sessions_spawn", r#"{"task":"fix auth"}"#);
         let result = provider.invoke_tool(call).unwrap();
         assert_eq!(result.normalized_status, ToolCallStatus::Succeeded);
-        assert!(result.output.contains("Mock delegation"));
+        assert!(result.output.contains("Mock subagent spawn"));
     }
 
     #[test]

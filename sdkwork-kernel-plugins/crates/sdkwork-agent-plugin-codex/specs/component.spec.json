@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "kind": "sdkwork.component.spec",
+  "component": {
+    "name": "sdkwork-agent-plugin-codex",
+    "displayName": "SDKWork Agent Plugin Codex",
+    "version": "0.2.0",
+    "type": "rust-crate",
+    "root": "sdkwork-kernel/sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex",
+    "domain": "intelligence",
+    "capability": "agent-plugin-codex",
+    "surfaceNotRequiredReason": "Process-adapter plugin loaded through kernel runtime bootstrap and SDKWORK_KERNEL_AGENT_PLUGIN.",
+    "languages": ["rust"],
+    "generated": false,
+    "manifests": ["Cargo.toml"]
+  },
+  "canonicalSpecs": [
+    {
+      "file": "KERNEL_PLUGIN_SPEC.md",
+      "path": "../../../specs/KERNEL_PLUGIN_SPEC.md",
+      "purpose": "Canonical plugin manifest, contribution, dependency, lifecycle, security, conformance, and plugin naming rules."
+    },
+    {
+      "file": "COMPONENT_SPEC.md",
+      "path": "../../../../sdkwork-specs/COMPONENT_SPEC.md",
+      "purpose": "Component-local contract and discovery rules."
+    },
+    {
+      "file": "CODE_STYLE_SPEC.md",
+      "path": "../../../../sdkwork-specs/CODE_STYLE_SPEC.md",
+      "purpose": "Authored source structure and generated code boundaries."
+    },
+    {
+      "file": "NAMING_SPEC.md",
+      "path": "../../../../sdkwork-specs/NAMING_SPEC.md",
+      "purpose": "Canonical SDKWork naming rules."
+    },
+    {
+      "file": "MODULE_SPEC.md",
+      "path": "../../../../sdkwork-specs/MODULE_SPEC.md",
+      "purpose": "Reusable module and package boundary rules."
+    },
+    {
+      "file": "TEST_SPEC.md",
+      "path": "../../../../sdkwork-specs/TEST_SPEC.md",
+      "purpose": "Verification and contract testing expectations."
+    },
+    {
+      "file": "RUST_CODE_SPEC.md",
+      "path": "../../../../sdkwork-specs/RUST_CODE_SPEC.md",
+      "purpose": "Rust crate and module rules."
+    }
+  ],
+  "contracts": {
+    "publicExports": ["."],
+    "runtimeEntrypoints": [
+      "CodexKernelPlugin::configure_runtime",
+      "codex_agent_definition",
+      "codex_agent_manifest",
+      "codex_provider_manifests",
+      "codex_package_manifest",
+      "codex_kernel_plugin_manifest"
+    ],
+    "routeManifest": null,
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
+    "sdkClients": [],
+    "events": [],
+    "configKeys": ["SDKWORK_KERNEL_AGENT_PLUGIN"]
+  },
+  "verification": {
+    "commands": [
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex/Cargo.toml"
+    ]
+  },
+  "plugin": {
+    "pluginId": "plugin.intelligence.codex",
+    "canonicalName": "plugin",
+    "package": "sdkwork-agent-plugin-codex",
+    "namingPolicy": "CodexKernelPlugin and codex_kernel_plugin_manifest are canonical entrypoints."
+  }
+}

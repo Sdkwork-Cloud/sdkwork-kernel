@@ -7,15 +7,18 @@ use sdkwork_agent_sdk_backend_core::{
 };
 use sdkwork_agent_sdk_backend_node::NodeSdkBackendRuntime;
 use sdkwork_agent_sdk_spi::{
-    bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
-    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
+    bootstrap_binding, wire_runtime_providers, AgentSdkBindingManifest, AgentSdkIntegration,
+    BindingRegistry, DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
     SdkRuntimeBackedToolProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
-    OPENCLAW_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_TOOL_INVOKE,
+    OPENCLAW_BINDING_ID,
 };
 use std::sync::Arc;
 
 const OPENCLAW_BINDING_MANIFEST_JSON: &str =
     include_str!("../../../../sdks/external-agent-sdks/openclaw/sdk-binding.manifest.json");
+
+/// npm package name negotiated by the OpenClaw SDK binding manifest.
+pub const OPENCLAW_NPM_PACKAGE: &str = "openclaw";
 
 pub fn openclaw_binding_manifest() -> AgentSdkBindingManifest {
     AgentSdkBindingManifest::from_json(OPENCLAW_BINDING_MANIFEST_JSON)
@@ -41,7 +44,7 @@ impl OpenClawSdkIntegration {
         let negotiation = bootstrap_binding(manifest, &mut drivers, &mut bindings)?;
 
         let mut backends = BackendHostRegistry::new();
-        backends.register(Arc::new(TypeScriptNodeBackendHost::new("openclaw")));
+        backends.register(Arc::new(TypeScriptNodeBackendHost::new(OPENCLAW_NPM_PACKAGE)));
         backends.register(Arc::new(HttpOpenApiBackendHost::new(
             "openclaw-gateway-open-api",
         )));
@@ -54,20 +57,15 @@ impl OpenClawSdkIntegration {
 
         let runtime = Arc::new(
             SdkRuntimeRouter::new(negotiation.clone())
-                .with_typescript_runtime(Arc::new(NodeSdkBackendRuntime::bootstrap("openclaw"))),
+                .with_typescript_runtime(Arc::new(NodeSdkBackendRuntime::bootstrap(
+                    OPENCLAW_NPM_PACKAGE,
+                ))),
         );
-        let inner_model = Arc::new(OpenClawModelProvider::new());
-        let inner_tools = Arc::new(OpenClawToolProvider::new());
-        let model = SdkRuntimeBackedModelProvider::new(
+        let providers = wire_runtime_providers(
             runtime.clone(),
-            inner_model,
-            SDK_CAPABILITY_MODEL_CHAT,
+            Arc::new(OpenClawModelProvider::new()),
+            Arc::new(OpenClawToolProvider::new()),
             "provider.model.openclaw",
-        );
-        let tools = SdkRuntimeBackedToolProvider::new(
-            runtime.clone(),
-            inner_tools,
-            SDK_CAPABILITY_TOOL_INVOKE,
         );
 
         Ok(Self {
@@ -75,8 +73,8 @@ impl OpenClawSdkIntegration {
             backends,
             runtime,
             lifecycle: OpenClawLifecycleProvider::new(),
-            model,
-            tools,
+            model: providers.model,
+            tools: providers.tools,
             session_adapter: OpenClawAdapter::new(),
             message_adapter: OpenClawMessageAdapter::new(),
         })

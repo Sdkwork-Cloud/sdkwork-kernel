@@ -7,19 +7,46 @@ use sdkwork_agent_sdk_backend_core::{
 };
 use sdkwork_agent_sdk_backend_python::PythonSdkBackendRuntime;
 use sdkwork_agent_sdk_spi::{
-    bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
-    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
-    SdkRuntimeBackedToolProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
-    HERMES_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_TOOL_INVOKE,
+    register_manifest_drivers, wire_runtime_providers, AgentSdkBindingManifest,
+    AgentSdkIntegration, BindingRegistry, DriverRegistry, SdkBackendKind, SdkDriverHealth,
+    SdkNegotiationError, SdkRuntimeBackedModelProvider, SdkRuntimeBackedToolProvider,
+    SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter, StaticCapabilityDriver,
+    HERMES_BINDING_ID,
 };
 use std::sync::Arc;
+
+/// Importable Python module used to probe a live Hermes Agent install (`run_agent` py-module).
+pub const HERMES_PYTHON_PROBE_MODULE: &str = "run_agent";
+/// TUI gateway JSON-RPC entry (`tui_gateway.server` over stdio).
+pub const HERMES_TUI_GATEWAY_MODULE: &str = "tui_gateway";
+/// When truthy, prefer `jsonrpc_stdio` IPC via the Hermes TUI gateway module.
+pub const HERMES_USE_TUI_GATEWAY_ENV: &str = "SDKWORK_HERMES_USE_TUI_GATEWAY";
 
 const HERMES_BINDING_MANIFEST_JSON: &str =
     include_str!("../../../../sdks/external-agent-sdks/hermes/sdk-binding.manifest.json");
 
+const HERMES_IPC_PREFERRED_PYTHON_DRIVERS: &[(&str, &str)] = &[
+    (
+        "driver.hermes.session.lifecycle.python",
+        "sdk.session.lifecycle",
+    ),
+    ("driver.hermes.model.chat.python", "sdk.model.chat"),
+];
+
 pub fn hermes_binding_manifest() -> AgentSdkBindingManifest {
     AgentSdkBindingManifest::from_json(HERMES_BINDING_MANIFEST_JSON)
         .expect("hermes sdk binding manifest must parse")
+}
+
+pub fn hermes_prefer_tui_gateway_ipc() -> bool {
+    std::env::var(HERMES_USE_TUI_GATEWAY_ENV)
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
 }
 
 pub struct HermesSdkIntegration {
@@ -37,11 +64,18 @@ impl HermesSdkIntegration {
     pub fn bootstrap() -> Result<Self, SdkNegotiationError> {
         let manifest = hermes_binding_manifest();
         let mut drivers = DriverRegistry::new();
+        if hermes_prefer_tui_gateway_ipc() {
+            register_ipc_preferred_python_driver_overrides(&mut drivers);
+        }
         let mut bindings = BindingRegistry::new();
-        let negotiation = bootstrap_binding(manifest, &mut drivers, &mut bindings)?;
+        register_manifest_drivers(&manifest, &mut drivers);
+        bindings.register(manifest);
+        let negotiation = bindings.negotiate(HERMES_BINDING_ID, &drivers)?;
 
         let mut backends = BackendHostRegistry::new();
-        backends.register(Arc::new(PythonProcessBackendHost::new("hermes_agent")));
+        backends.register(Arc::new(PythonProcessBackendHost::new(
+            HERMES_PYTHON_PROBE_MODULE,
+        )));
         backends.register(Arc::new(IpcProtocolBackendHost::new("jsonrpc_stdio")));
         backends.prepare_all().map_err(|error| {
             SdkNegotiationError::missing_required_capabilities(
@@ -50,22 +84,21 @@ impl HermesSdkIntegration {
             )
         })?;
 
-        let runtime = Arc::new(
-            SdkRuntimeRouter::new(negotiation.clone())
-                .with_python_runtime(Arc::new(PythonSdkBackendRuntime::bootstrap("hermes_agent"))),
-        );
-        let inner_model = Arc::new(HermesModelProvider::new());
-        let inner_tools = Arc::new(HermesToolProvider::new());
-        let model = SdkRuntimeBackedModelProvider::new(
+        let python_runtime = Arc::new(PythonSdkBackendRuntime::bootstrap(
+            HERMES_PYTHON_PROBE_MODULE,
+        ));
+        let mut router = SdkRuntimeRouter::new(negotiation.clone()).with_python_runtime(python_runtime);
+        if hermes_prefer_tui_gateway_ipc() {
+            router = router.with_ipc_runtime(Arc::new(PythonSdkBackendRuntime::bootstrap(
+                HERMES_TUI_GATEWAY_MODULE,
+            )));
+        }
+        let runtime = Arc::new(router);
+        let providers = wire_runtime_providers(
             runtime.clone(),
-            inner_model,
-            SDK_CAPABILITY_MODEL_CHAT,
+            Arc::new(HermesModelProvider::new()),
+            Arc::new(HermesToolProvider::new()),
             "provider.model.hermes",
-        );
-        let tools = SdkRuntimeBackedToolProvider::new(
-            runtime.clone(),
-            inner_tools,
-            SDK_CAPABILITY_TOOL_INVOKE,
         );
 
         Ok(Self {
@@ -73,8 +106,8 @@ impl HermesSdkIntegration {
             backends,
             runtime,
             lifecycle: HermesLifecycleProvider::new(),
-            model,
-            tools,
+            model: providers.model,
+            tools: providers.tools,
             session_adapter: HermesAdapter::new(),
             message_adapter: HermesMessageAdapter::new(),
         })
@@ -92,14 +125,60 @@ impl HermesSdkIntegration {
     }
 }
 
+fn register_ipc_preferred_python_driver_overrides(drivers: &mut DriverRegistry) {
+    for (driver_id, capability_id) in HERMES_IPC_PREFERRED_PYTHON_DRIVERS {
+        drivers.register(Arc::new(
+            StaticCapabilityDriver::new(*driver_id, *capability_id, SdkBackendKind::PythonProcess)
+                .with_health(SdkDriverHealth::unhealthy(
+                    "SDKWORK_HERMES_USE_TUI_GATEWAY prefers jsonrpc_stdio IPC",
+                )),
+        ));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use sdkwork_agent_kernel::{ModelProvider, ModelRequest};
     use sdkwork_agent_sdk_spi::SdkBackendKind;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("hermes sdk integration env lock")
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let previous = std::env::var(key).ok();
+            match value {
+                Some(next) => std::env::set_var(key, next),
+                None => std::env::remove_var(key),
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
 
     #[test]
     fn bootstrap_prefers_python_backend_for_model_chat() {
+        let _lock = env_lock();
+        let _gateway = EnvVarGuard::set(HERMES_USE_TUI_GATEWAY_ENV, None);
         let integration = HermesSdkIntegration::bootstrap().expect("bootstrap should succeed");
         assert_eq!(integration.binding_id(), HERMES_BINDING_ID);
         assert_eq!(
@@ -109,7 +188,20 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_prefers_ipc_when_tui_gateway_env_is_set() {
+        let _lock = env_lock();
+        let _gateway = EnvVarGuard::set(HERMES_USE_TUI_GATEWAY_ENV, Some("1"));
+        let integration = HermesSdkIntegration::bootstrap().expect("bootstrap should succeed");
+        assert_eq!(
+            integration.sdk.selected_backend_kind("sdk.model.chat"),
+            Some(SdkBackendKind::IpcProtocol)
+        );
+    }
+
+    #[test]
     fn runtime_ping_reaches_python_backend() {
+        let _lock = env_lock();
+        let _gateway = EnvVarGuard::set(HERMES_USE_TUI_GATEWAY_ENV, None);
         let integration = HermesSdkIntegration::bootstrap().expect("bootstrap should succeed");
         let response = integration
             .invoke_runtime(&SdkRuntimeRequest::ping("sdk.model.chat"))
@@ -120,6 +212,8 @@ mod tests {
 
     #[test]
     fn model_provider_routes_invoke_through_python_runtime() {
+        let _lock = env_lock();
+        let _gateway = EnvVarGuard::set(HERMES_USE_TUI_GATEWAY_ENV, None);
         let integration = HermesSdkIntegration::bootstrap().expect("bootstrap should succeed");
         let response = integration
             .model
@@ -128,6 +222,6 @@ mod tests {
         assert!(response
             .messages
             .iter()
-            .any(|message| message.contains("hermes_agent")));
+            .any(|message| message.contains(HERMES_PYTHON_PROBE_MODULE)));
     }
 }

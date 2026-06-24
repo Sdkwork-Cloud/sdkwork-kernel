@@ -1,15 +1,18 @@
 use sdkwork_agent_adapter_core::{
-    create_session_from_config, now_iso, reject_direct_mock_provider_invocation, uuid_simple,
-    ConversationManager, InMemoryConversationManager, MessageAdapter, SessionAdapter,
-    SessionConfig, SessionLifecycleProvider,
+    create_session_from_config, reject_direct_mock_provider_invocation, uuid_simple,
+    MessageAdapter, SessionAdapter, SessionConfig,
 };
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
+    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
     ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
-    SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
-    ToolResult, ToolSchema,
+    SessionState, SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
+
+#[cfg(test)]
+use sdkwork_agent_adapter_core::{ConversationManager, InMemoryConversationManager, SessionLifecycleProvider};
+#[cfg(test)]
+use sdkwork_agent_kernel::{ModelStatus, ToolCallStatus};
 
 // ============================================================================
 // Hermes Message Types
@@ -57,6 +60,7 @@ pub struct HermesSessionInfo {
     pub output_tokens: u64,
     pub preview: Option<String>,
     pub parent_session_id: Option<String>,
+    pub ended_at: Option<String>,
     pub skills: Vec<String>,
     pub tools: Vec<String>,
 }
@@ -121,6 +125,9 @@ impl SessionAdapter for HermesAdapter {
         );
 
         session.updated_at = external.last_active.clone();
+        if external.ended_at.is_some() {
+            session.state = SessionState::Closed;
+        }
         session.message_count = external.message_count;
         session.preview = external.preview.clone();
         session.parent_session_id = external.parent_session_id.clone();
@@ -209,7 +216,7 @@ pub struct HermesModelProvider {
 impl HermesModelProvider {
     pub fn new() -> Self {
         Self {
-            default_model: "hermes-3-llama-3.1-70b".to_string(),
+            default_model: "hermes-runtime-default".to_string(),
         }
     }
 
@@ -245,51 +252,21 @@ impl ModelProvider for HermesModelProvider {
     }
 
     fn list_models(&self) -> Vec<ModelDescriptor> {
-        vec![
-            ModelDescriptor::new(
-                "hermes-3-llama-3.1-70b",
-                "provider.model.hermes",
-                "Hermes 3 Llama 3.1 70B",
-                "hermes",
-            )
-            .with_version("3.0")
-            .with_capability("chat")
-            .with_capability("tool_call")
-            .with_context_window_tokens(128000)
-            .with_max_output_tokens(4096)
-            .with_input_mode("text")
-            .with_output_mode("text")
-            .with_response_format(ModelResponseFormat::Text)
-            .with_tool_capability("function_calling"),
-            ModelDescriptor::new(
-                "hermes-3-llama-3.1-8b",
-                "provider.model.hermes",
-                "Hermes 3 Llama 3.1 8B",
-                "hermes",
-            )
-            .with_version("3.0")
-            .with_capability("chat")
-            .with_capability("tool_call")
-            .with_context_window_tokens(128000)
-            .with_max_output_tokens(4096)
-            .with_input_mode("text")
-            .with_output_mode("text")
-            .with_response_format(ModelResponseFormat::Text)
-            .with_tool_capability("function_calling"),
-            ModelDescriptor::new(
-                "hermes-3-mistral-7b",
-                "provider.model.hermes",
-                "Hermes 3 Mistral 7B",
-                "hermes",
-            )
-            .with_version("3.0")
-            .with_capability("chat")
-            .with_context_window_tokens(32000)
-            .with_max_output_tokens(4096)
-            .with_input_mode("text")
-            .with_output_mode("text")
-            .with_response_format(ModelResponseFormat::Text),
-        ]
+        vec![ModelDescriptor::new(
+            "hermes-runtime-default",
+            "provider.model.hermes",
+            "Hermes Agent Runtime (configured model)",
+            "hermes",
+        )
+        .with_version("0.17.0")
+        .with_capability("chat")
+        .with_capability("tool_call")
+        .with_context_window_tokens(200000)
+        .with_max_output_tokens(16384)
+        .with_input_mode("text")
+        .with_output_mode("text")
+        .with_response_format(ModelResponseFormat::Text)
+        .with_tool_capability("function_calling")]
     }
 
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
@@ -363,15 +340,15 @@ impl ToolProvider for HermesToolProvider {
     fn list_tools(&self) -> Vec<ToolDescriptor> {
         vec![
             ToolDescriptor::new(
-                "hermes.bash",
+                "hermes.terminal",
                 "provider.tool.hermes",
-                "Bash",
+                "Terminal",
                 SideEffectLevel::SideEffectful,
             )
-            .with_name("bash")
-            .with_description("Execute a bash command")
-            .with_input_schema(ToolSchema::json_schema("hermes.bash.input"))
-            .with_output_schema(ToolSchema::json_schema("hermes.bash.output")),
+            .with_name("terminal")
+            .with_description("Run shell commands in a managed terminal session")
+            .with_input_schema(ToolSchema::json_schema("hermes.terminal.input"))
+            .with_output_schema(ToolSchema::json_schema("hermes.terminal.output")),
             ToolDescriptor::new(
                 "hermes.read_file",
                 "provider.tool.hermes",
@@ -393,16 +370,6 @@ impl ToolProvider for HermesToolProvider {
             .with_input_schema(ToolSchema::json_schema("hermes.write_file.input"))
             .with_output_schema(ToolSchema::json_schema("hermes.write_file.output")),
             ToolDescriptor::new(
-                "hermes.list_directory",
-                "provider.tool.hermes",
-                "List Directory",
-                SideEffectLevel::ReadOnly,
-            )
-            .with_name("list_directory")
-            .with_description("List files in a directory")
-            .with_input_schema(ToolSchema::json_schema("hermes.list_directory.input"))
-            .with_output_schema(ToolSchema::json_schema("hermes.list_directory.output")),
-            ToolDescriptor::new(
                 "hermes.web_search",
                 "provider.tool.hermes",
                 "Web Search",
@@ -412,13 +379,23 @@ impl ToolProvider for HermesToolProvider {
             .with_description("Search the web")
             .with_input_schema(ToolSchema::json_schema("hermes.web_search.input"))
             .with_output_schema(ToolSchema::json_schema("hermes.web_search.output")),
+            ToolDescriptor::new(
+                "hermes.delegate_task",
+                "provider.tool.hermes",
+                "Delegate Task",
+                SideEffectLevel::SideEffectful,
+            )
+            .with_name("delegate_task")
+            .with_description("Spawn an isolated subagent for a focused task")
+            .with_input_schema(ToolSchema::json_schema("hermes.delegate_task.input"))
+            .with_output_schema(ToolSchema::json_schema("hermes.delegate_task.output")),
         ]
     }
 
     fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
         let output = match call.tool_id.as_str() {
-            "hermes.bash" => {
-                format!("[Hermes Bash] Mock execution of: {}", call.arguments)
+            "hermes.terminal" => {
+                format!("[Hermes Terminal] Mock execution of: {}", call.arguments)
             }
             "hermes.read_file" => {
                 format!("[Hermes ReadFile] Mock read of: {}", call.arguments)
@@ -426,12 +403,15 @@ impl ToolProvider for HermesToolProvider {
             "hermes.write_file" => {
                 format!("[Hermes WriteFile] Mock write to: {}", call.arguments)
             }
-            "hermes.list_directory" => {
-                "[Hermes ListDirectory] file1.txt\nfile2.rs\ndir/".to_string()
-            }
             "hermes.web_search" => {
                 format!(
                     "[Hermes WebSearch] Mock search results for: {}",
+                    call.arguments
+                )
+            }
+            "hermes.delegate_task" => {
+                format!(
+                    "[Hermes DelegateTask] Mock delegation: {}",
                     call.arguments
                 )
             }
@@ -453,7 +433,7 @@ impl ToolProvider for HermesToolProvider {
 sdkwork_agent_adapter_core::define_provider_lifecycle_provider!(HermesLifecycleProvider, "hermes");
 
 pub mod sdk_integration;
-pub use sdk_integration::{hermes_binding_manifest, HermesSdkIntegration};
+pub use sdk_integration::{hermes_binding_manifest, HermesSdkIntegration, HERMES_PYTHON_PROBE_MODULE, HERMES_TUI_GATEWAY_MODULE};
 
 // ============================================================================
 // Tests
@@ -476,6 +456,7 @@ mod tests {
             output_tokens: 500,
             preview: Some("Hello world".to_string()),
             parent_session_id: None,
+            ended_at: None,
             skills: vec!["coding".to_string()],
             tools: vec!["bash".to_string(), "read".to_string()],
         }
@@ -618,6 +599,15 @@ mod tests {
     }
 
     #[test]
+    fn maps_closed_when_ended_at_present() {
+        let adapter = HermesAdapter::new();
+        let mut ext = sample_hermes_session();
+        ext.ended_at = Some("2026-01-02T00:00:00Z".to_string());
+        let session = adapter.to_agent_session(&ext).unwrap();
+        assert_eq!(session.state, SessionState::Closed);
+    }
+
+    #[test]
     fn converts_message_with_tool_calls() {
         let adapter = HermesMessageAdapter::new();
         let msg = HermesMessage {
@@ -626,7 +616,7 @@ mod tests {
             tool_calls: Some(vec![
                 HermesToolCall {
                     id: "call.1".to_string(),
-                    function_name: "bash".to_string(),
+                    function_name: "terminal".to_string(),
                     arguments: r#"{"command":"ls"}"#.to_string(),
                 },
                 HermesToolCall {
@@ -648,7 +638,7 @@ mod tests {
             sdkwork_agent_kernel::AgentPartKind::ToolCallRef
         );
         assert_eq!(result.parts[0].tool_call_id, Some("call.1".to_string()));
-        assert_eq!(result.parts[0].name, Some("bash".to_string()));
+        assert_eq!(result.parts[0].name, Some("terminal".to_string()));
         assert_eq!(result.parts[1].tool_call_id, Some("call.2".to_string()));
         assert_eq!(result.parts[1].name, Some("read_file".to_string()));
     }
@@ -703,17 +693,15 @@ mod tests {
     fn model_provider_list_models() {
         let provider = HermesModelProvider::new();
         let models = provider.list_models();
-        assert_eq!(models.len(), 3);
-        assert_eq!(models[0].model_id, "hermes-3-llama-3.1-70b");
-        assert_eq!(models[1].model_id, "hermes-3-llama-3.1-8b");
-        assert_eq!(models[2].model_id, "hermes-3-mistral-7b");
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].model_id, "hermes-runtime-default");
     }
 
     #[test]
     fn model_provider_describe_model() {
         let provider = HermesModelProvider::new();
-        let model = provider.describe_model("hermes-3-llama-3.1-70b").unwrap();
-        assert_eq!(model.display_name, "Hermes 3 Llama 3.1 70B");
+        let model = provider.describe_model("hermes-runtime-default").unwrap();
+        assert_eq!(model.display_name, "Hermes Agent Runtime (configured model)");
         assert_eq!(model.family, "hermes");
         assert!(model.supports_capability("chat"));
         assert!(model.supports_capability("tool_call"));
@@ -723,7 +711,7 @@ mod tests {
     fn model_provider_invoke_mock() {
         let provider = HermesModelProvider::new();
         let request = ModelRequest::new("req.1", vec!["What is Rust?".to_string()])
-            .with_model_id("hermes-3-llama-3.1-70b");
+            .with_model_id("hermes-runtime-default");
 
         let response = provider.invoke(request).unwrap();
         assert_eq!(response.status, ModelStatus::Succeeded);
@@ -760,9 +748,9 @@ mod tests {
         let tools = provider.list_tools();
         assert_eq!(tools.len(), 5);
 
-        let bash = tools.iter().find(|t| t.tool_id == "hermes.bash").unwrap();
-        assert_eq!(bash.display_name, "Bash");
-        assert_eq!(bash.side_effect_level, SideEffectLevel::SideEffectful);
+        let terminal = tools.iter().find(|t| t.tool_id == "hermes.terminal").unwrap();
+        assert_eq!(terminal.display_name, "Terminal");
+        assert_eq!(terminal.side_effect_level, SideEffectLevel::SideEffectful);
 
         let read = tools
             .iter()
@@ -770,17 +758,17 @@ mod tests {
             .unwrap();
         assert_eq!(read.side_effect_level, SideEffectLevel::ReadOnly);
 
-        let write = tools
+        let delegate = tools
             .iter()
-            .find(|t| t.tool_id == "hermes.write_file")
+            .find(|t| t.tool_id == "hermes.delegate_task")
             .unwrap();
-        assert_eq!(write.side_effect_level, SideEffectLevel::SideEffectful);
+        assert_eq!(delegate.side_effect_level, SideEffectLevel::SideEffectful);
     }
 
     #[test]
-    fn tool_provider_invoke_bash() {
+    fn tool_provider_invoke_terminal() {
         let provider = HermesToolProvider::new();
-        let call = ToolCall::new("call.1", "hermes.bash", r#"{"command":"ls"}"#);
+        let call = ToolCall::new("call.1", "hermes.terminal", r#"{"command":"ls"}"#);
         let result = provider.invoke_tool(call).unwrap();
         assert_eq!(result.normalized_status, ToolCallStatus::Succeeded);
         assert!(result.output.contains("Mock execution"));

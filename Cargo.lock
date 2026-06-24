@@ -2431,6 +2431,7 @@ dependencies = [
 name = "sdkwork-agent-business"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum 0.8.9",
  "sdkwork-agent-kernel",
  "sdkwork-code-kernel",
@@ -2455,8 +2456,12 @@ dependencies = [
  "futures",
  "hmac",
  "reqwest",
+ "sdkwork-agent-adapter-codex",
+ "sdkwork-agent-adapter-hermes",
+ "sdkwork-agent-adapter-openclaw",
  "sdkwork-agent-database",
  "sdkwork-agent-kernel",
+ "sdkwork-agent-sdk-spi",
  "serde",
  "serde_json",
  "sha2",
@@ -2487,10 +2492,37 @@ name = "sdkwork-agent-kernel"
 version = "0.1.0"
 
 [[package]]
+name = "sdkwork-agent-plugin-codex"
+version = "0.2.0"
+dependencies = [
+ "sdkwork-agent-adapter-codex",
+ "sdkwork-agent-kernel",
+ "sdkwork-agent-plugin-core",
+]
+
+[[package]]
 name = "sdkwork-agent-plugin-core"
 version = "0.1.0"
 dependencies = [
  "sdkwork-agent-kernel",
+]
+
+[[package]]
+name = "sdkwork-agent-plugin-hermes"
+version = "0.2.0"
+dependencies = [
+ "sdkwork-agent-adapter-hermes",
+ "sdkwork-agent-kernel",
+ "sdkwork-agent-plugin-core",
+]
+
+[[package]]
+name = "sdkwork-agent-plugin-openclaw"
+version = "0.2.0"
+dependencies = [
+ "sdkwork-agent-adapter-openclaw",
+ "sdkwork-agent-kernel",
+ "sdkwork-agent-plugin-core",
 ]
 
 [[package]]
@@ -2535,6 +2567,7 @@ name = "sdkwork-agent-sdk-backend-python"
 version = "0.1.0"
 dependencies = [
  "pretty_assertions",
+ "sdkwork-agent-adapter-core",
  "sdkwork-agent-sdk-backend-ipc",
  "sdkwork-agent-sdk-spi",
  "serde_json",
@@ -2579,7 +2612,10 @@ dependencies = [
  "sdkwork-agent-business",
  "sdkwork-agent-database",
  "sdkwork-agent-kernel",
+ "sdkwork-agent-plugin-codex",
  "sdkwork-agent-plugin-core",
+ "sdkwork-agent-plugin-hermes",
+ "sdkwork-agent-plugin-openclaw",
  "sdkwork-agent-plugin-rig",
  "sdkwork-agent-session",
  "sdkwork-agent-streaming",
@@ -2617,16 +2653,6 @@ dependencies = [
  "sdkwork-agent-kernel",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "sdkwork-appbase-iam-bootstrap"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "sdkwork-iam-context-service",
- "sdkwork-iam-module-registry",
- "sqlx",
 ]
 
 [[package]]
@@ -2678,6 +2704,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdkwork-iam-bootstrap"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "sdkwork-iam-context-service",
+ "sdkwork-iam-module-registry",
+ "sqlx",
+]
+
+[[package]]
 name = "sdkwork-iam-context-service"
 version = "0.1.0"
 dependencies = [
@@ -2710,16 +2746,18 @@ dependencies = [
  "password-hash",
  "rand_core 0.6.4",
  "reqwest",
- "sdkwork-appbase-iam-bootstrap",
  "sdkwork-database-sqlx",
+ "sdkwork-iam-bootstrap",
  "sdkwork-iam-context-service",
  "sdkwork-utils-rust",
  "sdkwork-web-axum",
  "sdkwork-web-core",
  "serde",
  "serde_json",
+ "sha1",
  "sha2",
  "sqlx",
+ "urlencoding",
  "uuid",
 ]
 

@@ -1,65 +1,21 @@
 //! Fail-closed policy for mock/stub provider responses in production profiles.
 
-use sdkwork_agent_kernel::{KernelError, KernelResult};
+use sdkwork_agent_kernel::{
+    is_production_kernel_profile_from_env, mock_provider_invocation_allowed_from_env,
+    KernelError, KernelResult,
+};
 use serde_json::Value;
 
-const PROFILE_ENV: &str = "SDKWORK_KERNEL_PROFILE_ID";
-const ALLOW_MOCK_ENV: &str = "SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS";
-const LEGACY_ALLOW_MOCK_ENV: &str = "SDKWORK_KERNEL_ALLOW_MOCK_FALLBACK";
-
-const PRODUCTION_PROFILES: &[&str] = &["prod", "production", "release"];
-
 pub fn kernel_profile_id() -> Option<String> {
-    std::env::var(PROFILE_ENV)
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .filter(|value| !value.is_empty())
+    sdkwork_agent_kernel::kernel_profile_id_from_env()
 }
 
 pub fn is_production_kernel_profile() -> bool {
-    kernel_profile_id()
-        .as_deref()
-        .is_some_and(|profile| PRODUCTION_PROFILES.contains(&profile))
+    is_production_kernel_profile_from_env()
 }
 
 pub fn mock_provider_invocation_allowed() -> bool {
-    if is_production_kernel_profile() {
-        return explicit_mock_override_enabled();
-    }
-
-    if cfg!(debug_assertions) {
-        return !explicit_mock_override_disabled();
-    }
-
-    explicit_mock_override_enabled()
-}
-
-fn explicit_mock_override_enabled() -> bool {
-    [ALLOW_MOCK_ENV, LEGACY_ALLOW_MOCK_ENV]
-        .into_iter()
-        .filter_map(|key| std::env::var(key).ok())
-        .any(|value| matches_allow_truthy(&value))
-}
-
-fn explicit_mock_override_disabled() -> bool {
-    [ALLOW_MOCK_ENV, LEGACY_ALLOW_MOCK_ENV]
-        .into_iter()
-        .filter_map(|key| std::env::var(key).ok())
-        .any(|value| matches_deny_falsy(&value))
-}
-
-fn matches_allow_truthy(value: &str) -> bool {
-    matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "1" | "true" | "yes" | "on"
-    )
-}
-
-fn matches_deny_falsy(value: &str) -> bool {
-    matches!(
-        value.trim().to_ascii_lowercase().as_str(),
-        "0" | "false" | "no" | "off"
-    )
+    mock_provider_invocation_allowed_from_env()
 }
 
 pub fn reject_direct_mock_provider_invocation(operation: &str) -> KernelResult<()> {
@@ -121,6 +77,7 @@ pub fn is_mock_response_text(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sdkwork_agent_kernel::{ALLOW_MOCK_PROVIDERS_ENV, KERNEL_ENVIRONMENT_ENV, KERNEL_PROFILE_ID_ENV};
     use std::sync::{Mutex, OnceLock};
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -156,20 +113,35 @@ mod tests {
     }
 
     #[test]
-    fn production_profile_rejects_mock_invocation() {
+    fn production_topology_profile_rejects_mock_invocation() {
         let _lock = env_lock();
-        let _profile = EnvVarGuard::set(PROFILE_ENV, Some("prod"));
-        let _allow = EnvVarGuard::set(ALLOW_MOCK_ENV, None);
+        let _profile = EnvVarGuard::set(KERNEL_PROFILE_ID_ENV, Some("cloud.split-services.production"));
+        let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, None);
+        let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);
 
         assert!(!mock_provider_invocation_allowed());
         assert!(reject_direct_mock_provider_invocation("model.invoke").is_err());
     }
 
     #[test]
+    fn production_environment_rejects_mock_invocation() {
+        let _lock = env_lock();
+        let _profile = EnvVarGuard::set(KERNEL_PROFILE_ID_ENV, None);
+        let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, Some("production"));
+        let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);
+
+        assert!(!mock_provider_invocation_allowed());
+    }
+
+    #[test]
     fn production_profile_allows_explicit_mock_override() {
         let _lock = env_lock();
-        let _profile = EnvVarGuard::set(PROFILE_ENV, Some("release"));
-        let _allow = EnvVarGuard::set(ALLOW_MOCK_ENV, Some("1"));
+        let _profile = EnvVarGuard::set(
+            KERNEL_PROFILE_ID_ENV,
+            Some("standalone.split-services.production"),
+        );
+        let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, Some("production"));
+        let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, Some("1"));
 
         assert!(mock_provider_invocation_allowed());
     }
@@ -177,8 +149,9 @@ mod tests {
     #[test]
     fn rejects_stub_runtime_payload_in_production_profile() {
         let _lock = env_lock();
-        let _profile = EnvVarGuard::set(PROFILE_ENV, Some("prod"));
-        let _allow = EnvVarGuard::set(ALLOW_MOCK_ENV, None);
+        let _profile = EnvVarGuard::set(KERNEL_PROFILE_ID_ENV, Some("cloud.split-services.production"));
+        let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, Some("production"));
+        let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);
 
         let payload = serde_json::json!({
             "mode": "stub",
@@ -190,8 +163,9 @@ mod tests {
     #[test]
     fn allows_sdk_live_runtime_payload_in_production_profile() {
         let _lock = env_lock();
-        let _profile = EnvVarGuard::set(PROFILE_ENV, Some("prod"));
-        let _allow = EnvVarGuard::set(ALLOW_MOCK_ENV, None);
+        let _profile = EnvVarGuard::set(KERNEL_PROFILE_ID_ENV, Some("cloud.split-services.production"));
+        let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, Some("production"));
+        let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);
 
         let payload = serde_json::json!({
             "mode": "sdk_live",

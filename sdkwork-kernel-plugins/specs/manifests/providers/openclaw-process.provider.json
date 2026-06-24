@@ -1,0 +1,48 @@
+{
+  "schema_version": "0.1.0",
+  "manifest_type": "provider",
+  "provider_id": "provider.model.openclaw",
+  "provider_family": "model",
+  "name": "openclaw-process",
+  "display_name": "OpenClaw Process Model Provider",
+  "version": "0.2.0",
+  "kernel_compatibility": {
+    "agent_kernel": ">=0.1.0 <0.2.0"
+  },
+  "capabilities": [
+    "model.chat"
+  ],
+  "operations": [
+    "chat",
+    "health"
+  ],
+  "security_requirements": {
+    "fail_closed": true,
+    "required_policy_categories": [
+      "model.invoke",
+      "model.send-sensitive-context",
+      "host.secrets.read",
+      "host.network.connect"
+    ],
+    "secret_handling": {
+      "raw_secrets_in_manifest": false
+    }
+  },
+  "health_model": {
+    "states": [
+      "available",
+      "degraded",
+      "unavailable"
+    ]
+  },
+  "owner": {
+    "name": "sdkwork-platform"
+  },
+  "status": "experimental",
+  "extensions": {
+    "sdkwork.external.source-path": "external/openclaw",
+    "sdkwork.external.initial-registration-mode": "process-adapter",
+    "sdkwork.external.execution-status": "implemented-openclaw-sdk-runtime-backed-provider",
+    "sdkwork.external.implementation-crate": "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-openclaw"
+  }
+}

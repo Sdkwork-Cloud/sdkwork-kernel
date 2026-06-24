@@ -1,47 +1,29 @@
 {
   "schema_version": "0.1.0",
   "manifest_type": "provider",
-  "provider_id": "provider.protocol_adapter.codex-process",
-  "provider_family": "protocol_adapter",
-  "name": "codex-process",
-  "display_name": "Codex Process Adapter",
-  "version": "0.1.0",
+  "provider_id": "provider.model.codex",
+  "provider_family": "model",
+  "name": "codex-model",
+  "display_name": "Codex Model Provider",
+  "version": "0.2.0",
   "kernel_compatibility": {
     "agent_kernel": ">=0.1.0 <0.2.0"
   },
   "capabilities": [
-    "protocol.process",
-    "code.terminal.run",
-    "code.patch.apply",
-    "code.verification.run",
-    "code.review.produce"
+    "model.chat"
   ],
   "operations": [
-    "describe",
-    "launch",
-    "stream",
-    "cancel",
+    "chat",
     "health"
   ],
-  "configuration_schema": {
-    "type": "object",
-    "additionalProperties": false,
-    "properties": {
-      "executable_ref": {
-        "type": "string"
-      },
-      "working_directory_policy": {
-        "type": "string"
-      }
-    }
-  },
   "security_requirements": {
     "fail_closed": true,
     "required_policy_categories": [
-      "host.process.execute",
-      "host.filesystem.write",
+      "model.invoke",
+      "model.send-sensitive-context",
+      "host.secrets.read",
       "host.network.connect",
-      "host.secrets.read"
+      "host.process.execute"
     ],
     "secret_handling": {
       "raw_secrets_in_manifest": false
@@ -61,7 +43,7 @@
   "extensions": {
     "sdkwork.external.source-path": "external/codex",
     "sdkwork.external.initial-registration-mode": "process-adapter",
-    "sdkwork.external.execution-status": "implemented-codex-sdk-runtime-backed-plugin",
+    "sdkwork.external.execution-status": "implemented-codex-sdk-runtime-backed-provider",
     "sdkwork.external.implementation-crate": "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex"
   }
 }

@@ -1,16 +1,18 @@
 use sdkwork_agent_adapter_core::{
-    create_session_from_config, now_iso, uuid_simple, ConversationManager,
-    InMemoryConversationManager, MessageAdapter, SessionAdapter, SessionConfig,
-    SessionLifecycleProvider,
+    create_session_from_config, reject_direct_mock_provider_invocation, uuid_simple,
+    MessageAdapter, SessionAdapter, SessionConfig,
 };
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
+    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
     ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
-    SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
-    ToolResult, ToolSchema,
+    SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
-use sdkwork_agent_adapter_core::reject_direct_mock_provider_invocation;
+
+#[cfg(test)]
+use sdkwork_agent_adapter_core::{ConversationManager, InMemoryConversationManager, SessionLifecycleProvider};
+#[cfg(test)]
+use sdkwork_agent_kernel::{ModelStatus, SessionState, ToolCallStatus};
 
 // ============================================================================
 // Codex Message Types

@@ -16,21 +16,26 @@ plugin crates map external or optional behavior into those contracts.
 
 ## Scope
 
-This phase adds:
+This package owns:
 
-- External source mapping documents.
-- Experimental Agent and Provider manifest examples.
+- External source mapping documents (`specs/mappings/`).
+- Experimental Agent and Provider manifest examples (`specs/manifests/`).
 - Conformance profile documents for manifest-only, local-runtime, and
   process-adapter plugin modes.
-- SDKWork-owned plugin crates for shared plugin contracts, Rig typed providers,
-  and the optional Drive and Knowledgebase foundation providers.
-- A lightweight structure verification script and Node test.
+- SDKWork-owned plugin crates: shared plugin contracts, Rig typed providers,
+  OpenClaw/Hermes/Codex adapter + kernel plugins, and optional Drive/Knowledgebase
+  foundation providers.
+- Structure verification (`tests/kernel_plugin_structure.test.mjs`,
+  `scripts/check-kernel-plugins.mjs`).
 
-This phase does not add:
+Runtime integration (server bootstrap, client SDK bridges, topology env) is
+documented in `docs/architecture/tech/TECH-2026-06-14-multi-mode-agent-system.md`.
 
-- Real third-party runtime execution.
-- UI implementation.
-- Direct dependencies from kernel core crates to `external/`.
+Out of scope here:
+
+- Kernel core dependencies on `external/` (forbidden).
+- Mapping-only upstreams without shipped adapters (see mapping status sections).
+- UI product surfaces (owned by `sdkwork-kernel-ui`).
 
 ## Directory Model
 
@@ -109,6 +114,9 @@ Extension points are limited to declared public exports, runtime entrypoints, SD
 - `node sdkwork-kernel-plugins/scripts/check-kernel-plugins.mjs`
 - `cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core/Cargo.toml`
 - `cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/Cargo.toml`
+- `cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-openclaw/Cargo.toml`
+- `cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-hermes/Cargo.toml`
+- `cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex/Cargo.toml`
 - `cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive/Cargo.toml`
 - `cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml`
 
@@ -118,6 +126,12 @@ Extension points are limited to declared public exports, runtime entrypoints, SD
 - Package root: `sdkwork-kernel-plugins`.
 - Implemented crates: `sdkwork-agent-plugin-core`,
   `sdkwork-agent-plugin-rig`,
+  `sdkwork-agent-plugin-openclaw`,
+  `sdkwork-agent-plugin-hermes`,
+  `sdkwork-agent-plugin-codex`,
+  `sdkwork-agent-adapter-openclaw`,
+  `sdkwork-agent-adapter-hermes`,
+  `sdkwork-agent-adapter-codex`,
   `sdkwork-kernel-plugin-drive`, and
   `sdkwork-kernel-plugin-knowledgebase`.
 

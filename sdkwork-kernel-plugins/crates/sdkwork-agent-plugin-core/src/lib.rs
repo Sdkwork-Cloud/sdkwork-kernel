@@ -357,6 +357,11 @@ pub trait SdkworkKernelFoundationPlugin {
     fn conformance_profile(&self) -> KernelPluginConformanceProfile;
 }
 
+mod policy;
+mod process_adapter;
+pub use policy::SdkStandardPolicyProvider;
+pub use process_adapter::{ProcessAdapterConfigurationProvider, ProcessAdapterInstaller};
+
 fn validate_standard_id(
     value: &str,
     field_name: &str,

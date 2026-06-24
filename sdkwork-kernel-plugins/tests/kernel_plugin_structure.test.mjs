@@ -39,6 +39,7 @@ const requiredFiles = [
   'specs/manifests/agents/external-code-agent-runtime.agent.json',
   'specs/manifests/agents/external-general-agent-runtime.agent.json',
   'specs/manifests/providers/codex-process.provider.json',
+  'specs/manifests/providers/codex-model.provider.json',
   'specs/manifests/providers/rig-rust.provider.json',
   'specs/manifests/protocol-adapters/agent-chat-rpc.protocol-adapter.json',
   'specs/manifests/protocol-adapters/external-process.protocol-adapter.json',
@@ -50,6 +51,18 @@ const requiredFiles = [
   'crates/sdkwork-agent-plugin-rig/README.md',
   'crates/sdkwork-agent-plugin-rig/specs/component.spec.json',
   'crates/sdkwork-agent-plugin-rig/src/lib.rs',
+  'crates/sdkwork-agent-plugin-openclaw/Cargo.toml',
+  'crates/sdkwork-agent-plugin-openclaw/README.md',
+  'crates/sdkwork-agent-plugin-openclaw/specs/component.spec.json',
+  'crates/sdkwork-agent-plugin-openclaw/src/lib.rs',
+  'crates/sdkwork-agent-plugin-hermes/Cargo.toml',
+  'crates/sdkwork-agent-plugin-hermes/README.md',
+  'crates/sdkwork-agent-plugin-hermes/specs/component.spec.json',
+  'crates/sdkwork-agent-plugin-hermes/src/lib.rs',
+  'crates/sdkwork-agent-plugin-codex/Cargo.toml',
+  'crates/sdkwork-agent-plugin-codex/README.md',
+  'crates/sdkwork-agent-plugin-codex/specs/component.spec.json',
+  'crates/sdkwork-agent-plugin-codex/src/lib.rs',
   'crates/sdkwork-kernel-plugin-drive/Cargo.toml',
   'crates/sdkwork-kernel-plugin-drive/README.md',
   'crates/sdkwork-kernel-plugin-drive/specs/component.spec.json',
@@ -58,7 +71,8 @@ const requiredFiles = [
   'crates/sdkwork-kernel-plugin-knowledgebase/README.md',
   'crates/sdkwork-kernel-plugin-knowledgebase/specs/component.spec.json',
   'crates/sdkwork-kernel-plugin-knowledgebase/src/lib.rs',
-  'scripts/check-kernel-plugins.mjs'
+  'scripts/check-kernel-plugins.mjs',
+  'specs/mappings/zeroclaw.md'
 ];
 
 for (const adapterCrate of adapterCrates) {
@@ -183,10 +197,26 @@ test('mapping docs declare SDKWork surface and current plugin mode', () => {
   }
 });
 
+test('deferred mapping docs declare SDKWork surface and policy boundaries', () => {
+  const deferredMappings = ['zeroclaw'];
+  for (const upstream of deferredMappings) {
+    const mapping = fs.readFileSync(
+      path.join(pluginRoot, 'specs', 'mappings', `${upstream}.md`),
+      'utf8'
+    );
+    assert.match(mapping, /SDKWork Surface/);
+    assert.match(mapping, /Initial Registration Mode/);
+    assert.match(mapping, /Policy Boundaries/);
+    assert.match(mapping, /Conformance/);
+  }
+});
+
 test('plugin crates do not require external reference sources for default Cargo metadata', () => {
   const crateManifests = [
     'crates/sdkwork-agent-plugin-core/Cargo.toml',
     'crates/sdkwork-agent-plugin-rig/Cargo.toml',
+    'crates/sdkwork-agent-plugin-openclaw/Cargo.toml',
+    'crates/sdkwork-agent-plugin-hermes/Cargo.toml',
     'crates/sdkwork-kernel-plugin-drive/Cargo.toml',
     'crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml',
     ...adapterCrates.map((crateName) => `crates/${crateName}/Cargo.toml`)

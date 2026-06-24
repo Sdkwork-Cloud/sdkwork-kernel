@@ -57,6 +57,6 @@
   "status": "experimental",
   "extensions": {
     "sdkwork.external.initial-registration-mode": "process-adapter",
-    "sdkwork.external.execution-status": "not-implemented"
+    "sdkwork.external.execution-status": "deferred-generic-process-adapter-manifest-only"
   }
 }

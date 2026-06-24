@@ -4,10 +4,12 @@
 
 - Local path: `external/codex`
 - Upstream: `https://github.com/openai/codex.git`
+- npm package: `@openai/codex-sdk`
+- Rust crate: `codex-core` (in-process handler path)
 
 ## SDKWork Surface
 
-Codex maps first to the Code Kernel surface:
+Codex maps primarily to the Code Kernel surface:
 
 - `CodeSession`
 - `CodeTask`
@@ -19,13 +21,17 @@ Codex maps first to the Code Kernel surface:
 - `ArtifactProvider`
 - `CodeSafetyProvider`
 
+The intelligence client bridge and agent-server bootstrap also expose negotiated SDK
+model/tool providers for chat-oriented local sessions.
+
 ## Initial Registration Mode
 
 `process-adapter`
 
-The first executable plugin should wrap the CLI or runtime process through
-SDKWork host/process boundaries. Direct typed provider registration should wait
-until stable upstream library boundaries are identified.
+`sdkwork-agent-adapter-codex` provides session/message adapters, SDK binding manifest
+negotiation, TypeScript Node + in-process Rust runtime routing, and runtime-backed kernel
+providers. `sdkwork-agent-plugin-codex` registers typed model/tool/policy providers through
+`sdkwork-agent-server` `runtime_bootstrap` when `SDKWORK_KERNEL_AGENT_PLUGIN=codex`.
 
 ## Capability Mapping
 
@@ -37,6 +43,7 @@ until stable upstream library boundaries are identified.
 | Build and test loops | `code.verification.run` |
 | Review output | `code.review.produce` |
 | Logs and reports | `code.artifact.*` |
+| Agent chat / SDK surface | `sdk.model.chat`, `sdk.tool.invoke`, `sdk.session.lifecycle` |
 
 ## Policy Boundaries
 
@@ -58,10 +65,16 @@ Missing CLI maps to `provider_unavailable`; unsupported command modes map to
 
 ## Conformance
 
-Initial target: process-adapter profile. Local-runtime profile requires typed
-Code Kernel providers and is out of scope for the first phase.
+Target: manifest profile, adapter crate contract tests, kernel plugin crate registration,
+and client bridge SDK routing through `SDKWORK_KERNEL_AGENT_PLUGIN`.
 
 ## Status
 
-Reference source is declared at `external/codex` but is not required for default
-SDKWork checks. SDKWork adapter code is not implemented.
+- Adapter crate: `sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-codex`
+- Kernel plugin crate: `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex`
+- SDK binding: `sdks/external-agent-sdks/codex/sdk-binding.manifest.json`
+- Client bridge plugin: `sdkwork-agent-client` `builtin.codex` routes local chat through `CodexSdkIntegration` model provider (`SdkModelBridgeRuntime`); remote mode uses internal-api `SseChatClient`
+- Server bootstrap: `SDKWORK_KERNEL_AGENT_PLUGIN=codex`
+- Runtime worker: `@openai/codex-sdk` via `NodeSdkBackendRuntime` + in-process Rust handler
+- SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`, optional `sdk.tool.invoke`
+- Production safety: SDK backends fail closed when workers cannot spawn unless `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1`

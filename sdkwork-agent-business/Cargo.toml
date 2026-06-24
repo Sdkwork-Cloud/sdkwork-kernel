@@ -28,6 +28,9 @@ tokio = { version = "1.0", optional = true, features = ["rt-multi-thread", "macr
 tower = { version = "0.5", optional = true, features = ["util"] }
 time = { version = "0.3", features = ["parsing"] }
 
+[dev-dependencies]
+async-trait = "0.1"
+
 [[test]]
 name = "agent_postgres_sync_contracts"
 path = "tests/agent_postgres_sync_contracts.rs"

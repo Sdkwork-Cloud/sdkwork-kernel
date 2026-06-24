@@ -45,7 +45,7 @@ It follows:
 | `a_agent_deployment` | `tenant_entity` | L2 | Deployable agent instance records with provider and configuration snapshots. |
 | `*(migrated to sdkwork-skills `ai_agent_skill_package`)*` | `tenant_entity` | L2 | Installable agent skill marketplace packages, schemas, capability metadata, and security profile references. |
 | `a_agent_mcp_server` | `tenant_entity` | L2 | MCP marketplace entries with protocol, transport, auth, safe endpoint/command references, and advertised capabilities. |
-| `a_agent_prompt_template` | `tenant_entity` | L2 | Prompt/template marketplace entries with kind, rendering format, variables schema, model constraints, and safety profile references. |
+| `*(migrated to sdkwork-prompts `ai_agent_prompt_template`)*` | `tenant_entity` | L2 | Agent prompt template marketplace entries; owned by sdkwork-prompts intelligence prompts capability. |
 | `a_agent_knowledge_base` | `tenant_entity` | L2 | Knowledge-base registry with provider, base kind, provider-neutral retrieval modes, capabilities, and configuration profile reference. |
 | `a_agent_knowledge_source` | `tenant_entity` | L2 | Safe source references for wiki, upload, web, database, API, filesystem, manual, and external knowledge ingestion. |
 | `a_agent_knowledge_document` | `tenant_entity` | L2 | Governed knowledge documents with provenance, content reference, trust, redaction classification, tags, categories, and chunk count. |
@@ -363,69 +363,12 @@ Rules:
 - OAuth, API key, and host-secret material must be represented by profile/ref
   ids, never stored in this table.
 
-### 3.6 `a_agent_prompt_template`
+### 3.6 Agent Prompt Templates (migrated)
 
-Prompt marketplace entry table for reusable prompt templates, system/developer
-messages, workflow prompts, tool prompts, and MCP prompt entries.
-
-| Column | Type | Null | Description |
-| --- | --- | --- | --- |
-| `id` | `BIGINT` | N | Internal row id. |
-| `uuid` | `VARCHAR(96)` | N | External stable row id. |
-| `tenant_id` | `BIGINT` | N | Tenant isolation key. |
-| `organization_id` | `BIGINT` | N | Organization isolation key, `0` for tenant-level. |
-| `owner_user_id` | `BIGINT` | N | Owner user identity id. |
-| `prompt_id` | `VARCHAR(128)` | N | Stable prompt id, must start with `prompt.`. |
-| `code` | `VARCHAR(128)` | N | Human-readable stable code within tenant scope. |
-| `display_name` | `VARCHAR(255)` | N | Display name. |
-| `description` | `TEXT` | Y | Optional business description. |
-| `prompt_kind` | `VARCHAR(32)` | N | Prompt kind: `system`, `developer`, `user`, `workflow`, `tool`, or `mcp-prompt`. |
-| `template_format` | `VARCHAR(32)` | N | Template format: `plain-text`, `handlebars`, `liquid`, `jinja`, or `json-schema`. |
-| `template_body` | `TEXT` | N | Template content. Secret values are forbidden. |
-| `variables_schema_json` | `TEXT` | N | JSON schema describing template variables. |
-| `model_constraints_json` | `TEXT` | N | JSON object describing model/provider constraints. |
-| `capability_ids_json` | `TEXT` | N | JSON array of capability ids required or provided by this template. |
-| `categories_json` | `TEXT` | N | JSON array of lowercase category slugs. |
-| `tags_json` | `TEXT` | N | JSON array of lowercase tag slugs. |
-| `safety_profile_id` | `VARCHAR(128)` | Y | Safe safety profile reference. |
-| `status` | `SMALLINT` | N | Lifecycle status enum (`0 draft`, `1 active`, `2 disabled`, `3 archived`, `4 deleted`). |
-| `visibility` | `SMALLINT` | N | Visibility enum (`0 private`, `1 organization`, `2 tenant`, `3 public`). |
-| `version` | `BIGINT` | N | Optimistic concurrency version. |
-| `created_at` | `TIMESTAMP` | N | Creation timestamp (UTC). |
-| `updated_at` | `TIMESTAMP` | N | Last update timestamp (UTC). |
-| `deleted_at` | `TIMESTAMP` | Y | Soft-delete timestamp (UTC). |
-
-Constraints:
-
-- PK: `id`
-- Unique: `uuid`
-- Unique: `(tenant_id, prompt_id)`
-- Unique: `(tenant_id, code)`
-- Check: `prompt_id` matches `^prompt\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$`
-- Check: `prompt_kind in ('system','developer','user','workflow','tool','mcp-prompt')`
-- Check: `template_format in ('plain-text','handlebars','liquid','jinja','json-schema')`
-- Check: `safety_profile_id is null or matches ^profile\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$`
-- Check: `capability_ids_json` is a JSON array of unique namespaced capability ids.
-- Check: `variables_schema_json` and `model_constraints_json` are valid JSON.
-- Check: `status in (0,1,2,3,4)`
-- Check: `visibility in (0,1,2,3)`
-
-Indexes:
-
-- `idx_a_agent_prompt_template_tenant_org_status_updated` on
-  `(tenant_id, organization_id, status, updated_at desc, code asc)`
-- `idx_a_agent_prompt_template_tenant_visibility_status` on
-  `(tenant_id, visibility, status)`
-
-Rules:
-
-- CRUD operations are `create_prompt_template`, `update_prompt_template`,
-  `get_prompt_template`, `list_prompt_templates`, `delete_prompt_template`,
-  and `restore_prompt_template`.
-- Prompt templates store reusable authored content and schema constraints.
-  Rendering/execution policy remains in the caller or kernel runtime.
-- `template_body`, schemas, and model constraints must not include plaintext
-  secrets.
+`a_agent_prompt_template` was removed from agent-business persistence. Prompt templates
+are owned by **sdkwork-prompts** as `ai_agent_prompt_template`. Kernel consumers must
+use `sdkwork-intelligence-prompts-ai-contract::PromptAiRepository` and backend routes
+under `/backend/v3/api/prompts/...` in sdkwork-prompts.
 
 ### 3.7 Agent Knowledge Tables
 

@@ -369,7 +369,7 @@ CREATE INDEX IF NOT EXISTS idx_a_agent_mcp_server_tenant_org_status_updated
 CREATE INDEX IF NOT EXISTS idx_a_agent_mcp_server_tenant_transport_auth
     ON a_agent_mcp_server (tenant_id, transport_kind, auth_kind);
 
--- Prompt templates: owned by sdkwork-prompts (ai_agent_prompt_template).
+-- Prompt templates: owned by sdkwork-prompts (see specs/prompts-ai-database.schema.yaml).
 
 CREATE TABLE IF NOT EXISTS a_agent_knowledge_base (
     id BIGINT NOT NULL PRIMARY KEY,

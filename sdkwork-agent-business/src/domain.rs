@@ -122,10 +122,6 @@ pub enum AgentAuditAction {
     McpServerUpdated,
     McpServerDeleted,
     McpServerRestored,
-    PromptTemplateCreated,
-    PromptTemplateUpdated,
-    PromptTemplateDeleted,
-    PromptTemplateRestored,
     MemoryStoreCreated,
     MemoryStoreUpdated,
     MemoryStoreDeleted,
@@ -193,10 +189,6 @@ impl AgentAuditAction {
             Self::McpServerUpdated => "agent.business.mcp.updated",
             Self::McpServerDeleted => "agent.business.mcp.deleted",
             Self::McpServerRestored => "agent.business.mcp.restored",
-            Self::PromptTemplateCreated => "agent.business.prompt.created",
-            Self::PromptTemplateUpdated => "agent.business.prompt.updated",
-            Self::PromptTemplateDeleted => "agent.business.prompt.deleted",
-            Self::PromptTemplateRestored => "agent.business.prompt.restored",
             Self::MemoryStoreCreated => "agent.business.memory.store.created",
             Self::MemoryStoreUpdated => "agent.business.memory.store.updated",
             Self::MemoryStoreDeleted => "agent.business.memory.store.deleted",
@@ -264,10 +256,6 @@ impl AgentAuditAction {
             Self::McpServerUpdated => "mcp_updated",
             Self::McpServerDeleted => "mcp_deleted",
             Self::McpServerRestored => "mcp_restored",
-            Self::PromptTemplateCreated => "prompt_created",
-            Self::PromptTemplateUpdated => "prompt_updated",
-            Self::PromptTemplateDeleted => "prompt_deleted",
-            Self::PromptTemplateRestored => "prompt_restored",
             Self::MemoryStoreCreated => "memory_store_created",
             Self::MemoryStoreUpdated => "memory_store_updated",
             Self::MemoryStoreDeleted => "memory_store_deleted",
@@ -592,73 +580,6 @@ impl AgentMcpAuthKind {
             "oauth2" => Some(Self::OAuth2),
             "api-key-ref" => Some(Self::ApiKeyRef),
             "host-secret-ref" => Some(Self::HostSecretRef),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentPromptTemplateKind {
-    System,
-    Developer,
-    User,
-    Workflow,
-    Tool,
-    McpPrompt,
-}
-
-impl AgentPromptTemplateKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::System => "system",
-            Self::Developer => "developer",
-            Self::User => "user",
-            Self::Workflow => "workflow",
-            Self::Tool => "tool",
-            Self::McpPrompt => "mcp-prompt",
-        }
-    }
-
-    pub(crate) fn from_code(value: &str) -> Option<Self> {
-        match value {
-            "system" => Some(Self::System),
-            "developer" => Some(Self::Developer),
-            "user" => Some(Self::User),
-            "workflow" => Some(Self::Workflow),
-            "tool" => Some(Self::Tool),
-            "mcp-prompt" => Some(Self::McpPrompt),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentPromptTemplateFormat {
-    PlainText,
-    Handlebars,
-    Liquid,
-    Jinja,
-    JsonSchema,
-}
-
-impl AgentPromptTemplateFormat {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::PlainText => "plain-text",
-            Self::Handlebars => "handlebars",
-            Self::Liquid => "liquid",
-            Self::Jinja => "jinja",
-            Self::JsonSchema => "json-schema",
-        }
-    }
-
-    pub(crate) fn from_code(value: &str) -> Option<Self> {
-        match value {
-            "plain-text" => Some(Self::PlainText),
-            "handlebars" => Some(Self::Handlebars),
-            "liquid" => Some(Self::Liquid),
-            "jinja" => Some(Self::Jinja),
-            "json-schema" => Some(Self::JsonSchema),
             _ => None,
         }
     }
@@ -1237,8 +1158,6 @@ impl_domain_from_str!(AgentVisibility);
 impl_domain_from_str!(AgentImplementationKind);
 impl_domain_from_str!(AgentMcpTransportKind);
 impl_domain_from_str!(AgentMcpAuthKind);
-impl_domain_from_str!(AgentPromptTemplateKind);
-impl_domain_from_str!(AgentPromptTemplateFormat);
 impl_domain_from_str!(AgentMemoryStoreKind);
 impl_domain_from_str!(AgentMemoryIndexKind);
 impl_domain_from_str!(AgentMemoryBindingScopeKind);
@@ -1259,8 +1178,6 @@ impl_domain_from_str_compat!(AgentVisibility);
 impl_domain_from_str_compat!(AgentImplementationKind);
 impl_domain_from_str_compat!(AgentMcpTransportKind);
 impl_domain_from_str_compat!(AgentMcpAuthKind);
-impl_domain_from_str_compat!(AgentPromptTemplateKind);
-impl_domain_from_str_compat!(AgentPromptTemplateFormat);
 impl_domain_from_str_compat!(AgentMemoryStoreKind);
 impl_domain_from_str_compat!(AgentMemoryIndexKind);
 impl_domain_from_str_compat!(AgentMemoryBindingScopeKind);
@@ -1299,33 +1216,6 @@ pub struct AgentMcpServerRecord {
     pub categories: Vec<String>,
     pub tags: Vec<String>,
     pub security_profile_id: Option<String>,
-    pub status: AgentBusinessStatus,
-    pub visibility: AgentVisibility,
-    pub version: u64,
-    pub created_at: String,
-    pub updated_at: String,
-    pub deleted_at: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentPromptTemplateRecord {
-    pub id: u64,
-    pub tenant_id: u64,
-    pub organization_id: u64,
-    pub owner_user_id: u64,
-    pub prompt_id: String,
-    pub code: String,
-    pub display_name: String,
-    pub description: Option<String>,
-    pub prompt_kind: AgentPromptTemplateKind,
-    pub template_format: AgentPromptTemplateFormat,
-    pub template_body: String,
-    pub variables_schema_json: String,
-    pub model_constraints_json: String,
-    pub capability_ids: Vec<String>,
-    pub categories: Vec<String>,
-    pub tags: Vec<String>,
-    pub safety_profile_id: Option<String>,
     pub status: AgentBusinessStatus,
     pub visibility: AgentVisibility,
     pub version: u64,
@@ -1683,32 +1573,6 @@ impl AgentBusinessRecord {
 }
 
 impl AgentMcpServerRecord {
-    pub fn is_deleted(&self) -> bool {
-        self.status == AgentBusinessStatus::Deleted || self.deleted_at.is_some()
-    }
-
-    pub fn mark_updated(&mut self, updated_at: impl Into<String>) {
-        self.updated_at = updated_at.into();
-        self.version = self.version.saturating_add(1);
-    }
-
-    pub fn mark_deleted(&mut self, deleted_at: impl Into<String>) {
-        let deleted_at = deleted_at.into();
-        self.status = AgentBusinessStatus::Deleted;
-        self.deleted_at = Some(deleted_at.clone());
-        self.updated_at = deleted_at;
-        self.version = self.version.saturating_add(1);
-    }
-
-    pub fn mark_restored(&mut self, restored_at: impl Into<String>) {
-        self.status = AgentBusinessStatus::Active;
-        self.deleted_at = None;
-        self.updated_at = restored_at.into();
-        self.version = self.version.saturating_add(1);
-    }
-}
-
-impl AgentPromptTemplateRecord {
     pub fn is_deleted(&self) -> bool {
         self.status == AgentBusinessStatus::Deleted || self.deleted_at.is_some()
     }

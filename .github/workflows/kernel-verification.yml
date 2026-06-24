@@ -144,6 +144,34 @@ jobs:
           path: .workspace-deps/sdkwork-utils
           ref: main
 
+      - name: Checkout sdkwork-web-framework sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-web-framework
+          path: .workspace-deps/sdkwork-web-framework
+          ref: main
+
+      - name: Checkout sdkwork-drive sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-drive
+          path: .workspace-deps/sdkwork-drive
+          ref: main
+
+      - name: Checkout sdkwork-knowledgebase sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-knowledgebase
+          path: .workspace-deps/sdkwork-knowledgebase
+          ref: main
+
+      - name: Checkout sdkwork-iam sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-iam
+          path: .workspace-deps/sdkwork-iam
+          ref: main
+
       - name: Checkout sdkwork-id sibling
         uses: actions/checkout@v4
         with:
@@ -161,10 +189,18 @@ jobs:
       - name: Link platform siblings for path dependencies
         run: |
           mkdir -p ..
-          ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/sdkwork-database" ../sdkwork-database
-          ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/sdkwork-utils" ../sdkwork-utils
-          ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/sdkwork-id" ../sdkwork-id
-          ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/sdkwork-prompts" ../sdkwork-prompts
+          for repo in \
+            sdkwork-database \
+            sdkwork-utils \
+            sdkwork-web-framework \
+            sdkwork-drive \
+            sdkwork-knowledgebase \
+            sdkwork-iam \
+            sdkwork-id \
+            sdkwork-prompts
+          do
+            ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/$repo" "../$repo"
+          done
 
       - uses: dtolnay/rust-toolchain@stable
 

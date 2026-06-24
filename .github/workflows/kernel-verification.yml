@@ -61,6 +61,20 @@ jobs:
           path: .workspace-deps/sdkwork-iam
           ref: main
 
+      - name: Checkout sdkwork-id sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-id
+          path: .workspace-deps/sdkwork-id
+          ref: main
+
+      - name: Checkout sdkwork-prompts sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-prompts
+          path: .workspace-deps/sdkwork-prompts
+          ref: main
+
       - name: Link platform siblings for path dependencies
         run: |
           mkdir -p ..
@@ -71,7 +85,9 @@ jobs:
             sdkwork-web-framework \
             sdkwork-drive \
             sdkwork-knowledgebase \
-            sdkwork-iam
+            sdkwork-iam \
+            sdkwork-id \
+            sdkwork-prompts
           do
             ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/$repo" "../$repo"
           done

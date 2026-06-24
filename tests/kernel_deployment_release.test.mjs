@@ -124,6 +124,8 @@ test('kernel verification workflow checks out platform sibling repositories', ()
     'sdkwork-utils',
     'sdkwork-web-framework',
     'sdkwork-iam',
+    'sdkwork-id',
+    'sdkwork-prompts',
   ]) {
     assert.match(
       workflow,

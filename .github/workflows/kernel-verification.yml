@@ -75,6 +75,20 @@ jobs:
           path: .workspace-deps/sdkwork-prompts
           ref: main
 
+      - name: Checkout sdkwork-specs sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-specs
+          path: .workspace-deps/sdkwork-specs
+          ref: main
+
+      - name: Checkout sdkwork-birdcoder sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-birdcoder
+          path: .workspace-deps/sdkwork-birdcoder
+          ref: main
+
       - name: Link platform siblings for path dependencies
         run: |
           mkdir -p ..
@@ -87,7 +101,9 @@ jobs:
             sdkwork-knowledgebase \
             sdkwork-iam \
             sdkwork-id \
-            sdkwork-prompts
+            sdkwork-prompts \
+            sdkwork-specs \
+            sdkwork-birdcoder
           do
             ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/$repo" "../$repo"
           done

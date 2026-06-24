@@ -289,6 +289,10 @@ test('agent-server HTTP surface spec documents kernel ingress security and readi
   assert.match(contracts, /internal_runtime_session_create_and_read_roundtrip/);
   assert.match(contracts, /internal_runtime_session_roundtrip_uses_items_list_envelope/);
   assert.match(contracts, /api::internal_runtime::InternalRuntimeApiState/);
+  assert.match(
+    contracts,
+    /internal_runtime_model_invoke_rejects_exhausted_tenant_token_quota/
+  );
 });
 
 test('kernel UI session config uses string tenantId aligned with server metadata', () => {

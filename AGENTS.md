@@ -34,6 +34,12 @@ Do not copy root standard text into this repository. If these relative paths do 
 - `sdks/`: SDK families, OpenAPI authorities, route manifests, and generated SDK artifacts.
 - Local directories to inspect first when relevant: `docs/`, `external/`, `scripts/`, `sdks/`, `sdkwork-agent-business/`, `sdkwork-kernel-plugins/`, `sdkwork-agent-kernel/`, `sdkwork-code-kernel/`, `sdkwork-kernel-ui/`, `specs/`.
 
+## Documentation Canon
+
+- [docs/README.md](docs/README.md)
+- [docs/product/prd/PRD.md](docs/product/prd/PRD.md)
+- [docs/architecture/tech/TECH_ARCHITECTURE.md](docs/architecture/tech/TECH_ARCHITECTURE.md)
+
 ## Spec Resolution Order
 
 1. Read this `AGENTS.md` and any nearer component-level `AGENTS.md`.

@@ -25,6 +25,8 @@
     "test:topology": "node --test --experimental-test-isolation=none tests/kernel_topology_alignment.test.mjs",
     "test:topology-baggage": "node --test --experimental-test-isolation=none scripts/dev/sdkwork-kernel-topology-baggage.test.mjs",
     "test:topology-smoke": "node scripts/dev/sdkwork-kernel-topology-smoke.mjs",
-    "test:utils-standard": "node scripts/dev/sdkwork-kernel-utils-standard.test.mjs"
+    "test:utils-standard": "node scripts/dev/sdkwork-kernel-utils-standard.test.mjs",
+    "gateway:package:cloud": "node ../sdkwork-app-topology/scripts/gateway-cloud-bundle.mjs bundle --root .",
+    "gateway:validate:cloud": "node ../sdkwork-app-topology/scripts/gateway-cloud-bundle.mjs validate --root ."
   }
 }

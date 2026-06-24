@@ -12,6 +12,9 @@ mod ports;
 mod postgres_sync_pool;
 mod validation;
 
+pub use sdkwork_intelligence_prompts_ai_contract::{
+    AgentPromptTemplateKind, AgentPromptTemplateRecord, PromptAiRepository,
+};
 pub use api::{
     ApiOperation, AGENT_APP_API_OPERATIONS, AGENT_APP_API_PREFIX, AGENT_BACKEND_API_OPERATIONS,
     AGENT_BACKEND_API_PREFIX, AGENT_OPEN_API_OPERATIONS, AGENT_OPEN_API_PREFIX,
@@ -30,9 +33,8 @@ pub use application::{
     AgentMemoryProfileCreateCommand, AgentMemoryRecordCreateCommand,
     AgentMemoryRelationCreateCommand, AgentMemoryRetrievalIndexUpsertCommand,
     AgentMemorySourceCreateCommand, AgentMemoryStoreCreateCommand, AgentMemoryStoreUpdateCommand,
-    AgentPreviewResponseCommand, AgentPromptOptimizationCommand, AgentPromptTemplateCreateCommand,
-    AgentPromptTemplateUpdateCommand, AgentProviderBindingCommand, AgentProviderDeploymentCommand,
-    AgentSkillPackageCreateCommand, AgentSkillPackageUpdateCommand, ChangeAgentStatusCommand,
+    AgentPreviewResponseCommand, AgentPromptOptimizationCommand, AgentProviderBindingCommand, AgentProviderDeploymentCommand,
+ChangeAgentStatusCommand,
     CreateAgentCommand, DeleteAgentCommand, DeleteAgentMarketplaceItemCommand, GetAgentCommand,
     GetAgentMarketplaceItemCommand, ListAgentsCommand, RestoreAgentCommand,
     RestoreAgentMarketplaceItemCommand, UpdateAgentCommand,
@@ -50,9 +52,8 @@ pub use domain::{
     AgentMemoryNamespaceRecord, AgentMemoryProfileRecord, AgentMemoryRecord, AgentMemoryRecordKind,
     AgentMemoryRelationKind, AgentMemoryRelationRecord, AgentMemoryRetrievalIndexRecord,
     AgentMemorySourceKind, AgentMemorySourceRecord, AgentMemoryStoreKind, AgentMemoryStoreRecord,
-    AgentPromptTemplateFormat, AgentPromptTemplateKind, AgentPromptTemplateRecord,
     AgentProviderBindingRecord, AgentRuntimeExecutionOperation, AgentRuntimeExecutionRecord,
-    AgentRuntimeExecutionStatus, AgentSkillInvocationKind, AgentSkillPackageRecord,
+    AgentRuntimeExecutionStatus,
     AgentVisibility, DEFAULT_AGENT_MANAGEMENT_POLICY_CATEGORY,
 };
 pub use dto::{
@@ -100,7 +101,7 @@ pub use persistence::{
     AgentKnowledgeIndexRow, AgentKnowledgeSourceRow, AgentKnowledgeSyncJobRow, AgentMcpServerRow,
     AgentMemoryBindingRow, AgentMemoryNamespaceRow, AgentMemoryProfileRow, AgentMemoryRecordRow,
     AgentMemoryRelationRow, AgentMemoryRetrievalIndexRow, AgentMemorySourceRow,
-    AgentMemoryStoreRow, AgentPromptTemplateRow, AgentProviderBindingRow, AgentSkillPackageRow,
+    AgentMemoryStoreRow, AgentProviderBindingRow,
     PostgresAgentAuditSink, PostgresAgentRepository, PostgresAgentRepositoryAdapter,
     SQL_INCREMENT_AGENT_KNOWLEDGE_DOCUMENT_CHUNK_COUNT,
     SQL_INCREMENT_AGENT_MEMORY_RECORD_SOURCE_COUNT, SQL_INSERT_AGENT_BUSINESS,
@@ -111,16 +112,15 @@ pub use persistence::{
     SQL_INSERT_AGENT_MEMORY_BINDING, SQL_INSERT_AGENT_MEMORY_NAMESPACE,
     SQL_INSERT_AGENT_MEMORY_PROFILE, SQL_INSERT_AGENT_MEMORY_RECORD,
     SQL_INSERT_AGENT_MEMORY_RELATION, SQL_INSERT_AGENT_MEMORY_SOURCE,
-    SQL_INSERT_AGENT_MEMORY_STORE, SQL_INSERT_AGENT_PROMPT_TEMPLATE,
-    SQL_INSERT_AGENT_PROVIDER_BINDING, SQL_INSERT_AGENT_SKILL_PACKAGE, SQL_INSERT_AUDIT_EVENT,
+    SQL_INSERT_AGENT_MEMORY_STORE, SQL_INSERT_AGENT_PROVIDER_BINDING, SQL_INSERT_AUDIT_EVENT,
     SQL_LIST_AGENT_BUSINESS, SQL_LIST_AGENT_DEPLOYMENTS, SQL_LIST_AGENT_KNOWLEDGE_BASES,
     SQL_LIST_AGENT_KNOWLEDGE_BINDINGS, SQL_LIST_AGENT_KNOWLEDGE_CHUNKS,
     SQL_LIST_AGENT_KNOWLEDGE_DOCUMENTS, SQL_LIST_AGENT_KNOWLEDGE_INDEXES,
     SQL_LIST_AGENT_KNOWLEDGE_INDEXES_BY_BASE, SQL_LIST_AGENT_KNOWLEDGE_SOURCES,
     SQL_LIST_AGENT_KNOWLEDGE_SYNC_JOBS, SQL_LIST_AGENT_MCP_SERVERS, SQL_LIST_AGENT_MEMORY_RECORDS,
     SQL_LIST_AGENT_MEMORY_RELATIONS, SQL_LIST_AGENT_MEMORY_RETRIEVAL_INDEXES,
-    SQL_LIST_AGENT_MEMORY_SOURCES, SQL_LIST_AGENT_MEMORY_STORES, SQL_LIST_AGENT_PROMPT_TEMPLATES,
-    SQL_LIST_AGENT_PROVIDER_BINDINGS, SQL_LIST_AGENT_SKILL_PACKAGES,
+    SQL_LIST_AGENT_MEMORY_SOURCES, SQL_LIST_AGENT_MEMORY_STORES,
+    SQL_LIST_AGENT_PROVIDER_BINDINGS,
     SQL_SELECT_AGENT_BY_TENANT_AND_AGENT_ID, SQL_SELECT_AGENT_KNOWLEDGE_BASE,
     SQL_SELECT_AGENT_KNOWLEDGE_BINDING, SQL_SELECT_AGENT_KNOWLEDGE_CHUNK,
     SQL_SELECT_AGENT_KNOWLEDGE_DOCUMENT, SQL_SELECT_AGENT_KNOWLEDGE_INDEX,
@@ -129,15 +129,14 @@ pub use persistence::{
     SQL_SELECT_AGENT_MEMORY_NAMESPACE, SQL_SELECT_AGENT_MEMORY_PROFILE,
     SQL_SELECT_AGENT_MEMORY_RECORD, SQL_SELECT_AGENT_MEMORY_RELATION,
     SQL_SELECT_AGENT_MEMORY_RETRIEVAL_INDEX, SQL_SELECT_AGENT_MEMORY_SOURCE,
-    SQL_SELECT_AGENT_MEMORY_STORE, SQL_SELECT_AGENT_PROMPT_TEMPLATE,
-    SQL_SELECT_AGENT_PROVIDER_BINDING, SQL_SELECT_AGENT_SKILL_PACKAGE, SQL_UPDATE_AGENT_BUSINESS,
+    SQL_SELECT_AGENT_MEMORY_STORE, SQL_SELECT_AGENT_PROVIDER_BINDING, SQL_UPDATE_AGENT_BUSINESS,
     SQL_UPDATE_AGENT_KNOWLEDGE_BASE, SQL_UPDATE_AGENT_KNOWLEDGE_DOCUMENT,
     SQL_UPDATE_AGENT_KNOWLEDGE_SOURCE, SQL_UPDATE_AGENT_KNOWLEDGE_SYNC_JOB,
     SQL_UPDATE_AGENT_MCP_SERVER, SQL_UPDATE_AGENT_MEMORY_BINDING,
     SQL_UPDATE_AGENT_MEMORY_NAMESPACE, SQL_UPDATE_AGENT_MEMORY_PROFILE,
-    SQL_UPDATE_AGENT_MEMORY_RECORD, SQL_UPDATE_AGENT_MEMORY_STORE,
-    SQL_UPDATE_AGENT_PROMPT_TEMPLATE, SQL_UPDATE_AGENT_PROVIDER_BINDING,
-    SQL_UPDATE_AGENT_SKILL_PACKAGE, SQL_UPSERT_AGENT_KNOWLEDGE_INDEX,
+    SQL_UPDATE_AGENT_MEMORY_RECORD,     SQL_UPDATE_AGENT_MEMORY_STORE,
+    SQL_UPDATE_AGENT_PROVIDER_BINDING,
+    SQL_UPSERT_AGENT_KNOWLEDGE_INDEX,
     SQL_UPSERT_AGENT_MEMORY_RETRIEVAL_INDEX,
 };
 #[cfg(feature = "postgres-sync")]

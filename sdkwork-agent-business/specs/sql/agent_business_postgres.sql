@@ -287,63 +287,8 @@ CREATE INDEX IF NOT EXISTS idx_a_agent_deployment_tenant_agent_created
 CREATE INDEX IF NOT EXISTS idx_a_agent_deployment_tenant_provider_status
     ON a_agent_deployment (tenant_id, provider_id_snapshot, status);
 
-CREATE TABLE IF NOT EXISTS a_agent_skill_package (
-    id BIGINT NOT NULL PRIMARY KEY,
-    uuid VARCHAR(96) NOT NULL,
-    tenant_id BIGINT NOT NULL,
-    organization_id BIGINT NOT NULL DEFAULT 0,
-    owner_user_id BIGINT NOT NULL,
-    skill_id VARCHAR(128) NOT NULL,
-    code VARCHAR(128) NOT NULL,
-    display_name VARCHAR(255) NOT NULL,
-    description TEXT,
-    invocation_kind VARCHAR(64) NOT NULL,
-    package_ref TEXT NOT NULL,
-    entrypoint VARCHAR(255) NOT NULL,
-    input_schema_json TEXT NOT NULL,
-    output_schema_json TEXT NOT NULL,
-    capability_ids_json TEXT NOT NULL DEFAULT '[]',
-    categories_json TEXT NOT NULL DEFAULT '[]',
-    tags_json TEXT NOT NULL DEFAULT '[]',
-    security_profile_id VARCHAR(128),
-    status SMALLINT NOT NULL,
-    visibility SMALLINT NOT NULL,
-    version BIGINT NOT NULL DEFAULT 1,
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL,
-    deleted_at TIMESTAMP NULL,
-    CONSTRAINT uk_a_agent_skill_package_uuid UNIQUE (uuid),
-    CONSTRAINT uk_a_agent_skill_package_tenant_skill UNIQUE (tenant_id, skill_id),
-    CONSTRAINT uk_a_agent_skill_package_tenant_code UNIQUE (tenant_id, code),
-    CONSTRAINT ck_a_agent_skill_package_skill_id_standard CHECK (
-        skill_id ~ '^skill\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-    ),
-    CONSTRAINT ck_a_agent_skill_package_invocation_kind CHECK (
-        invocation_kind IN (
-            'local-workflow',
-            'process-adapter',
-            'mcp-tool',
-            'kernel-provider'
-        )
-    ),
-    CONSTRAINT ck_a_agent_skill_package_capabilities_standard CHECK (
-        sdkwork_agent_business_capabilities_json_is_standard(capability_ids_json)
-    ),
-    CONSTRAINT ck_a_agent_skill_package_security_profile_standard CHECK (
-        security_profile_id IS NULL
-        OR security_profile_id ~ '^profile\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-    ),
-    CONSTRAINT ck_a_agent_skill_package_input_schema_json CHECK (input_schema_json::jsonb IS NOT NULL),
-    CONSTRAINT ck_a_agent_skill_package_output_schema_json CHECK (output_schema_json::jsonb IS NOT NULL),
-    CONSTRAINT ck_a_agent_skill_package_status CHECK (status IN (0, 1, 2, 3, 4)),
-    CONSTRAINT ck_a_agent_skill_package_visibility CHECK (visibility IN (0, 1, 2, 3))
-);
-
-CREATE INDEX IF NOT EXISTS idx_a_agent_skill_package_tenant_org_status_updated
-    ON a_agent_skill_package (tenant_id, organization_id, status, updated_at DESC, code ASC);
-
-CREATE INDEX IF NOT EXISTS idx_a_agent_skill_package_tenant_visibility_status
-    ON a_agent_skill_package (tenant_id, visibility, status);
+-- Skill marketplace persistence migrated to sdkwork-skills (`ai_*` skill tables).
+-- See sdkwork-skills/database/migrations/postgres/0002_migrate_kernel_a_agent_skill_package.sql
 
 CREATE TABLE IF NOT EXISTS a_agent_mcp_server (
     id BIGINT NOT NULL PRIMARY KEY,
@@ -424,61 +369,7 @@ CREATE INDEX IF NOT EXISTS idx_a_agent_mcp_server_tenant_org_status_updated
 CREATE INDEX IF NOT EXISTS idx_a_agent_mcp_server_tenant_transport_auth
     ON a_agent_mcp_server (tenant_id, transport_kind, auth_kind);
 
-CREATE TABLE IF NOT EXISTS a_agent_prompt_template (
-    id BIGINT NOT NULL PRIMARY KEY,
-    uuid VARCHAR(96) NOT NULL,
-    tenant_id BIGINT NOT NULL,
-    organization_id BIGINT NOT NULL DEFAULT 0,
-    owner_user_id BIGINT NOT NULL,
-    prompt_id VARCHAR(128) NOT NULL,
-    code VARCHAR(128) NOT NULL,
-    display_name VARCHAR(255) NOT NULL,
-    description TEXT,
-    prompt_kind VARCHAR(32) NOT NULL,
-    template_format VARCHAR(32) NOT NULL,
-    template_body TEXT NOT NULL,
-    variables_schema_json TEXT NOT NULL,
-    model_constraints_json TEXT NOT NULL,
-    capability_ids_json TEXT NOT NULL DEFAULT '[]',
-    categories_json TEXT NOT NULL DEFAULT '[]',
-    tags_json TEXT NOT NULL DEFAULT '[]',
-    safety_profile_id VARCHAR(128),
-    status SMALLINT NOT NULL,
-    visibility SMALLINT NOT NULL,
-    version BIGINT NOT NULL DEFAULT 1,
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL,
-    deleted_at TIMESTAMP NULL,
-    CONSTRAINT uk_a_agent_prompt_template_uuid UNIQUE (uuid),
-    CONSTRAINT uk_a_agent_prompt_template_tenant_prompt UNIQUE (tenant_id, prompt_id),
-    CONSTRAINT uk_a_agent_prompt_template_tenant_code UNIQUE (tenant_id, code),
-    CONSTRAINT ck_a_agent_prompt_template_prompt_id_standard CHECK (
-        prompt_id ~ '^prompt\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-    ),
-    CONSTRAINT ck_a_agent_prompt_template_prompt_kind CHECK (
-        prompt_kind IN ('system', 'developer', 'user', 'workflow', 'tool', 'mcp-prompt')
-    ),
-    CONSTRAINT ck_a_agent_prompt_template_format CHECK (
-        template_format IN ('plain-text', 'handlebars', 'liquid', 'jinja', 'json-schema')
-    ),
-    CONSTRAINT ck_a_agent_prompt_template_capabilities_standard CHECK (
-        sdkwork_agent_business_capabilities_json_is_standard(capability_ids_json)
-    ),
-    CONSTRAINT ck_a_agent_prompt_template_safety_profile_standard CHECK (
-        safety_profile_id IS NULL
-        OR safety_profile_id ~ '^profile\.[a-z0-9_-]+(\.[a-z0-9_-]+)*$'
-    ),
-    CONSTRAINT ck_a_agent_prompt_template_variables_schema_json CHECK (variables_schema_json::jsonb IS NOT NULL),
-    CONSTRAINT ck_a_agent_prompt_template_model_constraints_json CHECK (model_constraints_json::jsonb IS NOT NULL),
-    CONSTRAINT ck_a_agent_prompt_template_status CHECK (status IN (0, 1, 2, 3, 4)),
-    CONSTRAINT ck_a_agent_prompt_template_visibility CHECK (visibility IN (0, 1, 2, 3))
-);
-
-CREATE INDEX IF NOT EXISTS idx_a_agent_prompt_template_tenant_org_status_updated
-    ON a_agent_prompt_template (tenant_id, organization_id, status, updated_at DESC, code ASC);
-
-CREATE INDEX IF NOT EXISTS idx_a_agent_prompt_template_tenant_visibility_status
-    ON a_agent_prompt_template (tenant_id, visibility, status);
+-- Prompt templates: owned by sdkwork-prompts (ai_agent_prompt_template).
 
 CREATE TABLE IF NOT EXISTS a_agent_knowledge_base (
     id BIGINT NOT NULL PRIMARY KEY,

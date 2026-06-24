@@ -684,3 +684,10 @@ is missing and which contract is being implemented first.
       kernel-level concerns.
 - [ ] Product applications can integrate or replace providers without mutating
       kernel SPI.
+
+## Documentation Canon
+
+- [docs/README.md](docs/README.md)
+- [docs/product/prd/PRD.md](docs/product/prd/PRD.md)
+- [docs/architecture/tech/TECH_ARCHITECTURE.md](docs/architecture/tech/TECH_ARCHITECTURE.md)
+

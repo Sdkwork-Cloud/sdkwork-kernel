@@ -1,5 +1,6 @@
 //! HTTP contract tests for canonical internal-api runtime routes.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
@@ -7,7 +8,7 @@ use axum::http::{header::AUTHORIZATION, header::CONTENT_TYPE, Request, StatusCod
 use axum::Router;
 use sdkwork_agent_server::{
     app,
-    config::ServerConfig,
+    config::{ServerConfig, TenantTokenQuotaOverride},
     ingress_identity::{self, IDENTITY_MAC_HEADER},
     runtime_routes::INTERNAL_RUNTIME_MOUNT_PREFIX,
 };
@@ -24,6 +25,19 @@ fn token_test_app(token: &str) -> Router {
     let mut config = ServerConfig::default();
     config.ingress_auth_mode = "token".to_string();
     config.ingress_token = Some(token.to_string());
+    app::build_test_app(Arc::new(config))
+}
+
+fn quota_test_app(tenant_id: &str, daily_tokens: u64) -> Router {
+    let mut config = ServerConfig::default();
+    config.ingress_auth_mode = "token".to_string();
+    config.ingress_token = Some(TEST_INGRESS_TOKEN.to_string());
+    let mut overrides = HashMap::new();
+    overrides.insert(
+        tenant_id.to_string(),
+        TenantTokenQuotaOverride { daily_tokens },
+    );
+    config.tenant_token_quota_overrides = overrides;
     app::build_test_app(Arc::new(config))
 }
 
@@ -1126,4 +1140,56 @@ async fn ingress_rs256_jwt_auth_accepts_bearer_without_identity_mac() {
         .await
         .expect("snapshot request should succeed");
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn internal_runtime_model_invoke_rejects_exhausted_tenant_token_quota() {
+    let tenant = "tenant-quota";
+    let app = quota_test_app(tenant, 0);
+    let create = with_signed_identity(
+        Request::builder()
+            .method("POST")
+            .uri(runtime_path("/sessions"))
+            .header(CONTENT_TYPE, "application/json"),
+        TEST_INGRESS_TOKEN,
+        tenant,
+        "user-quota",
+    )
+    .body(Body::from(
+        json!({
+            "agentId": "agent.1",
+            "title": "quota contract session"
+        })
+        .to_string(),
+    ))
+    .expect("create request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(create)
+        .await
+        .expect("create request should succeed");
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let session = read_json(response).await;
+    let session_id = session["sessionId"]
+        .as_str()
+        .expect("sessionId should be present");
+
+    let invoke = with_signed_identity(
+        Request::builder()
+            .method("POST")
+            .uri(runtime_path(&format!("/sessions/{session_id}/model/invoke")))
+            .header(CONTENT_TYPE, "application/json"),
+        TEST_INGRESS_TOKEN,
+        tenant,
+        "user-quota",
+    )
+    .body(Body::from(json!({}).to_string()))
+    .expect("invoke request should be built");
+
+    let response = app
+        .oneshot(invoke)
+        .await
+        .expect("invoke request should succeed");
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
 }

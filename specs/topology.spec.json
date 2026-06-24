@@ -4,38 +4,63 @@
   "appId": "sdkwork-kernel",
   "archetype": "realtime-application-platform",
   "profileRoot": "configs/topology",
-  "profilePattern": "{hosting}.{serviceLayout}.{environment}.env",
+  "profilePattern": "{deploymentProfile}.{serviceLayout}.{environment}.env",
   "vocabulary": {
-    "hosting": { "allowed": ["self-hosted", "cloud-hosted"] },
-    "serviceLayout": { "allowed": ["unified-process", "split-services"] },
-    "environment": { "allowed": ["development", "production"] },
-    "connectivityPlane": { "allowed": ["application", "platform", "operations"] }
+    "serviceLayout": {
+      "allowed": [
+        "unified-process",
+        "split-services"
+      ]
+    },
+    "environment": {
+      "allowed": [
+        "development",
+        "production"
+      ]
+    },
+    "connectivityPlane": {
+      "allowed": [
+        "application",
+        "platform",
+        "operations"
+      ]
+    },
+    "deploymentProfile": {
+      "allowed": [
+        "standalone",
+        "cloud"
+      ]
+    }
   },
   "defaults": {
-    "developmentProfileId": "self-hosted.split-services.development",
-    "productionProfileId": "cloud-hosted.split-services.production"
+    "developmentProfileId": "standalone.split-services.development",
+    "productionProfileId": "cloud.split-services.production"
   },
   "profileFiles": {
-    "self-hosted.split-services.development": "configs/topology/self-hosted.split-services.development.env",
-    "self-hosted.unified-process.development": "configs/topology/self-hosted.unified-process.development.env",
-    "self-hosted.split-services.production": "configs/topology/self-hosted.split-services.production.env",
-    "cloud-hosted.split-services.development": "configs/topology/cloud-hosted.split-services.development.env",
-    "cloud-hosted.split-services.production": "configs/topology/cloud-hosted.split-services.production.env"
+    "standalone.split-services.development": "configs/topology/standalone.split-services.development.env",
+    "standalone.unified-process.development": "configs/topology/standalone.unified-process.development.env",
+    "standalone.split-services.production": "configs/topology/standalone.split-services.production.env",
+    "cloud.split-services.development": "configs/topology/cloud.split-services.development.env",
+    "cloud.split-services.production": "configs/topology/cloud.split-services.production.env",
+    "standalone.unified-process.production": "configs/topology/standalone.unified-process.production.env"
   },
   "envKeys": {
-    "hosting": "SDKWORK_KERNEL_HOSTING",
     "serviceLayout": "SDKWORK_KERNEL_SERVICE_LAYOUT",
     "environment": "SDKWORK_KERNEL_ENVIRONMENT",
     "profileId": "SDKWORK_KERNEL_PROFILE_ID",
-    "clientHosting": "VITE_SDKWORK_KERNEL_HOSTING",
     "gatewayAutostart": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_AUTOSTART",
     "clientApiGatewayBaseUrl": "VITE_SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL",
-    "apiGatewayBaseUrl": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL"
+    "apiGatewayBaseUrl": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL",
+    "deploymentProfile": "SDKWORK_KERNEL_DEPLOYMENT_PROFILE",
+    "clientDeploymentProfile": "VITE_SDKWORK_KERNEL_DEPLOYMENT_PROFILE"
   },
   "surfaces": {
     "application.public-ingress": {
       "connectivityPlane": "application",
-      "protocols": ["http", "websocket"],
+      "protocols": [
+        "http",
+        "websocket"
+      ],
       "bindEnv": "SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND",
       "httpUrlEnv": "SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL",
       "websocketUrlEnv": "SDKWORK_KERNEL_APPLICATION_PUBLIC_WEBSOCKET_URL",
@@ -44,17 +69,23 @@
     },
     "platform.api-gateway": {
       "connectivityPlane": "platform",
-      "protocols": ["http"],
-      "owner": "sdkwork-api-gateway",
-      "bindEnv": "SDKWORK_API_GATEWAY_BIND",
+      "protocols": [
+        "http"
+      ],
+      "owner": "sdkwork-api-cloud-gateway",
+      "bindEnv": "SDKWORK_API_CLOUD_GATEWAY_BIND",
       "httpUrlEnv": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL",
       "clientHttpEnv": "VITE_SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL",
       "autostartEnv": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_AUTOSTART"
     }
   },
   "cloudPublicHosts": {
-    "application.public-ingress": { "httpHost": "kernel.sdkwork.com" },
-    "platform.api-gateway": { "httpHost": "api.sdkwork.com" }
+    "application.public-ingress": {
+      "httpHost": "kernel.sdkwork.com"
+    },
+    "platform.api-gateway": {
+      "httpHost": "api.sdkwork.com"
+    }
   },
   "components": {
     "agentServer": {
@@ -64,11 +95,17 @@
     "kernelUi": {
       "package": "sdkwork-kernel-ui",
       "script": "dev"
+    },
+    "cloudGateway": {
+      "crate": "sdkwork-api-cloud-gateway-api-server",
+      "binary": "sdkwork-api-cloud-gateway",
+      "repository": "sdkwork-api-cloud-gateway",
+      "configGlob": "configs/sdkwork-api-cloud-gateway.kernel.{profile}.toml"
     }
   },
   "orchestration": {
     "profiles": {
-      "self-hosted.split-services.development": {
+      "standalone.split-services.development": {
         "processes": [
           {
             "id": "application.public-ingress",
@@ -83,9 +120,11 @@
             "required": true
           }
         ],
-        "healthSurfaces": ["application.public-ingress"]
+        "healthSurfaces": [
+          "application.public-ingress"
+        ]
       },
-      "self-hosted.unified-process.development": {
+      "standalone.unified-process.development": {
         "processes": [
           {
             "id": "application.public-ingress",
@@ -94,10 +133,15 @@
             "required": true
           }
         ],
-        "capabilitySubset": ["application-http", "application-websocket"],
-        "healthSurfaces": ["application.public-ingress"]
+        "capabilitySubset": [
+          "application-http",
+          "application-websocket"
+        ],
+        "healthSurfaces": [
+          "application.public-ingress"
+        ]
       },
-      "self-hosted.split-services.production": {
+      "standalone.split-services.production": {
         "processes": [
           {
             "id": "application.public-ingress",
@@ -106,9 +150,11 @@
             "required": true
           }
         ],
-        "healthSurfaces": ["application.public-ingress"]
+        "healthSurfaces": [
+          "application.public-ingress"
+        ]
       },
-      "cloud-hosted.split-services.development": {
+      "cloud.split-services.development": {
         "processes": [
           {
             "id": "application.public-ingress",
@@ -123,9 +169,12 @@
             "required": false
           }
         ],
-        "healthSurfaces": ["application.public-ingress", "platform.api-gateway"]
+        "healthSurfaces": [
+          "application.public-ingress",
+          "platform.api-gateway"
+        ]
       },
-      "cloud-hosted.split-services.production": {
+      "cloud.split-services.production": {
         "processes": [
           {
             "id": "application.public-ingress",
@@ -134,7 +183,10 @@
             "required": true
           }
         ],
-        "healthSurfaces": ["application.public-ingress", "platform.api-gateway"]
+        "healthSurfaces": [
+          "application.public-ingress",
+          "platform.api-gateway"
+        ]
       }
     }
   },
@@ -144,8 +196,38 @@
   "retired": {
     "envKeys": [
       "SDKWORK_KERNEL_TOPOLOGY",
-      "VITE_KERNEL_TOPOLOGY"
+      "VITE_KERNEL_TOPOLOGY",
+      "SDKWORK_KERNEL_HOSTING",
+      "VITE_SDKWORK_KERNEL_HOSTING"
     ],
-    "notes": "Use hosting/serviceLayout/environment profile ids and application.public-ingress surface keys instead of legacy topology selectors."
+    "notes": "Use hosting/serviceLayout/environment profile ids and application.public-ingress surface keys instead of legacy topology selectors.",
+    "vocabulary": {
+      "hosting": [
+        "self-hosted",
+        "cloud-hosted"
+      ]
+    }
+  },
+  "packaging": {
+    "cloudConfigFiles": [
+      "sdkwork-api-cloud-gateway.kernel.development.toml",
+      "sdkwork-api-cloud-gateway.kernel.production.toml"
+    ],
+    "targets": [
+      {
+        "id": "container-noarch-cloud-container-config-bundle-tar-gz",
+        "profile": "container",
+        "platform": "container",
+        "architecture": "noarch",
+        "formats": [
+          "tar.gz"
+        ],
+        "runner": "ubuntu-24.04",
+        "outputGlob": "dist/cloud-config/sdkwork-kernel-api-gateway-config-*.tar.gz",
+        "deploymentProfile": "cloud",
+        "runtimeTarget": "container",
+        "variant": "config-bundle"
+      }
+    ]
   }
 }

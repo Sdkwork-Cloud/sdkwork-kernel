@@ -5,7 +5,7 @@ Human summary: `../../docs/topology-standard.md`
 
 ## Default profile
 
-`self-hosted.split-services.development`
+`standalone.split-services.development`
 
 ## Commands
 

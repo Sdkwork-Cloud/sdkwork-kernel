@@ -64,6 +64,7 @@ sdkwork-agent-adapter-gemini-cli = { path = "sdkwork-kernel-plugins/crates/sdkwo
 sdkwork-agent-adapter-mimo-code = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-mimo-code" }
 sdkwork-drive-storage-contract = { path = "../sdkwork-drive/crates/sdkwork-drive-storage-contract" }
 sdkwork-knowledgebase-contract = { path = "../sdkwork-knowledgebase/crates/sdkwork-knowledgebase-contract" }
+sdkwork-skills-contract = { path = "../sdkwork-skills/crates/sdkwork-skills-contract" }
 
 # Platform frameworks — declared for phased adoption per ADR-20260618-platform-framework-adoption.md
 sdkwork-web-core = { path = "../sdkwork-web-framework/crates/sdkwork-web-core" }

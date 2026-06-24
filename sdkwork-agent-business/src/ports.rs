@@ -5,7 +5,7 @@ use crate::domain::{
     AgentMcpServerRecord, AgentMemoryBindingRecord, AgentMemoryNamespaceRecord,
     AgentMemoryProfileRecord, AgentMemoryRecord, AgentMemoryRelationRecord,
     AgentMemoryRetrievalIndexRecord, AgentMemorySourceRecord, AgentMemoryStoreRecord,
-    AgentPromptTemplateRecord, AgentProviderBindingRecord, AgentSkillPackageRecord,
+    AgentProviderBindingRecord,
     AgentVisibility,
 };
 use sdkwork_agent_kernel::{KernelError, KernelEvent, KernelResult};
@@ -175,33 +175,6 @@ pub trait AgentRepository {
         Vec::new()
     }
 
-    fn insert_skill_package(&mut self, _record: AgentSkillPackageRecord) -> KernelResult<()> {
-        Err(KernelError::CapabilityMissing {
-            capability_id: "agent.business.skill".to_string(),
-        })
-    }
-
-    fn update_skill_package(&mut self, _record: AgentSkillPackageRecord) -> KernelResult<()> {
-        Err(KernelError::CapabilityMissing {
-            capability_id: "agent.business.skill".to_string(),
-        })
-    }
-
-    fn get_skill_package(
-        &self,
-        _tenant_id: u64,
-        _skill_id: &str,
-    ) -> Option<AgentSkillPackageRecord> {
-        None
-    }
-
-    fn list_skill_packages(
-        &self,
-        _query: &AgentMarketplaceListQuery,
-    ) -> Vec<AgentSkillPackageRecord> {
-        Vec::new()
-    }
-
     fn insert_mcp_server(&mut self, _record: AgentMcpServerRecord) -> KernelResult<()> {
         Err(KernelError::CapabilityMissing {
             capability_id: "agent.business.mcp".to_string(),
@@ -223,33 +196,6 @@ pub trait AgentRepository {
     }
 
     fn list_mcp_servers(&self, _query: &AgentMarketplaceListQuery) -> Vec<AgentMcpServerRecord> {
-        Vec::new()
-    }
-
-    fn insert_prompt_template(&mut self, _record: AgentPromptTemplateRecord) -> KernelResult<()> {
-        Err(KernelError::CapabilityMissing {
-            capability_id: "agent.business.prompt".to_string(),
-        })
-    }
-
-    fn update_prompt_template(&mut self, _record: AgentPromptTemplateRecord) -> KernelResult<()> {
-        Err(KernelError::CapabilityMissing {
-            capability_id: "agent.business.prompt".to_string(),
-        })
-    }
-
-    fn get_prompt_template(
-        &self,
-        _tenant_id: u64,
-        _prompt_id: &str,
-    ) -> Option<AgentPromptTemplateRecord> {
-        None
-    }
-
-    fn list_prompt_templates(
-        &self,
-        _query: &AgentMarketplaceListQuery,
-    ) -> Vec<AgentPromptTemplateRecord> {
         Vec::new()
     }
 

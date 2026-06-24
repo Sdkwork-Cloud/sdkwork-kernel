@@ -36,16 +36,16 @@ test('declares v2 topology spec and profile env files for sdkwork-kernel', async
   assert.equal(spec.kind, 'sdkwork.app.topology');
   assert.equal(spec.appId, 'sdkwork-kernel');
   assert.equal(spec.archetype, 'realtime-application-platform');
-  assert.equal(spec.defaults.developmentProfileId, 'self-hosted.split-services.development');
+  assert.equal(spec.defaults.developmentProfileId, 'standalone.split-services.development');
   assert.ok(spec.surfaces['application.public-ingress']);
   assert.ok(spec.surfaces['platform.api-gateway']);
 
   for (const profileId of [
-    'self-hosted.split-services.development',
-    'self-hosted.unified-process.development',
-    'self-hosted.split-services.production',
-    'cloud-hosted.split-services.development',
-    'cloud-hosted.split-services.production',
+    'standalone.split-services.development',
+    'standalone.unified-process.development',
+    'standalone.split-services.production',
+    'cloud.split-services.development',
+    'cloud.split-services.production',
   ]) {
     const profilePath = spec.profileFiles[profileId];
     assert.equal(await exists(profilePath), true, `${profilePath} should exist`);
@@ -77,14 +77,14 @@ test('agent server reads topology bind env keys', async () => {
 });
 
 test('cloud production topology documents postgres and redis runtime deps', async () => {
-  const profileEnv = await read('configs/topology/cloud-hosted.split-services.production.env');
+  const profileEnv = await read('configs/topology/cloud.split-services.production.env');
   assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres/);
   assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_URL/);
   assert.match(profileEnv, /SDKWORK_RATE_LIMIT_REDIS_URL/);
 });
 
 test('self-hosted production topology documents postgres and redis runtime deps', async () => {
-  const profileEnv = await read('configs/topology/self-hosted.split-services.production.env');
+  const profileEnv = await read('configs/topology/standalone.split-services.production.env');
   assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres/);
   assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_URL/);
   assert.match(profileEnv, /SDKWORK_RATE_LIMIT_REDIS_URL/);

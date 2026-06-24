@@ -489,23 +489,32 @@ mod tests {
     fn fetches_jwks_url_at_startup() {
         use std::io::Write;
         use std::net::TcpListener;
+        use std::sync::mpsc;
         use std::thread;
 
-        let jwks_body = include_str!("../tests/fixtures/ingress_jwt_jwks.json");
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test jwks listener");
-        let addr = listener.local_addr().expect("listener addr");
-        let body = jwks_body.to_string();
+        let jwks_body = include_str!("../tests/fixtures/ingress_jwt_jwks.json").to_string();
+        let (ready_tx, ready_rx) = mpsc::channel();
         thread::spawn(move || {
-            if let Ok((mut stream, _)) = listener.accept() {
-                let response = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                    body.len(),
-                    body
-                );
-                let _ = stream.write_all(response.as_bytes());
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind test jwks listener");
+            ready_tx
+                .send(listener.local_addr().expect("listener addr"))
+                .expect("ready signal");
+            for _ in 0..3 {
+                if let Ok((mut stream, _)) = listener.accept() {
+                    let mut request_buf = [0u8; 2048];
+                    let _ = stream.read(&mut request_buf);
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        jwks_body.len(),
+                        jwks_body
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                    let _ = stream.flush();
+                }
             }
         });
 
+        let addr = ready_rx.recv().expect("jwks test server should be listening");
         let config = ServerConfig {
             ingress_auth_mode: "jwt".to_string(),
             ingress_jwt_jwks_url: Some(format!("http://{addr}")),

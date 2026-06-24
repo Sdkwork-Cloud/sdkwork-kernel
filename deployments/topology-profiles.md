@@ -10,11 +10,11 @@ Kernel runtime connectivity is declared in [`../specs/topology.spec.json`](../sp
 
 | Topology profile id | Deployment profile | Service layout | Environment | Env file |
 | --- | --- | --- | --- | --- |
-| `self-hosted.split-services.development` | standalone | split-services | development | `configs/topology/self-hosted.split-services.development.env` |
-| `self-hosted.unified-process.development` | standalone | unified-process | development | `configs/topology/self-hosted.unified-process.development.env` |
-| `self-hosted.split-services.production` | standalone | split-services | production | `configs/topology/self-hosted.split-services.production.env` |
-| `cloud-hosted.split-services.development` | cloud | split-services | development | `configs/topology/cloud-hosted.split-services.development.env` |
-| `cloud-hosted.split-services.production` | cloud | split-services | production | `configs/topology/cloud-hosted.split-services.production.env` |
+| `standalone.split-services.development` | standalone | split-services | development | `configs/topology/standalone.split-services.development.env` |
+| `standalone.unified-process.development` | standalone | unified-process | development | `configs/topology/standalone.unified-process.development.env` |
+| `standalone.split-services.production` | standalone | split-services | production | `configs/topology/standalone.split-services.production.env` |
+| `cloud.split-services.development` | cloud | split-services | development | `configs/topology/cloud.split-services.development.env` |
+| `cloud.split-services.production` | cloud | split-services | production | `configs/topology/cloud.split-services.production.env` |
 
 ## Local Development Entrypoints
 

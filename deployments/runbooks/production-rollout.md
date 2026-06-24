@@ -4,7 +4,7 @@ Owner: SDKWork kernel maintainers.
 
 ## Preconditions
 
-- Topology profile: `cloud-hosted.split-services.production` (`configs/topology/cloud-hosted.split-services.production.env`)
+- Topology profile: `cloud.split-services.production` (`configs/topology/cloud.split-services.production.env`)
 - `SDKWORK_KERNEL_INGRESS_TOKEN` provisioned in secret manager (never in git)
 - `SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres` with `SDKWORK_AGENT_RUNTIME_DATABASE_URL` or `SDKWORK_AGENT_RUNTIME_POSTGRES_URI`
 - `SDKWORK_RATE_LIMIT_REDIS_URL` (or `SDKWORK_REDIS_URL`) for distributed rate limiting across replicas

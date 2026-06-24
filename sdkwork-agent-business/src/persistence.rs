@@ -10,9 +10,8 @@ use crate::domain::{
     AgentMemoryNamespaceKind, AgentMemoryNamespaceRecord, AgentMemoryProfileRecord,
     AgentMemoryRecord, AgentMemoryRecordKind, AgentMemoryRelationKind, AgentMemoryRelationRecord,
     AgentMemoryRetrievalIndexRecord, AgentMemorySourceKind, AgentMemorySourceRecord,
-    AgentMemoryStoreKind, AgentMemoryStoreRecord, AgentPromptTemplateFormat,
-    AgentPromptTemplateKind, AgentPromptTemplateRecord, AgentProviderBindingRecord,
-    AgentSkillInvocationKind, AgentSkillPackageRecord, AgentVisibility,
+    AgentMemoryStoreKind, AgentMemoryStoreRecord, AgentProviderBindingRecord,
+    AgentVisibility,
 };
 use crate::ports::{AgentAuditSink, AgentListQuery, AgentMarketplaceListQuery, AgentRepository};
 #[cfg(feature = "postgres-sync")]
@@ -64,14 +63,6 @@ pub const SQL_INSERT_AUDIT_EVENT: &str =
 #[cfg(feature = "postgres-sync")]
 pub const SQL_LIST_AUDIT_EVENTS_BY_TENANT_AND_AGENT_ID: &str =
     "SELECT id, uuid, tenant_id, organization_id, agent_business_id, agent_id, action, subject_id, subject_tenant_id, request_id, trace_id, payload_json, created_at::text AS created_at FROM a_agent_business_audit_event WHERE tenant_id = $1 AND agent_id = $2 ORDER BY created_at DESC, id DESC";
-pub const SQL_INSERT_AGENT_SKILL_PACKAGE: &str =
-    "INSERT INTO a_agent_skill_package (id, uuid, tenant_id, organization_id, owner_user_id, skill_id, code, display_name, description, invocation_kind, package_ref, entrypoint, input_schema_json, output_schema_json, capability_ids_json, categories_json, tags_json, security_profile_id, status, visibility, version, created_at, updated_at, deleted_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)";
-pub const SQL_UPDATE_AGENT_SKILL_PACKAGE: &str =
-    "UPDATE a_agent_skill_package SET organization_id = $1, owner_user_id = $2, code = $3, display_name = $4, description = $5, invocation_kind = $6, package_ref = $7, entrypoint = $8, input_schema_json = $9, output_schema_json = $10, capability_ids_json = $11, categories_json = $12, tags_json = $13, security_profile_id = $14, status = $15, visibility = $16, version = $17, updated_at = $18, deleted_at = $19 WHERE tenant_id = $20 AND skill_id = $21 AND version = $22";
-pub const SQL_SELECT_AGENT_SKILL_PACKAGE: &str =
-    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, skill_id, code, display_name, description, invocation_kind, package_ref, entrypoint, input_schema_json, output_schema_json, capability_ids_json, categories_json, tags_json, security_profile_id, status, visibility, version, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at FROM a_agent_skill_package WHERE tenant_id = $1 AND skill_id = $2 LIMIT 1";
-pub const SQL_LIST_AGENT_SKILL_PACKAGES: &str =
-    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, skill_id, code, display_name, description, invocation_kind, package_ref, entrypoint, input_schema_json, output_schema_json, capability_ids_json, categories_json, tags_json, security_profile_id, status, visibility, version, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at FROM a_agent_skill_package WHERE tenant_id = $1 ORDER BY updated_at DESC, code ASC";
 pub const SQL_INSERT_AGENT_MCP_SERVER: &str =
     "INSERT INTO a_agent_mcp_server (id, uuid, tenant_id, organization_id, owner_user_id, mcp_server_id, code, display_name, description, protocol_version, transport_kind, endpoint_ref, command_ref, auth_kind, auth_profile_id, capability_ids_json, tool_count, resource_count, prompt_count, capabilities_json, categories_json, tags_json, security_profile_id, status, visibility, version, created_at, updated_at, deleted_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)";
 pub const SQL_UPDATE_AGENT_MCP_SERVER: &str =
@@ -80,14 +71,6 @@ pub const SQL_SELECT_AGENT_MCP_SERVER: &str =
     "SELECT id, uuid, tenant_id, organization_id, owner_user_id, mcp_server_id, code, display_name, description, protocol_version, transport_kind, endpoint_ref, command_ref, auth_kind, auth_profile_id, capability_ids_json, tool_count, resource_count, prompt_count, capabilities_json, categories_json, tags_json, security_profile_id, status, visibility, version, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at FROM a_agent_mcp_server WHERE tenant_id = $1 AND mcp_server_id = $2 LIMIT 1";
 pub const SQL_LIST_AGENT_MCP_SERVERS: &str =
     "SELECT id, uuid, tenant_id, organization_id, owner_user_id, mcp_server_id, code, display_name, description, protocol_version, transport_kind, endpoint_ref, command_ref, auth_kind, auth_profile_id, capability_ids_json, tool_count, resource_count, prompt_count, capabilities_json, categories_json, tags_json, security_profile_id, status, visibility, version, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at FROM a_agent_mcp_server WHERE tenant_id = $1 ORDER BY updated_at DESC, code ASC";
-pub const SQL_INSERT_AGENT_PROMPT_TEMPLATE: &str =
-    "INSERT INTO a_agent_prompt_template (id, uuid, tenant_id, organization_id, owner_user_id, prompt_id, code, display_name, description, prompt_kind, template_format, template_body, variables_schema_json, model_constraints_json, capability_ids_json, categories_json, tags_json, safety_profile_id, status, visibility, version, created_at, updated_at, deleted_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)";
-pub const SQL_UPDATE_AGENT_PROMPT_TEMPLATE: &str =
-    "UPDATE a_agent_prompt_template SET organization_id = $1, owner_user_id = $2, code = $3, display_name = $4, description = $5, prompt_kind = $6, template_format = $7, template_body = $8, variables_schema_json = $9, model_constraints_json = $10, capability_ids_json = $11, categories_json = $12, tags_json = $13, safety_profile_id = $14, status = $15, visibility = $16, version = $17, updated_at = $18, deleted_at = $19 WHERE tenant_id = $20 AND prompt_id = $21 AND version = $22";
-pub const SQL_SELECT_AGENT_PROMPT_TEMPLATE: &str =
-    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, prompt_id, code, display_name, description, prompt_kind, template_format, template_body, variables_schema_json, model_constraints_json, capability_ids_json, categories_json, tags_json, safety_profile_id, status, visibility, version, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at FROM a_agent_prompt_template WHERE tenant_id = $1 AND prompt_id = $2 LIMIT 1";
-pub const SQL_LIST_AGENT_PROMPT_TEMPLATES: &str =
-    "SELECT id, uuid, tenant_id, organization_id, owner_user_id, prompt_id, code, display_name, description, prompt_kind, template_format, template_body, variables_schema_json, model_constraints_json, capability_ids_json, categories_json, tags_json, safety_profile_id, status, visibility, version, created_at::text AS created_at, updated_at::text AS updated_at, deleted_at::text AS deleted_at FROM a_agent_prompt_template WHERE tenant_id = $1 ORDER BY updated_at DESC, code ASC";
 pub const SQL_INSERT_AGENT_KNOWLEDGE_BASE: &str =
     "INSERT INTO a_agent_knowledge_base (id, uuid, tenant_id, organization_id, owner_user_id, knowledge_base_id, code, display_name, description, provider_id, base_kind, retrieval_modes_json, capability_ids_json, configuration_profile_id, status, visibility, version, created_at, updated_at, deleted_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)";
 pub const SQL_UPDATE_AGENT_KNOWLEDGE_BASE: &str =
@@ -426,107 +409,6 @@ impl AgentDeploymentRow {
         Ok(record)
     }
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentSkillPackageRow {
-    pub id: u64,
-    pub uuid: String,
-    pub tenant_id: u64,
-    pub organization_id: u64,
-    pub owner_user_id: u64,
-    pub skill_id: String,
-    pub code: String,
-    pub display_name: String,
-    pub description: Option<String>,
-    pub invocation_kind: String,
-    pub package_ref: String,
-    pub entrypoint: String,
-    pub input_schema_json: String,
-    pub output_schema_json: String,
-    pub capability_ids_json: String,
-    pub categories_json: String,
-    pub tags_json: String,
-    pub security_profile_id: Option<String>,
-    pub status: i16,
-    pub visibility: i16,
-    pub version: u64,
-    pub created_at: String,
-    pub updated_at: String,
-    pub deleted_at: Option<String>,
-}
-
-impl AgentSkillPackageRow {
-    pub fn from_record(record: &AgentSkillPackageRecord) -> KernelResult<Self> {
-        validate_skill_package_storage_contract(record)?;
-        Ok(Self {
-            id: record.id,
-            uuid: build_agent_skill_package_uuid(record.tenant_id, &record.skill_id),
-            tenant_id: record.tenant_id,
-            organization_id: record.organization_id,
-            owner_user_id: record.owner_user_id,
-            skill_id: record.skill_id.clone(),
-            code: record.code.clone(),
-            display_name: record.display_name.clone(),
-            description: record.description.clone(),
-            invocation_kind: record.invocation_kind.as_str().to_string(),
-            package_ref: record.package_ref.clone(),
-            entrypoint: record.entrypoint.clone(),
-            input_schema_json: record.input_schema_json.clone(),
-            output_schema_json: record.output_schema_json.clone(),
-            capability_ids_json: string_list_to_json(&record.capability_ids, "capability_ids")?,
-            categories_json: string_list_to_json(&record.categories, "categories")?,
-            tags_json: string_list_to_json(&record.tags, "tags")?,
-            security_profile_id: record.security_profile_id.clone(),
-            status: record.status.as_db_code(),
-            visibility: record.visibility.as_db_code(),
-            version: record.version,
-            created_at: record.created_at.clone(),
-            updated_at: record.updated_at.clone(),
-            deleted_at: record.deleted_at.clone(),
-        })
-    }
-
-    pub fn into_record(self) -> KernelResult<AgentSkillPackageRecord> {
-        let record = AgentSkillPackageRecord {
-            id: self.id,
-            tenant_id: self.tenant_id,
-            organization_id: self.organization_id,
-            owner_user_id: self.owner_user_id,
-            skill_id: self.skill_id,
-            code: self.code,
-            display_name: self.display_name,
-            description: self.description,
-            invocation_kind: parse_skill_invocation_kind(&self.invocation_kind)?,
-            package_ref: self.package_ref,
-            entrypoint: self.entrypoint,
-            input_schema_json: self.input_schema_json,
-            output_schema_json: self.output_schema_json,
-            capability_ids: string_list_from_json(&self.capability_ids_json, "capability_ids")?,
-            categories: string_list_from_json(&self.categories_json, "categories")?,
-            tags: string_list_from_json(&self.tags_json, "tags")?,
-            security_profile_id: self.security_profile_id,
-            status: AgentBusinessStatus::from_db_code(self.status).ok_or_else(|| {
-                KernelError::validation(format!(
-                    "invalid skill package status code: {}",
-                    self.status
-                ))
-            })?,
-            visibility: AgentVisibility::from_db_code(self.visibility).ok_or_else(|| {
-                KernelError::validation(format!(
-                    "invalid skill package visibility code: {}",
-                    self.visibility
-                ))
-            })?,
-            version: self.version,
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            deleted_at: self.deleted_at,
-        };
-        validate_skill_package_storage_contract(&record)?;
-        Ok(record)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentMcpServerRow {
     pub id: u64,
@@ -635,106 +517,6 @@ impl AgentMcpServerRow {
             deleted_at: self.deleted_at,
         };
         validate_mcp_server_storage_contract(&record)?;
-        Ok(record)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentPromptTemplateRow {
-    pub id: u64,
-    pub uuid: String,
-    pub tenant_id: u64,
-    pub organization_id: u64,
-    pub owner_user_id: u64,
-    pub prompt_id: String,
-    pub code: String,
-    pub display_name: String,
-    pub description: Option<String>,
-    pub prompt_kind: String,
-    pub template_format: String,
-    pub template_body: String,
-    pub variables_schema_json: String,
-    pub model_constraints_json: String,
-    pub capability_ids_json: String,
-    pub categories_json: String,
-    pub tags_json: String,
-    pub safety_profile_id: Option<String>,
-    pub status: i16,
-    pub visibility: i16,
-    pub version: u64,
-    pub created_at: String,
-    pub updated_at: String,
-    pub deleted_at: Option<String>,
-}
-
-impl AgentPromptTemplateRow {
-    pub fn from_record(record: &AgentPromptTemplateRecord) -> KernelResult<Self> {
-        validate_prompt_template_storage_contract(record)?;
-        Ok(Self {
-            id: record.id,
-            uuid: build_agent_prompt_template_uuid(record.tenant_id, &record.prompt_id),
-            tenant_id: record.tenant_id,
-            organization_id: record.organization_id,
-            owner_user_id: record.owner_user_id,
-            prompt_id: record.prompt_id.clone(),
-            code: record.code.clone(),
-            display_name: record.display_name.clone(),
-            description: record.description.clone(),
-            prompt_kind: record.prompt_kind.as_str().to_string(),
-            template_format: record.template_format.as_str().to_string(),
-            template_body: record.template_body.clone(),
-            variables_schema_json: record.variables_schema_json.clone(),
-            model_constraints_json: record.model_constraints_json.clone(),
-            capability_ids_json: string_list_to_json(&record.capability_ids, "capability_ids")?,
-            categories_json: string_list_to_json(&record.categories, "categories")?,
-            tags_json: string_list_to_json(&record.tags, "tags")?,
-            safety_profile_id: record.safety_profile_id.clone(),
-            status: record.status.as_db_code(),
-            visibility: record.visibility.as_db_code(),
-            version: record.version,
-            created_at: record.created_at.clone(),
-            updated_at: record.updated_at.clone(),
-            deleted_at: record.deleted_at.clone(),
-        })
-    }
-
-    pub fn into_record(self) -> KernelResult<AgentPromptTemplateRecord> {
-        let record = AgentPromptTemplateRecord {
-            id: self.id,
-            tenant_id: self.tenant_id,
-            organization_id: self.organization_id,
-            owner_user_id: self.owner_user_id,
-            prompt_id: self.prompt_id,
-            code: self.code,
-            display_name: self.display_name,
-            description: self.description,
-            prompt_kind: parse_prompt_template_kind(&self.prompt_kind)?,
-            template_format: parse_prompt_template_format(&self.template_format)?,
-            template_body: self.template_body,
-            variables_schema_json: self.variables_schema_json,
-            model_constraints_json: self.model_constraints_json,
-            capability_ids: string_list_from_json(&self.capability_ids_json, "capability_ids")?,
-            categories: string_list_from_json(&self.categories_json, "categories")?,
-            tags: string_list_from_json(&self.tags_json, "tags")?,
-            safety_profile_id: self.safety_profile_id,
-            status: AgentBusinessStatus::from_db_code(self.status).ok_or_else(|| {
-                KernelError::validation(format!(
-                    "invalid prompt template status code: {}",
-                    self.status
-                ))
-            })?,
-            visibility: AgentVisibility::from_db_code(self.visibility).ok_or_else(|| {
-                KernelError::validation(format!(
-                    "invalid prompt template visibility code: {}",
-                    self.visibility
-                ))
-            })?,
-            version: self.version,
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-            deleted_at: self.deleted_at,
-        };
-        validate_prompt_template_storage_contract(&record)?;
         Ok(record)
     }
 }
@@ -1877,11 +1659,6 @@ fn parse_implementation_type(input: &str) -> KernelResult<AgentImplementationTyp
     })
 }
 
-fn parse_skill_invocation_kind(input: &str) -> KernelResult<AgentSkillInvocationKind> {
-    AgentSkillInvocationKind::from_code(input)
-        .ok_or_else(|| KernelError::validation(format!("invalid skill invocation kind: {input}")))
-}
-
 fn parse_mcp_transport_kind(input: &str) -> KernelResult<AgentMcpTransportKind> {
     AgentMcpTransportKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid mcp transport kind: {input}")))
@@ -1890,16 +1667,6 @@ fn parse_mcp_transport_kind(input: &str) -> KernelResult<AgentMcpTransportKind> 
 fn parse_mcp_auth_kind(input: &str) -> KernelResult<AgentMcpAuthKind> {
     AgentMcpAuthKind::from_code(input)
         .ok_or_else(|| KernelError::validation(format!("invalid mcp auth kind: {input}")))
-}
-
-fn parse_prompt_template_kind(input: &str) -> KernelResult<AgentPromptTemplateKind> {
-    AgentPromptTemplateKind::from_code(input)
-        .ok_or_else(|| KernelError::validation(format!("invalid prompt template kind: {input}")))
-}
-
-fn parse_prompt_template_format(input: &str) -> KernelResult<AgentPromptTemplateFormat> {
-    AgentPromptTemplateFormat::from_code(input)
-        .ok_or_else(|| KernelError::validation(format!("invalid prompt template format: {input}")))
 }
 
 fn parse_memory_store_kind(input: &str) -> KernelResult<AgentMemoryStoreKind> {
@@ -2018,18 +1785,6 @@ fn validate_deployment_storage_contract(record: &AgentDeploymentRecord) -> Kerne
     )
 }
 
-fn validate_skill_package_storage_contract(record: &AgentSkillPackageRecord) -> KernelResult<()> {
-    validate_standard_id(record.skill_id.as_str(), "skillId", Some("skill."))?;
-    validate_capabilities(record.capability_ids.as_slice(), "capabilityIds")?;
-    validate_slug_list(record.categories.as_slice(), "categories")?;
-    validate_slug_list(record.tags.as_slice(), "tags")?;
-    if let Some(security_profile_id) = record.security_profile_id.as_deref() {
-        validate_standard_id(security_profile_id, "securityProfileId", Some("profile."))?;
-    }
-    validate_json_text(record.input_schema_json.as_str(), "inputSchemaJson")?;
-    validate_json_text(record.output_schema_json.as_str(), "outputSchemaJson")
-}
-
 fn validate_mcp_server_storage_contract(record: &AgentMcpServerRecord) -> KernelResult<()> {
     validate_standard_id(
         record.mcp_server_id.as_str(),
@@ -2050,23 +1805,6 @@ fn validate_mcp_server_storage_contract(record: &AgentMcpServerRecord) -> Kernel
     }
     validate_capabilities(record.capability_ids.as_slice(), "capabilityIds")?;
     validate_json_text(record.capabilities_json.as_str(), "capabilitiesJson")?;
-    validate_slug_list(record.categories.as_slice(), "categories")?;
-    validate_slug_list(record.tags.as_slice(), "tags")
-}
-
-fn validate_prompt_template_storage_contract(
-    record: &AgentPromptTemplateRecord,
-) -> KernelResult<()> {
-    validate_standard_id(record.prompt_id.as_str(), "promptId", Some("prompt."))?;
-    if let Some(safety_profile_id) = record.safety_profile_id.as_deref() {
-        validate_standard_id(safety_profile_id, "safetyProfileId", Some("profile."))?;
-    }
-    validate_capabilities(record.capability_ids.as_slice(), "capabilityIds")?;
-    validate_json_text(record.variables_schema_json.as_str(), "variablesSchemaJson")?;
-    validate_json_text(
-        record.model_constraints_json.as_str(),
-        "modelConstraintsJson",
-    )?;
     validate_slug_list(record.categories.as_slice(), "categories")?;
     validate_slug_list(record.tags.as_slice(), "tags")
 }
@@ -2906,29 +2644,10 @@ pub trait PostgresAgentRepositoryAdapter {
     ) -> Vec<AgentProviderBindingRow>;
     fn insert_deployment_row(&mut self, row: AgentDeploymentRow) -> KernelResult<()>;
     fn list_deployment_rows(&self, tenant_id: u64, agent_id: &str) -> Vec<AgentDeploymentRow>;
-    fn insert_skill_package_row(&mut self, row: AgentSkillPackageRow) -> KernelResult<()>;
-    fn update_skill_package_row(&mut self, row: AgentSkillPackageRow) -> KernelResult<()>;
-    fn get_skill_package_row(&self, tenant_id: u64, skill_id: &str)
-        -> Option<AgentSkillPackageRow>;
-    fn list_skill_package_rows(
-        &self,
-        query: &AgentMarketplaceListQuery,
-    ) -> Vec<AgentSkillPackageRow>;
     fn insert_mcp_server_row(&mut self, row: AgentMcpServerRow) -> KernelResult<()>;
     fn update_mcp_server_row(&mut self, row: AgentMcpServerRow) -> KernelResult<()>;
     fn get_mcp_server_row(&self, tenant_id: u64, mcp_server_id: &str) -> Option<AgentMcpServerRow>;
     fn list_mcp_server_rows(&self, query: &AgentMarketplaceListQuery) -> Vec<AgentMcpServerRow>;
-    fn insert_prompt_template_row(&mut self, row: AgentPromptTemplateRow) -> KernelResult<()>;
-    fn update_prompt_template_row(&mut self, row: AgentPromptTemplateRow) -> KernelResult<()>;
-    fn get_prompt_template_row(
-        &self,
-        tenant_id: u64,
-        prompt_id: &str,
-    ) -> Option<AgentPromptTemplateRow>;
-    fn list_prompt_template_rows(
-        &self,
-        query: &AgentMarketplaceListQuery,
-    ) -> Vec<AgentPromptTemplateRow>;
     fn insert_knowledge_base_row(&mut self, row: AgentKnowledgeBaseRow) -> KernelResult<()>;
     fn update_knowledge_base_row(&mut self, row: AgentKnowledgeBaseRow) -> KernelResult<()>;
     fn get_knowledge_base_row(
@@ -3182,33 +2901,6 @@ where
             .collect()
     }
 
-    fn insert_skill_package(&mut self, record: AgentSkillPackageRecord) -> KernelResult<()> {
-        self.adapter
-            .insert_skill_package_row(AgentSkillPackageRow::from_record(&record)?)
-    }
-
-    fn update_skill_package(&mut self, record: AgentSkillPackageRecord) -> KernelResult<()> {
-        self.adapter
-            .update_skill_package_row(AgentSkillPackageRow::from_record(&record)?)
-    }
-
-    fn get_skill_package(&self, tenant_id: u64, skill_id: &str) -> Option<AgentSkillPackageRecord> {
-        self.adapter
-            .get_skill_package_row(tenant_id, skill_id)
-            .and_then(|row| row.into_record().ok())
-    }
-
-    fn list_skill_packages(
-        &self,
-        query: &AgentMarketplaceListQuery,
-    ) -> Vec<AgentSkillPackageRecord> {
-        self.adapter
-            .list_skill_package_rows(query)
-            .into_iter()
-            .filter_map(|row| row.into_record().ok())
-            .collect()
-    }
-
     fn insert_mcp_server(&mut self, record: AgentMcpServerRecord) -> KernelResult<()> {
         self.adapter
             .insert_mcp_server_row(AgentMcpServerRow::from_record(&record)?)
@@ -3228,37 +2920,6 @@ where
     fn list_mcp_servers(&self, query: &AgentMarketplaceListQuery) -> Vec<AgentMcpServerRecord> {
         self.adapter
             .list_mcp_server_rows(query)
-            .into_iter()
-            .filter_map(|row| row.into_record().ok())
-            .collect()
-    }
-
-    fn insert_prompt_template(&mut self, record: AgentPromptTemplateRecord) -> KernelResult<()> {
-        self.adapter
-            .insert_prompt_template_row(AgentPromptTemplateRow::from_record(&record)?)
-    }
-
-    fn update_prompt_template(&mut self, record: AgentPromptTemplateRecord) -> KernelResult<()> {
-        self.adapter
-            .update_prompt_template_row(AgentPromptTemplateRow::from_record(&record)?)
-    }
-
-    fn get_prompt_template(
-        &self,
-        tenant_id: u64,
-        prompt_id: &str,
-    ) -> Option<AgentPromptTemplateRecord> {
-        self.adapter
-            .get_prompt_template_row(tenant_id, prompt_id)
-            .and_then(|row| row.into_record().ok())
-    }
-
-    fn list_prompt_templates(
-        &self,
-        query: &AgentMarketplaceListQuery,
-    ) -> Vec<AgentPromptTemplateRecord> {
-        self.adapter
-            .list_prompt_template_rows(query)
             .into_iter()
             .filter_map(|row| row.into_record().ok())
             .collect()
@@ -4083,150 +3744,6 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
         .unwrap_or_default()
     }
 
-    fn insert_skill_package_row(&mut self, row: AgentSkillPackageRow) -> KernelResult<()> {
-        let id = u64_to_i64(row.id, "id")?;
-        let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
-        let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
-        let owner_user_id = u64_to_i64(row.owner_user_id, "owner_user_id")?;
-        let version = u64_to_i64(row.version, "version")?;
-        self.with_pool(|pool| {
-            pg_execute!(
-                pool,
-                SQL_INSERT_AGENT_SKILL_PACKAGE,
-                id,
-                row.uuid,
-                tenant_id,
-                organization_id,
-                owner_user_id,
-                row.skill_id,
-                row.code,
-                row.display_name,
-                row.description,
-                row.invocation_kind,
-                row.package_ref,
-                row.entrypoint,
-                row.input_schema_json,
-                row.output_schema_json,
-                row.capability_ids_json,
-                row.categories_json,
-                row.tags_json,
-                row.security_profile_id,
-                row.status,
-                row.visibility,
-                version,
-                row.created_at,
-                row.updated_at,
-                row.deleted_at
-            )?;
-            Ok(())
-        })
-    }
-
-    fn update_skill_package_row(&mut self, row: AgentSkillPackageRow) -> KernelResult<()> {
-        let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
-        let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
-        let owner_user_id = u64_to_i64(row.owner_user_id, "owner_user_id")?;
-        let version = u64_to_i64(row.version, "version")?;
-        let previous_version =
-            u64_to_i64(expected_previous_version(row.version)?, "previous_version")?;
-        self.with_pool(|pool| {
-            let updated_rows = pg_execute!(
-                pool,
-                SQL_UPDATE_AGENT_SKILL_PACKAGE,
-                organization_id,
-                owner_user_id,
-                row.code,
-                row.display_name,
-                row.description,
-                row.invocation_kind,
-                row.package_ref,
-                row.entrypoint,
-                row.input_schema_json,
-                row.output_schema_json,
-                row.capability_ids_json,
-                row.categories_json,
-                row.tags_json,
-                row.security_profile_id,
-                row.status,
-                row.visibility,
-                version,
-                row.updated_at,
-                row.deleted_at,
-                tenant_id,
-                row.skill_id,
-                previous_version
-            )?;
-            if updated_rows == 0 {
-                let exists = pg_query_optional!(
-                    pool,
-                    SQL_SELECT_AGENT_SKILL_PACKAGE,
-                    tenant_id,
-                    row.skill_id
-                )?
-                .is_some();
-                if exists {
-                    return Err(KernelError::conflict(
-                        "agent skill package version mismatch",
-                    ));
-                }
-                return Err(KernelError::validation("agent skill package not found"));
-            }
-            Ok(())
-        })
-    }
-
-    fn get_skill_package_row(
-        &self,
-        tenant_id: u64,
-        skill_id: &str,
-    ) -> Option<AgentSkillPackageRow> {
-        let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_pool(|pool| {
-            let row =
-                pg_query_optional!(pool, SQL_SELECT_AGENT_SKILL_PACKAGE, tenant_id, skill_id)?;
-            row.map(pg_row_to_agent_skill_package_row).transpose()
-        })
-        .ok()
-        .flatten()
-    }
-
-    fn list_skill_package_rows(
-        &self,
-        query: &AgentMarketplaceListQuery,
-    ) -> Vec<AgentSkillPackageRow> {
-        let tenant_id = match u64_to_i64(query.tenant_id, "tenant_id") {
-            Ok(value) => value,
-            Err(_) => return Vec::new(),
-        };
-        self.with_pool(|pool| {
-            let rows = pg_query!(pool, SQL_LIST_AGENT_SKILL_PACKAGES, tenant_id)?;
-            rows.into_iter()
-                .map(pg_row_to_agent_skill_package_row)
-                .collect()
-        })
-        .map(|rows: Vec<AgentSkillPackageRow>| {
-            rows.into_iter()
-                .filter(|row| {
-                    marketplace_row_matches(
-                        query,
-                        row.organization_id,
-                        row.owner_user_id,
-                        row.status,
-                        row.visibility,
-                        row.deleted_at.as_deref(),
-                        row.skill_id.as_str(),
-                        row.code.as_str(),
-                        row.display_name.as_str(),
-                        row.description.as_deref(),
-                        row.categories_json.as_str(),
-                        row.tags_json.as_str(),
-                    )
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-    }
-
     fn insert_mcp_server_row(&mut self, row: AgentMcpServerRow) -> KernelResult<()> {
         let id = u64_to_i64(row.id, "id")?;
         let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
@@ -4366,150 +3883,6 @@ impl PostgresAgentRepositoryAdapter for SyncPostgresAdapter {
                         row.visibility,
                         row.deleted_at.as_deref(),
                         row.mcp_server_id.as_str(),
-                        row.code.as_str(),
-                        row.display_name.as_str(),
-                        row.description.as_deref(),
-                        row.categories_json.as_str(),
-                        row.tags_json.as_str(),
-                    )
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-    }
-
-    fn insert_prompt_template_row(&mut self, row: AgentPromptTemplateRow) -> KernelResult<()> {
-        let id = u64_to_i64(row.id, "id")?;
-        let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
-        let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
-        let owner_user_id = u64_to_i64(row.owner_user_id, "owner_user_id")?;
-        let version = u64_to_i64(row.version, "version")?;
-        self.with_pool(|pool| {
-            pg_execute!(
-                pool,
-                SQL_INSERT_AGENT_PROMPT_TEMPLATE,
-                id,
-                row.uuid,
-                tenant_id,
-                organization_id,
-                owner_user_id,
-                row.prompt_id,
-                row.code,
-                row.display_name,
-                row.description,
-                row.prompt_kind,
-                row.template_format,
-                row.template_body,
-                row.variables_schema_json,
-                row.model_constraints_json,
-                row.capability_ids_json,
-                row.categories_json,
-                row.tags_json,
-                row.safety_profile_id,
-                row.status,
-                row.visibility,
-                version,
-                row.created_at,
-                row.updated_at,
-                row.deleted_at
-            )?;
-            Ok(())
-        })
-    }
-
-    fn update_prompt_template_row(&mut self, row: AgentPromptTemplateRow) -> KernelResult<()> {
-        let tenant_id = u64_to_i64(row.tenant_id, "tenant_id")?;
-        let organization_id = u64_to_i64(row.organization_id, "organization_id")?;
-        let owner_user_id = u64_to_i64(row.owner_user_id, "owner_user_id")?;
-        let version = u64_to_i64(row.version, "version")?;
-        let previous_version =
-            u64_to_i64(expected_previous_version(row.version)?, "previous_version")?;
-        self.with_pool(|pool| {
-            let updated_rows = pg_execute!(
-                pool,
-                SQL_UPDATE_AGENT_PROMPT_TEMPLATE,
-                organization_id,
-                owner_user_id,
-                row.code,
-                row.display_name,
-                row.description,
-                row.prompt_kind,
-                row.template_format,
-                row.template_body,
-                row.variables_schema_json,
-                row.model_constraints_json,
-                row.capability_ids_json,
-                row.categories_json,
-                row.tags_json,
-                row.safety_profile_id,
-                row.status,
-                row.visibility,
-                version,
-                row.updated_at,
-                row.deleted_at,
-                tenant_id,
-                row.prompt_id,
-                previous_version
-            )?;
-            if updated_rows == 0 {
-                let exists = pg_query_optional!(
-                    pool,
-                    SQL_SELECT_AGENT_PROMPT_TEMPLATE,
-                    tenant_id,
-                    row.prompt_id
-                )?
-                .is_some();
-                if exists {
-                    return Err(KernelError::conflict(
-                        "agent prompt template version mismatch",
-                    ));
-                }
-                return Err(KernelError::validation("agent prompt template not found"));
-            }
-            Ok(())
-        })
-    }
-
-    fn get_prompt_template_row(
-        &self,
-        tenant_id: u64,
-        prompt_id: &str,
-    ) -> Option<AgentPromptTemplateRow> {
-        let tenant_id = u64_to_i64(tenant_id, "tenant_id").ok()?;
-        self.with_pool(|pool| {
-            let row =
-                pg_query_optional!(pool, SQL_SELECT_AGENT_PROMPT_TEMPLATE, tenant_id, prompt_id)?;
-            row.map(pg_row_to_agent_prompt_template_row).transpose()
-        })
-        .ok()
-        .flatten()
-    }
-
-    fn list_prompt_template_rows(
-        &self,
-        query: &AgentMarketplaceListQuery,
-    ) -> Vec<AgentPromptTemplateRow> {
-        let tenant_id = match u64_to_i64(query.tenant_id, "tenant_id") {
-            Ok(value) => value,
-            Err(_) => return Vec::new(),
-        };
-        self.with_pool(|pool| {
-            let rows = pg_query!(pool, SQL_LIST_AGENT_PROMPT_TEMPLATES, tenant_id)?;
-            rows.into_iter()
-                .map(pg_row_to_agent_prompt_template_row)
-                .collect()
-        })
-        .map(|rows: Vec<AgentPromptTemplateRow>| {
-            rows.into_iter()
-                .filter(|row| {
-                    marketplace_row_matches(
-                        query,
-                        row.organization_id,
-                        row.owner_user_id,
-                        row.status,
-                        row.visibility,
-                        row.deleted_at.as_deref(),
-                        row.prompt_id.as_str(),
                         row.code.as_str(),
                         row.display_name.as_str(),
                         row.description.as_deref(),
@@ -5981,16 +5354,8 @@ fn build_agent_deployment_uuid(tenant_id: u64, agent_id: &str, deployment_id: &s
     )
 }
 
-fn build_agent_skill_package_uuid(tenant_id: u64, skill_id: &str) -> String {
-    format!("agent_skill_package_{}_{}", tenant_id, skill_id)
-}
-
 fn build_agent_mcp_server_uuid(tenant_id: u64, mcp_server_id: &str) -> String {
     format!("agent_mcp_server_{}_{}", tenant_id, mcp_server_id)
-}
-
-fn build_agent_prompt_template_uuid(tenant_id: u64, prompt_id: &str) -> String {
-    format!("agent_prompt_template_{}_{}", tenant_id, prompt_id)
 }
 
 fn build_agent_memory_store_uuid(tenant_id: u64, memory_store_id: &str) -> String {
@@ -6485,45 +5850,6 @@ fn pg_row_to_agent_business_row(row: PgRow) -> KernelResult<AgentBusinessRow> {
 }
 
 #[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_skill_package_row(row: PgRow) -> KernelResult<AgentSkillPackageRow> {
-    Ok(AgentSkillPackageRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
-        tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_sqlx_error)?,
-            "tenant_id",
-        )?,
-        organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_sqlx_error)?,
-            "organization_id",
-        )?,
-        owner_user_id: int64_to_u64(
-            row.try_get("owner_user_id").map_err(map_sqlx_error)?,
-            "owner_user_id",
-        )?,
-        skill_id: row.try_get("skill_id").map_err(map_sqlx_error)?,
-        code: row.try_get("code").map_err(map_sqlx_error)?,
-        display_name: row.try_get("display_name").map_err(map_sqlx_error)?,
-        description: row.try_get("description").map_err(map_sqlx_error)?,
-        invocation_kind: row.try_get("invocation_kind").map_err(map_sqlx_error)?,
-        package_ref: row.try_get("package_ref").map_err(map_sqlx_error)?,
-        entrypoint: row.try_get("entrypoint").map_err(map_sqlx_error)?,
-        input_schema_json: row.try_get("input_schema_json").map_err(map_sqlx_error)?,
-        output_schema_json: row.try_get("output_schema_json").map_err(map_sqlx_error)?,
-        capability_ids_json: row.try_get("capability_ids_json").map_err(map_sqlx_error)?,
-        categories_json: row.try_get("categories_json").map_err(map_sqlx_error)?,
-        tags_json: row.try_get("tags_json").map_err(map_sqlx_error)?,
-        security_profile_id: row.try_get("security_profile_id").map_err(map_sqlx_error)?,
-        status: row.try_get("status").map_err(map_sqlx_error)?,
-        visibility: row.try_get("visibility").map_err(map_sqlx_error)?,
-        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
-        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
-        deleted_at: row.try_get("deleted_at").map_err(map_sqlx_error)?,
-    })
-}
-
-#[cfg(feature = "postgres-sync")]
 fn pg_row_to_agent_mcp_server_row(row: PgRow) -> KernelResult<AgentMcpServerRow> {
     Ok(AgentMcpServerRow {
         id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
@@ -6567,49 +5893,6 @@ fn pg_row_to_agent_mcp_server_row(row: PgRow) -> KernelResult<AgentMcpServerRow>
         categories_json: row.try_get("categories_json").map_err(map_sqlx_error)?,
         tags_json: row.try_get("tags_json").map_err(map_sqlx_error)?,
         security_profile_id: row.try_get("security_profile_id").map_err(map_sqlx_error)?,
-        status: row.try_get("status").map_err(map_sqlx_error)?,
-        visibility: row.try_get("visibility").map_err(map_sqlx_error)?,
-        version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
-        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
-        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
-        deleted_at: row.try_get("deleted_at").map_err(map_sqlx_error)?,
-    })
-}
-
-#[cfg(feature = "postgres-sync")]
-fn pg_row_to_agent_prompt_template_row(row: PgRow) -> KernelResult<AgentPromptTemplateRow> {
-    Ok(AgentPromptTemplateRow {
-        id: int64_to_u64(row.try_get("id").map_err(map_sqlx_error)?, "id")?,
-        uuid: row.try_get("uuid").map_err(map_sqlx_error)?,
-        tenant_id: int64_to_u64(
-            row.try_get("tenant_id").map_err(map_sqlx_error)?,
-            "tenant_id",
-        )?,
-        organization_id: int64_to_u64(
-            row.try_get("organization_id").map_err(map_sqlx_error)?,
-            "organization_id",
-        )?,
-        owner_user_id: int64_to_u64(
-            row.try_get("owner_user_id").map_err(map_sqlx_error)?,
-            "owner_user_id",
-        )?,
-        prompt_id: row.try_get("prompt_id").map_err(map_sqlx_error)?,
-        code: row.try_get("code").map_err(map_sqlx_error)?,
-        display_name: row.try_get("display_name").map_err(map_sqlx_error)?,
-        description: row.try_get("description").map_err(map_sqlx_error)?,
-        prompt_kind: row.try_get("prompt_kind").map_err(map_sqlx_error)?,
-        template_format: row.try_get("template_format").map_err(map_sqlx_error)?,
-        template_body: row.try_get("template_body").map_err(map_sqlx_error)?,
-        variables_schema_json: row
-            .try_get("variables_schema_json")
-            .map_err(map_sqlx_error)?,
-        model_constraints_json: row
-            .try_get("model_constraints_json")
-            .map_err(map_sqlx_error)?,
-        capability_ids_json: row.try_get("capability_ids_json").map_err(map_sqlx_error)?,
-        categories_json: row.try_get("categories_json").map_err(map_sqlx_error)?,
-        tags_json: row.try_get("tags_json").map_err(map_sqlx_error)?,
-        safety_profile_id: row.try_get("safety_profile_id").map_err(map_sqlx_error)?,
         status: row.try_get("status").map_err(map_sqlx_error)?,
         visibility: row.try_get("visibility").map_err(map_sqlx_error)?,
         version: int64_to_u64(row.try_get("version").map_err(map_sqlx_error)?, "version")?,
@@ -7243,34 +6526,6 @@ mod tests {
         }
     }
 
-    fn sample_skill_package_record() -> AgentSkillPackageRecord {
-        AgentSkillPackageRecord {
-            id: 10,
-            tenant_id: 7,
-            organization_id: 70,
-            owner_user_id: 700,
-            skill_id: "skill.research.deep".to_string(),
-            code: "research-deep".to_string(),
-            display_name: "Deep Research".to_string(),
-            description: Some("research skill".to_string()),
-            invocation_kind: AgentSkillInvocationKind::LocalWorkflow,
-            package_ref: "oci://registry.sdkwork.dev/skills/research:1.0.0".to_string(),
-            entrypoint: "skills.research.run".to_string(),
-            input_schema_json: r#"{"type":"object"}"#.to_string(),
-            output_schema_json: r#"{"type":"object"}"#.to_string(),
-            capability_ids: vec!["skill.invoke".to_string(), "tool.invoke".to_string()],
-            categories: vec!["research".to_string()],
-            tags: vec!["knowledge".to_string()],
-            security_profile_id: Some("profile.skill.research".to_string()),
-            status: AgentBusinessStatus::Active,
-            visibility: AgentVisibility::Tenant,
-            version: 2,
-            created_at: "2026-06-04T00:00:00Z".to_string(),
-            updated_at: "2026-06-04T00:01:00Z".to_string(),
-            deleted_at: None,
-        }
-    }
-
     fn sample_mcp_server_record() -> AgentMcpServerRecord {
         AgentMcpServerRecord {
             id: 11,
@@ -7304,34 +6559,6 @@ mod tests {
             version: 3,
             created_at: "2026-06-04T00:00:00Z".to_string(),
             updated_at: "2026-06-04T00:01:00Z".to_string(),
-            deleted_at: None,
-        }
-    }
-
-    fn sample_prompt_template_record() -> AgentPromptTemplateRecord {
-        AgentPromptTemplateRecord {
-            id: 12,
-            tenant_id: 7,
-            organization_id: 70,
-            owner_user_id: 700,
-            prompt_id: "prompt.review.structured".to_string(),
-            code: "review-structured".to_string(),
-            display_name: "Structured Review".to_string(),
-            description: Some("review prompt".to_string()),
-            prompt_kind: AgentPromptTemplateKind::Developer,
-            template_format: AgentPromptTemplateFormat::Handlebars,
-            template_body: "Review {{artifact}}.".to_string(),
-            variables_schema_json: r#"{"type":"object"}"#.to_string(),
-            model_constraints_json: r#"{"families":["reasoning"]}"#.to_string(),
-            capability_ids: vec!["prompt.render".to_string(), "agent.review".to_string()],
-            categories: vec!["review".to_string()],
-            tags: vec!["quality".to_string()],
-            safety_profile_id: Some("profile.safety.prompt.review".to_string()),
-            status: AgentBusinessStatus::Draft,
-            visibility: AgentVisibility::Public,
-            version: 1,
-            created_at: "2026-06-04T00:00:00Z".to_string(),
-            updated_at: "2026-06-04T00:00:00Z".to_string(),
             deleted_at: None,
         }
     }
@@ -7692,18 +6919,10 @@ mod tests {
             SQL_INSERT_AGENT_DEPLOYMENT,
             SQL_LIST_AGENT_DEPLOYMENTS,
             SQL_INSERT_AUDIT_EVENT,
-            SQL_INSERT_AGENT_SKILL_PACKAGE,
-            SQL_UPDATE_AGENT_SKILL_PACKAGE,
-            SQL_SELECT_AGENT_SKILL_PACKAGE,
-            SQL_LIST_AGENT_SKILL_PACKAGES,
             SQL_INSERT_AGENT_MCP_SERVER,
             SQL_UPDATE_AGENT_MCP_SERVER,
             SQL_SELECT_AGENT_MCP_SERVER,
             SQL_LIST_AGENT_MCP_SERVERS,
-            SQL_INSERT_AGENT_PROMPT_TEMPLATE,
-            SQL_UPDATE_AGENT_PROMPT_TEMPLATE,
-            SQL_SELECT_AGENT_PROMPT_TEMPLATE,
-            SQL_LIST_AGENT_PROMPT_TEMPLATES,
             SQL_INSERT_AGENT_KNOWLEDGE_BASE,
             SQL_UPDATE_AGENT_KNOWLEDGE_BASE,
             SQL_SELECT_AGENT_KNOWLEDGE_BASE,
@@ -7815,18 +7034,10 @@ mod tests {
         assert!(SQL_INSERT_AGENT_DEPLOYMENT.contains("INSERT INTO a_agent_deployment"));
         assert!(SQL_INSERT_AGENT_DEPLOYMENT.contains("$14"));
         assert!(SQL_LIST_AGENT_DEPLOYMENTS.contains("ORDER BY created_at DESC, deployment_id ASC"));
-        assert!(SQL_INSERT_AGENT_SKILL_PACKAGE.contains("INSERT INTO a_agent_skill_package"));
-        assert!(SQL_INSERT_AGENT_SKILL_PACKAGE.contains("$24"));
-        assert!(SQL_UPDATE_AGENT_SKILL_PACKAGE
-            .contains("WHERE tenant_id = $20 AND skill_id = $21 AND version = $22"));
         assert!(SQL_INSERT_AGENT_MCP_SERVER.contains("INSERT INTO a_agent_mcp_server"));
         assert!(SQL_INSERT_AGENT_MCP_SERVER.contains("$29"));
         assert!(SQL_UPDATE_AGENT_MCP_SERVER
             .contains("WHERE tenant_id = $25 AND mcp_server_id = $26 AND version = $27"));
-        assert!(SQL_INSERT_AGENT_PROMPT_TEMPLATE.contains("INSERT INTO a_agent_prompt_template"));
-        assert!(SQL_INSERT_AGENT_PROMPT_TEMPLATE.contains("$24"));
-        assert!(SQL_UPDATE_AGENT_PROMPT_TEMPLATE
-            .contains("WHERE tenant_id = $20 AND prompt_id = $21 AND version = $22"));
         assert!(SQL_INSERT_AGENT_KNOWLEDGE_BASE.contains("INSERT INTO a_agent_knowledge_base"));
         assert!(SQL_INSERT_AGENT_KNOWLEDGE_BASE.contains("$20"));
         assert!(SQL_UPDATE_AGENT_KNOWLEDGE_BASE
@@ -7896,9 +7107,7 @@ mod tests {
             SQL_INSERT_AGENT_PROVIDER_BINDING,
             SQL_INSERT_AGENT_DEPLOYMENT,
             SQL_INSERT_AUDIT_EVENT,
-            SQL_INSERT_AGENT_SKILL_PACKAGE,
             SQL_INSERT_AGENT_MCP_SERVER,
-            SQL_INSERT_AGENT_PROMPT_TEMPLATE,
             SQL_INSERT_AGENT_KNOWLEDGE_BASE,
             SQL_INSERT_AGENT_KNOWLEDGE_SOURCE,
             SQL_INSERT_AGENT_KNOWLEDGE_DOCUMENT,
@@ -7919,10 +7128,7 @@ mod tests {
             assert!(!sql.contains("RETURNING id"));
         }
 
-        for required in [
-            "CREATE TABLE IF NOT EXISTS a_agent_skill_package",
-            "CREATE TABLE IF NOT EXISTS a_agent_mcp_server",
-            "CREATE TABLE IF NOT EXISTS a_agent_prompt_template",
+        for required in [            "CREATE TABLE IF NOT EXISTS a_agent_mcp_server",
             "CREATE TABLE IF NOT EXISTS a_agent_knowledge_base",
             "CREATE TABLE IF NOT EXISTS a_agent_knowledge_source",
             "CREATE TABLE IF NOT EXISTS a_agent_knowledge_document",
@@ -7966,20 +7172,12 @@ mod tests {
             "configuration_profile_id_snapshot ~ '^profile\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
             "ck_a_agent_deployment_capabilities_snapshot_standard",
             "sdkwork_agent_business_capabilities_json_is_standard(capabilities_snapshot_json)",
-            "ck_a_agent_skill_package_skill_id_standard",
-            "skill_id ~ '^skill\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
-            "ck_a_agent_skill_package_invocation_kind",
-            "ck_a_agent_skill_package_capabilities_standard",
             "ck_a_agent_mcp_server_id_standard",
             "mcp_server_id ~ '^mcp\\.server\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
             "ck_a_agent_mcp_server_transport_refs",
             "ck_a_agent_mcp_server_endpoint_ref_standard",
             "ck_a_agent_mcp_server_auth_kind",
             "sdkwork_agent_business_capabilities_json_is_standard(capability_ids_json)",
-            "ck_a_agent_prompt_template_prompt_id_standard",
-            "prompt_id ~ '^prompt\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
-            "ck_a_agent_prompt_template_prompt_kind",
-            "ck_a_agent_prompt_template_format",
             "sdkwork_agent_business_knowledge_modes_json_is_standard(retrieval_modes_json)",
             "ck_a_agent_knowledge_base_id_standard",
             "knowledge_base_id ~ '^knowledge\\.base\\.[a-z0-9_-]+(\\.[a-z0-9_-]+)*$'",
@@ -8016,8 +7214,7 @@ mod tests {
             "embedding_model_id IS NOT NULL AND vector_dimension IS NOT NULL",
             "ck_a_agent_memory_access_event_kind",
             "ck_a_agent_memory_compaction_job_kind",
-            "skill_created",
-            "mcp_created",
+                        "mcp_created",
             "prompt_created",
             "memory_store_created",
             "memory_record_created",
@@ -8208,30 +7405,6 @@ mod tests {
     }
 
     #[test]
-    fn skill_package_row_roundtrip_preserves_marketplace_contract() {
-        let record = sample_skill_package_record();
-        let row =
-            AgentSkillPackageRow::from_record(&record).expect("skill row mapping should succeed");
-
-        assert_eq!(
-            row.uuid,
-            "agent_skill_package_7_skill.research.deep".to_string()
-        );
-        assert_eq!(row.invocation_kind, "local-workflow");
-        assert!(row.capability_ids_json.contains("skill.invoke"));
-        assert_eq!(
-            row.security_profile_id.as_deref(),
-            Some("profile.skill.research")
-        );
-
-        let rebuilt = row
-            .into_record()
-            .expect("skill record mapping should succeed");
-
-        assert_eq!(rebuilt, record);
-    }
-
-    #[test]
     fn mcp_server_row_roundtrip_preserves_protocol_marketplace_contract() {
         let record = sample_mcp_server_record();
         let row =
@@ -8246,24 +7419,6 @@ mod tests {
         let rebuilt = row
             .into_record()
             .expect("mcp server record mapping should succeed");
-
-        assert_eq!(rebuilt, record);
-    }
-
-    #[test]
-    fn prompt_template_row_roundtrip_preserves_template_marketplace_contract() {
-        let record = sample_prompt_template_record();
-        let row = AgentPromptTemplateRow::from_record(&record)
-            .expect("prompt template row mapping should succeed");
-
-        assert_eq!(row.uuid, "agent_prompt_template_7_prompt.review.structured");
-        assert_eq!(row.prompt_kind, "developer");
-        assert_eq!(row.template_format, "handlebars");
-        assert!(row.template_body.contains("{{artifact}}"));
-
-        let rebuilt = row
-            .into_record()
-            .expect("prompt template record mapping should succeed");
 
         assert_eq!(rebuilt, record);
     }
@@ -8679,29 +7834,13 @@ mod tests {
 
     #[test]
     fn marketplace_rows_reject_non_standard_ids_from_storage() {
-        let mut skill = AgentSkillPackageRow::from_record(&sample_skill_package_record())
-            .expect("skill row should build");
-        skill.skill_id = "agent.skill.bad".to_string();
-        let error = skill
-            .into_record()
-            .expect_err("invalid skill id should fail");
-        assert_validation_contains(error, "skillId");
-
-        let mut mcp = AgentMcpServerRow::from_record(&sample_mcp_server_record())
+let mut mcp = AgentMcpServerRow::from_record(&sample_mcp_server_record())
             .expect("mcp row should build");
         mcp.endpoint_ref = Some("https://example.test".to_string());
         let error = mcp
             .into_record()
             .expect_err("invalid endpoint ref should fail");
         assert_validation_contains(error, "endpointRef");
-
-        let mut prompt = AgentPromptTemplateRow::from_record(&sample_prompt_template_record())
-            .expect("prompt row should build");
-        prompt.prompt_id = "review.prompt".to_string();
-        let error = prompt
-            .into_record()
-            .expect_err("invalid prompt id should fail");
-        assert_validation_contains(error, "promptId");
     }
 
     #[test]

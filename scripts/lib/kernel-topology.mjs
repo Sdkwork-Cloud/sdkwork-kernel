@@ -15,7 +15,7 @@ const __dirname = path.dirname(__filename);
 
 export const REPO_ROOT = path.resolve(__dirname, '..', '..');
 export const SPEC_PATH = path.join(REPO_ROOT, 'specs/topology.spec.json');
-export const API_GATEWAY_REPO = path.resolve(REPO_ROOT, '..', 'sdkwork-api-gateway');
+export const API_GATEWAY_REPO = path.resolve(REPO_ROOT, '..', 'sdkwork-api-cloud-gateway');
 
 const spec = loadTopologySpec(SPEC_PATH);
 const runtime = createTopologyRuntime(spec, REPO_ROOT);

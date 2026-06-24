@@ -43,7 +43,7 @@ It follows:
 | `a_agent_business` | `tenant_entity` | L2 | Agent management record (manifest summary, lifecycle, visibility, ownership). |
 | `a_agent_provider_binding` | `tenant_entity` | L2 | Provider implementation bindings for a managed agent, including active/default selection. |
 | `a_agent_deployment` | `tenant_entity` | L2 | Deployable agent instance records with provider and configuration snapshots. |
-| `a_agent_skill_package` | `tenant_entity` | L2 | Installable agent skill marketplace packages, schemas, capability metadata, and security profile references. |
+| `*(migrated to sdkwork-skills `ai_agent_skill_package`)*` | `tenant_entity` | L2 | Installable agent skill marketplace packages, schemas, capability metadata, and security profile references. |
 | `a_agent_mcp_server` | `tenant_entity` | L2 | MCP marketplace entries with protocol, transport, auth, safe endpoint/command references, and advertised capabilities. |
 | `a_agent_prompt_template` | `tenant_entity` | L2 | Prompt/template marketplace entries with kind, rendering format, variables schema, model constraints, and safety profile references. |
 | `a_agent_knowledge_base` | `tenant_entity` | L2 | Knowledge-base registry with provider, base kind, provider-neutral retrieval modes, capabilities, and configuration profile reference. |
@@ -224,7 +224,7 @@ Rules:
 - Snapshot id and capability fields are validated at service, row-mapping,
   OpenAPI, and PostgreSQL CHECK boundaries.
 
-### 3.4 `a_agent_skill_package`
+### 3.4 `*(migrated to sdkwork-skills `ai_agent_skill_package`)*`
 
 Installable skill marketplace package table. A row represents curated business
 metadata and safe execution references; runtime execution remains in kernel or
@@ -273,9 +273,9 @@ Constraints:
 
 Indexes:
 
-- `idx_a_agent_skill_package_tenant_org_status_updated` on
+- `idx_*(migrated to sdkwork-skills `ai_agent_skill_package`)*_tenant_org_status_updated` on
   `(tenant_id, organization_id, status, updated_at desc, code asc)`
-- `idx_a_agent_skill_package_tenant_visibility_status` on
+- `idx_*(migrated to sdkwork-skills `ai_agent_skill_package`)*_tenant_visibility_status` on
   `(tenant_id, visibility, status)`
 
 Rules:

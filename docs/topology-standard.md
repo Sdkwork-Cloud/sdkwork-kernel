@@ -13,22 +13,22 @@ This repository adopts the shared SDKWork runtime topology framework.
 
 ## Default dev profile
 
-`self-hosted.split-services.development`
+`standalone.split-services.development`
 
 ## Surfaces
 
 | Surface id | Process | Client talks to |
 | --- | --- | --- |
 | `application.public-ingress` | `sdkwork-agent-server` | Agent HTTP + WebSocket |
-| `platform.api-gateway` | `sdkwork-api-gateway` | IAM, Drive, and other platform REST APIs |
+| `platform.api-gateway` | `sdkwork-api-cloud-gateway` | IAM, Drive, and other platform REST APIs |
 
 ## Commands
 
 ```bash
 pnpm dev                                              # standalone + unified-process dev default
-pnpm dev:server:postgres:split-services:standalone    # self-hosted.split-services.development
-pnpm dev:server:postgres:unified-process:standalone   # self-hosted.unified-process.development
-pnpm dev:server:postgres:split-services:cloud         # cloud-hosted.split-services.development
+pnpm dev:server:postgres:split-services:standalone    # standalone.split-services.development
+pnpm dev:server:postgres:unified-process:standalone   # standalone.unified-process.development
+pnpm dev:server:postgres:split-services:cloud         # cloud.split-services.development
 pnpm topology:validate                                # validate specs/topology.spec.json
 ```
 

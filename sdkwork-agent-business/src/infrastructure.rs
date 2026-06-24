@@ -5,8 +5,7 @@ use crate::domain::{
     AgentKnowledgeSyncJobRecord, AgentMcpServerRecord, AgentMemoryBindingRecord,
     AgentMemoryBindingScopeKind, AgentMemoryNamespaceRecord, AgentMemoryProfileRecord,
     AgentMemoryRecord, AgentMemoryRelationRecord, AgentMemoryRetrievalIndexRecord,
-    AgentMemorySourceRecord, AgentMemoryStoreRecord, AgentPromptTemplateRecord,
-    AgentProviderBindingRecord, AgentSkillPackageRecord,
+    AgentMemorySourceRecord, AgentMemoryStoreRecord, AgentProviderBindingRecord,
 };
 use crate::id::{AgentBusinessIdGenerator, AgentIdGenerator};
 use crate::ports::{AgentAuditSink, AgentListQuery, AgentMarketplaceListQuery, AgentRepository};
@@ -23,9 +22,7 @@ pub struct InMemoryAgentRepository {
     records: Vec<AgentBusinessRecord>,
     provider_bindings: Vec<AgentProviderBindingRecord>,
     deployments: Vec<AgentDeploymentRecord>,
-    skill_packages: Vec<AgentSkillPackageRecord>,
     mcp_servers: Vec<AgentMcpServerRecord>,
-    prompt_templates: Vec<AgentPromptTemplateRecord>,
     knowledge_bases: Vec<AgentKnowledgeBaseRecord>,
     knowledge_sources: Vec<AgentKnowledgeSourceRecord>,
     knowledge_documents: Vec<AgentKnowledgeDocumentRecord>,
@@ -51,9 +48,7 @@ impl InMemoryAgentRepository {
             records: Vec::new(),
             provider_bindings: Vec::new(),
             deployments: Vec::new(),
-            skill_packages: Vec::new(),
             mcp_servers: Vec::new(),
-            prompt_templates: Vec::new(),
             knowledge_bases: Vec::new(),
             knowledge_sources: Vec::new(),
             knowledge_documents: Vec::new(),
@@ -299,102 +294,6 @@ impl AgentRepository for InMemoryAgentRepository {
         records
     }
 
-    fn insert_skill_package(&mut self, record: AgentSkillPackageRecord) -> KernelResult<()> {
-        if self.skill_packages.iter().any(|existing| {
-            existing.tenant_id == record.tenant_id && existing.skill_id == record.skill_id
-        }) {
-            return Err(KernelError::conflict("agent skill package already exists"));
-        }
-        if self
-            .skill_packages
-            .iter()
-            .any(|existing| existing.tenant_id == record.tenant_id && existing.code == record.code)
-        {
-            return Err(KernelError::conflict(
-                "agent skill package code already exists",
-            ));
-        }
-        self.skill_packages.push(record);
-        Ok(())
-    }
-
-    fn update_skill_package(&mut self, record: AgentSkillPackageRecord) -> KernelResult<()> {
-        let Some(index) = self.skill_packages.iter().position(|existing| {
-            existing.tenant_id == record.tenant_id && existing.skill_id == record.skill_id
-        }) else {
-            return Err(KernelError::validation("agent skill package not found"));
-        };
-        let expected_version = self.skill_packages[index].version.saturating_add(1);
-        if record.version != expected_version {
-            return Err(KernelError::conflict(format!(
-                "agent skill package version mismatch: expected={expected_version}, actual={}",
-                record.version
-            )));
-        }
-        if self
-            .skill_packages
-            .iter()
-            .enumerate()
-            .any(|(current, existing)| {
-                current != index
-                    && existing.tenant_id == record.tenant_id
-                    && existing.code == record.code
-            })
-        {
-            return Err(KernelError::conflict(
-                "agent skill package code already exists",
-            ));
-        }
-        self.skill_packages[index] = record;
-        Ok(())
-    }
-
-    fn get_skill_package(&self, tenant_id: u64, skill_id: &str) -> Option<AgentSkillPackageRecord> {
-        self.skill_packages
-            .iter()
-            .find(|record| record.tenant_id == tenant_id && record.skill_id == skill_id)
-            .cloned()
-    }
-
-    fn list_skill_packages(
-        &self,
-        query: &AgentMarketplaceListQuery,
-    ) -> Vec<AgentSkillPackageRecord> {
-        let mut records: Vec<AgentSkillPackageRecord> = self
-            .skill_packages
-            .iter()
-            .filter(|record| {
-                marketplace_record_matches(
-                    query,
-                    MarketplaceRecordView {
-                        tenant_id: record.tenant_id,
-                        organization_id: record.organization_id,
-                        owner_user_id: record.owner_user_id,
-                        status: record.status,
-                        visibility: record.visibility,
-                        deleted: record.is_deleted(),
-                        id: record.skill_id.as_str(),
-                        code: record.code.as_str(),
-                        display_name: record.display_name.as_str(),
-                        description: record.description.as_deref(),
-                        categories: record.categories.as_slice(),
-                        tags: record.tags.as_slice(),
-                    },
-                )
-            })
-            .cloned()
-            .collect();
-        records.sort_by(|left, right| {
-            compare_marketplace_standard_order(
-                left.updated_at.as_str(),
-                left.code.as_str(),
-                right.updated_at.as_str(),
-                right.code.as_str(),
-            )
-        });
-        records
-    }
-
     fn insert_mcp_server(&mut self, record: AgentMcpServerRecord) -> KernelResult<()> {
         if self.mcp_servers.iter().any(|existing| {
             existing.tenant_id == record.tenant_id && existing.mcp_server_id == record.mcp_server_id
@@ -467,108 +366,6 @@ impl AgentRepository for InMemoryAgentRepository {
                         visibility: record.visibility,
                         deleted: record.is_deleted(),
                         id: record.mcp_server_id.as_str(),
-                        code: record.code.as_str(),
-                        display_name: record.display_name.as_str(),
-                        description: record.description.as_deref(),
-                        categories: record.categories.as_slice(),
-                        tags: record.tags.as_slice(),
-                    },
-                )
-            })
-            .cloned()
-            .collect();
-        records.sort_by(|left, right| {
-            compare_marketplace_standard_order(
-                left.updated_at.as_str(),
-                left.code.as_str(),
-                right.updated_at.as_str(),
-                right.code.as_str(),
-            )
-        });
-        records
-    }
-
-    fn insert_prompt_template(&mut self, record: AgentPromptTemplateRecord) -> KernelResult<()> {
-        if self.prompt_templates.iter().any(|existing| {
-            existing.tenant_id == record.tenant_id && existing.prompt_id == record.prompt_id
-        }) {
-            return Err(KernelError::conflict(
-                "agent prompt template already exists",
-            ));
-        }
-        if self
-            .prompt_templates
-            .iter()
-            .any(|existing| existing.tenant_id == record.tenant_id && existing.code == record.code)
-        {
-            return Err(KernelError::conflict(
-                "agent prompt template code already exists",
-            ));
-        }
-        self.prompt_templates.push(record);
-        Ok(())
-    }
-
-    fn update_prompt_template(&mut self, record: AgentPromptTemplateRecord) -> KernelResult<()> {
-        let Some(index) = self.prompt_templates.iter().position(|existing| {
-            existing.tenant_id == record.tenant_id && existing.prompt_id == record.prompt_id
-        }) else {
-            return Err(KernelError::validation("agent prompt template not found"));
-        };
-        let expected_version = self.prompt_templates[index].version.saturating_add(1);
-        if record.version != expected_version {
-            return Err(KernelError::conflict(format!(
-                "agent prompt template version mismatch: expected={expected_version}, actual={}",
-                record.version
-            )));
-        }
-        if self
-            .prompt_templates
-            .iter()
-            .enumerate()
-            .any(|(current, existing)| {
-                current != index
-                    && existing.tenant_id == record.tenant_id
-                    && existing.code == record.code
-            })
-        {
-            return Err(KernelError::conflict(
-                "agent prompt template code already exists",
-            ));
-        }
-        self.prompt_templates[index] = record;
-        Ok(())
-    }
-
-    fn get_prompt_template(
-        &self,
-        tenant_id: u64,
-        prompt_id: &str,
-    ) -> Option<AgentPromptTemplateRecord> {
-        self.prompt_templates
-            .iter()
-            .find(|record| record.tenant_id == tenant_id && record.prompt_id == prompt_id)
-            .cloned()
-    }
-
-    fn list_prompt_templates(
-        &self,
-        query: &AgentMarketplaceListQuery,
-    ) -> Vec<AgentPromptTemplateRecord> {
-        let mut records: Vec<AgentPromptTemplateRecord> = self
-            .prompt_templates
-            .iter()
-            .filter(|record| {
-                marketplace_record_matches(
-                    query,
-                    MarketplaceRecordView {
-                        tenant_id: record.tenant_id,
-                        organization_id: record.organization_id,
-                        owner_user_id: record.owner_user_id,
-                        status: record.status,
-                        visibility: record.visibility,
-                        deleted: record.is_deleted(),
-                        id: record.prompt_id.as_str(),
                         code: record.code.as_str(),
                         display_name: record.display_name.as_str(),
                         description: record.description.as_deref(),

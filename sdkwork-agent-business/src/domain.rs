@@ -539,36 +539,6 @@ pub struct AgentDeploymentRecord {
     pub created_at: String,
     pub updated_at: String,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgentSkillInvocationKind {
-    LocalWorkflow,
-    ProcessAdapter,
-    McpTool,
-    KernelProvider,
-}
-
-impl AgentSkillInvocationKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::LocalWorkflow => "local-workflow",
-            Self::ProcessAdapter => "process-adapter",
-            Self::McpTool => "mcp-tool",
-            Self::KernelProvider => "kernel-provider",
-        }
-    }
-
-    pub(crate) fn from_code(value: &str) -> Option<Self> {
-        match value {
-            "local-workflow" => Some(Self::LocalWorkflow),
-            "process-adapter" => Some(Self::ProcessAdapter),
-            "mcp-tool" => Some(Self::McpTool),
-            "kernel-provider" => Some(Self::KernelProvider),
-            _ => None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentMcpTransportKind {
     Stdio,
@@ -1265,7 +1235,6 @@ macro_rules! impl_domain_from_str_compat {
 impl_domain_from_str!(AgentBusinessStatus);
 impl_domain_from_str!(AgentVisibility);
 impl_domain_from_str!(AgentImplementationKind);
-impl_domain_from_str!(AgentSkillInvocationKind);
 impl_domain_from_str!(AgentMcpTransportKind);
 impl_domain_from_str!(AgentMcpAuthKind);
 impl_domain_from_str!(AgentPromptTemplateKind);
@@ -1288,7 +1257,6 @@ impl_domain_from_str!(AgentKnowledgeSyncJobStatus);
 impl_domain_from_str_compat!(AgentBusinessStatus);
 impl_domain_from_str_compat!(AgentVisibility);
 impl_domain_from_str_compat!(AgentImplementationKind);
-impl_domain_from_str_compat!(AgentSkillInvocationKind);
 impl_domain_from_str_compat!(AgentMcpTransportKind);
 impl_domain_from_str_compat!(AgentMcpAuthKind);
 impl_domain_from_str_compat!(AgentPromptTemplateKind);
@@ -1307,34 +1275,6 @@ impl_domain_from_str_compat!(AgentKnowledgeDocumentKind);
 impl_domain_from_str_compat!(AgentKnowledgeBindingScopeKind);
 impl_domain_from_str_compat!(AgentKnowledgeSyncJobKind);
 impl_domain_from_str_compat!(AgentKnowledgeSyncJobStatus);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentSkillPackageRecord {
-    pub id: u64,
-    pub tenant_id: u64,
-    pub organization_id: u64,
-    pub owner_user_id: u64,
-    pub skill_id: String,
-    pub code: String,
-    pub display_name: String,
-    pub description: Option<String>,
-    pub invocation_kind: AgentSkillInvocationKind,
-    pub package_ref: String,
-    pub entrypoint: String,
-    pub input_schema_json: String,
-    pub output_schema_json: String,
-    pub capability_ids: Vec<String>,
-    pub categories: Vec<String>,
-    pub tags: Vec<String>,
-    pub security_profile_id: Option<String>,
-    pub status: AgentBusinessStatus,
-    pub visibility: AgentVisibility,
-    pub version: u64,
-    pub created_at: String,
-    pub updated_at: String,
-    pub deleted_at: Option<String>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentMcpServerRecord {
     pub id: u64,
@@ -1731,32 +1671,6 @@ impl AgentBusinessRecord {
     pub fn mark_deleted(&mut self, deleted_at: impl Into<String>) {
         self.status = AgentBusinessStatus::Deleted;
         self.deleted_at = Some(deleted_at.into());
-        self.version = self.version.saturating_add(1);
-    }
-
-    pub fn mark_restored(&mut self, restored_at: impl Into<String>) {
-        self.status = AgentBusinessStatus::Active;
-        self.deleted_at = None;
-        self.updated_at = restored_at.into();
-        self.version = self.version.saturating_add(1);
-    }
-}
-
-impl AgentSkillPackageRecord {
-    pub fn is_deleted(&self) -> bool {
-        self.status == AgentBusinessStatus::Deleted || self.deleted_at.is_some()
-    }
-
-    pub fn mark_updated(&mut self, updated_at: impl Into<String>) {
-        self.updated_at = updated_at.into();
-        self.version = self.version.saturating_add(1);
-    }
-
-    pub fn mark_deleted(&mut self, deleted_at: impl Into<String>) {
-        let deleted_at = deleted_at.into();
-        self.status = AgentBusinessStatus::Deleted;
-        self.deleted_at = Some(deleted_at.clone());
-        self.updated_at = deleted_at;
         self.version = self.version.saturating_add(1);
     }
 

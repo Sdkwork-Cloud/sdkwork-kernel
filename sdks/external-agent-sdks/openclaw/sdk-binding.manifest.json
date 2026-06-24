@@ -5,7 +5,7 @@
   "agent_id": "agent.intelligence.openclaw",
   "display_name": "OpenClaw",
   "description": "External agent SDK binding for OpenClaw plugin SDK and gateway protocol surfaces.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "sdk_owner": "openclaw",
   "status": "experimental",
   "kernel_compatibility": {
@@ -14,6 +14,7 @@
   "language_packages": {
     "typescript": {
       "package": "openclaw",
+      "version": "2026.6.10",
       "optional": false
     }
   },

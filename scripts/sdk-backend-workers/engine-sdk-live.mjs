@@ -8,33 +8,35 @@ const workerDir = path.dirname(fileURLToPath(import.meta.url));
 const kernelRoot = path.resolve(workerDir, '../..');
 
 const PROFILE_ENV = 'SDKWORK_KERNEL_PROFILE_ID';
+const ENVIRONMENT_ENV = 'SDKWORK_KERNEL_ENVIRONMENT';
 const ALLOW_MOCK_ENV = 'SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS';
-const LEGACY_ALLOW_MOCK_ENV = 'SDKWORK_KERNEL_ALLOW_MOCK_FALLBACK';
 const PACKAGE_PATHS_ENV = 'SDKWORK_AGENT_SDK_PACKAGE_PATHS';
 const WORKSPACE_ROOT_ENV = 'SDKWORK_AGENT_SDK_WORKSPACE_ROOT';
 
-const PRODUCTION_PROFILES = new Set(['prod', 'production', 'release']);
+export function isProductionKernelProfile() {
+  const environment = (process.env[ENVIRONMENT_ENV] ?? '').trim().toLowerCase();
+  if (environment === 'production' || environment === 'prod') {
+    return true;
+  }
+  const profile = (process.env[PROFILE_ENV] ?? '').trim().toLowerCase();
+  return profile.endsWith('.production');
+}
 
 export function mockProviderInvocationAllowed() {
-  const profile = (process.env[PROFILE_ENV] ?? '').trim().toLowerCase();
-  if (PRODUCTION_PROFILES.has(profile)) {
+  if (isProductionKernelProfile()) {
     return explicitMockOverrideEnabled();
   }
   return !explicitMockOverrideDisabled() || explicitMockOverrideEnabled();
 }
 
 function explicitMockOverrideEnabled() {
-  return [ALLOW_MOCK_ENV, LEGACY_ALLOW_MOCK_ENV]
-    .map((key) => process.env[key])
-    .filter(Boolean)
-    .some((value) => matchesAllowTruthy(value));
+  const value = process.env[ALLOW_MOCK_ENV];
+  return value ? matchesAllowTruthy(value) : false;
 }
 
 function explicitMockOverrideDisabled() {
-  return [ALLOW_MOCK_ENV, LEGACY_ALLOW_MOCK_ENV]
-    .map((key) => process.env[key])
-    .filter(Boolean)
-    .some((value) => matchesDenyFalsy(value));
+  const value = process.env[ALLOW_MOCK_ENV];
+  return value ? matchesDenyFalsy(value) : false;
 }
 
 function matchesAllowTruthy(value) {
@@ -56,17 +58,29 @@ function workspaceRoot() {
     return birdcoderSibling;
   }
 
+  if (existsSync(path.join(kernelRoot, 'external'))) {
+    return kernelRoot;
+  }
+
   return null;
 }
 
 function defaultPackagePaths(root) {
-  return {
+  const paths = {
     '@openai/codex-sdk': path.join(root, 'external/codex/sdk/typescript'),
     '@openai/codex': path.join(root, 'external/codex/sdk/typescript'),
     '@opencode-ai/sdk': path.join(root, 'external/opencode/packages/sdk/js'),
     '@google/gemini-cli-sdk': path.join(root, 'external/gemini/packages/sdk'),
     '@anthropic-ai/claude-agent-sdk': path.join(root, 'external/claude-code'),
+    openclaw: path.join(root, 'external/openclaw'),
   };
+
+  const kernelOpenClaw = path.join(kernelRoot, 'external/openclaw');
+  if (existsSync(path.join(kernelOpenClaw, 'package.json'))) {
+    paths.openclaw = kernelOpenClaw;
+  }
+
+  return paths;
 }
 
 function configuredPackagePaths() {
@@ -285,12 +299,57 @@ async function invokeOpencodeModelChat(prompt, operation, packageName) {
   throw new Error('opencode sdk missing createOpencode/createOpencodeClient');
 }
 
+async function invokeOpenClawModelChat(prompt, operation, packageName) {
+  const gatewayUrl =
+    process.env.OPENCLAW_GATEWAY_URL?.trim() || process.env.OPENCLAW_HTTP_URL?.trim();
+  if (gatewayUrl) {
+    const base = gatewayUrl.replace(/\/$/, '');
+    const url = `${base}/v1/chat/completions`;
+    const headers = { 'Content-Type': 'application/json' };
+    const token = process.env.OPENCLAW_GATEWAY_TOKEN?.trim();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const messages = (operation.messages ?? [prompt]).map((entry) => ({
+      role: 'user',
+      content: String(entry ?? ''),
+    }));
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: operation.model_id ?? 'default',
+        messages,
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`openclaw gateway chat failed: HTTP ${response.status}`);
+    }
+    const payload = await response.json();
+    const text =
+      payload?.choices?.[0]?.message?.content ??
+      payload?.choices?.[0]?.text ??
+      payload?.message?.content ??
+      '';
+    return liveSuccess(text, operation, {
+      package: packageName,
+      gateway_url: base,
+    });
+  }
+
+  throw new Error(
+    'openclaw live invoke requires OPENCLAW_GATEWAY_URL or a gateway-compatible HTTP endpoint'
+  );
+}
+
 const LIVE_MODEL_CHAT_HANDLERS = {
   '@openai/codex-sdk': invokeCodexModelChat,
   '@openai/codex': invokeCodexModelChat,
   '@anthropic-ai/claude-agent-sdk': invokeClaudeModelChat,
   '@google/gemini-cli-sdk': invokeGeminiModelChat,
   '@opencode-ai/sdk': invokeOpencodeModelChat,
+  openclaw: invokeOpenClawModelChat,
 };
 
 export async function invokeModelChatLive(packageName, operation) {

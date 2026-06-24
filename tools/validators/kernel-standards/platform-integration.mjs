@@ -285,6 +285,11 @@ export function validatePlatformIntegration({ kernelRoot, errors, ensureFile, re
       'sdkwork-agent-server/src/metrics.rs must expose rate-limit backend gauge for distributed limiter ops'
     );
   }
+  if (serverMetrics && !serverMetrics.includes('operational_environment_label')) {
+    errors.push(
+      'sdkwork-agent-server/src/metrics.rs must label production topology profiles as environment=production'
+    );
+  }
 
   const serverPersistence = readFileIfExists(
     path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'persistence.rs')
@@ -360,6 +365,57 @@ export function validatePlatformIntegration({ kernelRoot, errors, ensureFile, re
     errors.push(
       'sdkwork-agent-server/src/config.rs must declare runtime_database_engine and requires_distributed_rate_limit'
     );
+  }
+  if (serverConfig && !serverConfig.includes('is_production_kernel_profile')) {
+    errors.push(
+      'sdkwork-agent-server/src/config.rs must define is_production_kernel_profile for topology-aligned production detection'
+    );
+  }
+  if (serverConfig && !serverConfig.includes('sdkwork_agent_kernel::is_production_kernel_profile')) {
+    errors.push(
+      'sdkwork-agent-server/src/config.rs must delegate production profile detection to sdkwork-agent-kernel runtime_topology'
+    );
+  }
+
+  const kernelRuntimeTopology = readFileIfExists(
+    path.join(kernelRoot, 'sdkwork-agent-kernel', 'src', 'runtime_topology.rs')
+  );
+  if (!kernelRuntimeTopology || !kernelRuntimeTopology.includes('mock_provider_invocation_allowed')) {
+    errors.push(
+      'sdkwork-agent-kernel/src/runtime_topology.rs must own canonical mock provider fail-closed policy'
+    );
+  }
+
+  const serverPreflight = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-server', 'src', 'preflight.rs'));
+  if (serverPreflight && !serverPreflight.includes('is_production_kernel_profile')) {
+    errors.push(
+      'sdkwork-agent-server/src/preflight.rs must use is_production_kernel_profile for topology-aligned production checks'
+    );
+  }
+
+  const appManifestPath = path.join(kernelRoot, 'sdkwork.app.config.json');
+  if (fs.existsSync(appManifestPath)) {
+    const appManifest = JSON.parse(fs.readFileSync(appManifestPath, 'utf8'));
+    const topologySpec = appManifest.metadata?.topologySpec;
+    if (topologySpec !== 'specs/topology.spec.json') {
+      errors.push('sdkwork.app.config.json metadata.topologySpec must reference specs/topology.spec.json');
+    }
+    for (const [envName, envConfig] of Object.entries(appManifest.environments ?? {})) {
+      if (!envConfig?.topologyProfileId || typeof envConfig.topologyProfileId !== 'string') {
+        errors.push(`sdkwork.app.config.json environments.${envName} must declare topologyProfileId`);
+      }
+      if (envConfig?.accessUrl) {
+        errors.push(`sdkwork.app.config.json environments.${envName} must use accessUrlEnv instead of hardcoded accessUrl`);
+      }
+      if (
+        envConfig?.accessUrlEnv &&
+        envConfig.accessUrlEnv !== 'SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL'
+      ) {
+        errors.push(
+          `sdkwork.app.config.json environments.${envName}.accessUrlEnv must be SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL`,
+        );
+      }
+    }
   }
 
   const serverMiddleware = readFileIfExists(

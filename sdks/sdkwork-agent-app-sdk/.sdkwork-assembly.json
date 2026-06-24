@@ -38,15 +38,15 @@
   "sdkOwner": "sdkwork-kernel",
   "sdkDependencies": [
     {
-      "workspace": "sdkwork-appbase-app-sdk",
+      "workspace": "sdkwork-iam-app-sdk",
       "role": "appbase-identity-and-session-capability",
       "required": true,
       "dependencyMode": "consumer-sdk",
       "apiPrefix": "/app/v3/api",
-      "apiAuthority": "sdkwork-appbase-app-api",
+      "apiAuthority": "sdkwork-iam-app-api",
       "generatedTransportImportPolicy": "forbidden",
       "packageByLanguage": {
-        "typescript": "@sdkwork/appbase-app-sdk"
+        "typescript": "@sdkwork/iam-app-sdk"
       }
     }
   ],

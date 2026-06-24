@@ -196,6 +196,16 @@ test('internal-api runtime mount prefix stays aligned across authority, server, 
   assert.equal(authorityPrefix, INTERNAL_RUNTIME_PREFIX);
   assert.equal(authorityIndex.surfaces[0].surface, 'internal-api');
   assert.equal(authorityIndex.surfaces[0].ingress, 'application.public-ingress');
+  assert.match(
+    openapiSource,
+    /applicationPublicIngressOrigin/,
+    'internal-api OpenAPI must declare topology-bound server variable'
+  );
+  assert.match(
+    openapiSource,
+    /SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL/,
+    'internal-api OpenAPI must document topology HTTP URL env key'
+  );
 });
 
 test('agent-client remote HTTP uses canonical ingress auth and signed identity headers', () => {

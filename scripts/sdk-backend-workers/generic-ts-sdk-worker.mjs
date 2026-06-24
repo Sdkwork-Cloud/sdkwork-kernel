@@ -87,6 +87,19 @@ async function handleCapabilityInvoke(params) {
     };
   }
 
+  if (op === 'skill_invoke') {
+    return {
+      ok: true,
+      mode: packageProbe.resolved ? 'sdk_probe' : 'stub',
+      output: JSON.stringify({
+        skill_id: operation.skill_id ?? null,
+        arguments: operation.arguments ?? null,
+        package: packageName,
+      }),
+      package: packageName,
+    };
+  }
+
   return {
     ok: true,
     mode: 'unknown_operation',

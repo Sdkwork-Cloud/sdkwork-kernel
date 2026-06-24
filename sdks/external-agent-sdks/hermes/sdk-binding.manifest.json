@@ -5,7 +5,7 @@
   "agent_id": "agent.intelligence.hermes",
   "display_name": "Hermes Agent",
   "description": "External agent SDK binding for Hermes Agent Python runtime and TUI gateway JSON-RPC.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "sdk_owner": "nousresearch",
   "status": "experimental",
   "kernel_compatibility": {
@@ -13,7 +13,8 @@
   },
   "language_packages": {
     "python": {
-      "module": "hermes_agent",
+      "module": "run_agent",
+      "version": "0.17.0",
       "optional": false
     },
     "typescript": {

@@ -37,6 +37,19 @@ if (manifest.security?.checksumRequired && !fs.existsSync(checksumPath)) {
   errors.push('sdkwork.app.config.json requires checksum evidence');
 }
 
+const topologySpec = manifest.metadata?.topologySpec;
+if (topologySpec !== 'specs/topology.spec.json') {
+  errors.push('sdkwork.app.config.json metadata.topologySpec must reference specs/topology.spec.json');
+}
+for (const [envName, envConfig] of Object.entries(manifest.environments ?? {})) {
+  if (!envConfig?.topologyProfileId) {
+    errors.push(`sdkwork.app.config.json environments.${envName} must declare topologyProfileId`);
+  }
+  if (envConfig?.accessUrl) {
+    errors.push(`sdkwork.app.config.json environments.${envName} must use accessUrlEnv instead of accessUrl`);
+  }
+}
+
 if (errors.length > 0) {
   for (const error of errors) {
     console.error(`RELEASE VALIDATION: ${error}`);

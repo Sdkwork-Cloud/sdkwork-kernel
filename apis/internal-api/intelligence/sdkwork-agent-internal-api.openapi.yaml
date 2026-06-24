@@ -4,7 +4,12 @@ info:
   version: 0.1.0
   description: Application-ingress internal runtime API for SDKWork agent kernel UI and trusted in-app automation.
 servers:
-  - url: http://127.0.0.1:18280
+  - url: '{applicationPublicIngressOrigin}'
+    description: Runtime origin from topology env `SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL` (kernel UI client uses `VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL`).
+    variables:
+      applicationPublicIngressOrigin:
+        default: http://127.0.0.1:18280
+        description: Local default from `standalone.split-services.development`; production profiles override via topology env files.
 tags:
   - name: intelligence
     description: Agent intelligence runtime operations on application ingress.

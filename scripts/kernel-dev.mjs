@@ -31,21 +31,6 @@ function pnpmCommand() {
   return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
-const DEPLOYMENT_PROFILE_TO_HOSTING = {
-  standalone: 'self-hosted',
-  cloud: 'cloud-hosted',
-};
-
-function mapDeploymentProfileToHosting(deploymentProfile) {
-  const hosting = DEPLOYMENT_PROFILE_TO_HOSTING[deploymentProfile];
-  if (!hosting) {
-    throw new Error(
-      `unsupported deployment profile ${deploymentProfile}; use standalone or cloud`,
-    );
-  }
-  return hosting;
-}
-
 function parseArgs(argv) {
   const settings = {
     deploymentProfile: 'standalone',
@@ -72,7 +57,7 @@ function parseArgs(argv) {
     }
     if (arg === '--hosting') {
       throw new Error(
-        '--hosting is retired; use --deployment-profile (standalone -> self-hosted, cloud -> cloud-hosted)',
+        '--hosting is retired; use --deployment-profile (standalone | cloud)',
       );
     }
     if (arg === '--topology') {
@@ -150,7 +135,10 @@ function createPnpmProcess({ label, packageName, script, env }) {
 }
 
 function createPlatformGatewayProcess(env) {
-  const bind = resolveGatewayBind(env, env.SDKWORK_KERNEL_HOSTING ?? 'self-hosted');
+  const bind = resolveGatewayBind(
+    env,
+    env.SDKWORK_KERNEL_DEPLOYMENT_PROFILE ?? 'standalone',
+  );
   return {
     label: 'sdkwork-api-cloud-gateway',
     command: cargoCommand(),
@@ -226,8 +214,7 @@ async function main() {
     process.exit(0);
   }
 
-  const hosting = mapDeploymentProfileToHosting(settings.deploymentProfile);
-  const profileId = resolveDevProfileId(hosting, settings.serviceLayout)
+  const profileId = resolveDevProfileId(settings.deploymentProfile, settings.serviceLayout)
     || DEFAULT_DEV_PROFILE_ID;
   const profileEnv = loadProfile(profileId);
   const runtimeEnv = mergeRuntimeEnv(process.env, profileEnv, bridgeLegacyServiceEnv(profileEnv), {

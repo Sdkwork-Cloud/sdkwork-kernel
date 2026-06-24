@@ -73,15 +73,15 @@
     "routeManifest": null,
     "sdkDependencies": [
       {
-        "workspace": "sdkwork-appbase-backend-sdk",
+        "workspace": "sdkwork-iam-backend-sdk",
         "role": "appbase-backend-management-capability",
         "required": true,
         "dependencyMode": "consumer-sdk",
         "apiPrefix": "/backend/v3/api",
-        "apiAuthority": "sdkwork-appbase-backend-api",
+        "apiAuthority": "sdkwork-iam-backend-api",
         "generatedTransportImportPolicy": "forbidden",
         "packageByLanguage": {
-          "typescript": "@sdkwork/appbase-backend-sdk"
+          "typescript": "@sdkwork/iam-backend-sdk"
         }
       }
     ],

@@ -31,8 +31,9 @@ const stub = buildStubModelChatResult(
 );
 assert.equal(stub.mode, 'sdk_probe');
 
-process.env.SDKWORK_KERNEL_PROFILE_ID = 'prod';
+process.env.SDKWORK_KERNEL_PROFILE_ID = 'cloud.split-services.production';
+process.env.SDKWORK_KERNEL_ENVIRONMENT = 'production';
 delete process.env.SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS;
-assert.equal(mockProviderInvocationAllowed(), false, 'prod profile should block mock fallback');
+assert.equal(mockProviderInvocationAllowed(), false, 'production topology profile should block mock fallback');
 
 console.log('engine-sdk-live contract passed.');

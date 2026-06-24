@@ -49,10 +49,12 @@
   },
   "environments": {
     "development": {
-      "accessUrl": "http://127.0.0.1:18280"
+      "topologyProfileId": "standalone.split-services.development",
+      "accessUrlEnv": "SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL"
     },
     "production": {
-      "accessUrl": "https://kernel.sdkwork.com"
+      "topologyProfileId": "cloud.split-services.production",
+      "accessUrlEnv": "SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL"
     }
   },
   "artifacts": {

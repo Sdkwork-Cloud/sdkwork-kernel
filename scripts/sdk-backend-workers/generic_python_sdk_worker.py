@@ -69,6 +69,20 @@ def handle_capability_invoke(params, package_name):
             "tool_call_id": operation.get("tool_call_id"),
         }
 
+    if op == "skill_invoke":
+        return {
+            "ok": True,
+            "mode": "sdk_probe" if package_probe["resolved"] else "stub",
+            "output": json.dumps(
+                {
+                    "skill_id": operation.get("skill_id"),
+                    "arguments": operation.get("arguments"),
+                    "package": package_name,
+                }
+            ),
+            "package": package_name,
+        }
+
     return {
         "ok": True,
         "mode": "unknown_operation",

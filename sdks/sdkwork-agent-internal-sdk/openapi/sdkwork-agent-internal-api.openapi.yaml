@@ -9,7 +9,12 @@ x-sdkwork-sdk-family: sdkwork-agent-internal-sdk
 x-sdkwork-owner-only-input: true
 x-sdkwork-standard-version: '2026-06-06'
 servers:
-  - url: http://127.0.0.1:18280
+  - url: '{applicationPublicIngressOrigin}'
+    description: Runtime origin from topology env `SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL` (kernel UI client uses `VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL`).
+    variables:
+      applicationPublicIngressOrigin:
+        default: http://127.0.0.1:18280
+        description: Local default from `standalone.split-services.development`; production profiles override via topology env files.
 tags:
   - name: intelligence
     description: Agent intelligence runtime operations on application ingress.

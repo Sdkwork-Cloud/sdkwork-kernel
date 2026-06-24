@@ -52,7 +52,13 @@
     "clientApiGatewayBaseUrl": "VITE_SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL",
     "apiGatewayBaseUrl": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL",
     "deploymentProfile": "SDKWORK_KERNEL_DEPLOYMENT_PROFILE",
-    "clientDeploymentProfile": "VITE_SDKWORK_KERNEL_DEPLOYMENT_PROFILE"
+    "clientDeploymentProfile": "VITE_SDKWORK_KERNEL_DEPLOYMENT_PROFILE",
+    "runtimeTarget": "SDKWORK_KERNEL_RUNTIME_TARGET",
+    "allowMockProviders": "SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS",
+    "kernelAgentPlugin": "SDKWORK_KERNEL_AGENT_PLUGIN",
+    "rateLimitRps": "SDKWORK_RATE_LIMIT_RPS",
+    "rateLimitBurst": "SDKWORK_RATE_LIMIT_BURST",
+    "rateLimitRedisUrl": "SDKWORK_RATE_LIMIT_REDIS_URL"
   },
   "surfaces": {
     "application.public-ingress": {
@@ -198,7 +204,10 @@
       "SDKWORK_KERNEL_TOPOLOGY",
       "VITE_KERNEL_TOPOLOGY",
       "SDKWORK_KERNEL_HOSTING",
-      "VITE_SDKWORK_KERNEL_HOSTING"
+      "VITE_SDKWORK_KERNEL_HOSTING",
+      "SDKWORK_BIND_ADDRESS",
+      "SDKWORK_PORT",
+      "SDKWORK_KERNEL_ALLOW_MOCK_FALLBACK"
     ],
     "notes": "Use hosting/serviceLayout/environment profile ids and application.public-ingress surface keys instead of legacy topology selectors.",
     "vocabulary": {

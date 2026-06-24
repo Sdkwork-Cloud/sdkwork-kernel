@@ -15,6 +15,7 @@ const scanRoots = [
   'sdkwork-kernel-plugins',
   'scripts',
   'configs',
+  'deployments',
   'docs',
   'specs',
   'tests',
@@ -31,6 +32,7 @@ const skipPathFragments = [
   '/external/',
   'sdkwork-kernel-topology-baggage.test.mjs',
   'kernel_topology_alignment.test.mjs',
+  'kernel_deployment_release.test.mjs',
   'docs/topology-standard.md',
   'configs/topology/',
   'docs/quality/',
@@ -45,6 +47,9 @@ const allowlistPathFragments = [
 const bannedPatterns = [
   { id: 'topology v1 env key', pattern: /SDKWORK_KERNEL_TOPOLOGY/u },
   { id: 'client topology v1 env key', pattern: /VITE_KERNEL_TOPOLOGY/u },
+  { id: 'retired hosting env key', pattern: /SDKWORK_KERNEL_HOSTING/u },
+  { id: 'retired split bind env key', pattern: /SDKWORK_BIND_ADDRESS/u },
+  { id: 'retired mock fallback env key', pattern: /SDKWORK_KERNEL_ALLOW_MOCK_FALLBACK/u },
   { id: 'topology CLI flag', pattern: /--topology\b/u },
   {
     id: 'hardcoded application ingress url',

@@ -35,11 +35,11 @@ pnpm topology:validate                                # validate specs/topology.
 
 ## Local URLs (self-hosted split dev)
 
-| Surface | URL |
+| Surface | Env key (authoritative value in profile env) |
 | --- | --- |
-| `application.public-ingress` | http://127.0.0.1:18280 |
-| `platform.api-gateway` | http://127.0.0.1:3900 |
-| Kernel UI dev server | http://127.0.0.1:5179 |
+| `application.public-ingress` | `SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL` |
+| `platform.api-gateway` | `SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL` |
+| Kernel UI dev server | Vite dev server (see `sdkwork-kernel-ui` package scripts) |
 
 Client env keys:
 
@@ -48,6 +48,19 @@ Client env keys:
 - `VITE_SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL` — platform / IAM SDKs
 
 Profile values live in `configs/topology/*.env` only. Do not hardcode ports in Rust crates or UI packages.
+
+## Agent runtime plugin
+
+`SDKWORK_KERNEL_AGENT_PLUGIN` selects the kernel agent plugin loaded by `sdkwork-agent-server`:
+
+| Value | Runtime |
+| --- | --- |
+| `rig` | Default typed Rig providers |
+| `openclaw` | OpenClaw SDK process adapter |
+| `hermes` | Hermes Agent SDK process adapter |
+| `codex` | Codex SDK process adapter |
+
+Implementation: `sdkwork-agent-server/src/runtime_bootstrap.rs`. As-built architecture: [TECH-2026-06-14-multi-mode-agent-system.md](./TECH-2026-06-14-multi-mode-agent-system.md).
 
 ## Cloud URLs
 

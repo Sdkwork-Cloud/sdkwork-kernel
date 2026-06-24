@@ -144,11 +144,27 @@ jobs:
           path: .workspace-deps/sdkwork-utils
           ref: main
 
+      - name: Checkout sdkwork-id sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-id
+          path: .workspace-deps/sdkwork-id
+          ref: main
+
+      - name: Checkout sdkwork-prompts sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-prompts
+          path: .workspace-deps/sdkwork-prompts
+          ref: main
+
       - name: Link platform siblings for path dependencies
         run: |
           mkdir -p ..
           ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/sdkwork-database" ../sdkwork-database
           ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/sdkwork-utils" ../sdkwork-utils
+          ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/sdkwork-id" ../sdkwork-id
+          ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/sdkwork-prompts" ../sdkwork-prompts
 
       - uses: dtolnay/rust-toolchain@stable
 

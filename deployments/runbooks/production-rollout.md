@@ -8,6 +8,7 @@ Owner: SDKWork kernel maintainers.
 - `SDKWORK_KERNEL_INGRESS_TOKEN` provisioned in secret manager (never in git)
 - `SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres` with `SDKWORK_AGENT_RUNTIME_DATABASE_URL` or `SDKWORK_AGENT_RUNTIME_POSTGRES_URI`
 - `SDKWORK_RATE_LIMIT_REDIS_URL` (or `SDKWORK_REDIS_URL`) for distributed rate limiting across replicas
+- `SDKWORK_KERNEL_AGENT_PLUGIN=rig` (production default; see `configs/topology/cloud.split-services.production.env`)
 - Optional: `SDKWORK_KERNEL_METRICS_TOKEN` (defaults to ingress token when unset)
 - Optional: `SDKWORK_OTEL_EXPORTER_OTLP_ENDPOINT` for distributed tracing
 
@@ -25,7 +26,7 @@ node scripts/release/validate-release-artifacts.mjs
 
 ```bash
 docker compose -f deployments/docker/docker-compose.cloud.yml up -d --build
-curl -fsS http://127.0.0.1:18280/health
+curl -fsS "${SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL}/health"
 ```
 
 Compose starts PostgreSQL, Redis, and `agent-server` with shared runtime persistence and Redis-backed rate limits.
@@ -47,6 +48,17 @@ Compose starts PostgreSQL, Redis, and `agent-server` with shared runtime persist
 ## Rollback
 
 - Kubernetes: `kubectl rollout undo deployment/sdkwork-agent-server`
+
+## Staging plugin validation (optional)
+
+Before switching production away from `SDKWORK_KERNEL_AGENT_PLUGIN=rig`, validate alternate plugins on a development/staging profile:
+
+1. Set `SDKWORK_KERNEL_AGENT_PLUGIN` to `openclaw`, `hermes`, or `codex` in the staging topology env file.
+2. Run `pnpm verify` on the candidate build.
+3. Exercise live upstream prerequisites documented in [TECH-2026-06-14-multi-mode-agent-system.md](../../docs/architecture/tech/TECH-2026-06-14-multi-mode-agent-system.md) (OpenClaw gateway URL, Hermes tui_gateway, Codex SDK worker).
+4. Confirm session create accepts the plugin's hosted `agentId` via internal-api runtime routes.
+
+Production remains locked to `rig` in all `*.production.env` profiles unless an explicit product decision changes that policy.
 - Docker Compose: redeploy previous image digest; Postgres data remains in the `postgres` volume
 
 ## Scaling

@@ -36,14 +36,67 @@ test('cloud compose provisions postgres and redis for agent-server', () => {
   );
   assert.match(compose, /^\s*postgres:/m);
   assert.match(compose, /^\s*redis:/m);
-  assert.match(compose, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE:\s*postgres/);
-  assert.match(compose, /SDKWORK_RATE_LIMIT_REDIS_URL:/);
+  assert.match(compose, /env_file:/);
+  assert.match(compose, /configs\/topology\/cloud\.split-services\.production\.env/);
+  assert.match(compose, /SDKWORK_AGENT_RUNTIME_DATABASE_URL:/);
+  assert.doesNotMatch(compose, /SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL:\s*http:\/\/127\.0\.0\.1:18280/);
+  assert.doesNotMatch(compose, /SDKWORK_KERNEL_HOSTING/);
+  assert.doesNotMatch(compose, /SDKWORK_BIND_ADDRESS/);
+});
+
+test('production rollout runbook uses topology public HTTP env without hardcoded fallback', () => {
+  const runbook = fs.readFileSync(
+    path.join(root, 'deployments/runbooks/production-rollout.md'),
+    'utf8',
+  );
+  assert.match(runbook, /SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL/);
+  assert.match(runbook, /SDKWORK_KERNEL_AGENT_PLUGIN=rig/);
+  assert.doesNotMatch(runbook, /http:\/\/127\.0\.0\.1:18280/);
+});
+
+test('production docker image defaults to cloud deployment profile', () => {
+  const dockerfile = fs.readFileSync(
+    path.join(root, 'deployments/docker/Dockerfile'),
+    'utf8',
+  );
+  assert.match(dockerfile, /SDKWORK_KERNEL_DEPLOYMENT_PROFILE=cloud/);
+  assert.match(dockerfile, /SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND=0\.0\.0\.0:18280/);
+  assert.match(dockerfile, /SDKWORK_KERNEL_AGENT_PLUGIN=rig/);
+  assert.doesNotMatch(dockerfile, /SDKWORK_KERNEL_HOSTING/);
+  assert.doesNotMatch(dockerfile, /SDKWORK_BIND_ADDRESS/);
+});
+
+test('kubernetes configmap documents cloud deployment profile', () => {
+  const configMap = fs.readFileSync(
+    path.join(root, 'deployments/kubernetes/configmap.yaml'),
+    'utf8',
+  );
+  assert.match(configMap, /SDKWORK_KERNEL_DEPLOYMENT_PROFILE:\s*cloud/);
+  assert.match(configMap, /SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND:\s*0\.0\.0\.0:18280/);
+  assert.match(configMap, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE:\s*postgres/);
+  assert.match(configMap, /SDKWORK_KERNEL_AGENT_PLUGIN:\s*rig/);
+  assert.match(configMap, /SDKWORK_RATE_LIMIT_REDIS_URL:/);
+  assert.doesNotMatch(configMap, /SDKWORK_KERNEL_HOSTING/);
+  assert.doesNotMatch(configMap, /SDKWORK_BIND_ADDRESS/);
 });
 
 test('app manifest requires SBOM and checksum evidence', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(root, 'sdkwork.app.config.json'), 'utf8'));
   assert.equal(manifest.security?.sbomRequired, true);
   assert.equal(manifest.security?.checksumRequired, true);
+  assert.equal(manifest.metadata?.topologySpec, 'specs/topology.spec.json');
+  assert.equal(
+    manifest.environments?.development?.topologyProfileId,
+    'standalone.split-services.development',
+  );
+  assert.equal(
+    manifest.environments?.production?.topologyProfileId,
+    'cloud.split-services.production',
+  );
+  assert.equal(
+    manifest.environments?.production?.accessUrlEnv,
+    'SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL',
+  );
 });
 
 test('workflow declares SBOM generation and release validation', () => {

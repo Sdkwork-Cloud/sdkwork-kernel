@@ -1,5 +1,10 @@
+use sdkwork_agent_plugin_codex::ids as codex_ids;
 use sdkwork_agent_plugin_core::StandardPluginIds;
+use sdkwork_agent_plugin_hermes::ids as hermes_ids;
+use sdkwork_agent_plugin_openclaw::ids as openclaw_ids;
 use sdkwork_agent_plugin_rig::ids as rig_ids;
+
+use crate::runtime_bootstrap::{kernel_agent_plugin_kind_from_env, KernelAgentPluginKind};
 
 /// A hosted agent binding exposed by this kernel process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -9,18 +14,41 @@ pub struct RegisteredAgent {
     pub default_model_provider_id: &'static str,
 }
 
-const HOSTED_AGENTS: &[RegisteredAgent] = &[RegisteredAgent {
-    agent_id: rig_ids::AGENT_ID,
-    runtime_agent_id: rig_ids::AGENT_ID,
-    default_model_provider_id: rig_ids::MODEL_PROVIDER_ID,
-}];
+/// Returns the single hosted agent binding for the active kernel plugin.
+pub fn active_hosted_agent() -> RegisteredAgent {
+    match kernel_agent_plugin_kind_from_env() {
+        KernelAgentPluginKind::Rig => RegisteredAgent {
+            agent_id: rig_ids::AGENT_ID,
+            runtime_agent_id: rig_ids::AGENT_ID,
+            default_model_provider_id: rig_ids::MODEL_PROVIDER_ID,
+        },
+        KernelAgentPluginKind::OpenClaw => RegisteredAgent {
+            agent_id: openclaw_ids::AGENT_ID,
+            runtime_agent_id: openclaw_ids::AGENT_ID,
+            default_model_provider_id: openclaw_ids::MODEL_PROVIDER_ID,
+        },
+        KernelAgentPluginKind::Hermes => RegisteredAgent {
+            agent_id: hermes_ids::AGENT_ID,
+            runtime_agent_id: hermes_ids::AGENT_ID,
+            default_model_provider_id: hermes_ids::MODEL_PROVIDER_ID,
+        },
+        KernelAgentPluginKind::Codex => RegisteredAgent {
+            agent_id: codex_ids::AGENT_ID,
+            runtime_agent_id: codex_ids::AGENT_ID,
+            default_model_provider_id: codex_ids::MODEL_PROVIDER_ID,
+        },
+    }
+}
 
 #[cfg(debug_assertions)]
-const DEV_AGENT_ALIASES: &[(&str, &str)] = &[
-    ("agent.1", rig_ids::AGENT_ID),
-    ("agent.2", rig_ids::AGENT_ID),
-    ("agent.intelligence.general", rig_ids::AGENT_ID),
-];
+fn dev_agent_alias_canonical(agent_id: &str) -> Option<&'static str> {
+    match agent_id {
+        "agent.1" | "agent.2" | "agent.intelligence.general" => {
+            Some(active_hosted_agent().agent_id)
+        }
+        _ => None,
+    }
+}
 
 /// Resolve a hosted agent binding when the id is registered on this kernel host.
 pub fn resolve_registered_agent(agent_id: &str) -> Option<RegisteredAgent> {
@@ -28,24 +56,14 @@ pub fn resolve_registered_agent(agent_id: &str) -> Option<RegisteredAgent> {
         return None;
     }
 
-    if let Some(found) = HOSTED_AGENTS
-        .iter()
-        .find(|entry| entry.agent_id == agent_id)
-    {
-        return Some(*found);
+    let hosted = active_hosted_agent();
+    if agent_id == hosted.agent_id {
+        return Some(hosted);
     }
 
     #[cfg(debug_assertions)]
-    {
-        if let Some((_, canonical)) = DEV_AGENT_ALIASES
-            .iter()
-            .find(|(alias, _)| *alias == agent_id)
-        {
-            return HOSTED_AGENTS
-                .iter()
-                .find(|entry| entry.agent_id == *canonical)
-                .copied();
-        }
+    if dev_agent_alias_canonical(agent_id).is_some() {
+        return Some(hosted);
     }
 
     None
@@ -76,21 +94,60 @@ pub fn apply_hosted_agent_defaults(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime_bootstrap::KERNEL_AGENT_PLUGIN_ENV;
+    use crate::testing::env::{lock, VarGuard};
 
     #[test]
-    fn resolves_canonical_rig_agent() {
+    fn resolves_canonical_rig_agent_by_default() {
+        let _lock = lock();
+        let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, None);
         let agent = validate_hosted_agent_id(rig_ids::AGENT_ID).expect("rig agent should resolve");
         assert_eq!(agent.default_model_provider_id, rig_ids::MODEL_PROVIDER_ID);
     }
 
     #[test]
+    fn resolves_openclaw_agent_when_plugin_env_set() {
+        let _lock = lock();
+        let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, Some("openclaw"));
+        let agent =
+            validate_hosted_agent_id(openclaw_ids::AGENT_ID).expect("openclaw agent should resolve");
+        assert_eq!(
+            agent.default_model_provider_id,
+            openclaw_ids::MODEL_PROVIDER_ID
+        );
+        assert!(validate_hosted_agent_id(rig_ids::AGENT_ID).is_err());
+    }
+
+    #[test]
+    fn resolves_hermes_agent_when_plugin_env_set() {
+        let _lock = lock();
+        let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, Some("hermes"));
+        let agent =
+            validate_hosted_agent_id(hermes_ids::AGENT_ID).expect("hermes agent should resolve");
+        assert_eq!(agent.default_model_provider_id, hermes_ids::MODEL_PROVIDER_ID);
+    }
+
+    #[test]
+    fn resolves_codex_agent_when_plugin_env_set() {
+        let _lock = lock();
+        let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, Some("codex"));
+        let agent =
+            validate_hosted_agent_id(codex_ids::AGENT_ID).expect("codex agent should resolve");
+        assert_eq!(agent.default_model_provider_id, codex_ids::MODEL_PROVIDER_ID);
+    }
+
+    #[test]
     fn rejects_unknown_agent_id() {
+        let _lock = lock();
+        let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, None);
         assert!(validate_hosted_agent_id("agent.intelligence.unknown").is_err());
     }
 
     #[test]
     fn dev_alias_resolves_in_debug_builds() {
+        let _lock = lock();
+        let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, Some("codex"));
         let agent = resolve_registered_agent("agent.1").expect("dev alias should resolve");
-        assert_eq!(agent.agent_id, rig_ids::AGENT_ID);
+        assert_eq!(agent.agent_id, codex_ids::AGENT_ID);
     }
 }

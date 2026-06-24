@@ -1244,6 +1244,11 @@ mod tests {
 
     #[tokio::test]
     async fn internal_runtime_snapshot_and_session_roundtrip() {
+        let _lock = crate::testing::env::lock();
+        let _plugin = crate::testing::env::VarGuard::set(
+            crate::runtime_bootstrap::KERNEL_AGENT_PLUGIN_ENV,
+            None,
+        );
         let state = test_state();
         let snapshot = load_snapshot(State(state.clone()))
             .await

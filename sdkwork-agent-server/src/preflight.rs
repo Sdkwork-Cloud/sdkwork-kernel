@@ -39,7 +39,7 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
         });
     }
 
-    if config.environment.eq_ignore_ascii_case("production")
+    if config.is_production_kernel_profile()
         && config.bind_address == "0.0.0.0"
     {
         checks.push(PreflightCheck {
@@ -76,7 +76,7 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
     }
 
     if config.ingress_auth_mode.eq_ignore_ascii_case("jwt")
-        && config.environment.eq_ignore_ascii_case("production")
+        && config.is_production_kernel_profile()
         && config
             .ingress_jwt_jwks_url
             .as_deref()
@@ -105,7 +105,7 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
         });
     }
 
-    if config.environment.eq_ignore_ascii_case("production")
+    if config.is_production_kernel_profile()
         && config.rate_limit_rps == 0
     {
         checks.push(PreflightCheck {
@@ -156,7 +156,7 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
         });
     }
 
-    if config.environment.eq_ignore_ascii_case("production")
+    if config.is_production_kernel_profile()
         && config.uses_postgres_runtime_database()
         && !postgres_runtime_uri_configured()
     {
@@ -168,10 +168,9 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
         });
     }
 
-    if config.environment.eq_ignore_ascii_case("production")
+    if config.is_production_kernel_profile()
         && !config.uses_postgres_runtime_database()
-        && (config.kernel_hosting.as_deref() == Some("cloud-hosted")
-            || config.kernel_runtime_target.as_deref() == Some("server"))
+        && config.production_scaleout_profile()
     {
         checks.push(PreflightCheck {
             name: "runtime_sqlite_scaling".to_string(),
@@ -313,9 +312,12 @@ mod tests {
 
     #[test]
     fn validate_default_config() {
+        let _lock = crate::testing::env::lock();
+        let _profile = crate::testing::env::VarGuard::set("SDKWORK_KERNEL_PROFILE_ID", None);
+        let _environment = crate::testing::env::VarGuard::set("SDKWORK_KERNEL_ENVIRONMENT", None);
         let config = ServerConfig::default();
         let result = validate(&config);
-        assert!(result.passed);
+        assert!(result.passed, "{result:?}");
     }
 
     #[test]
@@ -355,7 +357,7 @@ mod tests {
     fn cloud_production_preflight_requires_redis_and_postgres_uri() {
         let config = ServerConfig {
             environment: "production".to_string(),
-            kernel_hosting: Some("cloud-hosted".to_string()),
+            deployment_profile: Some("cloud".to_string()),
             kernel_runtime_target: Some("server".to_string()),
             runtime_database_engine: "postgres".to_string(),
             ingress_auth_mode: "token".to_string(),
@@ -380,6 +382,30 @@ mod tests {
                 .iter()
                 .any(|check| check.name == "runtime_postgres"),
             "expected runtime_postgres failure"
+        );
+    }
+
+    #[test]
+    fn production_topology_profile_requires_rate_limit_without_environment_literal() {
+        let _lock = crate::testing::env::lock();
+        let _profile = crate::testing::env::VarGuard::set(
+            "SDKWORK_KERNEL_PROFILE_ID",
+            Some("cloud.split-services.production"),
+        );
+        let config = ServerConfig {
+            environment: "development".to_string(),
+            deployment_profile: Some("cloud".to_string()),
+            kernel_runtime_target: Some("server".to_string()),
+            rate_limit_rps: 0,
+            ..Default::default()
+        };
+        let result = validate(&config);
+        assert!(
+            result
+                .checks
+                .iter()
+                .any(|check| check.name == "rate_limit"),
+            "topology production profile must enforce rate limits even when environment is not production"
         );
     }
 }

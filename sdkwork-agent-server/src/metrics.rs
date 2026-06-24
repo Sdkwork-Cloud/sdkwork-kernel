@@ -80,8 +80,8 @@ impl MetricsRegistry {
         Arc::new(Self {
             labels: StaticLabels {
                 service: SERVICE_NAME.to_string(),
-                environment: normalize_environment(&config.environment),
-                deployment_profile: resolve_deployment_profile(),
+                environment: operational_environment_label(config),
+                deployment_profile: config.effective_deployment_profile().to_string(),
                 runtime_target: RUNTIME_TARGET.to_string(),
             },
             requests: Mutex::new(HashMap::new()),
@@ -378,23 +378,19 @@ pub async fn prometheus_metrics(
     )
 }
 
+fn operational_environment_label(config: &ServerConfig) -> String {
+    if config.is_production_kernel_profile() {
+        return "production".to_string();
+    }
+    normalize_environment(&config.environment)
+}
+
 fn normalize_environment(environment: &str) -> String {
     match environment.to_ascii_lowercase().as_str() {
-        "production" | "prod" => "production".to_string(),
+        "production" => "production".to_string(),
         "staging" | "stage" => "staging".to_string(),
         "test" => "test".to_string(),
         _ => "development".to_string(),
-    }
-}
-
-fn resolve_deployment_profile() -> String {
-    match std::env::var("SDKWORK_KERNEL_HOSTING")
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "cloud-hosted" | "cloud" => "cloud".to_string(),
-        _ => "standalone".to_string(),
     }
 }
 
@@ -429,6 +425,22 @@ mod tests {
         assert!(body.contains("sdkwork_kernel_model_tokens_total"));
         assert!(body.contains("direction=\"input\""));
         assert!(body.contains("direction=\"output\""));
+    }
+
+    #[test]
+    fn production_topology_profile_labels_metrics_as_production() {
+        let _lock = crate::testing::env::lock();
+        let _profile = crate::testing::env::VarGuard::set(
+            "SDKWORK_KERNEL_PROFILE_ID",
+            Some("cloud.split-services.production"),
+        );
+        let config = ServerConfig {
+            environment: "development".to_string(),
+            ..Default::default()
+        };
+        let registry = MetricsRegistry::from_config(&config);
+        let body = registry.render_prometheus(true, &OperationalProfile::from_runtime("postgres", true));
+        assert!(body.contains("environment=\"production\""));
     }
 
     #[test]

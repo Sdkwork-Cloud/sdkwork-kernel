@@ -336,18 +336,6 @@ pub fn validate_ingress_jwt(
     validator.validate(token)
 }
 
-/// Back-compat helper for unit tests that only configure HS256 secrets.
-pub fn validate_ingress_jwt_from_config(
-    config: &ServerConfig,
-    token: &str,
-) -> Result<VerifiedIngressIdentity, StatusCode> {
-    let validator = IngressJwtValidator::from_config(config).map_err(|error| {
-        warn!(error = %error, "ingress jwt validator unavailable");
-        StatusCode::SERVICE_UNAVAILABLE
-    })?;
-    validator.validate(token)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

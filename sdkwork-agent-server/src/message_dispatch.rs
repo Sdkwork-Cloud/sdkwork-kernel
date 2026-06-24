@@ -149,6 +149,11 @@ mod tests {
 
     #[tokio::test]
     async fn dispatch_persists_user_and_assistant_messages() {
+        let _lock = crate::testing::env::lock();
+        let _plugin = crate::testing::env::VarGuard::set(
+            crate::runtime_bootstrap::KERNEL_AGENT_PLUGIN_ENV,
+            None,
+        );
         let config = Arc::new(ServerConfig::default());
         let persistence = Arc::new(
             PersistenceState::memory().expect("in-memory persistence should initialize for tests"),

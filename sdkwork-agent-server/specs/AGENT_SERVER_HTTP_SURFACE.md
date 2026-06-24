@@ -44,6 +44,12 @@ List endpoints (`sessions`, `messages`, `tasks`, `models`, `tools`) return `{ "i
 
 Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork-agent-server/src/http_surface.rs`).
 
+## Topology
+
+- Bind address and port resolve from `SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND` (`host:port`) per `specs/topology.spec.json` surface `application.public-ingress`.
+- Public HTTP/WebSocket origins for clients come from topology profile env (`SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL`, `VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL`).
+- Retired split bind env keys listed in `specs/topology.spec.json` `retired.envKeys` are not read.
+
 ## Security
 
 - Development profiles default to `SDKWORK_KERNEL_INGRESS_AUTH_MODE=open` on **loopback-only** bind addresses (`127.0.0.1`, `::1`, `localhost`). Open auth on non-loopback binds fails preflight.
@@ -69,7 +75,7 @@ Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork
 - Rate limits apply on non-loopback binds even outside production (default 50 rps, burst 100). Production defaults to 100 rps / burst 200. Configure with `SDKWORK_RATE_LIMIT_RPS` and `SDKWORK_RATE_LIMIT_BURST`; set RPS to `0` to disable on loopback-only dev profiles.
 - **Per-tenant rate limits:** optional JSON map `SDKWORK_TENANT_RATE_LIMIT_OVERRIDES` (`{"tenant-id":{"rps":N,"burst":M}}`) applies after ingress identity resolution; keys without overrides use the global bucket.
 - **Per-tenant daily token quotas:** optional JSON map `SDKWORK_TENANT_TOKEN_QUOTA_OVERRIDES` (`{"tenant-id":{"daily_tokens":N}}`) hard-limits model invoke when a tenant's UTC-day token consumption reaches the cap (`429 Too Many Requests`). Usage is recorded after successful model invocation when provider usage facts are present. Redis-backed when `SDKWORK_RATE_LIMIT_REDIS_URL` / `SDKWORK_REDIS_URL` is configured.
-- **Distributed rate limiting (cloud/server):** set `SDKWORK_RATE_LIMIT_REDIS_URL` or `SDKWORK_REDIS_URL`. Production `cloud-hosted` / `server` profiles fail preflight when Redis is required but unset. Without Redis, non-production profiles fall back to per-process token buckets.
+- **Distributed rate limiting (cloud/server):** set `SDKWORK_RATE_LIMIT_REDIS_URL` or `SDKWORK_REDIS_URL`. Production `cloud` deployment profile with `server` runtime target fails preflight when Redis is required but unset. Without Redis, non-production profiles fall back to per-process token buckets.
 - **Runtime session persistence:** default SQLite path `SDKWORK_DATABASE_PATH` for loopback dev. Multi-replica cloud/server deployments use `SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres` with `SDKWORK_AGENT_RUNTIME_DATABASE_URL` or legacy `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` (resolved via `sdkwork-database-config` service name `AGENT_RUNTIME`).
 - Responses include baseline security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`).
 - Server-owned `x-request-id` is generated for every request; client-supplied values are not trusted.
@@ -90,17 +96,18 @@ Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork
   - `sdkwork_kernel_model_tokens_total` (counter by `provider_id`, `direction=input|output` — aggregate only, not billing source of truth)
   - `sdkwork_kernel_tenant_token_quota_rejected_total` (counter — model invoke rejected by tenant daily token quota)
 - Commercial usage facts for billing pipelines are also emitted on the `usage_meter` log target (`event=model.tokens`) with tenant/user/session/provider token counts.
-- Common metric labels: `service`, `environment`, `deployment_profile`, `runtime_target` per `OBSERVABILITY_SPEC.md`.
+- Common metric labels: `service`, `environment`, `deployment_profile`, `runtime_target` per `OBSERVABILITY_SPEC.md`. The `environment` label follows `is_production_kernel_profile()` (topology `*.production` profiles or `SDKWORK_KERNEL_ENVIRONMENT=production`).
 
 ## Runtime bootstrap
 
-- Server startup builds a typed `AgentRuntime` via `RigKernelPlugin::fail_closed()` and `RuntimeBuilder`.
-- Bootstrap rejects Rig plugin `agent_id` mismatches against the hosted registry canonical id.
+- Server startup builds a typed `AgentRuntime` via `runtime_bootstrap::bootstrap_agent_runtime()` and `RuntimeBuilder`.
+- Active kernel plugin is selected with `SDKWORK_KERNEL_AGENT_PLUGIN` (`rig` default; `openclaw` | `hermes` | `codex` aliases documented in `runtime_bootstrap.rs` and `docs/architecture/tech/TECH-2026-06-14-multi-mode-agent-system.md`).
+- Bootstrap rejects plugin `agent_id` mismatches against the selected plugin manifest.
 - `RuntimeState` wires `AgentRuntimeBridge::with_agent_runtime()` for model/tool invocation.
-- Session create/list routes validate `agentId` against the hosted agent registry (`agent.intelligence.rig-general`; debug builds also accept dev aliases such as `agent.1`).
+- Session create/list routes validate `agentId` against `agent_registry::active_hosted_agent()` for the selected plugin (for example `agent.intelligence.rig-general`, `agent.intelligence.openclaw`, `agent.intelligence.hermes`, or `agent.intelligence.codex`; debug builds also accept dev aliases such as `agent.1`).
 - Default `modelProvider` metadata is stamped from the hosted agent binding when omitted.
 - Non-production profiles may set `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1` (debug builds default on) so typed `ProviderUnavailable` / missing streaming capabilities fall back to the bridge mock path.
-- Production (`environment=production`) disables mock fallback; provider failures surface as `503` on invoke/stream routes.
+- Production profiles (`SDKWORK_KERNEL_ENVIRONMENT=production` or `SDKWORK_KERNEL_PROFILE_ID` ending in `.production`) disable mock fallback unless `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1`; provider failures surface as `503` on invoke/stream routes.
 - `GET /internal/v3/api/intelligence/runtime/snapshot` reports runtime diagnostics from `AgentRuntime::diagnostics()` and `capability_manifest()` rather than hard-coded placeholders.
 
 ## Event streaming

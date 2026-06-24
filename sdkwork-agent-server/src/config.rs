@@ -37,12 +37,14 @@ pub struct ServerConfig {
     pub database_path: String,
     /// Runtime session database engine: sqlite | postgres
     pub runtime_database_engine: String,
-    /// Deployment hosting profile (for example cloud-hosted, self-hosted).
-    pub kernel_hosting: Option<String>,
+    /// Topology deployment profile: `standalone` | `cloud`.
+    pub deployment_profile: Option<String>,
     /// Runtime target (for example server, desktop).
     pub kernel_runtime_target: Option<String>,
     /// Runtime environment: development | production
     pub environment: String,
+    /// Topology profile id (`SDKWORK_KERNEL_PROFILE_ID`) captured at config load.
+    pub kernel_profile_id: Option<String>,
     /// Ingress auth mode: open | token | jwt
     pub ingress_auth_mode: String,
     /// Required bearer/static token when ingress_auth_mode is token
@@ -101,9 +103,10 @@ impl Default for ServerConfig {
             health_path: "/health".to_string(),
             database_path: "./data/agent-server.sqlite".to_string(),
             runtime_database_engine: "sqlite".to_string(),
-            kernel_hosting: None,
+            deployment_profile: None,
             kernel_runtime_target: None,
             environment: "development".to_string(),
+            kernel_profile_id: None,
             ingress_auth_mode: "open".to_string(),
             ingress_token: None,
             ingress_jwt_secret: None,
@@ -138,13 +141,6 @@ impl ServerConfig {
                 parse_ingress_bind("SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND", &bind)?;
             config.bind_address = bind_address;
             config.port = port;
-        } else {
-            if let Ok(addr) = std::env::var("SDKWORK_BIND_ADDRESS") {
-                config.bind_address = addr;
-            }
-            if let Ok(port) = std::env::var("SDKWORK_PORT") {
-                config.port = port.parse()?;
-            }
         }
         if let Ok(level) = std::env::var("SDKWORK_LOG_LEVEL") {
             config.log_level = level;
@@ -164,10 +160,10 @@ impl ServerConfig {
         if let Ok(engine) = std::env::var("SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE") {
             config.runtime_database_engine = engine;
         }
-        if let Ok(hosting) = std::env::var("SDKWORK_KERNEL_HOSTING") {
-            let trimmed = hosting.trim().to_string();
+        if let Ok(profile) = std::env::var("SDKWORK_KERNEL_DEPLOYMENT_PROFILE") {
+            let trimmed = profile.trim().to_string();
             if !trimmed.is_empty() {
-                config.kernel_hosting = Some(trimmed);
+                config.deployment_profile = Some(trimmed);
             }
         }
         if let Ok(target) = std::env::var("SDKWORK_KERNEL_RUNTIME_TARGET") {
@@ -178,6 +174,9 @@ impl ServerConfig {
         }
         if let Ok(environment) = std::env::var("SDKWORK_KERNEL_ENVIRONMENT") {
             config.environment = environment;
+        }
+        if let Ok(profile_id) = std::env::var("SDKWORK_KERNEL_PROFILE_ID") {
+            config.kernel_profile_id = sdkwork_agent_kernel::normalize_kernel_profile_id(&profile_id);
         }
         if let Ok(auth_mode) = std::env::var("SDKWORK_KERNEL_INGRESS_AUTH_MODE") {
             config.ingress_auth_mode = auth_mode;
@@ -296,12 +295,12 @@ impl ServerConfig {
                 config.otel_exporter_otlp_endpoint = Some(trimmed);
             }
         }
-        if config.environment.eq_ignore_ascii_case("production")
+        if config.is_production_kernel_profile()
             && config.ingress_auth_mode.eq_ignore_ascii_case("open")
         {
             config.ingress_auth_mode = "token".to_string();
         }
-        if config.environment.eq_ignore_ascii_case("production")
+        if config.is_production_kernel_profile()
             && config.kernel_runtime_target.as_deref() == Some("server")
             && config.runtime_database_engine.eq_ignore_ascii_case("sqlite")
         {
@@ -318,7 +317,7 @@ impl ServerConfig {
         if !self.is_loopback_bind() && self.ingress_auth_mode.eq_ignore_ascii_case("open") {
             self.ingress_auth_mode = "token".to_string();
         }
-        if self.environment.eq_ignore_ascii_case("production")
+        if self.is_production_kernel_profile()
             && self.cors_origins.iter().any(|origin| origin == "*")
         {
             self.cors_origins = vec![
@@ -326,7 +325,7 @@ impl ServerConfig {
                 "https://app.sdkwork.com".to_string(),
             ];
         }
-        if self.environment.eq_ignore_ascii_case("production")
+        if self.is_production_kernel_profile()
             && self.cors_origins.iter().all(|origin| {
                 origin.contains("127.0.0.1") || origin.contains("localhost")
             })
@@ -337,9 +336,9 @@ impl ServerConfig {
             ];
         }
         if self.rate_limit_rps == 0
-            && (self.environment.eq_ignore_ascii_case("production") || !self.is_loopback_bind())
+            && (self.is_production_kernel_profile() || !self.is_loopback_bind())
         {
-            self.rate_limit_rps = if self.environment.eq_ignore_ascii_case("production") {
+            self.rate_limit_rps = if self.is_production_kernel_profile() {
                 100
             } else {
                 50
@@ -348,7 +347,7 @@ impl ServerConfig {
         if self.rate_limit_rps > 0 && self.rate_limit_burst == 0 {
             self.rate_limit_burst = self.rate_limit_rps.saturating_mul(2);
         }
-        if (self.environment.eq_ignore_ascii_case("production") || !self.is_loopback_bind())
+        if (self.is_production_kernel_profile() || !self.is_loopback_bind())
             && self.metrics_auth_mode.eq_ignore_ascii_case("open")
         {
             self.metrics_auth_mode = "token".to_string();
@@ -393,13 +392,30 @@ impl ServerConfig {
             .filter(|url| !url.is_empty())
     }
 
+    pub fn effective_deployment_profile(&self) -> &'static str {
+        match self
+            .deployment_profile
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
+            Some("cloud") => "cloud",
+            _ => "standalone",
+        }
+    }
+
+    pub(crate) fn production_scaleout_profile(&self) -> bool {
+        self.effective_deployment_profile() == "cloud"
+            || self.kernel_runtime_target.as_deref() == Some("server")
+    }
+
     pub fn requires_distributed_rate_limit(&self) -> bool {
         if self.rate_limit_rps == 0 {
             return false;
         }
-        let cloud_or_server = self.kernel_hosting.as_deref() == Some("cloud-hosted")
-            || self.kernel_runtime_target.as_deref() == Some("server");
-        self.environment.eq_ignore_ascii_case("production") && cloud_or_server
+        self.is_production_kernel_profile() && self.production_scaleout_profile()
     }
 
     pub fn ingress_auth_secured(&self) -> bool {
@@ -426,10 +442,8 @@ impl ServerConfig {
     }
 
     pub fn requires_postgres_runtime_database(&self) -> bool {
-        let cloud_or_server = self.kernel_hosting.as_deref() == Some("cloud-hosted")
-            || self.kernel_runtime_target.as_deref() == Some("server");
-        self.environment.eq_ignore_ascii_case("production")
-            && cloud_or_server
+        self.is_production_kernel_profile()
+            && self.production_scaleout_profile()
             && self.uses_postgres_runtime_database()
     }
 
@@ -439,16 +453,23 @@ impl ServerConfig {
 
     /// When true, typed provider failures fall back to the bridge mock path in development.
     pub fn allow_mock_provider_fallback(&self) -> bool {
-        if self.environment.eq_ignore_ascii_case("production") {
-            return false;
-        }
-        if let Ok(value) = std::env::var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS") {
-            return matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            );
-        }
-        cfg!(debug_assertions)
+        sdkwork_agent_kernel::mock_provider_invocation_allowed(
+            &self.environment,
+            self.effective_kernel_profile_id().as_deref(),
+        )
+    }
+
+    pub fn is_production_kernel_profile(&self) -> bool {
+        sdkwork_agent_kernel::is_production_kernel_profile(
+            &self.environment,
+            self.effective_kernel_profile_id().as_deref(),
+        )
+    }
+
+    fn effective_kernel_profile_id(&self) -> Option<String> {
+        self.kernel_profile_id
+            .clone()
+            .or_else(sdkwork_agent_kernel::kernel_profile_id_from_env)
     }
 
     /// Get the full bind address (address:port)
@@ -499,7 +520,7 @@ mod tests {
     fn cloud_production_requires_postgres_and_redis_profiles() {
         let config = ServerConfig {
             environment: "production".to_string(),
-            kernel_hosting: Some("cloud-hosted".to_string()),
+            deployment_profile: Some("cloud".to_string()),
             kernel_runtime_target: Some("server".to_string()),
             runtime_database_engine: "postgres".to_string(),
             rate_limit_rps: 100,
@@ -534,5 +555,35 @@ mod tests {
         config.normalize_security();
         assert_eq!(config.metrics_auth_mode, "token");
         assert_eq!(config.effective_metrics_token(), Some("secret"));
+    }
+
+    #[test]
+    fn production_topology_profile_blocks_mock_fallback() {
+        let _lock = crate::testing::env::lock();
+        let _profile = crate::testing::env::VarGuard::set(
+            "SDKWORK_KERNEL_PROFILE_ID",
+            Some("cloud.split-services.production"),
+        );
+        let _allow = crate::testing::env::VarGuard::set("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", None);
+        let config = ServerConfig {
+            environment: "production".to_string(),
+            ..Default::default()
+        };
+        assert!(!config.allow_mock_provider_fallback());
+    }
+
+    #[test]
+    fn production_topology_profile_allows_explicit_mock_override() {
+        let _lock = crate::testing::env::lock();
+        let _profile = crate::testing::env::VarGuard::set(
+            "SDKWORK_KERNEL_PROFILE_ID",
+            Some("cloud.split-services.production"),
+        );
+        let _allow = crate::testing::env::VarGuard::set("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", Some("1"));
+        let config = ServerConfig {
+            environment: "production".to_string(),
+            ..Default::default()
+        };
+        assert!(config.allow_mock_provider_fallback());
     }
 }

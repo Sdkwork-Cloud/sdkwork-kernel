@@ -22,6 +22,7 @@ mod protocol;
 mod provider;
 mod runtime;
 mod runtime_host;
+mod runtime_topology;
 mod skill;
 mod telemetry;
 mod tool;
@@ -126,6 +127,13 @@ pub use provider::{
 pub use runtime::{
     AgentProviderDiagnostic, AgentRuntime, AgentRuntimeDiagnostics, RuntimeBootstrapReport,
     RuntimeBuilder, RuntimeState,
+};
+pub use runtime_topology::{
+    is_production_kernel_profile, is_production_kernel_profile_from_env,
+    kernel_profile_id_from_env, mock_provider_invocation_allowed,
+    mock_provider_invocation_allowed_from_env, mock_provider_override_disabled_from_env,
+    mock_provider_override_enabled_from_env, normalize_kernel_profile_id,
+    ALLOW_MOCK_PROVIDERS_ENV, KERNEL_ENVIRONMENT_ENV, KERNEL_PROFILE_ID_ENV,
 };
 pub use runtime_host::{
     AgentKernelHost, AgentRuntimeExecutionHandle, AgentRuntimeRegistration, AgentRuntimeSlot,

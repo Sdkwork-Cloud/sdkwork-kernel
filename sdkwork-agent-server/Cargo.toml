@@ -49,6 +49,9 @@ jsonwebtoken = "9"
 ureq = { version = "2.12", default-features = false, features = ["tls"] }
 sdkwork-agent-plugin-core = { path = "../sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core" }
 sdkwork-agent-plugin-rig = { path = "../sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig" }
+sdkwork-agent-plugin-openclaw = { path = "../sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-openclaw" }
+sdkwork-agent-plugin-hermes = { path = "../sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-hermes" }
+sdkwork-agent-plugin-codex = { path = "../sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex" }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

@@ -24,3 +24,6 @@ pub mod security_audit;
 pub mod shutdown;
 pub mod tenant_token_quota;
 pub mod usage_meter;
+
+#[cfg(test)]
+mod testing;

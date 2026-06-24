@@ -18,16 +18,7 @@ Verification: run `node scripts/check-kernel-standards.mjs`; substantial docs sh
 | --- | --- |
 | Product PRD | [product/prd/PRD.md](product/prd/PRD.md) |
 | Technical architecture | [architecture/tech/TECH_ARCHITECTURE.md](architecture/tech/TECH_ARCHITECTURE.md) |
+| Multi-mode agent integration (as-built) | [architecture/tech/TECH-2026-06-14-multi-mode-agent-system.md](architecture/tech/TECH-2026-06-14-multi-mode-agent-system.md) |
 
-- [docs/product/prd/PRD.md](product/prd/PRD.md)
-- [docs/architecture/tech/TECH_ARCHITECTURE.md](architecture/tech/TECH_ARCHITECTURE.md)
+Superseded drafts (pointer only): [architecture/desktop-server-architecture.md](architecture/desktop-server-architecture.md).
 
-## Canon Documents
-
-| Document | Path |
-| --- | --- |
-| Product PRD | [product/prd/PRD.md](product/prd/PRD.md) |
-| Technical architecture | [architecture/tech/TECH_ARCHITECTURE.md](architecture/tech/TECH_ARCHITECTURE.md) |
-
-- [docs/product/prd/PRD.md](product/prd/PRD.md)
-- [docs/architecture/tech/TECH_ARCHITECTURE.md](architecture/tech/TECH_ARCHITECTURE.md)

@@ -16,13 +16,65 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository_owner }}/sdkwork-app-topology
-          path: .topology-deps/sdkwork-app-topology
+          path: .workspace-deps/sdkwork-app-topology
           ref: main
 
-      - name: Link sdkwork-app-topology for file dependency
+      - name: Checkout sdkwork-database sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-database
+          path: .workspace-deps/sdkwork-database
+          ref: main
+
+      - name: Checkout sdkwork-utils sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-utils
+          path: .workspace-deps/sdkwork-utils
+          ref: main
+
+      - name: Checkout sdkwork-web-framework sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-web-framework
+          path: .workspace-deps/sdkwork-web-framework
+          ref: main
+
+      - name: Checkout sdkwork-drive sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-drive
+          path: .workspace-deps/sdkwork-drive
+          ref: main
+
+      - name: Checkout sdkwork-knowledgebase sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-knowledgebase
+          path: .workspace-deps/sdkwork-knowledgebase
+          ref: main
+
+      - name: Checkout sdkwork-iam sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-iam
+          path: .workspace-deps/sdkwork-iam
+          ref: main
+
+      - name: Link platform siblings for path dependencies
         run: |
           mkdir -p ..
-          ln -sfn "$GITHUB_WORKSPACE/.topology-deps/sdkwork-app-topology" ../sdkwork-app-topology
+          for repo in \
+            sdkwork-app-topology \
+            sdkwork-database \
+            sdkwork-utils \
+            sdkwork-web-framework \
+            sdkwork-drive \
+            sdkwork-knowledgebase \
+            sdkwork-iam
+          do
+            ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/$repo" "../$repo"
+          done
 
       - uses: actions/setup-node@v4
         with:
@@ -61,6 +113,26 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+
+      - name: Checkout sdkwork-database sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-database
+          path: .workspace-deps/sdkwork-database
+          ref: main
+
+      - name: Checkout sdkwork-utils sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-utils
+          path: .workspace-deps/sdkwork-utils
+          ref: main
+
+      - name: Link platform siblings for path dependencies
+        run: |
+          mkdir -p ..
+          ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/sdkwork-database" ../sdkwork-database
+          ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/sdkwork-utils" ../sdkwork-utils
 
       - uses: dtolnay/rust-toolchain@stable
 

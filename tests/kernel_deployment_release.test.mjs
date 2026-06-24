@@ -113,3 +113,27 @@ test('workflow declares SBOM generation and release validation', () => {
   );
   assert.equal(workflow.security?.sbomRequired, true);
 });
+
+test('kernel verification workflow checks out platform sibling repositories', () => {
+  const workflow = fs.readFileSync(
+    path.join(root, '.github/workflows/kernel-verification.yml'),
+    'utf8',
+  );
+  for (const sibling of [
+    'sdkwork-database',
+    'sdkwork-utils',
+    'sdkwork-web-framework',
+    'sdkwork-iam',
+  ]) {
+    assert.match(
+      workflow,
+      new RegExp(sibling),
+      `kernel-verification.yml should checkout ${sibling}`,
+    );
+  }
+  assert.match(
+    workflow,
+    /Link platform siblings for path dependencies/,
+    'kernel-verification.yml should link sibling repos for Cargo and pnpm path deps',
+  );
+});

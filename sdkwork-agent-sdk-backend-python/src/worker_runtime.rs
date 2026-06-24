@@ -1,6 +1,8 @@
+use sdkwork_agent_adapter_core::mock_provider_invocation_allowed;
 use sdkwork_agent_sdk_backend_ipc::{
-    JsonRpcTransport, PackageStubJsonRpcTransport, SharedJsonRpcTransport, StdioJsonRpcSession,
-    TransportError, SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_PING_METHOD,
+    FailClosedJsonRpcTransport, JsonRpcTransport, PackageStubJsonRpcTransport,
+    SharedJsonRpcTransport, StdioJsonRpcSession, TransportError, SDKWORK_CAPABILITY_INVOKE_METHOD,
+    SDKWORK_PING_METHOD,
 };
 use sdkwork_agent_sdk_spi::{
     SdkBackendKind, SdkBackendRuntime, SdkDriverHealth, SdkRuntimeError, SdkRuntimeOperation,
@@ -49,7 +51,16 @@ pub struct PythonSdkBackendRuntime {
 impl PythonSdkBackendRuntime {
     pub fn bootstrap(package_name: impl Into<String>) -> Self {
         let options = PythonWorkerLaunchOptions::for_package(package_name);
-        Self::spawn(&options).unwrap_or_else(|_| Self::in_memory_stub(options.package_name, true))
+        match Self::spawn(&options) {
+            Ok(runtime) => runtime,
+            Err(error) => {
+                if mock_provider_invocation_allowed() {
+                    Self::in_memory_stub(options.package_name, true)
+                } else {
+                    Self::fail_closed(options.package_name, error.to_string())
+                }
+            }
+        }
     }
 
     pub fn from_transport(
@@ -93,6 +104,13 @@ impl PythonSdkBackendRuntime {
                 package_name.clone(),
                 "python_process",
             )),
+            package_name,
+        )
+    }
+
+    pub fn fail_closed(package_name: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self::from_transport(
+            Arc::new(FailClosedJsonRpcTransport::new(reason.into())),
             package_name,
         )
     }
@@ -157,7 +175,7 @@ mod tests {
 
     #[test]
     fn in_memory_stub_invokes_ping() {
-        let runtime = PythonSdkBackendRuntime::in_memory_stub("hermes_agent", true);
+        let runtime = PythonSdkBackendRuntime::in_memory_stub("run_agent", true);
         let response = runtime
             .invoke(&SdkRuntimeRequest::ping("sdk.model.chat"))
             .expect("ping should succeed");

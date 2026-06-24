@@ -189,7 +189,10 @@ fn create_remote_client(
         AgentProtocol::Grpc => {
             Err("gRPC client not yet implemented - deferred to Phase 3".to_string())
         }
-        AgentProtocol::WebSocket => Err("WebSocket client not yet implemented".to_string()),
+        AgentProtocol::WebSocket => Err(
+            "AgentProtocol::WebSocket is not supported for application.public-ingress internal-api runtime; use AgentProtocol::HttpRestSse"
+                .to_string(),
+        ),
     }
 }
 

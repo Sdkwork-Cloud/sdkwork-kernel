@@ -222,5 +222,53 @@ mod tests {
             .expect("messages");
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, crate::types::MessageRole::User);
+        assert!(
+            !messages[1].content.contains("received:"),
+            "stub echo must not be returned: {}",
+            messages[1].content
+        );
+    }
+
+    #[test]
+    fn provider_send_message_routes_through_sdk_model_provider() {
+        let provider = CodexProvider::new(test_config()).unwrap();
+        provider.initialize().expect("init");
+        let session = provider
+            .create_session(SessionConfig::new("agent.intelligence.codex"))
+            .expect("create session");
+        let response = provider
+            .send_message(ChatRequest {
+                session_id: session.session_id,
+                content: "hello".to_string(),
+                model: None,
+                stream: false,
+            })
+            .expect("send message");
+        assert_eq!(response.status, crate::types::ChatStatus::Completed);
+        assert!(
+            !response.content.contains("received:"),
+            "stub echo response must not be returned: {}",
+            response.content
+        );
+        assert!(
+            !response.content.contains("Mock response"),
+            "direct mock fallback must not be returned in default fail-closed profile: {}",
+            response.content
+        );
+    }
+
+    #[test]
+    fn provider_health_after_init() {
+        let provider = CodexProvider::new(test_config()).unwrap();
+        provider.initialize().expect("init");
+        let health = provider.health_check();
+        assert!(
+            matches!(
+                health.status,
+                AgentBridgeStatus::Healthy | AgentBridgeStatus::Degraded
+            ),
+            "unexpected health status: {:?}",
+            health.status
+        );
     }
 }

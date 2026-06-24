@@ -20,8 +20,10 @@ pub use binding::{
     NpmPackageRef, PythonPackageRef, RustPackageRef, SelectionPolicy,
 };
 pub use bridge::{
-    model_response_from_runtime, tool_result_from_runtime, SdkRuntimeBackedModelProvider,
-    SdkRuntimeBackedToolProvider, SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_TOOL_INVOKE,
+    model_response_from_runtime, tool_result_from_runtime, RuntimeBackedProviders,
+    SdkRuntimeBackedModelProvider, SdkRuntimeBackedToolProvider, SDK_CAPABILITY_MODEL_CHAT,
+    SDK_CAPABILITY_SESSION_LIFECYCLE, SDK_CAPABILITY_SKILL_INVOKE, SDK_CAPABILITY_TOOL_INVOKE,
+    wire_runtime_providers,
 };
 pub use capability::{
     describe_capability, SdkCapabilityDescriptor, SdkCapabilityId, STANDARD_SDK_CAPABILITIES,

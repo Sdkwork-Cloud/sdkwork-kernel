@@ -94,6 +94,12 @@ impl ProviderBackedRustHandler {
                     }),
                 ))
             }
+            SdkRuntimeOperation::SkillInvoke { skill_id, arguments } => Err(SdkRuntimeError::new(
+                "not_implemented",
+                format!(
+                    "SkillInvoke is not implemented for skill_id={skill_id} arguments={arguments:?}"
+                ),
+            )),
         }
     }
 }

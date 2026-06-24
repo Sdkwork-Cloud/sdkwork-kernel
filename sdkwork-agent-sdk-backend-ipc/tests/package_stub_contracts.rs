@@ -5,7 +5,7 @@ use serde_json::json;
 
 #[test]
 fn package_stub_returns_model_chat_messages() {
-    let transport = PackageStubJsonRpcTransport::new("hermes_agent", "python_process");
+    let transport = PackageStubJsonRpcTransport::new("run_agent", "python_process");
     let result = transport
         .call(
             SDKWORK_CAPABILITY_INVOKE_METHOD,
@@ -22,5 +22,5 @@ fn package_stub_returns_model_chat_messages() {
         .get("messages")
         .and_then(|value| value.as_array())
         .expect("messages array");
-    assert!(messages[0].as_str().unwrap().contains("hermes_agent"));
+    assert!(messages[0].as_str().unwrap().contains("run_agent"));
 }

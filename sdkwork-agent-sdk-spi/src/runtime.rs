@@ -24,6 +24,11 @@ pub enum SdkRuntimeOperation {
         tool_id: String,
         arguments: String,
     },
+    SkillInvoke {
+        skill_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        arguments: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

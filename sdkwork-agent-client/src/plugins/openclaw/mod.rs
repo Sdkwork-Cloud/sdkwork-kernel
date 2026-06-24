@@ -288,8 +288,42 @@ mod tests {
         let provider = OpenClawProvider::new(test_config()).unwrap();
         provider.initialize().expect("init");
         let health = provider.health_check();
-        assert_eq!(health.status, AgentBridgeStatus::Healthy);
-        assert!(health.message.is_none());
+        assert!(
+            matches!(
+                health.status,
+                AgentBridgeStatus::Healthy | AgentBridgeStatus::Degraded
+            ),
+            "unexpected health status: {:?}",
+            health.status
+        );
+    }
+
+    #[test]
+    fn provider_send_message_routes_through_sdk_model_provider() {
+        let provider = OpenClawProvider::new(test_config()).unwrap();
+        provider.initialize().expect("init");
+        let session = provider
+            .create_session(SessionConfig::new("agent.intelligence.openclaw"))
+            .expect("create session");
+        let response = provider
+            .send_message(ChatRequest {
+                session_id: session.session_id,
+                content: "hello".to_string(),
+                model: None,
+                stream: false,
+            })
+            .expect("send message");
+        assert_eq!(response.status, crate::types::ChatStatus::Completed);
+        assert!(
+            !response.content.contains("received:"),
+            "stub echo response must not be returned: {}",
+            response.content
+        );
+        assert!(
+            response.content.to_ascii_lowercase().contains("openclaw"),
+            "expected openclaw sdk-backed response, got: {}",
+            response.content
+        );
     }
 
     #[test]

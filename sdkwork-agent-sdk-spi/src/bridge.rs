@@ -14,8 +14,38 @@ use sdkwork_agent_kernel::{
 use serde_json::Value;
 use std::sync::Arc;
 
+pub const SDK_CAPABILITY_SESSION_LIFECYCLE: &str = "sdk.session.lifecycle";
 pub const SDK_CAPABILITY_MODEL_CHAT: &str = "sdk.model.chat";
 pub const SDK_CAPABILITY_TOOL_INVOKE: &str = "sdk.tool.invoke";
+pub const SDK_CAPABILITY_SKILL_INVOKE: &str = "sdk.skill.invoke";
+
+/// Kernel providers wired through a negotiated [`SdkRuntimeRouter`].
+pub struct RuntimeBackedProviders {
+    pub model: SdkRuntimeBackedModelProvider,
+    pub tools: SdkRuntimeBackedToolProvider,
+}
+
+/// Registers runtime-backed model and tool providers using the standard SDK capability ids.
+pub fn wire_runtime_providers(
+    runtime: Arc<SdkRuntimeRouter>,
+    model_fallback: Arc<dyn ModelProvider + Send + Sync>,
+    tool_fallback: Arc<dyn ToolProvider + Send + Sync>,
+    model_provider_id: &str,
+) -> RuntimeBackedProviders {
+    RuntimeBackedProviders {
+        model: SdkRuntimeBackedModelProvider::new(
+            runtime.clone(),
+            model_fallback,
+            SDK_CAPABILITY_MODEL_CHAT,
+            model_provider_id,
+        ),
+        tools: SdkRuntimeBackedToolProvider::new(
+            runtime,
+            tool_fallback,
+            SDK_CAPABILITY_TOOL_INVOKE,
+        ),
+    }
+}
 
 /// Kernel `ModelProvider` that routes `invoke` through `SdkRuntimeRouter` with fallback.
 pub struct SdkRuntimeBackedModelProvider {

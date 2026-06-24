@@ -4,7 +4,9 @@ Domain: `intelligence`
 Capability: `agent-client`
 Package type: Rust runtime crate
 
-Typed HTTP, SSE, and WebSocket clients plus bridge plugin registry for external agent runtimes.
+Typed HTTP and SSE clients for canonical internal-api runtime, plus local SDK bridge plugins (OpenClaw, Hermes, Codex) and `AgentClient` Remote/Local/Hybrid modes.
+
+**Transport:** production runtime ingress uses `SseChatClient` → `/internal/v3/api/intelligence/runtime/*`. `WebSocketChatClient` remains a fail-closed legacy scaffold (not mounted on internal-api).
 
 ## Verification
 

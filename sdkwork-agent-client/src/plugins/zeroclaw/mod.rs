@@ -281,8 +281,26 @@ mod tests {
         let provider = ZeroClawProvider::new(test_config()).unwrap();
         provider.initialize().expect("init");
         let health = provider.health_check();
-        assert_eq!(health.status, AgentBridgeStatus::Healthy);
-        assert!(health.message.is_none());
+        assert_eq!(health.status, AgentBridgeStatus::Degraded);
+        assert!(health.message.as_deref().unwrap().contains("not SDK-backed"));
+    }
+
+    #[test]
+    fn provider_send_message_is_fail_closed_after_init() {
+        let provider = ZeroClawProvider::new(test_config()).unwrap();
+        provider.initialize().expect("init");
+        let session = provider
+            .create_session(SessionConfig::new("agent.1"))
+            .expect("session");
+        let err = provider
+            .send_message(ChatRequest {
+                session_id: session.session_id,
+                content: "hello".to_string(),
+                model: None,
+                stream: false,
+            })
+            .unwrap_err();
+        assert!(err.contains("not SDK-backed"));
     }
 
     #[test]

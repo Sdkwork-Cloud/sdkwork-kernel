@@ -258,6 +258,27 @@ impl JsonRpcTransport for StdioJsonRpcSession {
     }
 }
 
+pub struct FailClosedJsonRpcTransport {
+    reason: String,
+}
+
+impl FailClosedJsonRpcTransport {
+    pub fn new(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+        }
+    }
+}
+
+impl JsonRpcTransport for FailClosedJsonRpcTransport {
+    fn call(&self, _method: &str, _params: Option<Value>) -> Result<Value, TransportError> {
+        Err(TransportError::new(format!(
+            "sdk backend unavailable in production profile: {}",
+            self.reason
+        )))
+    }
+}
+
 pub struct SharedJsonRpcTransport {
     inner: Arc<dyn JsonRpcTransport + Send + Sync>,
 }

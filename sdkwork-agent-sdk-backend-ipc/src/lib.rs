@@ -8,6 +8,7 @@ pub use protocol::{
     SDKWORK_PING_METHOD,
 };
 pub use transport::{
-    stub_capability_invoke_result, InMemoryJsonRpcTransport, JsonRpcTransport,
-    PackageStubJsonRpcTransport, SharedJsonRpcTransport, StdioJsonRpcSession, TransportError,
+    stub_capability_invoke_result, FailClosedJsonRpcTransport, InMemoryJsonRpcTransport,
+    JsonRpcTransport, PackageStubJsonRpcTransport, SharedJsonRpcTransport, StdioJsonRpcSession,
+    TransportError,
 };

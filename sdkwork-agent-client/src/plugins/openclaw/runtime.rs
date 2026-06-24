@@ -1,15 +1,40 @@
-use crate::bridge::{AgentBridgeConfig, AgentBridgeHealth};
-use crate::session::BridgeSessionRuntime;
+use crate::bridge::{AgentBridgeConfig, AgentBridgeHealth, AgentBridgeStatus};
+use crate::session::SdkModelBridgeRuntime;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
+use sdkwork_agent_adapter_openclaw::OpenClawSdkIntegration;
+use sdkwork_agent_kernel::ModelProvider;
+use sdkwork_agent_sdk_spi::SdkRuntimeRequest;
+use std::sync::Arc;
 
 pub struct OpenClawRuntime {
-    inner: BridgeSessionRuntime,
+    _integration: Arc<OpenClawSdkIntegration>,
+    inner: SdkModelBridgeRuntime,
 }
 
 impl OpenClawRuntime {
     pub fn new(config: &AgentBridgeConfig) -> Result<Self, String> {
+        let integration = Arc::new(
+            OpenClawSdkIntegration::bootstrap()
+                .map_err(|error| format!("openclaw sdk bootstrap failed: {error}"))?,
+        );
+        let invoke_integration = Arc::clone(&integration);
+        let invoke_model = Arc::new(move |request| {
+            invoke_integration
+                .model
+                .invoke(request)
+                .map_err(|error| format!("openclaw model invoke failed: {error}"))
+        });
+        let health_integration = Arc::clone(&integration);
+        let health_probe = Arc::new(move || runtime_health_from_ping(&health_integration));
+
         Ok(Self {
-            inner: BridgeSessionRuntime::new("openclaw", &config.bridge_id, "OpenClaw")?,
+            inner: SdkModelBridgeRuntime::new(
+                "openclaw",
+                &config.bridge_id,
+                invoke_model,
+                health_probe,
+            )?,
+            _integration: integration,
         })
     }
 
@@ -46,5 +71,20 @@ impl OpenClawRuntime {
 
     pub fn shutdown(&mut self) -> Result<(), String> {
         Ok(())
+    }
+}
+
+fn runtime_health_from_ping(integration: &OpenClawSdkIntegration) -> AgentBridgeHealth {
+    match integration.invoke_runtime(&SdkRuntimeRequest::ping("sdk.session.lifecycle")) {
+        Ok(response) if response.success => AgentBridgeHealth::healthy(),
+        Ok(response) => AgentBridgeHealth::unhealthy(format!(
+            "openclaw runtime ping failed: {}",
+            response.message.unwrap_or_else(|| "unknown error".to_string())
+        )),
+        Err(error) => AgentBridgeHealth {
+            status: AgentBridgeStatus::Degraded,
+            message: Some(format!("openclaw runtime unavailable: {error}")),
+            last_check: chrono::Utc::now(),
+        },
     }
 }

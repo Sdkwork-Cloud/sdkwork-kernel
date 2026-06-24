@@ -1,7 +1,8 @@
 use sdkwork_agent_adapter_core::mock_provider_invocation_allowed;
 use sdkwork_agent_sdk_backend_ipc::{
-    JsonRpcTransport, PackageStubJsonRpcTransport, SharedJsonRpcTransport, StdioJsonRpcSession,
-    TransportError, SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_PING_METHOD,
+    FailClosedJsonRpcTransport, JsonRpcTransport, PackageStubJsonRpcTransport,
+    SharedJsonRpcTransport, StdioJsonRpcSession, TransportError, SDKWORK_CAPABILITY_INVOKE_METHOD,
+    SDKWORK_PING_METHOD,
 };
 use sdkwork_agent_sdk_spi::{
     SdkBackendKind, SdkBackendRuntime, SdkDriverHealth, SdkRuntimeError, SdkRuntimeOperation,
@@ -169,27 +170,6 @@ impl SdkBackendRuntime for NodeSdkBackendRuntime {
 
 fn map_transport_error(error: TransportError) -> SdkRuntimeError {
     SdkRuntimeError::new("transport_error", error.message)
-}
-
-struct FailClosedJsonRpcTransport {
-    reason: String,
-}
-
-impl FailClosedJsonRpcTransport {
-    fn new(reason: impl Into<String>) -> Self {
-        Self {
-            reason: reason.into(),
-        }
-    }
-}
-
-impl JsonRpcTransport for FailClosedJsonRpcTransport {
-    fn call(&self, _method: &str, _params: Option<Value>) -> Result<Value, TransportError> {
-        Err(TransportError::new(format!(
-            "typescript sdk backend unavailable in production profile: {}",
-            self.reason
-        )))
-    }
 }
 
 #[cfg(test)]

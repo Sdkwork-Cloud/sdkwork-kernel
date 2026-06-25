@@ -14,7 +14,16 @@
   },
   "backend": {
     "primaryLanguage": "rust",
-    "framework": "axum"
+    "framework": "axum",
+    "appId": "sdkwork-kernel",
+    "tenantId": "100001",
+    "organizationId": "0",
+    "accessTokenPermissionScope": [
+      "iam.users.read",
+      "iam.organizations.read",
+      "iam.roles.read",
+      "iam.permissions.read"
+    ]
   },
   "runtime": {
     "family": "server",

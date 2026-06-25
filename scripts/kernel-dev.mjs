@@ -8,6 +8,7 @@ import {
   API_GATEWAY_REPO,
   bridgeLegacyServiceEnv,
   DEFAULT_DEV_PROFILE_ID,
+  IAM_APPLICATION_BOOTSTRAP_ENV,
   listHealthSurfaces,
   listOrchestrationProcesses,
   loadProfile,
@@ -217,7 +218,7 @@ async function main() {
   const profileId = resolveDevProfileId(settings.deploymentProfile, settings.serviceLayout)
     || DEFAULT_DEV_PROFILE_ID;
   const profileEnv = loadProfile(profileId);
-  const runtimeEnv = mergeRuntimeEnv(process.env, profileEnv, bridgeLegacyServiceEnv(profileEnv), {
+  const runtimeEnv = mergeRuntimeEnv(process.env, profileEnv, bridgeLegacyServiceEnv(profileEnv), IAM_APPLICATION_BOOTSTRAP_ENV, {
     SDKWORK_KERNEL_PROFILE_ID: profileId,
   });
   const processes = buildProcessEntries(profileId, runtimeEnv);

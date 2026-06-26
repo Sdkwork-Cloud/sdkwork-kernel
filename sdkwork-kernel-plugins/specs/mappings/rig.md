@@ -27,7 +27,7 @@ Rig maps first to a complete SDKWork typed plugin:
 
 Rig is Rust-native, so it is the first direct SDKWork Rust SPI adapter. The
 SDKWork-owned implementation lives in
-`sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig` and depends on
+`agent-providers/crates/sdkwork-agent-provider-rig` and depends on
 kernel SPI contracts, not on `sdkwork-agent-kernel` depending on Rig.
 
 The Rig adapter exposes `rig_agent_definition()` as the executable standard

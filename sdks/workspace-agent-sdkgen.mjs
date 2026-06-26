@@ -30,7 +30,6 @@ if (!fs.existsSync(sdkgenPath)) {
   );
 }
 
-runNodeScript(path.join(root, 'sdks', 'materialize-agent-v3-openapi-boundaries.mjs'), []);
 runNodeScript(path.join(root, 'sdks', 'materialize-agent-internal-api-openapi.mjs'), []);
 
 const report = {
@@ -184,38 +183,8 @@ for (const family of families) {
   }
 
   report.families.push(familyReport);
-  if (family.key === 'app') {
+  if (family.key === 'internal') {
     appFamilyWasProcessed = true;
-  }
-}
-
-if (!requestedFamily || requestedFamily === 'open') {
-  const openDerivationMode = mode;
-  if (!appFamilyWasProcessed && !fs.existsSync(path.join(
-    root,
-    'sdks',
-    'sdkwork-agent-app-sdk',
-    'sdkwork-agent-app-sdk-typescript',
-    'generated',
-    'server-openapi',
-    'src',
-    'index.ts'
-  ))) {
-    throw new Error('Open SDK derivation requires sdkwork-agent-app-sdk generated source.');
-  }
-  const derivation = runNodeForJson([
-    path.join(root, 'sdks', 'materialize-agent-open-sdk-from-app.mjs'),
-    '--mode',
-    openDerivationMode,
-    '--json'
-  ]);
-  report.openSdkDerivation = derivation;
-  for (const familyReport of report.families) {
-    if (familyReport.key === 'open') {
-      familyReport.derivedGenerated = mode === 'apply';
-      familyReport.derivedHasChanges = derivation.hasChanges;
-      familyReport.derivationFileCount = derivation.fileCount;
-    }
   }
 }
 
@@ -242,9 +211,9 @@ function parseArgs(argv) {
 }
 
 function printHelpAndExit() {
-  console.log(`Usage: node sdks/workspace-agent-sdkgen.mjs [--mode dry-run|apply] [--family open|app|backend|internal]
+  console.log(`Usage: node sdks/workspace-agent-sdkgen.mjs [--mode dry-run|apply] [--family internal]
 
-Generates the SDKWork agent SDK families with --standard-profile ${SDKWORK_SDKGEN_STANDARD.standardProfile}.
+Generates the SDKWork kernel internal SDK family with --standard-profile ${SDKWORK_SDKGEN_STANDARD.standardProfile}.
 `);
   process.exit(0);
 }

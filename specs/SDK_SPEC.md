@@ -94,7 +94,7 @@ families:
 | Family | Authority | Prefix | Package | Audience |
 | --- | --- | --- | --- | --- |
 | `sdkwork-agent-sdk` | `sdkwork-agent-open-api` | `/agent/v3/api` | `@sdkwork/agent-sdk` | Developer and integration authors |
-| `sdkwork-agent-app-sdk` | `sdkwork-agent-app-api` | `/app/v3/api` | `@sdkwork/agent-app-sdk` | App, desktop, mobile, H5, and user-facing clients |
+| `sdkwork-agents-app-sdk` | `sdkwork-agents-app-api` | `/app/v3/api` | `@sdkwork/agents-app-sdk` | App, desktop, mobile, H5, and user-facing clients |
 | `sdkwork-agent-backend-sdk` | `sdkwork-agent-backend-api` | `/backend/v3/api` | `@sdkwork/agent-backend-sdk` | Backend console, operators, automation, and control-plane integrations |
 
 All three families are owned by the SDK standard in this document and by the
@@ -102,7 +102,7 @@ root `sdks/` workspace. No consumer may bypass these SDK families with local
 HTTP implementations for remote agent business APIs.
 
 External third-party agent native SDK bindings are cataloged separately under
-`sdks/external-agent-sdks/` and governed by `AGENT_SDK_BINDING_SPEC.md`. Those
+`bindings/agent-providers/` and governed by `AGENT_SDK_BINDING_SPEC.md`. Those
 bindings describe how SDKWork integrates with agent products such as Codex,
 Hermes, and OpenClaw; they do not replace SDKWork-owned SDK families above.
 

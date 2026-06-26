@@ -12,7 +12,7 @@ The checkbox plan for Rig-backed provider bindings and managed-agent deployments
 - SQL contract: `sdkwork-agent-business/specs/sql/agent_business_postgres.sql`
 - Database spec: `sdkwork-agent-business/specs/AGENT_BUSINESS_DATABASE_SPEC.md`
 - Contract tests: `sdkwork-agent-business/tests/agent_provider_deployment_contracts.rs` (and related marketplace/provider tests)
-- Rig plugin crate: `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig`
+- Rig plugin crate: `agent-providers/crates/sdkwork-agent-provider-rig`
 
 ## What landed
 
@@ -28,4 +28,4 @@ cargo test --manifest-path sdkwork-agent-business/Cargo.toml
 cargo test --features http-axum --test http_axum_contracts --manifest-path sdkwork-agent-business/Cargo.toml
 ```
 
-Do not implement from unchecked steps in `docs/superpowers/plans/2026-06-04-rig-agent-provider-deployments.md`.
+Do not implement from unchecked steps in `docs/archive/superpowers/plans/2026-06-04-rig-agent-provider-deployments.md`.

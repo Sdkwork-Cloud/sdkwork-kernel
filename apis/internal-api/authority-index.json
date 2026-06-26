@@ -1,15 +1,21 @@
 {
   "schemaVersion": 1,
   "owner": "sdkwork-kernel",
-  "domain": "agent",
-  "surfaces": [
+  "domain": "intelligence",
+  "capability": "agent-internal-api",
+  "description": "Authoritative OpenAPI contracts for SDKWork agent kernel internal runtime HTTP surfaces.",
+  "authorities": [
     {
       "surface": "internal-api",
-      "authority": "sdkwork-agent-internal-api",
-      "authoringPath": "apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml",
-      "sdkFamily": "sdkwork-agent-internal-sdk",
-      "apiPrefix": "/internal/v3/api",
-      "ingress": "application.public-ingress"
+      "apiAuthority": "sdkwork-agent-internal-api",
+      "relativePath": "intelligence/sdkwork-agent-internal-api.openapi.yaml",
+      "pathPrefix": "/internal/v3/api"
+    }
+  ],
+  "sdkFamilies": [
+    {
+      "workspace": "sdks/sdkwork-agent-internal-sdk",
+      "surface": "internal-api"
     }
   ]
 }

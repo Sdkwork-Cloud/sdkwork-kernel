@@ -57,7 +57,7 @@ export function runKernelStandardsCheck() {
   validateKernelTopology({ kernelRoot, errors, readJson });
 
   ensureFile(path.join('scripts', 'check-agent-sdk-workspace.mjs'));
-  ensureFile(path.join('scripts', 'check-external-agent-sdk-bindings.mjs'));
+  ensureFile(path.join('scripts', 'check-agent-provider-bindings.mjs'));
   const agentSdkWorkspaceCheck = spawnSync(
     process.execPath,
     [path.join(kernelRoot, 'scripts', 'check-agent-sdk-workspace.mjs')],
@@ -72,17 +72,17 @@ export function runKernelStandardsCheck() {
     );
   }
 
-  const externalAgentSdkBindingCheck = spawnSync(
+  const agentProviderBindingCheck = spawnSync(
     process.execPath,
-    [path.join(kernelRoot, 'scripts', 'check-external-agent-sdk-bindings.mjs')],
+    [path.join(kernelRoot, 'scripts', 'check-agent-provider-bindings.mjs')],
     {
       cwd: kernelRoot,
       encoding: 'utf8'
     }
   );
-  if (externalAgentSdkBindingCheck.status !== 0) {
+  if (agentProviderBindingCheck.status !== 0) {
     errors.push(
-      `external agent SDK binding check failed:\n${externalAgentSdkBindingCheck.stdout}${externalAgentSdkBindingCheck.stderr}`
+      `agent provider binding check failed:\n${agentProviderBindingCheck.stdout}${agentProviderBindingCheck.stderr}`
     );
   }
 

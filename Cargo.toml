@@ -2,40 +2,33 @@
 resolver = "2"
 members = [
     "sdkwork-agent-kernel",
-    "sdkwork-agent-sdk-spi",
-    "sdkwork-agent-sdk-backend-core",
-    "sdkwork-agent-sdk-backend-ipc",
-    "sdkwork-agent-sdk-backend-rust",
-    "sdkwork-agent-sdk-backend-node",
-    "sdkwork-agent-sdk-backend-python",
+    "sdkwork-agent-provider-spi",
+    "sdkwork-agent-provider-transport-core",
+    "sdkwork-agent-provider-transport-ipc",
+    "sdkwork-agent-provider-transport-rust",
+    "sdkwork-agent-provider-transport-node",
+    "sdkwork-agent-provider-transport-python",
     "sdkwork-code-kernel",
-    "sdkwork-agent-business",
     "sdkwork-agent-api-bridge",
     "sdkwork-agent-streaming",
     "sdkwork-agent-server",
     "sdkwork-agent-database",
     "sdkwork-agent-session",
     "sdkwork-agent-client",
-    "crates/sdkwork-routes-agent-http-shared",
-    "crates/sdkwork-routes-agent-open-api",
-    "crates/sdkwork-routes-agent-app-api",
-    "crates/sdkwork-routes-agent-backend-api",
+    "crates/sdkwork-routes-agent-internal-manifest",
     "crates/sdkwork-routes-agent-internal-api",
     "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core",
-    "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig",
-    "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-openclaw",
-    "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-hermes",
-    "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex",
     "sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive",
     "sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase",
-    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-core",
-    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-hermes",
-    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-openclaw",
-    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-codex",
-    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-claude-code",
-    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-opencode",
-    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-gemini-cli",
-    "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-mimo-code",
+    "sdkwork-kernel-plugins/crates/sdkwork-agent-provider-core",
+    "agent-providers/crates/sdkwork-agent-provider-codex",
+    "agent-providers/crates/sdkwork-agent-provider-claude-code",
+    "agent-providers/crates/sdkwork-agent-provider-gemini-cli",
+    "agent-providers/crates/sdkwork-agent-provider-opencode",
+    "agent-providers/crates/sdkwork-agent-provider-openclaw",
+    "agent-providers/crates/sdkwork-agent-provider-hermes",
+    "agent-providers/crates/sdkwork-agent-provider-mimo-code",
+    "agent-providers/crates/sdkwork-agent-provider-rig",
 ]
 
 [workspace.package]
@@ -45,29 +38,25 @@ version = "0.1.0"
 [workspace.dependencies]
 # SDKWork workspace members - declared once at workspace root
 sdkwork-agent-kernel = { path = "sdkwork-agent-kernel" }
-sdkwork-agent-sdk-spi = { path = "sdkwork-agent-sdk-spi" }
-sdkwork-agent-sdk-backend-core = { path = "sdkwork-agent-sdk-backend-core" }
-sdkwork-agent-sdk-backend-ipc = { path = "sdkwork-agent-sdk-backend-ipc" }
-sdkwork-agent-sdk-backend-rust = { path = "sdkwork-agent-sdk-backend-rust" }
-sdkwork-agent-sdk-backend-node = { path = "sdkwork-agent-sdk-backend-node" }
-sdkwork-agent-sdk-backend-python = { path = "sdkwork-agent-sdk-backend-python" }
+sdkwork-agent-provider-spi = { path = "sdkwork-agent-provider-spi" }
+sdkwork-agent-provider-transport-core = { path = "sdkwork-agent-provider-transport-core" }
+sdkwork-agent-provider-transport-ipc = { path = "sdkwork-agent-provider-transport-ipc" }
+sdkwork-agent-provider-transport-rust = { path = "sdkwork-agent-provider-transport-rust" }
+sdkwork-agent-provider-transport-node = { path = "sdkwork-agent-provider-transport-node" }
+sdkwork-agent-provider-transport-python = { path = "sdkwork-agent-provider-transport-python" }
 sdkwork-code-kernel = { path = "sdkwork-code-kernel" }
-sdkwork-agent-business = { path = "sdkwork-agent-business" }
 sdkwork-agent-plugin-core = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core" }
-sdkwork-agent-plugin-rig = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig" }
-sdkwork-agent-plugin-openclaw = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-openclaw" }
-sdkwork-agent-plugin-hermes = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-hermes" }
-sdkwork-agent-plugin-codex = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex" }
 sdkwork-kernel-plugin-drive = { path = "sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive" }
 sdkwork-kernel-plugin-knowledgebase = { path = "sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase" }
-sdkwork-agent-adapter-core = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-core" }
-sdkwork-agent-adapter-hermes = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-hermes" }
-sdkwork-agent-adapter-openclaw = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-openclaw" }
-sdkwork-agent-adapter-codex = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-codex" }
-sdkwork-agent-adapter-claude-code = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-claude-code" }
-sdkwork-agent-adapter-opencode = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-opencode" }
-sdkwork-agent-adapter-gemini-cli = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-gemini-cli" }
-sdkwork-agent-adapter-mimo-code = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-mimo-code" }
+sdkwork-agent-provider-core = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-provider-core" }
+sdkwork-agent-provider-codex = { path = "agent-providers/crates/sdkwork-agent-provider-codex" }
+sdkwork-agent-provider-claude-code = { path = "agent-providers/crates/sdkwork-agent-provider-claude-code" }
+sdkwork-agent-provider-gemini-cli = { path = "agent-providers/crates/sdkwork-agent-provider-gemini-cli" }
+sdkwork-agent-provider-opencode = { path = "agent-providers/crates/sdkwork-agent-provider-opencode" }
+sdkwork-agent-provider-openclaw = { path = "agent-providers/crates/sdkwork-agent-provider-openclaw" }
+sdkwork-agent-provider-hermes = { path = "agent-providers/crates/sdkwork-agent-provider-hermes" }
+sdkwork-agent-provider-mimo-code = { path = "agent-providers/crates/sdkwork-agent-provider-mimo-code" }
+sdkwork-agent-provider-rig = { path = "agent-providers/crates/sdkwork-agent-provider-rig" }
 sdkwork-drive-storage-contract = { path = "../sdkwork-drive/crates/sdkwork-drive-storage-contract" }
 sdkwork-knowledgebase-contract = { path = "../sdkwork-knowledgebase/crates/sdkwork-knowledgebase-contract" }
 sdkwork-skills-contract = { path = "../sdkwork-skills/crates/sdkwork-skills-contract" }
@@ -81,9 +70,5 @@ sdkwork-database-config = { path = "../sdkwork-database/crates/sdkwork-database-
 sdkwork-database-sqlx = { path = "../sdkwork-database/crates/sdkwork-database-sqlx" }
 sdkwork-utils-rust = { path = "../sdkwork-utils/packages/sdkwork-utils-rust" }
 sdkwork-iam-web-adapter = { path = "../sdkwork-iam/crates/sdkwork-iam-web-adapter" }
-sdkwork-routes-agent-http-shared = { path = "crates/sdkwork-routes-agent-http-shared" }
-sdkwork-routes-agent-open-api = { path = "crates/sdkwork-routes-agent-open-api" }
-sdkwork-routes-agent-app-api = { path = "crates/sdkwork-routes-agent-app-api" }
-sdkwork-routes-agent-backend-api = { path = "crates/sdkwork-routes-agent-backend-api" }
+sdkwork-routes-agent-internal-manifest = { path = "crates/sdkwork-routes-agent-internal-manifest" }
 sdkwork-routes-agent-internal-api = { path = "crates/sdkwork-routes-agent-internal-api" }
-

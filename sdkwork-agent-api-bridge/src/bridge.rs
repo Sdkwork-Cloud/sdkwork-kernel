@@ -391,7 +391,7 @@ mod tests {
         let mut bridge = AgentRuntimeBridge::new();
         let config = BridgeSessionConfig {
             agent_id: "agent.test".to_string(),
-            tenant_id: 1,
+            tenant_id: 100_001,
             user_ref: Some("user.1".to_string()),
             model: Some("gpt-4".to_string()),
             instructions: None,
@@ -409,7 +409,7 @@ mod tests {
         let mut bridge = AgentRuntimeBridge::new();
         let config = BridgeSessionConfig {
             agent_id: "agent.test".to_string(),
-            tenant_id: 1,
+            tenant_id: 100_001,
             user_ref: Some("user.1".to_string()),
             model: Some("gpt-4".to_string()),
             instructions: None,
@@ -438,7 +438,7 @@ mod tests {
         let mut bridge = AgentRuntimeBridge::new();
         let config = BridgeSessionConfig {
             agent_id: "agent.test".to_string(),
-            tenant_id: 1,
+            tenant_id: 100_001,
             user_ref: None,
             model: None,
             instructions: None,

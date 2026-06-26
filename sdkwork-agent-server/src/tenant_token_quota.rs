@@ -223,19 +223,19 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_when_daily_quota_exhausted() {
-        let state = TenantTokenQuotaState::from_config(&quota_config("tenant-a", 100));
-        state.record_usage("tenant-a", 100).await;
+        let state = TenantTokenQuotaState::from_config(&quota_config("100001", 100));
+        state.record_usage("100001", 100).await;
         assert_eq!(
-            state.check_allowed("tenant-a").await,
+            state.check_allowed("100001").await,
             Err(StatusCode::TOO_MANY_REQUESTS)
         );
     }
 
     #[tokio::test]
     async fn tenants_without_overrides_remain_unlimited() {
-        let state = TenantTokenQuotaState::from_config(&quota_config("tenant-a", 50));
-        assert!(state.check_allowed("tenant-b").await.is_ok());
-        state.record_usage("tenant-b", 10_000).await;
-        assert!(state.check_allowed("tenant-b").await.is_ok());
+        let state = TenantTokenQuotaState::from_config(&quota_config("100001", 50));
+        assert!(state.check_allowed("100002").await.is_ok());
+        state.record_usage("100002", 10_000).await;
+        assert!(state.check_allowed("100002").await.is_ok());
     }
 }

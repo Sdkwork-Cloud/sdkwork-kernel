@@ -359,7 +359,7 @@ mod tests {
         let exp = (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize;
         let claims = serde_json::json!({
             "sub": "user-1",
-            "tenant_id": "tenant-1",
+            "tenant_id": "100001",
             "user_id": "user-1",
             "exp": exp,
             "iss": "sdkwork-kernel",
@@ -376,7 +376,7 @@ mod tests {
         assert_eq!(
             identity,
             VerifiedIngressIdentity {
-                tenant_id: "tenant-1".to_string(),
+                tenant_id: "100001".to_string(),
                 user_id: "user-1".to_string(),
             }
         );
@@ -417,9 +417,9 @@ mod tests {
         let private_pem = include_str!("../tests/fixtures/ingress_jwt_rs256_private.pem");
         let exp = (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize;
         let claims = serde_json::json!({
-            "sub": "user-rs",
-            "tenant_id": "tenant-rs",
-            "user_id": "user-rs",
+            "sub": "1",
+            "tenant_id": "100001",
+            "user_id": "1",
             "exp": exp,
             "iss": "sdkwork-kernel",
             "aud": "internal-api",
@@ -431,7 +431,7 @@ mod tests {
         )
         .expect("jwt encode");
         let identity = validator.validate(&token).expect("rs256 jwt should validate");
-        assert_eq!(identity.tenant_id, "tenant-rs");
+        assert_eq!(identity.tenant_id, "100001");
     }
 
     #[test]
@@ -454,9 +454,9 @@ mod tests {
         let private_pem = include_str!("../tests/fixtures/ingress_jwt_rs256_private.pem");
         let exp = (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize;
         let claims = serde_json::json!({
-            "sub": "user-jwks",
-            "tenant_id": "tenant-jwks",
-            "user_id": "user-jwks",
+            "sub": "1",
+            "tenant_id": "100001",
+            "user_id": "1",
             "exp": exp,
             "iss": "sdkwork-kernel",
             "aud": "internal-api",
@@ -470,7 +470,7 @@ mod tests {
         )
         .expect("jwt encode");
         let identity = validator.validate(&token).expect("jwks jwt should validate");
-        assert_eq!(identity.tenant_id, "tenant-jwks");
+        assert_eq!(identity.tenant_id, "100001");
     }
 
     #[test]
@@ -514,9 +514,9 @@ mod tests {
         let private_pem = include_str!("../tests/fixtures/ingress_jwt_rs256_private.pem");
         let exp = (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize;
         let claims = serde_json::json!({
-            "sub": "user-url",
-            "tenant_id": "tenant-url",
-            "user_id": "user-url",
+            "sub": "1",
+            "tenant_id": "100001",
+            "user_id": "1",
             "exp": exp,
             "iss": "sdkwork-kernel",
             "aud": "internal-api",
@@ -530,7 +530,7 @@ mod tests {
         )
         .expect("jwt encode");
         let identity = validator.validate(&token).expect("jwks url jwt should validate");
-        assert_eq!(identity.tenant_id, "tenant-url");
+        assert_eq!(identity.tenant_id, "100001");
     }
 
     #[test]
@@ -557,9 +557,9 @@ mod tests {
         let private_pem = include_str!("../tests/fixtures/ingress_jwt_rs256_private.pem");
         let exp = (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize;
         let claims = serde_json::json!({
-            "sub": "user-rotated",
-            "tenant_id": "tenant-rotated",
-            "user_id": "user-rotated",
+            "sub": "1",
+            "tenant_id": "100001",
+            "user_id": "1",
             "exp": exp,
             "iss": "sdkwork-kernel",
             "aud": "internal-api",
@@ -575,6 +575,6 @@ mod tests {
         let identity = validator
             .validate(&token)
             .expect("jwks refresh should load rotated kid");
-        assert_eq!(identity.tenant_id, "tenant-rotated");
+        assert_eq!(identity.tenant_id, "100001");
     }
 }

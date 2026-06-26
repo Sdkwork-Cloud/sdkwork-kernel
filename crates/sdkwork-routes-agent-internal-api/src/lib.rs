@@ -7,7 +7,7 @@
 pub use sdkwork_agent_server::runtime_routes::{
     build_internal_runtime_routes, INTERNAL_RUNTIME_MOUNT_PREFIX,
 };
-pub use sdkwork_routes_agent_http_shared::{internal_route_manifest, INTERNAL_ROUTES};
+pub use sdkwork_routes_agent_internal_manifest::{internal_route_manifest, INTERNAL_ROUTES};
 
 /// Builds the nested internal-api runtime route tree (without mount prefix).
 pub fn build_router(

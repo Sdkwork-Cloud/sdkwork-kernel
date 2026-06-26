@@ -1,7 +1,25 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const AUTHORITY_INDEX_PATH = path.join('apis', 'agent-business', 'authority-index.json');
+const INTERNAL_AUTHORITY_INDEX_PATH = path.join('apis', 'internal-api', 'authority-index.json');
+const AGENTS_LAYER_SEPARATION_ADR = path.join(
+  'docs',
+  'architecture',
+  'decisions',
+  'ADR-20260626-agents-application-layer-separation.md'
+);
+
+const RETIRED_KERNEL_PATHS = [
+  'sdkwork-agent-business',
+  'apis/agent-business',
+  'crates/sdkwork-routes-agent-http-shared',
+  'crates/sdkwork-routes-agent-open-api',
+  'crates/sdkwork-routes-agent-app-api',
+  'crates/sdkwork-routes-agent-backend-api',
+  'sdks/sdkwork-agent-sdk',
+  'sdks/sdkwork-agent-app-sdk',
+  'sdks/sdkwork-agent-backend-sdk'
+];
 
 const PLATFORM_ADR_PATH = path.join(
   'docs',
@@ -20,31 +38,9 @@ const REQUIRED_WORKSPACE_DEPENDENCIES = [
   'sdkwork-iam-web-adapter'
 ];
 
-const REQUIRED_AUTHORITY_SURFACES = ['open-api', 'app-api', 'backend-api'];
-
 const REQUIRED_ROUTE_CRATES = [
-  'crates/sdkwork-routes-agent-http-shared',
-  'crates/sdkwork-routes-agent-open-api',
-  'crates/sdkwork-routes-agent-app-api',
-  'crates/sdkwork-routes-agent-backend-api',
+  'crates/sdkwork-routes-agent-internal-manifest',
   'crates/sdkwork-routes-agent-internal-api'
-];
-
-const WEB_FRAMEWORK_ROUTE_CRATES = [
-  'crates/sdkwork-routes-agent-open-api',
-  'crates/sdkwork-routes-agent-app-api',
-  'crates/sdkwork-routes-agent-backend-api'
-];
-
-const ROUTE_HTTP_SHARED_DEPENDENCIES = [
-  'sdkwork-web-axum',
-  'sdkwork-web-core',
-  'sdkwork-iam-web-adapter'
-];
-
-const AGENT_BUSINESS_POSTGRES_SYNC_DEPENDENCIES = [
-  'sdkwork-database-config',
-  'sdkwork-database-sqlx'
 ];
 
 function cargoDeclaresDependency(cargoToml, dependencyName) {
@@ -66,7 +62,14 @@ function cargoFeatureIncludesDependency(cargoToml, featureName, dependencyName) 
  */
 export function validatePlatformIntegration({ kernelRoot, errors, ensureFile, readFileIfExists }) {
   ensureFile(PLATFORM_ADR_PATH);
-  ensureFile(AUTHORITY_INDEX_PATH);
+  ensureFile(AGENTS_LAYER_SEPARATION_ADR);
+  ensureFile(INTERNAL_AUTHORITY_INDEX_PATH);
+
+  for (const retiredPath of RETIRED_KERNEL_PATHS) {
+    if (fs.existsSync(path.join(kernelRoot, retiredPath))) {
+      errors.push(`${retiredPath} is retired; managed agents domain belongs in sdkwork-agents`);
+    }
+  }
 
   const adrText = readFileIfExists(path.join(kernelRoot, PLATFORM_ADR_PATH));
   for (const requiredText of [
@@ -89,24 +92,24 @@ export function validatePlatformIntegration({ kernelRoot, errors, ensureFile, re
     }
   }
 
-  const authorityIndexPath = path.join(kernelRoot, AUTHORITY_INDEX_PATH);
+  const authorityIndexPath = path.join(kernelRoot, INTERNAL_AUTHORITY_INDEX_PATH);
   let authorityIndex;
   try {
     authorityIndex = JSON.parse(fs.readFileSync(authorityIndexPath, 'utf8'));
   } catch (error) {
-    errors.push(`invalid json: ${AUTHORITY_INDEX_PATH}: ${error.message}`);
+    errors.push(`invalid json: ${INTERNAL_AUTHORITY_INDEX_PATH}: ${error.message}`);
     return;
   }
 
   if (!Array.isArray(authorityIndex.authorities) || authorityIndex.authorities.length === 0) {
-    errors.push(`${AUTHORITY_INDEX_PATH} must declare at least one API authority`);
+    errors.push(`${INTERNAL_AUTHORITY_INDEX_PATH} must declare at least one API authority`);
     return;
   }
 
   const surfaces = new Set();
   for (const authority of authorityIndex.authorities) {
     if (!authority.surface || !authority.relativePath) {
-      errors.push(`${AUTHORITY_INDEX_PATH} authority entries require surface and relativePath`);
+      errors.push(`${INTERNAL_AUTHORITY_INDEX_PATH} authority entries require surface and relativePath`);
       continue;
     }
     surfaces.add(authority.surface);
@@ -114,15 +117,13 @@ export function validatePlatformIntegration({ kernelRoot, errors, ensureFile, re
     const authorityFile = path.resolve(path.dirname(authorityIndexPath), authority.relativePath);
     if (!fs.existsSync(authorityFile)) {
       errors.push(
-        `${AUTHORITY_INDEX_PATH} authority ${authority.surface} points to missing file: ${authority.relativePath}`
+        `${INTERNAL_AUTHORITY_INDEX_PATH} authority ${authority.surface} points to missing file: ${authority.relativePath}`
       );
     }
   }
 
-  for (const surface of REQUIRED_AUTHORITY_SURFACES) {
-    if (!surfaces.has(surface)) {
-      errors.push(`${AUTHORITY_INDEX_PATH} must index ${surface} authority`);
-    }
+  if (!surfaces.has('internal-api')) {
+    errors.push(`${INTERNAL_AUTHORITY_INDEX_PATH} must index internal-api authority`);
   }
 
   const workspaceCargoPath = path.join(kernelRoot, 'Cargo.toml');
@@ -142,63 +143,24 @@ export function validatePlatformIntegration({ kernelRoot, errors, ensureFile, re
 
   const apisReadmePath = path.join(kernelRoot, 'apis', 'README.md');
   const apisReadme = readFileIfExists(apisReadmePath);
-  if (!apisReadme.includes('agent-business/authority-index.json')) {
-    errors.push('apis/README.md must reference apis/agent-business/authority-index.json');
+  if (!apisReadme.includes('internal-api/authority-index.json')) {
+    errors.push('apis/README.md must reference apis/internal-api/authority-index.json');
+  }
+  if (!apisReadme.includes('sdkwork-agents/apis/agents/authority-index.json')) {
+    errors.push('apis/README.md must reference sdkwork-agents managed-store API authority index');
+  }
+  if (apisReadme.includes('agent-business/authority-index.json')) {
+    errors.push('apis/README.md must not reference retired apis/agent-business authority index');
   }
 
   for (const routeCrate of REQUIRED_ROUTE_CRATES) {
     const crateCargo = path.join(kernelRoot, routeCrate, 'Cargo.toml');
     const componentSpec = path.join(kernelRoot, routeCrate, 'specs', 'component.spec.json');
     if (!fs.existsSync(crateCargo)) {
-      errors.push(`${routeCrate}/Cargo.toml must exist for Phase 1 route boundary extraction`);
+      errors.push(`${routeCrate}/Cargo.toml must exist for internal route boundary extraction`);
     }
     if (!fs.existsSync(componentSpec)) {
-      errors.push(`${routeCrate}/specs/component.spec.json must exist for Phase 1 route boundary extraction`);
-    }
-  }
-
-  const httpSharedCargo = readFileIfExists(path.join(kernelRoot, REQUIRED_ROUTE_CRATES[0], 'Cargo.toml'));
-  if (httpSharedCargo) {
-    for (const dependency of ROUTE_HTTP_SHARED_DEPENDENCIES) {
-      if (!cargoDeclaresDependency(httpSharedCargo, dependency)) {
-        errors.push(
-          `${REQUIRED_ROUTE_CRATES[0]}/Cargo.toml must depend on ${dependency} for sdkwork-web-framework integration`
-        );
-      }
-    }
-    const webBootstrap = readFileIfExists(
-      path.join(kernelRoot, REQUIRED_ROUTE_CRATES[0], 'src', 'web_bootstrap.rs')
-    );
-    if (webBootstrap && !webBootstrap.includes('build_served_combined_router')) {
-      errors.push(
-        `${REQUIRED_ROUTE_CRATES[0]}/src/web_bootstrap.rs must expose build_served_combined_router for served HTTP surfaces`
-      );
-    }
-    if (webBootstrap && webBootstrap.includes('SDKWORK_AGENT_WEB_FRAMEWORK_ENABLED')) {
-      errors.push(
-        `${REQUIRED_ROUTE_CRATES[0]}/src/web_bootstrap.rs must not retain SDKWORK_AGENT_WEB_FRAMEWORK_ENABLED opt-in; served routers always use web-framework`
-      );
-    }
-    if (webBootstrap && !webBootstrap.includes('/agent/v3/api')) {
-      errors.push(
-        `${REQUIRED_ROUTE_CRATES[0]}/src/web_bootstrap.rs must register /agent/v3/api in the web request context profile`
-      );
-    }
-  }
-
-  for (const surfaceCrate of WEB_FRAMEWORK_ROUTE_CRATES) {
-    const libRs = readFileIfExists(path.join(kernelRoot, surfaceCrate, 'src', 'lib.rs'));
-    if (libRs && !libRs.includes('wrap_router_with_web_framework_from_env')) {
-      errors.push(`${surfaceCrate}/src/lib.rs must wrap served routers with sdkwork-web-framework`);
-    }
-    if (
-      libRs
-      && (libRs.includes('build_open_router().with_state')
-        || libRs.includes('build_backend_router().with_state'))
-    ) {
-      errors.push(
-        `${surfaceCrate}/src/lib.rs build_served_router must use raw route builders to avoid duplicate gateway middleware`
-      );
+      errors.push(`${routeCrate}/specs/component.spec.json must exist for internal route boundary extraction`);
     }
   }
 
@@ -432,40 +394,6 @@ export function validatePlatformIntegration({ kernelRoot, errors, ensureFile, re
   );
   if (serverHttpSurface && !serverHttpSurface.includes('fn route_template')) {
     errors.push('sdkwork-agent-server/src/http_surface.rs must define route_template for observability labels');
-  }
-
-  const agentBusinessCargo = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-business', 'Cargo.toml'));
-  if (agentBusinessCargo) {
-    for (const dependency of AGENT_BUSINESS_POSTGRES_SYNC_DEPENDENCIES) {
-      if (!cargoDeclaresDependency(agentBusinessCargo, dependency)) {
-        errors.push(
-          `sdkwork-agent-business/Cargo.toml must declare ${dependency} for postgres-sync database alignment`
-        );
-      }
-      if (!cargoFeatureIncludesDependency(agentBusinessCargo, 'postgres-sync', dependency)) {
-        errors.push(
-          `sdkwork-agent-business postgres-sync feature must include dep:${dependency}`
-        );
-      }
-    }
-  }
-
-  const persistenceRs = readFileIfExists(
-    path.join(kernelRoot, 'sdkwork-agent-business', 'src', 'persistence.rs')
-  );
-  if (persistenceRs && !persistenceRs.includes('BlockingPostgresPool')) {
-    errors.push(
-      'sdkwork-agent-business/src/persistence.rs must use BlockingPostgresPool from sdkwork-database-sqlx for postgres-sync'
-    );
-  }
-
-  const postgresSyncPool = readFileIfExists(
-    path.join(kernelRoot, 'sdkwork-agent-business', 'src', 'postgres_sync_pool.rs')
-  );
-  if (!postgresSyncPool || !postgresSyncPool.includes('create_pool_from_config')) {
-    errors.push(
-      'sdkwork-agent-business/src/postgres_sync_pool.rs must bootstrap pools through sdkwork-database-sqlx'
-    );
   }
 
   const agentDatabaseCargo = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-database', 'Cargo.toml'));

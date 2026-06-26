@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "kind": "sdkwork.component.spec",
+  "component": {
+    "name": "sdkwork-agent-provider-transport-rust",
+    "displayName": "SDKWork Agent SDK Backend Rust",
+    "version": "0.1.0",
+    "type": "rust-crate",
+    "root": "sdkwork-kernel/sdkwork-agent-provider-transport-rust",
+    "domain": "intelligence",
+    "capability": "agent-sdk-backend-rust",
+    "surfaceNotRequiredReason": "In-process Rust SDK runtime bridge has no HTTP or generated SDK transport surface.",
+    "languages": ["rust"],
+    "generated": false,
+    "manifests": ["Cargo.toml"]
+  },
+  "canonicalSpecs": [
+    {
+      "file": "AGENT_SDK_SPI_SPEC.md",
+      "path": "../specs/AGENT_SDK_SPI_SPEC.md",
+      "purpose": "External agent SDK adaptation SPI rules."
+    },
+    {
+      "file": "COMPONENT_SPEC.md",
+      "path": "../../sdkwork-specs/COMPONENT_SPEC.md",
+      "purpose": "Component-local contract and discovery rules."
+    },
+    {
+      "file": "RUST_CODE_SPEC.md",
+      "path": "../../sdkwork-specs/RUST_CODE_SPEC.md",
+      "purpose": "Rust crate and module rules."
+    },
+    {
+      "file": "CODE_STYLE_SPEC.md",
+      "path": "../../sdkwork-specs/CODE_STYLE_SPEC.md",
+      "purpose": "Authored source structure and generated code boundaries."
+    },
+    {
+      "file": "NAMING_SPEC.md",
+      "path": "../../sdkwork-specs/NAMING_SPEC.md",
+      "purpose": "Canonical SDKWork naming rules."
+    }
+  ],
+  "contracts": {
+    "publicExports": [
+      "InProcessRustSdkRuntime",
+      "ProviderBackedRustHandler"
+    ],
+    "runtimeEntrypoints": [],
+    "routeManifest": null,
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
+    "sdkClients": [],
+    "events": [],
+    "configKeys": []
+  },
+  "verification": {
+    "commands": ["cargo test --manifest-path sdkwork-agent-provider-transport-rust/Cargo.toml"]
+  }
+}

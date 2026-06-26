@@ -25,7 +25,7 @@ Exported from `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core`:
 - `KernelPluginManifest`, `KernelProviderBinding`, `KernelPluginDeploymentSnapshot`
 - `KernelPluginConformanceProfile`, `SdkworkKernelPlugin`, `StandardPluginIds`
 
-Rig reference plugin: `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig` (`RigKernelPlugin`, `rig_kernel_plugin_manifest`).
+Rig reference plugin: `agent-providers/crates/sdkwork-agent-provider-rig` (`RigKernelPlugin`, `rig_kernel_plugin_manifest`).
 
 Foundation plugins (optional at runtime):
 
@@ -34,7 +34,7 @@ Foundation plugins (optional at runtime):
 
 Agent runtime plugins (server-selected via `SDKWORK_KERNEL_AGENT_PLUGIN`):
 
-- `sdkwork-agent-plugin-rig`, `-openclaw`, `-hermes`, `-codex`
+- `sdkwork-agent-provider-rig`, `-openclaw`, `-hermes`, `-codex`
 
 ## Standards enforcement
 
@@ -47,10 +47,10 @@ Agent runtime plugins (server-selected via `SDKWORK_KERNEL_AGENT_PLUGIN`):
 node scripts/check-kernel-standards.mjs
 node --test sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs
 cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core/Cargo.toml
-cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-rig/Cargo.toml
 cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive/Cargo.toml
 cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml
 pnpm verify
 ```
 
-Do not implement from checkbox steps in `docs/superpowers/plans/2026-06-10-sdkwork-kernel-plugin-system.md`.
+Do not implement from checkbox steps in `docs/archive/superpowers/plans/2026-06-10-sdkwork-kernel-plugin-system.md`.

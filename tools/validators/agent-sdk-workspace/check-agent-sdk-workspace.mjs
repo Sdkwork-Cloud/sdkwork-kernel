@@ -24,24 +24,6 @@ const errors = [];
 
 validateSdkgenStandard({ root, errors, ensureFile, readIfExists, readJsonIfExists, families });
 
-const agentBusinessApi = readIfExists(path.join(root, 'sdkwork-agent-business', 'src', 'api.rs'));
-for (const required of [
-  'AGENT_OPEN_API_PREFIX',
-  '"/agent/v3/api"',
-  'AGENT_OPEN_API_OPERATIONS'
-]) {
-  if (!agentBusinessApi.includes(required)) {
-    errors.push(`sdkwork-agent-business/src/api.rs must include ${required}`);
-  }
-}
-
-const agentBusinessHttp = readIfExists(path.join(root, 'sdkwork-agent-business', 'src', 'http.rs'));
-for (const required of ['build_open_router', '"/agent/v3/api/ai/agents"']) {
-  if (!agentBusinessHttp.includes(required)) {
-    errors.push(`sdkwork-agent-business/src/http.rs must include ${required}`);
-  }
-}
-
 for (const family of families) {
   const familyRoot = path.join(sdksRoot, family.familyDir);
   const authorityPath = path.join(

@@ -18,10 +18,12 @@
   ],
   "properties": {
     "schema_version": { "$ref": "#/$defs/semver" },
-    "manifest_type": { "const": "agent_sdk_binding" },
+    "manifest_type": {
+      "enum": ["agent_provider_binding", "agent_sdk_binding"]
+    },
     "binding_id": {
       "type": "string",
-      "pattern": "^binding\\.agent-sdk\\.[a-z0-9.-]+$"
+      "pattern": "^binding\\.agent-(sdk|provider)\\.[a-z0-9.-]+$"
     },
     "agent_id": {
       "type": "string",
@@ -61,6 +63,11 @@
         "typescript": { "$ref": "#/$defs/npmPackage" },
         "python": { "$ref": "#/$defs/pythonPackage" }
       }
+    },
+    "integration_sources": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/integrationSource" },
+      "minItems": 1
     },
     "capabilities": {
       "type": "array",
@@ -144,6 +151,29 @@
         "module": { "type": "string", "minLength": 1 },
         "version": { "type": "string", "minLength": 1 },
         "optional": { "type": "boolean" }
+      }
+    },
+    "integrationSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "enum": [
+            "official_sdk",
+            "rust_crate",
+            "source_tree",
+            "npm_package",
+            "python_module",
+            "http_openapi",
+            "ipc_protocol"
+          ]
+        },
+        "package": { "type": "string", "minLength": 1 },
+        "crate": { "type": "string", "minLength": 1 },
+        "module": { "type": "string", "minLength": 1 },
+        "transport": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "minLength": 1 }
       }
     }
   }

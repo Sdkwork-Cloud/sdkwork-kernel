@@ -24,4 +24,4 @@ pnpm verify
 
 Design context: [TECH-2026-06-12-sdkwork-specs-structure-hardening-design.md](TECH-2026-06-12-sdkwork-specs-structure-hardening-design.md).
 
-Do not implement from checkbox steps in `docs/superpowers/plans/2026-06-12-sdkwork-specs-structure-hardening.md`.
+Do not implement from checkbox steps in `docs/archive/superpowers/plans/2026-06-12-sdkwork-specs-structure-hardening.md`.

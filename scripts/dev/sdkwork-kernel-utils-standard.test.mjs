@@ -17,22 +17,22 @@ assert.match(
   'Cargo.toml must declare sdkwork-utils-rust workspace dependency'
 );
 
-const agentBusinessCargo = read('sdkwork-agent-business/Cargo.toml');
+const agentDatabaseCargo = read('sdkwork-agent-database/Cargo.toml');
 assert.match(
-  agentBusinessCargo,
-  /sdkwork-utils-rust\.workspace\s*=\s*true/u,
-  'sdkwork-agent-business must consume sdkwork-utils-rust from the workspace'
+  agentDatabaseCargo,
+  /sdkwork-utils-rust/u,
+  'sdkwork-agent-database must declare sdkwork-utils-rust for postgres-sync alignment'
 );
 
 const workflow = JSON.parse(read('sdkwork.workflow.json'));
 const dependencyIds = new Set((workflow.dependencies || []).map((dependency) => dependency.id));
 assert(dependencyIds.has('sdkwork-utils'), 'sdkwork.workflow.json must declare sdkwork-utils sibling checkout');
 
-const validationSource = read('sdkwork-agent-business/src/validation.rs');
+const postgresPoolSource = read('sdkwork-agent-database/src/postgres_pool.rs');
 assert.match(
-  validationSource,
-  /sdkwork_utils_rust/u,
-  'validation.rs must consume sdkwork-utils-rust instead of ad hoc blank checks'
+  postgresPoolSource,
+  /create_pool_from_config/u,
+  'postgres_pool.rs must bootstrap pools through sdkwork-database-sqlx'
 );
 
 const uiWorkspace = read('sdkwork-kernel-ui/pnpm-workspace.yaml');

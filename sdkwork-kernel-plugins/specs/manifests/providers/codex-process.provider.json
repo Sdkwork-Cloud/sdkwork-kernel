@@ -62,6 +62,6 @@
     "sdkwork.external.source-path": "external/codex",
     "sdkwork.external.initial-registration-mode": "process-adapter",
     "sdkwork.external.execution-status": "implemented-codex-sdk-runtime-backed-plugin",
-    "sdkwork.external.implementation-crate": "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex"
+    "sdkwork.external.implementation-crate": "agent-providers/crates/sdkwork-agent-provider-codex"
   }
 }

@@ -179,7 +179,7 @@ mod tests {
     fn test_config() -> BridgeSessionConfig {
         BridgeSessionConfig {
             agent_id: "agent.test".to_string(),
-            tenant_id: 1,
+            tenant_id: 100_001,
             user_ref: Some("user.1".to_string()),
             model: Some("gpt-4".to_string()),
             instructions: None,

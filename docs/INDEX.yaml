@@ -4,5 +4,55 @@ repository: sdkwork-kernel
 canon:
   prd: docs/product/prd/PRD.md
   techArchitecture: docs/architecture/tech/TECH_ARCHITECTURE.md
-entries: []
+entries:
+  - id: PRD-01-product-design-and-scope
+    path: docs/product/prd/PRD-01-product-design-and-scope.md
+    layer: canon-shard
+    audience: [product, engineering]
+    status: active
+  - id: PRD-02-provider-integration-requirements
+    path: docs/product/prd/PRD-02-provider-integration-requirements.md
+    layer: canon-shard
+    audience: [product, engineering]
+    status: active
+  - id: PRD-03-commercial-readiness-baseline
+    path: docs/product/prd/PRD-03-commercial-readiness-baseline.md
+    layer: canon-shard
+    audience: [product, engineering, release]
+    status: active
+  - id: REQ-2026-0001-commercial-hardening
+    path: docs/product/requirements/REQ-2026-0001-commercial-hardening.md
+    layer: work
+    audience: [product, engineering, release]
+    status: in-progress
+  - id: TECH-01-kernel-module-reference
+    path: docs/architecture/tech/TECH-01-kernel-module-reference.md
+    layer: canon-shard
+    audience: [engineering]
+    status: active
+  - id: ADR-20260626-agent-provider-integration-naming
+    path: docs/architecture/decisions/ADR-20260626-agent-provider-integration-naming.md
+    layer: work
+    audience: [engineering, architecture]
+    status: accepted
+  - id: ADR-20260626-agents-application-layer-separation
+    path: docs/architecture/decisions/ADR-20260626-agents-application-layer-separation.md
+    layer: work
+    audience: [engineering, architecture]
+    status: accepted
+  - id: ADR-20260622-sdkwork-internal-api-surface
+    path: docs/architecture/decisions/ADR-20260622-sdkwork-internal-api-surface.md
+    layer: work
+    audience: [engineering, architecture]
+    status: accepted
+  - id: TECH-sdkwork-standards-alignment-20260612
+    path: docs/architecture/tech/TECH-sdkwork-standards-alignment-20260612.md
+    layer: evidence
+    audience: [engineering, release]
+    status: complete
+  - id: ADR-20260618-platform-framework-adoption
+    path: docs/architecture/decisions/ADR-20260618-platform-framework-adoption.md
+    layer: work
+    audience: [engineering, architecture]
+    status: accepted
 domains: []

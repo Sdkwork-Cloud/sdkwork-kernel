@@ -100,17 +100,17 @@
     "publicExports": [],
     "runtimeEntrypoints": [
       "crates/sdkwork-agent-plugin-core",
-      "crates/sdkwork-agent-plugin-rig",
+      "../agent-providers/crates/sdkwork-agent-provider-rig",
       "crates/sdkwork-kernel-plugin-drive",
       "crates/sdkwork-kernel-plugin-knowledgebase",
-      "crates/sdkwork-agent-adapter-core",
-      "crates/sdkwork-agent-adapter-hermes",
-      "crates/sdkwork-agent-adapter-openclaw",
-      "crates/sdkwork-agent-adapter-codex",
-      "crates/sdkwork-agent-adapter-claude-code",
-      "crates/sdkwork-agent-adapter-opencode",
-      "crates/sdkwork-agent-adapter-gemini-cli",
-      "crates/sdkwork-agent-adapter-mimo-code"
+      "crates/sdkwork-agent-provider-core",
+      "crates/sdkwork-agent-provider-hermes",
+      "crates/sdkwork-agent-provider-openclaw",
+      "crates/sdkwork-agent-provider-codex",
+      "crates/sdkwork-agent-provider-claude-code",
+      "crates/sdkwork-agent-provider-opencode",
+      "crates/sdkwork-agent-provider-gemini-cli",
+      "crates/sdkwork-agent-provider-mimo-code"
     ],
     "sdkDependencies": [],
     "dependencyApiExports": [],
@@ -136,7 +136,7 @@
     "officialPackageNames": [
       "sdkwork-kernel-plugin-core",
       "sdkwork-agent-plugin-core",
-      "sdkwork-agent-plugin-rig",
+      "sdkwork-agent-provider-rig",
       "sdkwork-kernel-plugin-drive",
       "sdkwork-kernel-plugin-knowledgebase"
     ]
@@ -146,20 +146,20 @@
       "node --test sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs",
       "node sdkwork-kernel-plugins/scripts/check-kernel-plugins.mjs",
       "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core/Cargo.toml",
-      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/Cargo.toml",
-      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-openclaw/Cargo.toml",
-      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-hermes/Cargo.toml",
-      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex/Cargo.toml",
+      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-rig/Cargo.toml",
+      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-openclaw/Cargo.toml",
+      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-hermes/Cargo.toml",
+      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-codex/Cargo.toml",
       "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive/Cargo.toml",
       "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml",
-      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-core/Cargo.toml",
-      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-hermes/Cargo.toml",
-      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-openclaw/Cargo.toml",
-      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-codex/Cargo.toml",
-      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-claude-code/Cargo.toml",
-      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-opencode/Cargo.toml",
-      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-gemini-cli/Cargo.toml",
-      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-mimo-code/Cargo.toml"
+      "cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-provider-core/Cargo.toml",
+      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-hermes/Cargo.toml",
+      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-openclaw/Cargo.toml",
+      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-codex/Cargo.toml",
+      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-claude-code/Cargo.toml",
+      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-opencode/Cargo.toml",
+      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-gemini-cli/Cargo.toml",
+      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-mimo-code/Cargo.toml"
     ]
   },
   "metadata": {

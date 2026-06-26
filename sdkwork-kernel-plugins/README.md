@@ -113,27 +113,21 @@ Extension points are limited to declared public exports, runtime entrypoints, SD
 - `node --test sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs`
 - `node sdkwork-kernel-plugins/scripts/check-kernel-plugins.mjs`
 - `cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core/Cargo.toml`
-- `cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/Cargo.toml`
-- `cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-openclaw/Cargo.toml`
-- `cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-hermes/Cargo.toml`
-- `cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex/Cargo.toml`
+- `cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-rig/Cargo.toml`
+- `cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-openclaw/Cargo.toml`
+- `cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-hermes/Cargo.toml`
+- `cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-codex/Cargo.toml`
 - `cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive/Cargo.toml`
 - `cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml`
 
 ### Naming
 
 - Canonical standard: `plugin`.
-- Package root: `sdkwork-kernel-plugins`.
-- Implemented crates: `sdkwork-agent-plugin-core`,
-  `sdkwork-agent-plugin-rig`,
-  `sdkwork-agent-plugin-openclaw`,
-  `sdkwork-agent-plugin-hermes`,
-  `sdkwork-agent-plugin-codex`,
-  `sdkwork-agent-adapter-openclaw`,
-  `sdkwork-agent-adapter-hermes`,
-  `sdkwork-agent-adapter-codex`,
-  `sdkwork-kernel-plugin-drive`, and
-  `sdkwork-kernel-plugin-knowledgebase`.
+- Package roots: `sdkwork-kernel-plugins` (plugin core, foundation plugins) and `agent-providers` (framework provider integrations).
+- Implemented crates: `sdkwork-agent-plugin-core`, `sdkwork-agent-provider-core`,
+  `sdkwork-agent-provider-rig`, `sdkwork-agent-provider-openclaw`,
+  `sdkwork-agent-provider-hermes`, `sdkwork-agent-provider-codex`,
+  `sdkwork-kernel-plugin-drive`, and `sdkwork-kernel-plugin-knowledgebase`.
 
 ### Owner And Status
 

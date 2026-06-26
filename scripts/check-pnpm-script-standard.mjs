@@ -15,7 +15,7 @@ const RETIRED_COMMAND_PATTERNS = [
 ];
 const PACKAGE_SCAN_ROOTS = ['sdkwork-kernel-ui'];
 const DOC_SCAN_ROOTS = ['README.md', 'AGENTS.md', 'docs', 'configs', 'deployments', 'specs'];
-const IGNORED_DOC_PARTS = ['docs/superpowers', 'docs/quality', 'docs/review'];
+const IGNORED_DOC_PARTS = ['docs/archive/superpowers', 'docs/superpowers', 'docs/quality', 'docs/review'];
 
 function readJson(relativePath) {
   return JSON.parse(fs.readFileSync(path.join(repoRoot, relativePath), 'utf8'));

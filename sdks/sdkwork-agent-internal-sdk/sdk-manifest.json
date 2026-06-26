@@ -14,6 +14,6 @@
   "standardProfile": "sdkwork-v3",
   "sdkDependencies": [],
   "ownerOnlyOperationCount": 18,
-  "standardVersion": "2026-06-06",
+  "standardVersion": "2026-06-26",
   "managedBy": "sdks/_shared/agent-sdk-ownership.mjs"
 }

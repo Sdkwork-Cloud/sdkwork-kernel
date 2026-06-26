@@ -275,7 +275,7 @@ Canonical package names:
 
 - `sdkwork-kernel-plugin-core`
 - `sdkwork-agent-plugin-core`
-- `sdkwork-agent-plugin-rig`
+- `sdkwork-agent-provider-rig`
 - `sdkwork-kernel-plugin-drive`
 - `sdkwork-kernel-plugin-knowledgebase`
 - `sdkwork-kernel-plugin-mcp`

@@ -33,4 +33,4 @@ node scripts/check-agent-sdk-workspace.mjs
 pnpm verify
 ```
 
-Do not implement from checkbox steps in `docs/superpowers/plans/2026-06-12-agent-implementation-type.md`.
+Do not implement from checkbox steps in `docs/archive/superpowers/plans/2026-06-12-agent-implementation-type.md`.

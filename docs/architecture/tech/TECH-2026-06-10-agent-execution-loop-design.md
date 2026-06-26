@@ -1,4 +1,4 @@
-> Migrated from `docs/superpowers/specs/2026-06-10-agent-execution-loop-design.md` on 2026-06-24.
+> Migrated from `docs/archive/superpowers/specs/2026-06-10-agent-execution-loop-design.md` on 2026-06-24.
 > Owner: SDKWork maintainers
 
 ## Goal
@@ -54,7 +54,7 @@ The current repository already has the required provider-level pieces:
 - Runtime registration supports typed and manifest-only providers for model,
   tool, policy, memory, knowledge, planning, protocol adapter, MCP, skill,
   collaboration, telemetry, installer, and configuration families.
-- `sdkwork-agent-plugin-rig` registers typed fail-closed Rig model, tool, MCP,
+- `sdkwork-agent-provider-rig` registers typed fail-closed Rig model, tool, MCP,
   memory, knowledge, planning, policy, installer, configuration, and RPC chat
   adapter providers.
 - `sdkwork-kernel-plugin-knowledgebase` maps the SDKWork Knowledgebase contract
@@ -230,7 +230,7 @@ Verification commands:
 ```powershell
 cargo test --manifest-path sdkwork-agent-kernel/Cargo.toml --test agent_execution_service_contracts
 cargo test --manifest-path sdkwork-agent-kernel/Cargo.toml
-cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-rig/Cargo.toml
 node scripts/check-kernel-standards.mjs
 ```
 

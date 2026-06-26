@@ -7,7 +7,7 @@ x-sdkwork-owner: sdkwork-kernel
 x-sdkwork-api-authority: sdkwork-agent-internal-api
 x-sdkwork-sdk-family: sdkwork-agent-internal-sdk
 x-sdkwork-owner-only-input: true
-x-sdkwork-standard-version: '2026-06-06'
+x-sdkwork-standard-version: '2026-06-26'
 servers:
   - url: '{applicationPublicIngressOrigin}'
     description: Runtime origin from topology env `SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL` (kernel UI client uses `VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL`).

@@ -11,7 +11,6 @@ const scanRoots = [
   'sdkwork-kernel-ui',
   'sdkwork-agent-kernel',
   'sdkwork-code-kernel',
-  'sdkwork-agent-business',
   'sdkwork-kernel-plugins',
   'scripts',
   'configs',
@@ -36,6 +35,7 @@ const skipPathFragments = [
   'docs/topology-standard.md',
   'configs/topology/',
   'docs/quality/',
+  'docs/archive/superpowers/',
   'docs/superpowers/',
 ];
 

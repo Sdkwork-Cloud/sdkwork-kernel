@@ -1,0 +1,12 @@
+[package]
+name = "sdkwork-agent-provider-transport-core"
+version = "0.1.0"
+edition = "2021"
+description = "Language and transport backend hosts for external agent SDK adaptation"
+
+[dependencies]
+sdkwork-agent-provider-spi = { path = "../sdkwork-agent-provider-spi" }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+pretty_assertions = "1"

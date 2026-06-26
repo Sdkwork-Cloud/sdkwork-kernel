@@ -77,6 +77,6 @@
     "sdkwork.external.initial-registration-mode": "typed-local-provider",
     "sdkwork.external.execution-status": "implemented-transport-neutral-rpc-chat",
     "sdkwork.external.implementation-crate": "sdkwork-agent-kernel",
-    "sdkwork.external.rig-plugin-provider": "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig"
+    "sdkwork.external.rig-plugin-provider": "agent-providers/crates/sdkwork-agent-provider-rig"
   }
 }

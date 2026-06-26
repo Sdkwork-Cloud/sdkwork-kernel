@@ -1,8 +1,8 @@
-use sdkwork_agent_plugin_codex::ids as codex_ids;
+use sdkwork_agent_provider_codex::ids as codex_ids;
 use sdkwork_agent_plugin_core::StandardPluginIds;
-use sdkwork_agent_plugin_hermes::ids as hermes_ids;
-use sdkwork_agent_plugin_openclaw::ids as openclaw_ids;
-use sdkwork_agent_plugin_rig::ids as rig_ids;
+use sdkwork_agent_provider_hermes::ids as hermes_ids;
+use sdkwork_agent_provider_openclaw::ids as openclaw_ids;
+use sdkwork_agent_provider_rig::ids as rig_ids;
 
 use crate::runtime_bootstrap::{kernel_agent_plugin_kind_from_env, KernelAgentPluginKind};
 

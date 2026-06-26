@@ -116,7 +116,7 @@ Adopt platform frameworks in phased migration without destabilizing existing con
 
 Benefits:
 
-- Kernel HTTP surfaces converge with `sdkwork-knowledgebase`, `sdkwork-claw-router`, and other
+- Kernel HTTP surfaces converge with `sdkwork-knowledgebase`, `sdkwork-clawrouter`, and other
   platform-aligned repositories.
 - Database configuration becomes consistent across standalone and integrated deployment modes.
 - Validators prevent regression after Phase 0.

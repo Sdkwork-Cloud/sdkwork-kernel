@@ -5,6 +5,7 @@ import { test } from 'node:test';
 
 const root = path.resolve(import.meta.dirname, '..', '..');
 const pluginRoot = path.join(root, 'sdkwork-kernel-plugins');
+const providerRoot = path.join(root, 'agent-providers');
 
 const upstreams = [
   'hermes-agent',
@@ -17,15 +18,17 @@ const upstreams = [
   'mimo-code'
 ];
 
-const adapterCrates = [
-  'sdkwork-agent-adapter-core',
-  'sdkwork-agent-adapter-hermes',
-  'sdkwork-agent-adapter-openclaw',
-  'sdkwork-agent-adapter-codex',
-  'sdkwork-agent-adapter-claude-code',
-  'sdkwork-agent-adapter-opencode',
-  'sdkwork-agent-adapter-gemini-cli',
-  'sdkwork-agent-adapter-mimo-code'
+const pluginCoreCrates = ['sdkwork-agent-plugin-core', 'sdkwork-agent-provider-core'];
+
+const providerFrameworkCrates = [
+  'sdkwork-agent-provider-hermes',
+  'sdkwork-agent-provider-openclaw',
+  'sdkwork-agent-provider-codex',
+  'sdkwork-agent-provider-claude-code',
+  'sdkwork-agent-provider-opencode',
+  'sdkwork-agent-provider-gemini-cli',
+  'sdkwork-agent-provider-rig',
+  'sdkwork-agent-provider-mimo-code'
 ];
 
 const requiredFiles = [
@@ -43,26 +46,6 @@ const requiredFiles = [
   'specs/manifests/providers/rig-rust.provider.json',
   'specs/manifests/protocol-adapters/agent-chat-rpc.protocol-adapter.json',
   'specs/manifests/protocol-adapters/external-process.protocol-adapter.json',
-  'crates/sdkwork-agent-plugin-core/Cargo.toml',
-  'crates/sdkwork-agent-plugin-core/README.md',
-  'crates/sdkwork-agent-plugin-core/specs/component.spec.json',
-  'crates/sdkwork-agent-plugin-core/src/lib.rs',
-  'crates/sdkwork-agent-plugin-rig/Cargo.toml',
-  'crates/sdkwork-agent-plugin-rig/README.md',
-  'crates/sdkwork-agent-plugin-rig/specs/component.spec.json',
-  'crates/sdkwork-agent-plugin-rig/src/lib.rs',
-  'crates/sdkwork-agent-plugin-openclaw/Cargo.toml',
-  'crates/sdkwork-agent-plugin-openclaw/README.md',
-  'crates/sdkwork-agent-plugin-openclaw/specs/component.spec.json',
-  'crates/sdkwork-agent-plugin-openclaw/src/lib.rs',
-  'crates/sdkwork-agent-plugin-hermes/Cargo.toml',
-  'crates/sdkwork-agent-plugin-hermes/README.md',
-  'crates/sdkwork-agent-plugin-hermes/specs/component.spec.json',
-  'crates/sdkwork-agent-plugin-hermes/src/lib.rs',
-  'crates/sdkwork-agent-plugin-codex/Cargo.toml',
-  'crates/sdkwork-agent-plugin-codex/README.md',
-  'crates/sdkwork-agent-plugin-codex/specs/component.spec.json',
-  'crates/sdkwork-agent-plugin-codex/src/lib.rs',
   'crates/sdkwork-kernel-plugin-drive/Cargo.toml',
   'crates/sdkwork-kernel-plugin-drive/README.md',
   'crates/sdkwork-kernel-plugin-drive/specs/component.spec.json',
@@ -75,11 +58,18 @@ const requiredFiles = [
   'specs/mappings/zeroclaw.md'
 ];
 
-for (const adapterCrate of adapterCrates) {
-  requiredFiles.push(`crates/${adapterCrate}/Cargo.toml`);
-  requiredFiles.push(`crates/${adapterCrate}/README.md`);
-  requiredFiles.push(`crates/${adapterCrate}/specs/component.spec.json`);
-  requiredFiles.push(`crates/${adapterCrate}/src/lib.rs`);
+for (const crateName of pluginCoreCrates) {
+  requiredFiles.push(`crates/${crateName}/Cargo.toml`);
+  requiredFiles.push(`crates/${crateName}/README.md`);
+  requiredFiles.push(`crates/${crateName}/specs/component.spec.json`);
+  requiredFiles.push(`crates/${crateName}/src/lib.rs`);
+}
+
+for (const crateName of providerFrameworkCrates) {
+  requiredFiles.push(`crates/${crateName}/Cargo.toml`);
+  requiredFiles.push(`crates/${crateName}/README.md`);
+  requiredFiles.push(`crates/${crateName}/specs/component.spec.json`);
+  requiredFiles.push(`crates/${crateName}/src/lib.rs`);
 }
 
 for (const upstream of upstreams) {
@@ -88,7 +78,12 @@ for (const upstream of upstreams) {
 
 test('kernel plugin standards assets are present', () => {
   for (const relativePath of requiredFiles) {
-    const absolutePath = path.join(pluginRoot, relativePath);
+    const baseRoot = providerFrameworkCrates.some((crateName) =>
+      relativePath.startsWith(`crates/${crateName}/`)
+    )
+      ? providerRoot
+      : pluginRoot;
+    const absolutePath = path.join(baseRoot, relativePath);
     assert.equal(fs.existsSync(absolutePath), true, `${relativePath} should exist`);
     assert.equal(fs.statSync(absolutePath).isFile(), true, `${relativePath} should be a file`);
   }
@@ -213,17 +208,20 @@ test('deferred mapping docs declare SDKWork surface and policy boundaries', () =
 
 test('plugin crates do not require external reference sources for default Cargo metadata', () => {
   const crateManifests = [
-    'crates/sdkwork-agent-plugin-core/Cargo.toml',
-    'crates/sdkwork-agent-plugin-rig/Cargo.toml',
-    'crates/sdkwork-agent-plugin-openclaw/Cargo.toml',
-    'crates/sdkwork-agent-plugin-hermes/Cargo.toml',
-    'crates/sdkwork-kernel-plugin-drive/Cargo.toml',
-    'crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml',
-    ...adapterCrates.map((crateName) => `crates/${crateName}/Cargo.toml`)
+    ...pluginCoreCrates.map((crateName) => ({
+      root: pluginRoot,
+      relativePath: `crates/${crateName}/Cargo.toml`
+    })),
+    ...providerFrameworkCrates.map((crateName) => ({
+      root: providerRoot,
+      relativePath: `crates/${crateName}/Cargo.toml`
+    })),
+    { root: pluginRoot, relativePath: 'crates/sdkwork-kernel-plugin-drive/Cargo.toml' },
+    { root: pluginRoot, relativePath: 'crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml' }
   ];
 
-  for (const relativePath of crateManifests) {
-    const content = fs.readFileSync(path.join(pluginRoot, relativePath), 'utf8');
+  for (const { root: crateRoot, relativePath } of crateManifests) {
+    const content = fs.readFileSync(path.join(crateRoot, relativePath), 'utf8');
 
     assert.doesNotMatch(
       content,

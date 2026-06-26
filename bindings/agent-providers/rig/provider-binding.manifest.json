@@ -1,0 +1,50 @@
+{
+  "schema_version": "0.1.0",
+  "manifest_type": "agent_provider_binding",
+  "binding_id": "binding.agent-provider.rig",
+  "agent_id": "agent.intelligence.rig",
+  "display_name": "Rig",
+  "description": "Rig agent framework integration via source tree and Rust crate providers.",
+  "version": "0.1.0",
+  "sdk_owner": "rig",
+  "status": "standardizing",
+  "kernel_compatibility": {
+    "agent_kernel": ">=0.1.0 <0.2.0"
+  },
+  "integration_sources": [
+    {
+      "mode": "source_tree",
+      "path": "external/rig"
+    },
+    {
+      "mode": "rust_crate",
+      "crate": "rig-core",
+      "feature": "rig-core-adapter",
+      "optional": true
+    }
+  ],
+  "capabilities": [
+    {
+      "capability_id": "sdk.model.chat",
+      "required": true,
+      "backends": [
+        {
+          "kind": "rust_native",
+          "driver_id": "driver.rig.model.chat.rust",
+          "crate": "rig-core"
+        }
+      ]
+    },
+    {
+      "capability_id": "sdk.tool.invoke",
+      "required": true,
+      "backends": [
+        {
+          "kind": "rust_native",
+          "driver_id": "driver.rig.tool.invoke.rust",
+          "crate": "rig-core"
+        }
+      ]
+    }
+  ]
+}

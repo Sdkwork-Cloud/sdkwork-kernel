@@ -3,9 +3,9 @@
 
 This repository adopts the shared SDKWork runtime topology framework.
 
-- Platform standard: `../sdkwork-specs/APP_RUNTIME_TOPOLOGY_SPEC.md`
-- Naming authority: `../sdkwork-specs/APP_RUNTIME_TOPOLOGY_NAMING.md`
-- Adoption guide: `../sdkwork-specs/APP_RUNTIME_TOPOLOGY_ADOPTION.md`
+- Platform standard: [APP_RUNTIME_TOPOLOGY_SPEC.md](../../../sdkwork-specs/APP_RUNTIME_TOPOLOGY_SPEC.md)
+- Naming authority: [APP_RUNTIME_TOPOLOGY_NAMING.md](../../../sdkwork-specs/APP_RUNTIME_TOPOLOGY_NAMING.md)
+- Adoption guide: [APP_RUNTIME_TOPOLOGY_ADOPTION.md](../../../sdkwork-specs/APP_RUNTIME_TOPOLOGY_ADOPTION.md)
 - Framework: `../sdkwork-app-topology`
 
 ## Archetype

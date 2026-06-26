@@ -28,10 +28,9 @@ model/tool providers for chat-oriented local sessions.
 
 `process-adapter`
 
-`sdkwork-agent-adapter-codex` provides session/message adapters, SDK binding manifest
-negotiation, TypeScript Node + in-process Rust runtime routing, and runtime-backed kernel
-providers. `sdkwork-agent-plugin-codex` registers typed model/tool/policy providers through
-`sdkwork-agent-server` `runtime_bootstrap` when `SDKWORK_KERNEL_AGENT_PLUGIN=codex`.
+`sdkwork-agent-provider-codex` under `agent-providers/crates/` provides session/message adapters, SDK binding manifest
+negotiation, TypeScript Node + in-process Rust runtime routing, runtime-backed kernel
+providers, and server bootstrap registration when `SDKWORK_KERNEL_AGENT_PLUGIN=codex`.
 
 ## Capability Mapping
 
@@ -70,9 +69,8 @@ and client bridge SDK routing through `SDKWORK_KERNEL_AGENT_PLUGIN`.
 
 ## Status
 
-- Adapter crate: `sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-codex`
-- Kernel plugin crate: `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex`
-- SDK binding: `sdks/external-agent-sdks/codex/sdk-binding.manifest.json`
+- Provider crate: `agent-providers/crates/sdkwork-agent-provider-codex`
+- SDK binding: `bindings/agent-providers/codex/provider-binding.manifest.json`
 - Client bridge plugin: `sdkwork-agent-client` `builtin.codex` routes local chat through `CodexSdkIntegration` model provider (`SdkModelBridgeRuntime`); remote mode uses internal-api `SseChatClient`
 - Server bootstrap: `SDKWORK_KERNEL_AGENT_PLUGIN=codex`
 - Runtime worker: `@openai/codex-sdk` via `NodeSdkBackendRuntime` + in-process Rust handler

@@ -1,9 +1,9 @@
 use crate::bridge::{AgentBridgeConfig, AgentBridgeHealth, AgentBridgeStatus};
 use crate::session::SdkModelBridgeRuntime;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
-use sdkwork_agent_adapter_openclaw::OpenClawSdkIntegration;
+use sdkwork_agent_provider_openclaw::OpenClawSdkIntegration;
 use sdkwork_agent_kernel::ModelProvider;
-use sdkwork_agent_sdk_spi::SdkRuntimeRequest;
+use sdkwork_agent_provider_spi::SdkRuntimeRequest;
 use std::sync::Arc;
 
 pub struct OpenClawRuntime {

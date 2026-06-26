@@ -33,4 +33,4 @@ cargo test --manifest-path sdkwork-agent-kernel/Cargo.toml
 pnpm verify
 ```
 
-Do not implement from checkbox steps in `docs/superpowers/plans/2026-06-10-agent-execution-loop.md`.
+Do not implement from checkbox steps in `docs/archive/superpowers/plans/2026-06-10-agent-execution-loop.md`.

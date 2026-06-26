@@ -7,6 +7,7 @@ const requiredSpecFiles = [
   'SDK_SPEC.md',
   'KERNEL_PLUGIN_SPEC.md',
   'AGENT_KERNEL_SPEC.md',
+  'AGENT_PROVIDER_INTEGRATION_SPEC.md',
   'AGENT_SDK_SPI_SPEC.md',
   'AGENT_SDK_BINDING_SPEC.md',
   'CODE_KERNEL_SPEC.md',
@@ -50,25 +51,13 @@ const requiredSchemas = [
 
 const requiredRustCrates = [
   ['sdkwork-agent-kernel', ['src/lib.rs', 'Cargo.toml', 'README.md']],
-  ['sdkwork-agent-sdk-spi', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
-  ['sdkwork-agent-sdk-backend-core', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
-  ['sdkwork-agent-sdk-backend-ipc', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
-  ['sdkwork-agent-sdk-backend-rust', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
-  ['sdkwork-agent-sdk-backend-node', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
-  ['sdkwork-agent-sdk-backend-python', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
-  ['sdkwork-code-kernel', ['src/lib.rs', 'Cargo.toml', 'README.md']],
-  [
-    'sdkwork-agent-business',
-    [
-      'src/lib.rs',
-      'Cargo.toml',
-      'README.md',
-      'specs/component.spec.json',
-      'specs/openapi/agent-business-open-openapi-3.1.2.yaml',
-      'specs/openapi/agent-business-app-openapi-3.1.2.yaml',
-      'specs/openapi/agent-business-backend-openapi-3.1.2.yaml'
-    ]
-  ]
+  ['sdkwork-agent-provider-spi', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
+  ['sdkwork-agent-provider-transport-core', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
+  ['sdkwork-agent-provider-transport-ipc', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
+  ['sdkwork-agent-provider-transport-rust', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
+  ['sdkwork-agent-provider-transport-node', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
+  ['sdkwork-agent-provider-transport-python', ['src/lib.rs', 'Cargo.toml', 'README.md', 'AGENTS.md', 'specs/component.spec.json']],
+  ['sdkwork-code-kernel', ['src/lib.rs', 'Cargo.toml', 'README.md']]
 ];
 
 const requiredWorkspaceRustCrates = [
@@ -81,10 +70,7 @@ const requiredWorkspaceRustCrates = [
 ];
 
 const requiredRouteRustCrates = [
-  'crates/sdkwork-routes-agent-http-shared',
-  'crates/sdkwork-routes-agent-open-api',
-  'crates/sdkwork-routes-agent-app-api',
-  'crates/sdkwork-routes-agent-backend-api',
+  'crates/sdkwork-routes-agent-internal-manifest',
   'crates/sdkwork-routes-agent-internal-api'
 ];
 
@@ -93,14 +79,17 @@ const requiredKernelPluginFiles = [
   'specs/component.spec.json',
   'scripts/check-kernel-plugins.mjs',
   'crates/sdkwork-agent-plugin-core/Cargo.toml',
-  'crates/sdkwork-agent-plugin-rig/Cargo.toml',
+  'crates/sdkwork-agent-provider-core/Cargo.toml',
   'crates/sdkwork-kernel-plugin-knowledgebase/Cargo.toml'
+];
+
+const requiredAgentProviderFiles = [
+  'crates/sdkwork-agent-provider-rig/Cargo.toml'
 ];
 
 const expectedKernelComponentIdentity = [
   ['sdkwork-agent-kernel', 'intelligence', 'agent-kernel'],
-  ['sdkwork-code-kernel', 'intelligence', 'code-kernel'],
-  ['sdkwork-agent-business', 'intelligence', 'agent-business']
+  ['sdkwork-code-kernel', 'intelligence', 'code-kernel']
 ];
 
 export function validateKernelContracts({ kernelRoot, errors, ensureFile, readJson, readFileIfExists }) {
@@ -135,6 +124,10 @@ export function validateKernelContracts({ kernelRoot, errors, ensureFile, readJs
 
   for (const pluginFile of requiredKernelPluginFiles) {
     ensureFile(path.join('sdkwork-kernel-plugins', pluginFile));
+  }
+
+  for (const providerFile of requiredAgentProviderFiles) {
+    ensureFile(path.join('agent-providers', providerFile));
   }
 
   const kernelPluginCheck = spawnSync(

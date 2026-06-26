@@ -46,15 +46,9 @@ Hermes Agent maps first to the general Agent Kernel surface:
 
 
 
-`sdkwork-agent-adapter-hermes` provides session/message adapters, SDK binding
-
-manifest negotiation, Python-process runtime routing, and runtime-backed kernel
-
-providers. `sdkwork-agent-plugin-hermes` registers typed providers through
-
-`sdkwork-agent-server` `runtime_bootstrap` when
-
-`SDKWORK_KERNEL_AGENT_PLUGIN=hermes`.
+`sdkwork-agent-provider-hermes` under `agent-providers/crates/` provides session/message adapters, SDK binding
+manifest negotiation, Python-process runtime routing, runtime-backed kernel
+providers, and server bootstrap registration when `SDKWORK_KERNEL_AGENT_PLUGIN=hermes`.
 
 
 
@@ -142,11 +136,9 @@ requires a live Hermes Agent install or TUI gateway JSON-RPC process.
 
 
 
-- Adapter crate: `sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-hermes`
+- Provider crate: `agent-providers/crates/sdkwork-agent-provider-hermes`
 
-- Kernel plugin crate: `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-hermes`
-
-- SDK binding: `sdks/external-agent-sdks/hermes/sdk-binding.manifest.json`
+- SDK binding: `bindings/agent-providers/hermes/provider-binding.manifest.json`
 
 - Client bridge plugin: `sdkwork-agent-client` `builtin.hermes` routes local chat through `HermesSdkIntegration` model provider (`SdkModelBridgeRuntime`); remote mode uses internal-api `SseChatClient`
 
@@ -154,7 +146,7 @@ requires a live Hermes Agent install or TUI gateway JSON-RPC process.
 
 - Upstream pin (2026-06-24): `external/hermes-agent` @ `a4a74ca9e` (`hermes-agent` PyPI `0.17.0`)
 
-- Runtime worker: `scripts/sdk-backend-workers/generic_python_sdk_worker.py` via `PythonSdkBackendRuntime` (`run_agent` module probe)
+- Runtime worker: `scripts/provider-transport-workers/generic_python_sdk_worker.py` via `PythonSdkBackendRuntime` (`run_agent` module probe)
 
 - IPC backend: set `SDKWORK_HERMES_USE_TUI_GATEWAY=1` to prefer `jsonrpc_stdio` via `tui_gateway`
 

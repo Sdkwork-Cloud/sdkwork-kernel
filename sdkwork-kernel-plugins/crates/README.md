@@ -9,7 +9,7 @@ documents, provider manifests, policy behavior, and conformance tests.
 Implemented crate families:
 
 - `sdkwork-agent-plugin-core`
-- `sdkwork-agent-plugin-rig`
+- `sdkwork-agent-provider-rig`
 - `sdkwork-kernel-plugin-drive`
 - `sdkwork-kernel-plugin-knowledgebase`
 

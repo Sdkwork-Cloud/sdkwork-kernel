@@ -12,7 +12,7 @@ Specs: `AGENT_KERNEL_SPEC.md`, `AGENT_UI_CONTRACT_SPEC.md`, `WEB_FRAMEWORK_SPEC.
 2. **Health probes** (`/health`, `/ready`, `/live`)
 3. **Operational metrics** (`GET /metrics`) — Prometheus text exposition for production monitoring
 
-It is **not** an SDKWork `app-api`, `backend-api`, or `open-api` business surface. Managed agent business APIs mount through `sdkwork-routes-agent-*-api` route crates on `platform.api-gateway`.
+It is **not** an SDKWork `app-api`, `backend-api`, or `open-api` managed-store surface. Managed agents HTTP APIs are owned by `sdkwork-agents` and mount through `sdkwork-routes-agents-*-api` on the application gateway.
 
 Retired prefixes (`/api/kernel/*`, `/api/sessions/*`, `/api/chat/*`) are **not** mounted. Consumers must use canonical internal-api paths only.
 

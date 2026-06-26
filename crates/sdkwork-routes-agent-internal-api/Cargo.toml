@@ -7,7 +7,7 @@ description = "Internal API route boundary for SDKWork agent runtime on applicat
 [dependencies]
 axum = "0.8"
 sdkwork-agent-server = { path = "../../sdkwork-agent-server" }
-sdkwork-routes-agent-http-shared.workspace = true
+sdkwork-routes-agent-internal-manifest.workspace = true
 
 [dev-dependencies]
 sdkwork-web-contract.workspace = true

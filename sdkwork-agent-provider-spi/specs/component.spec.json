@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "kind": "sdkwork.component.spec",
+  "component": {
+    "name": "sdkwork-agent-provider-spi",
+    "displayName": "SDKWork Agent SDK SPI",
+    "version": "0.1.0",
+    "type": "rust-crate",
+    "root": "sdkwork-kernel/sdkwork-agent-provider-spi",
+    "domain": "intelligence",
+    "capability": "agent-sdk-spi",
+    "surfaceNotRequiredReason": "This repository-internal SPI crate defines external agent SDK binding contracts and has no HTTP or generated SDK transport surface.",
+    "languages": ["rust"],
+    "generated": false,
+    "manifests": ["Cargo.toml"]
+  },
+  "canonicalSpecs": [
+    {
+      "file": "AGENT_SDK_SPI_SPEC.md",
+      "path": "../specs/AGENT_SDK_SPI_SPEC.md",
+      "purpose": "External agent SDK adaptation SPI rules."
+    },
+    {
+      "file": "AGENT_SDK_BINDING_SPEC.md",
+      "path": "../specs/AGENT_SDK_BINDING_SPEC.md",
+      "purpose": "External agent SDK binding manifest rules."
+    },
+    {
+      "file": "AGENT_KERNEL_SPEC.md",
+      "path": "../specs/AGENT_KERNEL_SPEC.md",
+      "purpose": "Kernel object model and provider SPI authority."
+    },
+    {
+      "file": "COMPONENT_SPEC.md",
+      "path": "../../sdkwork-specs/COMPONENT_SPEC.md",
+      "purpose": "Component-local contract and discovery rules."
+    },
+    {
+      "file": "RUST_CODE_SPEC.md",
+      "path": "../../sdkwork-specs/RUST_CODE_SPEC.md",
+      "purpose": "Rust crate and module rules."
+    },
+    {
+      "file": "CODE_STYLE_SPEC.md",
+      "path": "../../sdkwork-specs/CODE_STYLE_SPEC.md",
+      "purpose": "Authored source structure and generated code boundaries."
+    },
+    {
+      "file": "NAMING_SPEC.md",
+      "path": "../../sdkwork-specs/NAMING_SPEC.md",
+      "purpose": "Canonical SDKWork naming rules."
+    }
+  ],
+  "contracts": {
+    "publicExports": [
+      "AgentSdkBindingManifest",
+      "AgentSdkCapabilityDriver",
+      "BindingRegistry",
+      "DriverRegistry",
+      "SdkBackendKind",
+      "SdkCapabilityNegotiation",
+      "SdkRuntimeRouter",
+      "SdkRuntimeBackedModelProvider",
+      "SdkRuntimeBackedToolProvider"
+    ],
+    "runtimeEntrypoints": [],
+    "routeManifest": null,
+    "sdkDependencies": [],
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
+    "sdkClients": [],
+    "events": [],
+    "configKeys": []
+  },
+  "verification": {
+    "commands": ["cargo test --manifest-path sdkwork-agent-provider-spi/Cargo.toml"]
+  }
+}

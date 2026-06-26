@@ -1,4 +1,4 @@
-> Migrated from `docs/superpowers/specs/2026-06-12-sdkwork-specs-structure-hardening-design.md` on 2026-06-24.
+> Migrated from `docs/archive/superpowers/specs/2026-06-12-sdkwork-specs-structure-hardening-design.md` on 2026-06-24.
 > Owner: SDKWork maintainers
 
 ## Goal

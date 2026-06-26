@@ -1,9 +1,9 @@
 use sdkwork_agent_kernel::{AgentRuntime, KernelError, KernelResult, RuntimeBuilder};
 use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
-use sdkwork_agent_plugin_codex::{CodexKernelPlugin, ids as codex_ids};
-use sdkwork_agent_plugin_hermes::{HermesKernelPlugin, ids as hermes_ids};
-use sdkwork_agent_plugin_openclaw::{OpenClawKernelPlugin, ids as openclaw_ids};
-use sdkwork_agent_plugin_rig::{RigKernelPlugin, ids as rig_ids};
+use sdkwork_agent_provider_codex::{CodexKernelPlugin, ids as codex_ids};
+use sdkwork_agent_provider_hermes::{HermesKernelPlugin, ids as hermes_ids};
+use sdkwork_agent_provider_openclaw::{OpenClawKernelPlugin, ids as openclaw_ids};
+use sdkwork_agent_provider_rig::{RigKernelPlugin, ids as rig_ids};
 
 /// Environment variable selecting the active kernel agent plugin (`rig`, `openclaw`, `hermes`, `codex`).
 pub const KERNEL_AGENT_PLUGIN_ENV: &str = "SDKWORK_KERNEL_AGENT_PLUGIN";

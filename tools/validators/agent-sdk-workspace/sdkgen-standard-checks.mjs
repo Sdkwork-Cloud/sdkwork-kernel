@@ -6,24 +6,15 @@ import {
 
 export function validateSdkgenStandard({ root, errors, ensureFile, readIfExists, readJsonIfExists, families }) {
   ensureFile('sdks/README.md');
-  ensureFile('sdks/materialize-agent-v3-openapi-boundaries.mjs');
   ensureFile('sdks/materialize-agent-internal-api-openapi.mjs');
   ensureFile('sdks/workspace-agent-sdkgen.mjs');
   ensureFile('specs/SDK_SPEC.md');
+  ensureFile('docs/architecture/decisions/ADR-20260626-agents-application-layer-separation.md');
 
   const sdkSpec = readIfExists(path.join(root, 'specs', 'SDK_SPEC.md'));
   const sdkWorkspaceReadme = readIfExists(path.join(root, 'sdks', 'README.md'));
   const workspaceSdkgen = readIfExists(path.join(root, 'sdks', 'workspace-agent-sdkgen.mjs'));
-  const sdkgenCommands = readIfExists(
-    path.join(root, 'sdkwork-agent-business', 'specs', 'sdkgen', 'commands.md')
-  );
   const sdkgenReport = readJsonIfExists(path.join(root, 'sdks', '.sdkgen-agent-workspace-report.json'));
-  const latestVerificationReport = readJsonIfExists(
-    path.join(root, 'sdkwork-agent-business', 'specs', 'sdkgen', 'verification-latest.json')
-  );
-  const ciVerificationReport = readJsonIfExists(
-    path.join(root, 'sdkwork-agent-business', 'specs', 'sdkgen', 'verification-ci.json')
-  );
 
   for (const [label, content] of [
     ['specs/SDK_SPEC.md', sdkSpec],
@@ -55,12 +46,7 @@ export function validateSdkgenStandard({ root, errors, ensureFile, readIfExists,
   for (const [label, content] of [
     ['specs/SDK_SPEC.md', sdkSpec],
     ['sdks/README.md', sdkWorkspaceReadme],
-    ['sdks/workspace-agent-sdkgen.mjs', workspaceSdkgen],
-    ['sdkwork-agent-business/specs/sdkgen/commands.md', sdkgenCommands],
-    [
-      'sdkwork-agent-business/specs/sdkgen/verification-latest.md',
-      readIfExists(path.join(root, 'sdkwork-agent-business', 'specs', 'sdkgen', 'verification-latest.md'))
-    ]
+    ['sdks/workspace-agent-sdkgen.mjs', workspaceSdkgen]
   ]) {
     if (content.includes(SDKWORK_SDKGEN_STANDARD.deprecatedEntrypointFragment)) {
       errors.push(
@@ -72,14 +58,8 @@ export function validateSdkgenStandard({ root, errors, ensureFile, readIfExists,
     }
   }
 
-  for (const [label, report] of [
-    ['sdks/.sdkgen-agent-workspace-report.json', sdkgenReport],
-    ['sdkwork-agent-business/specs/sdkgen/verification-latest.json', latestVerificationReport],
-    ['sdkwork-agent-business/specs/sdkgen/verification-ci.json', ciVerificationReport]
-  ]) {
-    if (report) {
-      validateSdkgenReport({ label, report, errors, families });
-    }
+  if (sdkgenReport) {
+    validateSdkgenReport({ label: 'sdks/.sdkgen-agent-workspace-report.json', report: sdkgenReport, errors, families });
   }
 
   for (const required of [
@@ -127,18 +107,9 @@ function validateSdkgenReport({ label, report, errors, families }) {
     if (familyReport.packageName !== family.packageName) {
       errors.push(`${label} ${family.key} packageName must be ${family.packageName}`);
     }
-    if (familyReport.skipReason && familyReport.skipReason !== family.externalSdkgenProfileGap) {
-      errors.push(`${label} ${family.key} skipReason must be ${family.externalSdkgenProfileGap}`);
-    }
     if (!familyReport.skipped && familyReport.hasChanges !== false) {
       errors.push(`${label} ${family.key} standardized SDK report must have hasChanges=false after standard generation`);
     }
-    if (familyReport.key === 'open' && familyReport.derivedHasChanges !== false) {
-      errors.push(`${label} ${family.key} derivedHasChanges must be false after standard generation`);
-    }
-  }
-  if (report.openSdkDerivation?.hasChanges !== false) {
-    errors.push(`${label} open SDK derivation must have hasChanges=false after standard generation`);
   }
 }
 

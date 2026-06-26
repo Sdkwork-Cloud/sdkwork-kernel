@@ -17,20 +17,19 @@ SDKWork hosts external agent and code-agent frameworks through a plugin boundary
 | Manifest examples | `sdkwork-kernel-plugins/specs/manifests/` | Schema-shaped experimental examples |
 | Conformance profiles | `sdkwork-kernel-plugins/specs/conformance/` | Manifest, local-runtime, process-adapter expectations |
 | Plugin trait | `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core` | `SdkworkKernelPlugin` assembly |
-| Process adapters | `sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-*` | SDK binding negotiation + typed providers |
-| Kernel plugins | `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-*` | Server runtime registration |
+| Provider integrations | `agent-providers/crates/sdkwork-agent-provider-*` | SDK binding negotiation, typed providers, server bootstrap |
 | Structure gate | `sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs` | Mapping/manifest/conformance presence |
 
 Authoritative rules: `sdkwork-kernel-plugins/specs/EXTERNAL_AGENT_PLUGIN_SPEC.md`.
 
 ## Implemented upstream integrations
 
-| Upstream | Adapter | Kernel plugin | Server env (`SDKWORK_KERNEL_AGENT_PLUGIN`) | Client local bridge |
-| --- | --- | --- | --- | --- |
-| Rig | N/A (typed in-tree) | `sdkwork-agent-plugin-rig` | `rig` (production default) | Remote internal-api |
-| OpenClaw | `sdkwork-agent-adapter-openclaw` | `sdkwork-agent-plugin-openclaw` | `openclaw`, `open-claw` | `builtin.openclaw` → `SdkModelBridgeRuntime` |
-| Hermes | `sdkwork-agent-adapter-hermes` | `sdkwork-agent-plugin-hermes` | `hermes`, `hermes-agent` | `builtin.hermes` → `SdkModelBridgeRuntime` |
-| Codex | `sdkwork-agent-adapter-codex` | `sdkwork-agent-plugin-codex` | `codex`, `openai-codex` | `builtin.codex` → `SdkModelBridgeRuntime` |
+| Upstream | Provider crate | Server env (`SDKWORK_KERNEL_AGENT_PLUGIN`) | Client local bridge |
+| --- | --- | --- | --- |
+| Rig | `agent-providers/crates/sdkwork-agent-provider-rig` | `rig` (production default) | Remote internal-api |
+| OpenClaw | `agent-providers/crates/sdkwork-agent-provider-openclaw` | `openclaw`, `open-claw` | `builtin.openclaw` → `SdkModelBridgeRuntime` |
+| Hermes | `agent-providers/crates/sdkwork-agent-provider-hermes` | `hermes`, `hermes-agent` | `builtin.hermes` → `SdkModelBridgeRuntime` |
+| Codex | `agent-providers/crates/sdkwork-agent-provider-codex` | `codex`, `openai-codex` | `builtin.codex` → `SdkModelBridgeRuntime` |
 
 Server bootstrap: `sdkwork-agent-server/src/runtime_bootstrap.rs`. Hosted session `agentId` validation: `sdkwork-agent-server/src/agent_registry.rs` (`active_hosted_agent()`).
 
@@ -56,12 +55,12 @@ Mappings exist; runtime adapters/kernel plugins are not shipped for:
 ```bash
 node --test sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs
 node sdkwork-kernel-plugins/scripts/check-kernel-plugins.mjs
-cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/Cargo.toml
-cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-openclaw/Cargo.toml
-cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-hermes/Cargo.toml
-cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-rig/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-openclaw/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-hermes/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-codex/Cargo.toml
 pnpm test:topology
 pnpm verify
 ```
 
-Historical checkbox plans under `docs/superpowers/plans/2026-06-04-external-agent-plugins.md` are retired; do not implement from them.
+Historical checkbox plans under `docs/archive/superpowers/plans/2026-06-04-external-agent-plugins.md` are retired; do not implement from them.

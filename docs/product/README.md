@@ -2,4 +2,6 @@
 
 Product PRD, requirements, and roadmap.
 
-See `DOCUMENTATION_SPEC.md` section 2.
+Canon entry: [prd/PRD.md](prd/PRD.md)
+
+Specs: [DOCUMENTATION_SPEC.md](../../sdkwork-specs/DOCUMENTATION_SPEC.md), [REQUIREMENTS_SPEC.md](../../sdkwork-specs/REQUIREMENTS_SPEC.md)

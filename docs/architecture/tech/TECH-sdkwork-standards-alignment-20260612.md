@@ -1,6 +1,8 @@
 > Migrated from `docs/quality/sdkwork-standards-alignment-20260612.md` on 2026-06-24.
 > Owner: SDKWork maintainers
 
+# SDKWork Standards Alignment Quality Gate Evidence
+
 Date: 2026-06-12
 Owner: SDKWork kernel maintainers
 Status: complete
@@ -232,7 +234,7 @@ generated SDK surfaces.
 Decision and plan evidence:
 
 - `docs/architecture/decisions/ADR-20260612-agent-implementation-type.md`
-- `docs/superpowers/plans/2026-06-12-agent-implementation-type.md`
+- `docs/archive/superpowers/plans/2026-06-12-agent-implementation-type.md`
 - Agent implementation type evidence is enforced by tools/validators/kernel-standards/workspace-evidence.mjs.
 
 Verification evidence:

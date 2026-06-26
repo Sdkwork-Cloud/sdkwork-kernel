@@ -100,7 +100,7 @@ test('agent server uses topology-aligned production profile detection', async ()
 test('adapter-core and agent-server share canonical kernel runtime topology policy', async () => {
   const kernelTopology = await read('sdkwork-agent-kernel/src/runtime_topology.rs');
   const adapterPolicy = await read(
-    'sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-core/src/mock_policy.rs',
+    'sdkwork-kernel-plugins/crates/sdkwork-agent-provider-core/src/mock_policy.rs',
   );
   const serverConfig = await read('sdkwork-agent-server/src/config.rs');
   const agentRegistry = await read('sdkwork-agent-server/src/agent_registry.rs');

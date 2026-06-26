@@ -129,8 +129,8 @@
     ],
     "sdkwork.external.execution-status": "implemented-codex-plugin-crates",
     "sdkwork.external.implementation-crates": [
-      "sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-codex",
-      "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex"
+      "agent-providers/crates/sdkwork-agent-provider-codex",
+      "agent-providers/crates/sdkwork-agent-provider-codex"
     ]
   }
 }

@@ -1,0 +1,78 @@
+{
+  "schema_version": "0.1.0",
+  "manifest_type": "agent_provider_binding",
+  "binding_id": "binding.agent-provider.openclaw",
+  "agent_id": "agent.intelligence.openclaw",
+  "display_name": "OpenClaw",
+  "description": "External agent provider binding for OpenClaw plugin SDK and gateway protocol surfaces.",
+  "version": "0.2.0",
+  "sdk_owner": "openclaw",
+  "status": "experimental",
+  "kernel_compatibility": {
+    "agent_kernel": ">=0.1.0 <0.2.0"
+  },
+  "language_packages": {
+    "typescript": {
+      "package": "openclaw",
+      "version": "2026.6.10",
+      "optional": false
+    }
+  },
+  "selection_policy": {
+    "default_backend_priority": [
+      "typescript_node",
+      "http_openapi",
+      "ipc_protocol"
+    ]
+  },
+  "capabilities": [
+    {
+      "capability_id": "sdk.session.lifecycle",
+      "required": true,
+      "backends": [
+        {
+          "kind": "typescript_node",
+          "driver_id": "driver.openclaw.session.lifecycle.ts",
+          "package": "openclaw"
+        },
+        {
+          "kind": "http_openapi",
+          "driver_id": "driver.openclaw.session.lifecycle.http",
+          "openapi_authority": "openclaw-gateway-open-api"
+        }
+      ]
+    },
+    {
+      "capability_id": "sdk.model.chat",
+      "required": true,
+      "backends": [
+        {
+          "kind": "typescript_node",
+          "driver_id": "driver.openclaw.model.chat.ts",
+          "package": "openclaw"
+        }
+      ]
+    },
+    {
+      "capability_id": "sdk.tool.invoke",
+      "required": false,
+      "backends": [
+        {
+          "kind": "typescript_node",
+          "driver_id": "driver.openclaw.tool.invoke.ts",
+          "package": "openclaw"
+        }
+      ]
+    }
+  ],
+  "integration_sources": [
+    {
+      "mode": "official_sdk",
+      "package": "openclaw"
+    },
+    {
+      "mode": "http_openapi",
+      "transport": "openclaw-gateway-open-api"
+    }
+  ]
+}

@@ -244,7 +244,7 @@ mod tests {
         let buckets = Mutex::new(HashMap::new());
         let mut overrides = HashMap::new();
         overrides.insert(
-            "tenant-a".to_string(),
+            "100001".to_string(),
             TenantRateLimitOverride { rps: 1, burst: 1 },
         );
         let state = RateLimitState {
@@ -255,13 +255,13 @@ mod tests {
         };
         let runtime = tokio::runtime::Runtime::new().expect("runtime");
         runtime.block_on(async {
-            assert!(state.try_acquire("identity:tenant-a:user-a", Some("tenant-a")).await);
+            assert!(state.try_acquire("identity:100001:user-a", Some("100001")).await);
             assert!(
                 !state
-                    .try_acquire("identity:tenant-a:user-a", Some("tenant-a"))
+                    .try_acquire("identity:100001:user-a", Some("100001"))
                     .await
             );
-            assert!(state.try_acquire("identity:tenant-b:user-b", Some("tenant-b")).await);
+            assert!(state.try_acquire("identity:100002:user-b", Some("100002")).await);
         });
     }
 }

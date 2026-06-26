@@ -34,7 +34,7 @@
       "sdkName": "sdkwork-agent-app-sdk",
       "sdkType": "app",
       "sdkOwner": "sdkwork-kernel",
-      "packageName": "@sdkwork/agent-app-sdk",
+      "packageName": "@sdkwork/agents-app-sdk",
       "apiPrefix": "/app/v3/api",
       "sdkDependencies": [
         {

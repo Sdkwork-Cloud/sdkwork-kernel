@@ -10,7 +10,7 @@ SDKWork kernel supports multiple external agent runtimes through:
 
 1. **Server runtime plugins** — selected by `SDKWORK_KERNEL_AGENT_PLUGIN` in `sdkwork-agent-server`
 2. **Client bridge plugins** — local SQLite sessions + SDK model routing, or remote internal-api HTTP
-3. **Process adapters** — negotiated SDK bindings in `sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-*`
+3. **Process adapters** — negotiated SDK bindings in `agent-providers/crates/sdkwork-agent-provider-*`
 
 Authoritative per-upstream status: `sdkwork-kernel-plugins/specs/mappings/*.md`.
 
@@ -18,12 +18,15 @@ Authoritative per-upstream status: `sdkwork-kernel-plugins/specs/mappings/*.md`.
 
 Environment variable: `SDKWORK_KERNEL_AGENT_PLUGIN` (also declared in `specs/topology.spec.json` → `envKeys.kernelAgentPlugin`).
 
-| Value | Plugin crate | Default model provider |
+| Value | Provider crate | Default model provider |
 | --- | --- | --- |
-| `rig` (default) | `sdkwork-agent-plugin-rig` | Rig typed providers |
-| `openclaw`, `open-claw` | `sdkwork-agent-plugin-openclaw` | `provider.model.openclaw` |
-| `hermes`, `hermes-agent` | `sdkwork-agent-plugin-hermes` | `provider.model.hermes` |
-| `codex`, `openai-codex` | `sdkwork-agent-plugin-codex` | `provider.model.codex` |
+| `rig` (default) | `sdkwork-agent-provider-rig` | Rig typed providers |
+| `openclaw`, `open-claw` | `sdkwork-agent-provider-openclaw` | `provider.model.openclaw` |
+| `hermes`, `hermes-agent` | `sdkwork-agent-provider-hermes` | `provider.model.hermes` |
+| `codex`, `openai-codex` | `sdkwork-agent-provider-codex` | `provider.model.codex` |
+| `claude-code` | `sdkwork-agent-provider-claude-code` | `provider.model.claude-code` |
+| `gemini-cli`, `gemini` | `sdkwork-agent-provider-gemini-cli` | `provider.model.gemini-cli` |
+| `opencode` | `sdkwork-agent-provider-opencode` | `provider.model.opencode` |
 
 Implementation: `sdkwork-agent-server/src/runtime_bootstrap.rs` bootstraps `RuntimeBuilder` through `SdkworkKernelPlugin::configure_runtime`.
 
@@ -71,7 +74,7 @@ Streaming on local SDK bridges is rejected; use **Remote** + `HttpRestSse` for s
 | Server bootstrap | `sdkwork-agent-server` |
 | Kernel SPI | `sdkwork-agent-kernel` |
 | Plugin trait | `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core` |
-| SDK SPI | `sdkwork-agent-sdk-spi` |
+| SDK SPI | `sdkwork-agent-provider-spi` |
 | OpenAPI authority | `apis/internal-api/` → `/internal/v3/api/intelligence/runtime` |
 
 ## Verification
@@ -79,10 +82,11 @@ Streaming on local SDK bridges is rejected; use **Remote** + `HttpRestSse` for s
 ```bash
 cargo test --manifest-path sdkwork-agent-client/Cargo.toml
 cargo test --manifest-path sdkwork-agent-server/Cargo.toml runtime_bootstrap
-cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-openclaw/Cargo.toml
-cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-hermes/Cargo.toml
-cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-codex/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-openclaw/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-hermes/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-codex/Cargo.toml
 node --test sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs
+node scripts/check-agent-provider-bindings.mjs
 pnpm test:topology
 ```
 
@@ -101,7 +105,7 @@ Contract gate (CI/local merge-ready):
 
 ```bash
 pnpm verify
-node scripts/sdk-backend-workers/engine-sdk-live.test.mjs
+node scripts/provider-transport-workers/engine-sdk-live.test.mjs
 ```
 
 Optional live invokes (require real upstream credentials/runtime; not part of default `pnpm verify`):

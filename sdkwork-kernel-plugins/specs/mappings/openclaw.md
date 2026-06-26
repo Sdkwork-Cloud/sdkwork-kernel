@@ -44,15 +44,8 @@ OpenClaw maps first to the general Agent Kernel surface:
 
 
 
-`sdkwork-agent-adapter-openclaw` provides gateway session/message adapters,
-
-SDK binding manifest negotiation, TypeScript Node runtime routing, and
-
-runtime-backed kernel providers. `sdkwork-agent-plugin-openclaw` registers the
-
-typed model/tool/policy providers through `sdkwork-agent-server`
-
-`runtime_bootstrap` when `SDKWORK_KERNEL_AGENT_PLUGIN=openclaw`.
+`sdkwork-agent-provider-openclaw` under `agent-providers/crates/` provides gateway session/message adapters,
+SDK binding manifest negotiation, TypeScript Node runtime routing, runtime-backed kernel providers, and server bootstrap registration when `SDKWORK_KERNEL_AGENT_PLUGIN=openclaw`.
 
 
 
@@ -136,11 +129,9 @@ kernel SDK authority.
 
 
 
-- Adapter crate: `sdkwork-kernel-plugins/crates/sdkwork-agent-adapter-openclaw`
+- Provider crate: `agent-providers/crates/sdkwork-agent-provider-openclaw`
 
-- Kernel plugin crate: `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-openclaw`
-
-- SDK binding: `sdks/external-agent-sdks/openclaw/sdk-binding.manifest.json`
+- SDK binding: `bindings/agent-providers/openclaw/provider-binding.manifest.json`
 
 - Client bridge plugin: `sdkwork-agent-client` `builtin.openclaw` routes local chat through `OpenClawSdkIntegration` model provider (`SdkModelBridgeRuntime`); remote mode uses internal-api `SseChatClient`
 
@@ -148,7 +139,7 @@ kernel SDK authority.
 
 - Upstream pin (2026-06-24): `external/openclaw` @ `7c56877eb1` (`openclaw` npm `2026.6.10`)
 
-- Runtime worker: `scripts/sdk-backend-workers/generic-ts-sdk-worker.mjs` via `NodeSdkBackendRuntime`
+- Runtime worker: `scripts/provider-transport-workers/generic-ts-sdk-worker.mjs` via `NodeSdkBackendRuntime`
 
 - Live gateway path: `OPENCLAW_GATEWAY_URL` + optional `OPENCLAW_GATEWAY_TOKEN` in `engine-sdk-live.mjs`
 

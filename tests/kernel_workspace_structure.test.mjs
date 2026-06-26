@@ -229,7 +229,13 @@ test('standards alignment records architecture decision and quality gate evidenc
     'decisions',
     'ADR-20260612-sdkwork-kernel-root-dictionary.md'
   );
-  const qualityPath = path.join(root, 'docs', 'quality', 'sdkwork-standards-alignment-20260612.md');
+  const qualityPath = path.join(
+    root,
+    'docs',
+    'architecture',
+    'tech',
+    'TECH-sdkwork-standards-alignment-20260612.md'
+  );
 
   assert.equal(fs.existsSync(adrPath), true, 'standards alignment ADR should exist');
   assert.equal(fs.existsSync(qualityPath), true, 'standards alignment quality gate evidence should exist');
@@ -332,7 +338,7 @@ test('standards alignment records architecture decision and quality gate evidenc
   );
 });
 
-test('platform framework adoption records ADR, API authority index, and validator module', () => {
+test('platform framework adoption records ADR, internal API authority index, and validator module', () => {
   const adrPath = path.join(
     root,
     'docs',
@@ -340,7 +346,14 @@ test('platform framework adoption records ADR, API authority index, and validato
     'decisions',
     'ADR-20260618-platform-framework-adoption.md'
   );
-  const authorityIndexPath = path.join(root, 'apis', 'agent-business', 'authority-index.json');
+  const separationAdrPath = path.join(
+    root,
+    'docs',
+    'architecture',
+    'decisions',
+    'ADR-20260626-agents-application-layer-separation.md'
+  );
+  const authorityIndexPath = path.join(root, 'apis', 'internal-api', 'authority-index.json');
   const platformValidatorPath = path.join(
     root,
     'tools',
@@ -350,8 +363,10 @@ test('platform framework adoption records ADR, API authority index, and validato
   );
 
   assert.equal(fs.existsSync(adrPath), true, 'platform framework adoption ADR should exist');
-  assert.equal(fs.existsSync(authorityIndexPath), true, 'agent-business API authority index should exist');
+  assert.equal(fs.existsSync(separationAdrPath), true, 'agents application layer separation ADR should exist');
+  assert.equal(fs.existsSync(authorityIndexPath), true, 'internal-api API authority index should exist');
   assert.equal(fs.existsSync(platformValidatorPath), true, 'platform integration validator should exist');
+  assert.equal(fs.existsSync(path.join(root, 'apis', 'agent-business')), false, 'retired agent-business apis must be removed');
 
   const adr = fs.readFileSync(adrPath, 'utf8');
   for (const requiredText of [
@@ -371,9 +386,7 @@ test('platform framework adoption records ADR, API authority index, and validato
 
   const authorityIndex = JSON.parse(fs.readFileSync(authorityIndexPath, 'utf8'));
   const surfaces = new Set(authorityIndex.authorities.map((entry) => entry.surface));
-  for (const surface of ['open-api', 'app-api', 'backend-api']) {
-    assert.equal(surfaces.has(surface), true, `authority index should include ${surface}`);
-  }
+  assert.equal(surfaces.has('internal-api'), true, 'authority index should include internal-api');
 
   const workspaceCargo = fs.readFileSync(path.join(root, 'Cargo.toml'), 'utf8');
   for (const dependency of [
@@ -462,8 +475,21 @@ test('agent implementation type records architecture decision and quality gate e
     'decisions',
     'ADR-20260612-agent-implementation-type.md'
   );
-  const qualityPath = path.join(root, 'docs', 'quality', 'sdkwork-standards-alignment-20260612.md');
-  const planPath = path.join(root, 'docs', 'superpowers', 'plans', '2026-06-12-agent-implementation-type.md');
+  const qualityPath = path.join(
+    root,
+    'docs',
+    'architecture',
+    'tech',
+    'TECH-sdkwork-standards-alignment-20260612.md'
+  );
+  const planPath = path.join(
+    root,
+    'docs',
+    'archive',
+    'superpowers',
+    'plans',
+    '2026-06-12-agent-implementation-type.md'
+  );
 
   assert.equal(fs.existsSync(adrPath), true, 'agent implementation type ADR should exist');
   assert.equal(fs.existsSync(qualityPath), true, 'standards alignment quality gate evidence should exist');
@@ -1199,8 +1225,6 @@ function listCurrentDictionaryFiles() {
     path.join(root, 'sdkwork-agent-kernel', 'specs'),
     path.join(root, 'sdkwork-code-kernel', 'README.md'),
     path.join(root, 'sdkwork-code-kernel', 'specs'),
-    path.join(root, 'sdkwork-agent-business', 'README.md'),
-    path.join(root, 'sdkwork-agent-business', 'specs'),
     path.join(root, 'sdkwork-kernel-plugins', 'README.md'),
     path.join(root, 'sdkwork-kernel-plugins', 'specs'),
     path.join(root, 'sdkwork-kernel-ui', 'README.md'),

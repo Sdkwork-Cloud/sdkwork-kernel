@@ -71,10 +71,10 @@ Native-session catalog inventory remains BirdCoder-owned. Live replies route thr
 
 | Engine | Kernel binding | Bridge transport label | Workbench `transportKind` |
 | --- | --- | --- | --- |
-| codex | `binding.agent-sdk.codex` | `typescript_node` / `rust_native` / `ipc_protocol` | `sdk-stream` / `cli-jsonl` / `json-rpc-v2` |
-| claude-code | `binding.agent-sdk.claude-code` | `typescript_node` | `sdk-stream` |
-| gemini-cli | `binding.agent-sdk.gemini-cli` | `typescript_node` | `sdk-stream` |
-| opencode | `binding.agent-sdk.opencode` | `typescript_node` / `http_openapi` | `sdk-stream` / `openapi-http` |
+| codex | `binding.agent-provider.codex` | `typescript_node` / `rust_native` / `ipc_protocol` | `sdk-stream` / `cli-jsonl` / `json-rpc-v2` |
+| claude-code | `binding.agent-provider.claude-code` | `typescript_node` | `sdk-stream` |
+| gemini-cli | `binding.agent-provider.gemini-cli` | `typescript_node` | `sdk-stream` |
+| opencode | `binding.agent-provider.opencode` | `typescript_node` / `http_openapi` | `sdk-stream` / `openapi-http` |
 
 ## Production Fail-Closed
 
@@ -91,9 +91,9 @@ Override for local diagnostics only: `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1`.
 
 ```bash
 # kernel
-cargo test -p sdkwork-agent-adapter-core
-cargo test -p sdkwork-agent-sdk-spi
-cargo test -p sdkwork-agent-sdk-backend-node
+cargo test -p sdkwork-agent-provider-core
+cargo test -p sdkwork-agent-provider-spi
+cargo test -p sdkwork-agent-provider-transport-node
 
 # birdcoder
 pnpm run check:kernel-birdcoder-alignment

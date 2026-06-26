@@ -1,0 +1,14 @@
+[package]
+name = "sdkwork-agent-provider-transport-node"
+version = "0.1.0"
+edition = "2021"
+description = "Node/TypeScript JSON-RPC worker runtime for external agent SDK capabilities"
+
+[dependencies]
+sdkwork-agent-provider-core = { path = "../sdkwork-kernel-plugins/crates/sdkwork-agent-provider-core" }
+sdkwork-agent-provider-transport-ipc = { path = "../sdkwork-agent-provider-transport-ipc" }
+sdkwork-agent-provider-spi = { path = "../sdkwork-agent-provider-spi" }
+serde_json = "1"
+
+[dev-dependencies]
+pretty_assertions = "1"

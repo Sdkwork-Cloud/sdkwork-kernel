@@ -59,6 +59,6 @@
     "sdkwork.external.default-health": "degraded",
     "sdkwork.external.execution-status": "implemented-rig-model-provider-fail-closed",
     "sdkwork.external.manifest-shape": "split-provider-candidate; runtime code registers separate typed model/tool/memory/knowledge/planning/policy providers and adapter.rpc.agent-chat",
-    "sdkwork.external.implementation-crate": "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig"
+    "sdkwork.external.implementation-crate": "agent-providers/crates/sdkwork-agent-provider-rig"
   }
 }

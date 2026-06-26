@@ -1,9 +1,9 @@
 use crate::bridge::{AgentBridgeConfig, AgentBridgeHealth, AgentBridgeStatus};
 use crate::session::SdkModelBridgeRuntime;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
-use sdkwork_agent_adapter_hermes::HermesSdkIntegration;
+use sdkwork_agent_provider_hermes::HermesSdkIntegration;
 use sdkwork_agent_kernel::ModelProvider;
-use sdkwork_agent_sdk_spi::SdkRuntimeRequest;
+use sdkwork_agent_provider_spi::SdkRuntimeRequest;
 use std::sync::Arc;
 
 /// Hermes runtime handle backed by negotiated SDK model routing and SQLite session storage.

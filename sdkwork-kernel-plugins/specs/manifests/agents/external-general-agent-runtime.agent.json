@@ -139,9 +139,9 @@
     ],
     "sdkwork.external.execution-status": "implemented-rig-openclaw-hermes-plugin-crates",
     "sdkwork.external.implementation-crates": [
-      "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig",
-      "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-openclaw",
-      "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-hermes"
+      "agent-providers/crates/sdkwork-agent-provider-rig",
+      "agent-providers/crates/sdkwork-agent-provider-openclaw",
+      "agent-providers/crates/sdkwork-agent-provider-hermes"
     ]
   }
 }

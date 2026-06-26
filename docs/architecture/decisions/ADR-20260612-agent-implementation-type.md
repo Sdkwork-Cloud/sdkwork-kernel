@@ -92,7 +92,7 @@ The decision is kept true by:
 - `node scripts/check-kernel-standards.mjs`
 
 The execution evidence is recorded in
-`docs/superpowers/plans/2026-06-12-agent-implementation-type.md`.
+`docs/archive/superpowers/plans/2026-06-12-agent-implementation-type.md`.
 
 ## Supersedes / Superseded By
 

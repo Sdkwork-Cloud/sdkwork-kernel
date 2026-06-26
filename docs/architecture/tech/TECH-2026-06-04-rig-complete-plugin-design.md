@@ -1,4 +1,4 @@
-> Migrated from `docs/superpowers/specs/2026-06-04-rig-complete-plugin-design.md` on 2026-06-24.
+> Migrated from `docs/archive/superpowers/specs/2026-06-04-rig-complete-plugin-design.md` on 2026-06-24.
 > Owner: SDKWork maintainers
 
 ## Goal
@@ -26,7 +26,7 @@ The implementation uses four layers.
 
 `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core` defines SDKWork-owned plugin assembly contracts for external plugins. It introduces a small, typed `SdkworkKernelPlugin` interface plus manifest, profile, binding, and deployment snapshot helper types. It depends on `sdkwork-agent-kernel`, but kernel core does not depend on it.
 
-`sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig` implements the first complete plugin. It exposes Rig agent/package manifests, installer and configuration providers, model/tool/planning providers, diagnostics, and conformance evidence. Its default backend is fail-closed. A future feature-gated live backend may map SDKWork requests to Rig upstream APIs.
+`agent-providers/crates/sdkwork-agent-provider-rig` implements the first complete plugin. It exposes Rig agent/package manifests, installer and configuration providers, model/tool/planning providers, diagnostics, and conformance evidence. Its default backend is fail-closed. A future feature-gated live backend may map SDKWork requests to Rig upstream APIs.
 
 `sdkwork-agent-business` tracks managed agent ownership, provider bindings, active binding selection, and deployments. It treats Rig as an implementation provider, not as special-case business logic.
 
@@ -42,7 +42,7 @@ sdkwork-kernel-plugins/
 |   |   |   `-- lib.rs
 |   |   `-- tests/
 |   |       `-- plugin_contracts.rs
-|   `-- sdkwork-agent-plugin-rig/
+|   `-- sdkwork-agent-provider-rig/
 |       |-- Cargo.toml
 |       |-- README.md
 |       |-- src/
@@ -194,7 +194,7 @@ Verification commands:
 
 ```powershell
 cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core/Cargo.toml
-cargo test --manifest-path sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-rig/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-rig/Cargo.toml
 cargo test --manifest-path sdkwork-agent-business/Cargo.toml
 node --test sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs
 node sdkwork-kernel-plugins/scripts/check-kernel-plugins.mjs

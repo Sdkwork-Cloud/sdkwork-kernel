@@ -1,29 +1,106 @@
 # SDKWork Kernel PRD
 
-Status: draft
-Owner: SDKWork maintainers
+Status: active
+Owner: SDKWork kernel maintainers
 Application: sdkwork-kernel
-Updated: 2026-06-24
-Specs: REQUIREMENTS_SPEC.md, DOCUMENTATION_SPEC.md
+Updated: 2026-06-26
+Specs: [REQUIREMENTS_SPEC.md](../../../sdkwork-specs/REQUIREMENTS_SPEC.md), [DOCUMENTATION_SPEC.md](../../../sdkwork-specs/DOCUMENTATION_SPEC.md)
+
+Canon entry and index. Product depth lives in linked shards; normative contracts live in `specs/` and `sdkwork-specs/`.
 
 ## Document Map
 
-- Add `PRD-<topic>.md` shards in this directory when the PRD grows beyond one reviewable screen.
+| Shard | Purpose |
+| --- | --- |
+| [PRD-01-product-design-and-scope.md](PRD-01-product-design-and-scope.md) | Positioning, users, goals, scope, principles, key objects |
+| [PRD-02-provider-integration-requirements.md](PRD-02-provider-integration-requirements.md) | Provider integration product acceptance |
+| [PRD-03-commercial-readiness-baseline.md](PRD-03-commercial-readiness-baseline.md) | Phases, readiness matrix, deployment checklist |
+| [TECH_ARCHITECTURE.md](../../architecture/tech/TECH_ARCHITECTURE.md) | Technical architecture canon |
+| [specs/AGENT_PROVIDER_INTEGRATION_SPEC.md](../../../specs/AGENT_PROVIDER_INTEGRATION_SPEC.md) | Normative provider integration |
+| [specs/AGENT_KERNEL_SPEC.md](../../../specs/AGENT_KERNEL_SPEC.md) | Agent kernel SPI |
 
 ## 1. Background And Problem
 
+SDKWork Kernel is the **shared intelligence mechanism layer** for BirdCoder, IM PC,
+and future agent surfaces. Application business lives in `sdkwork-agents`; products
+must not depend on `sdkwork-agent-provider-*` crates directly.
+
+Detail: [PRD-01 §1](PRD-01-product-design-and-scope.md#1-product-positioning).
+
 ## 2. Target Users
+
+Detail: [PRD-01 §2](PRD-01-product-design-and-scope.md#2-target-users).
 
 ## 3. Goals And Non-Goals
 
+Detail: [PRD-01 §3](PRD-01-product-design-and-scope.md#3-product-goals) and [PRD-01 §5](PRD-01-product-design-and-scope.md#5-out-of-scope-sibling-repositories).
+
 ## 4. Scope
+
+Detail: [PRD-01 §4–5](PRD-01-product-design-and-scope.md#4-in-scope-capabilities-kernel-owned).
 
 ## 5. User Scenarios
 
+Canonical product scenarios. Implementation detail: [TECH_ARCHITECTURE.md](../../architecture/tech/TECH_ARCHITECTURE.md).
+
+### US-1: Platform integrates a new agent framework
+
+1. Author `bindings/agent-providers/<framework>/provider-binding.manifest.json`.
+2. Implement `agent-providers/crates/sdkwork-agent-provider-<framework>`.
+3. Register hosted plugin via `SDKWORK_KERNEL_AGENT_PLUGIN` when needed.
+4. Expose bootstrap through `sdkwork-agents-runtime-facade` for product consumers.
+5. Verify per [PRD-02 §6](PRD-02-provider-integration-requirements.md#6-verification).
+
+### US-2: BirdCoder runs a coding session with Codex
+
+1. BirdCoder bootstraps `sdkwork-agents-runtime-facade` for engine key `codex`.
+2. Facade negotiates `binding.agent-provider.codex` with healthy transports.
+3. Events project per `KERNEL_PRODUCT_PROJECTION_SPEC.md`.
+4. Production rejects mock/stub responses unless development topology allows it.
+
+### US-3: Desktop client uses hybrid agent bridge
+
+1. Client uses **Local** mode with builtin bridge plugins.
+2. Session state persists in SQLite (`SDKWORK_CLIENT_DATABASE_PATH`).
+3. **Hybrid** mode falls back to remote internal API with ingress auth.
+4. Streaming requires **Remote** + SSE today.
+
+### US-4: Operator deploys kernel server (cloud profile)
+
+1. Select `cloud.split-services.production` from `configs/topology/`.
+2. Set `SDKWORK_KERNEL_AGENT_PLUGIN` explicitly (default `rig`).
+3. Configure Postgres, Redis, `SDKWORK_KERNEL_INGRESS_AUTH_MODE=token`.
+4. Keep `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS` unset in production.
+
 ## 6. Success Metrics
+
+Detail: [PRD-03 §4](PRD-03-commercial-readiness-baseline.md#4-success-metrics).
 
 ## 7. Phases
 
+Detail: [PRD-03 §3](PRD-03-commercial-readiness-baseline.md#3-phase-roadmap) and [REQ-2026-0001](../requirements/REQ-2026-0001-commercial-hardening.md) for active P4 work.
+
 ## 8. Linked Requirements
 
+| Authority | Path |
+| --- | --- |
+| Agent kernel semantics | [specs/AGENT_KERNEL_SPEC.md](../../../specs/AGENT_KERNEL_SPEC.md) |
+| Provider integration | [specs/AGENT_PROVIDER_INTEGRATION_SPEC.md](../../../specs/AGENT_PROVIDER_INTEGRATION_SPEC.md) |
+| Provider bindings | [specs/AGENT_PROVIDER_BINDING_SPEC.md](../../../specs/AGENT_PROVIDER_BINDING_SPEC.md) |
+| Code kernel | [specs/CODE_KERNEL_SPEC.md](../../../specs/CODE_KERNEL_SPEC.md) |
+| Kernel plugins | [specs/KERNEL_PLUGIN_SPEC.md](../../../specs/KERNEL_PLUGIN_SPEC.md) |
+| Product event projection | [specs/KERNEL_PRODUCT_PROJECTION_SPEC.md](../../../specs/KERNEL_PRODUCT_PROJECTION_SPEC.md) |
+| P4 commercial hardening | [REQ-2026-0001](../requirements/REQ-2026-0001-commercial-hardening.md) |
+| Provider naming alignment | [ADR-20260626-agent-provider-integration-naming.md](../../architecture/decisions/ADR-20260626-agent-provider-integration-naming.md) |
+| Agents layer separation | [ADR-20260626-agents-application-layer-separation.md](../../architecture/decisions/ADR-20260626-agents-application-layer-separation.md) |
+| Platform framework adoption | [ADR-20260618-platform-framework-adoption.md](../../architecture/decisions/ADR-20260618-platform-framework-adoption.md) |
+| Internal API surface | [ADR-20260622-sdkwork-internal-api-surface.md](../../architecture/decisions/ADR-20260622-sdkwork-internal-api-surface.md) |
+
+Engineering `REQ-*` records: [docs/product/requirements/](../requirements/) per [REQUIREMENTS_SPEC.md](../../../sdkwork-specs/REQUIREMENTS_SPEC.md).
+
 ## 9. Open Questions
+
+1. **Default production plugin** — When should Codex/OpenClaw become profile-specific defaults per product?
+2. **Facade versioning** — Should `sdkwork-agents-runtime-facade` semver independently from kernel provider crates?
+3. **IPC standardization** — Should `jsonrpc_stdio` become a shared authority for Python/Node subprocess bridges?
+4. **Discovery Phase 2** — Which kernel RPC hosts register first when `sdkwork-discovery` ships?

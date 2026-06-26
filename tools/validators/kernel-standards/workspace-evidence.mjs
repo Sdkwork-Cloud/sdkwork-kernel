@@ -136,7 +136,12 @@ export const requiredStandardsEvidenceFiles = [
     ]
   },
   {
-    relativePath: path.join('docs', 'quality', 'sdkwork-standards-alignment-20260612.md'),
+    relativePath: path.join(
+      'docs',
+      'architecture',
+      'tech',
+      'TECH-sdkwork-standards-alignment-20260612.md'
+    ),
     requiredText: [
       'SDKWork Standards Alignment Quality Gate Evidence',
       'Date: 2026-06-12',
@@ -277,8 +282,6 @@ export function listCurrentDictionaryFiles(kernelRoot) {
     path.join(kernelRoot, 'sdkwork-agent-kernel', 'specs'),
     path.join(kernelRoot, 'sdkwork-code-kernel', 'README.md'),
     path.join(kernelRoot, 'sdkwork-code-kernel', 'specs'),
-    path.join(kernelRoot, 'sdkwork-agent-business', 'README.md'),
-    path.join(kernelRoot, 'sdkwork-agent-business', 'specs'),
     path.join(kernelRoot, 'sdkwork-kernel-plugins', 'README.md'),
     path.join(kernelRoot, 'sdkwork-kernel-plugins', 'specs'),
     path.join(kernelRoot, 'sdkwork-kernel-ui', 'README.md'),

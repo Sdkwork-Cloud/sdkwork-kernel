@@ -1,7 +1,7 @@
 # SDKWork Agent & Code Kernel Standard
 
 Domain: `intelligence`
-Capability: `agent-kernel`, `agent-business`, `code-kernel`, `kernel-ui`
+Capability: `agent-kernel`, `code-kernel`, `kernel-ui`
 Package type: industry kernel standard
 Status: standard candidate
 
@@ -103,10 +103,11 @@ sdkwork-kernel/
 |-- tests/
 |-- sdkwork-kernel-plugins/
 |-- sdkwork-agent-kernel/
-|-- sdkwork-agent-business/
 |-- sdkwork-code-kernel/
 `-- sdkwork-kernel-ui/
 ```
+
+Managed agents domain logic (`sdkwork-intelligence-agents-service`, HTTP routes, SDKs, managed-store persistence) lives in the sibling application repository [`../sdkwork-agents/`](../sdkwork-agents/). See `docs/architecture/decisions/ADR-20260626-agents-application-layer-separation.md`.
 
 The standard top-level directories follow `../sdkwork-specs/SDKWORK_WORKSPACE_SPEC.md`.
 Several established kernel component roots remain at the repository root for compatibility;
@@ -232,21 +233,11 @@ applications and configured providers. For example, whether a product asks the
 user before a specific class of command is a policy decision; the kernel must
 provide the permission hook, event, and decision point.
 
-### `sdkwork-agent-business`
+### Managed agents application (`sdkwork-agents`)
 
-Rust implementation boundary for managed-agent business operations.
+Managed-agent CRUD, marketplace metadata, knowledge/memory store HTTP APIs, and SDK families are **not** kernel responsibilities. They are owned by [`../sdkwork-agents/`](../sdkwork-agents/) and composed at the application gateway through `sdkwork-agents-kernel-bridge`.
 
-This layer depends on `sdkwork-agent-kernel` and `sdkwork-code-kernel` and
-provides:
-
-- Tenant-scoped managed agent lifecycle and CRUD orchestration.
-- Policy-checked status transitions and soft-delete/restore semantics.
-- Audit event contracts for managed operations.
-- App-api and backend-api OpenAPI contracts for SDK generation.
-- Database contracts and SQL baseline for persistence adapters.
-
-This layer must not bypass kernel policy hooks, duplicate agent runtime SPI, or
-introduce frontend transport code.
+The kernel exposes runtime SPI only: sessions, providers, internal API, operational HTTP (`/health`, `/metrics`, `/internal/v3/api/...`).
 
 ### `sdkwork-kernel-ui`
 
@@ -652,7 +643,6 @@ pnpm verify
 
 # Rust kernel checks, paths may be refined by concrete crate layout
 cargo test --manifest-path sdkwork-agent-kernel/Cargo.toml
-cargo test --manifest-path sdkwork-agent-business/Cargo.toml
 cargo test --manifest-path sdkwork-code-kernel/Cargo.toml
 
 # Kernel UI checks

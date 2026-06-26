@@ -1,8 +1,6 @@
 import path from 'node:path';
 
-const REQUIRED_UTILS_RUST_CONSUMERS = [
-  'sdkwork-agent-business/src/validation.rs'
-];
+const REQUIRED_UTILS_RUST_CONSUMERS = ['sdkwork-agent-database/src/postgres_pool.rs'];
 
 /**
  * sdkwork-utils alignment: workspace dependency, workflow checkout, and canonical Rust consumers.
@@ -20,19 +18,19 @@ export function validatePlatformUtils({ kernelRoot, errors, readFileIfExists }) 
     );
   }
 
-  const agentBusinessCargo = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-business/Cargo.toml'));
-  if (!agentBusinessCargo || !agentBusinessCargo.includes('sdkwork-utils-rust')) {
-    errors.push('sdkwork-agent-business/Cargo.toml must depend on sdkwork-utils-rust');
+  const agentDatabaseCargo = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-database/Cargo.toml'));
+  if (!agentDatabaseCargo || !agentDatabaseCargo.includes('sdkwork-utils-rust')) {
+    errors.push('sdkwork-agent-database/Cargo.toml must declare sdkwork-utils-rust for postgres-sync alignment');
   }
 
   for (const relativePath of REQUIRED_UTILS_RUST_CONSUMERS) {
     const source = readFileIfExists(path.join(kernelRoot, relativePath));
     if (!source) {
-      errors.push(`${relativePath} must exist for sdkwork-utils-rust consumption`);
+      errors.push(`${relativePath} must exist for sdkwork-database-sqlx pool bootstrap`);
       continue;
     }
-    if (!source.includes('sdkwork_utils_rust')) {
-      errors.push(`${relativePath} must consume sdkwork-utils-rust shared helpers`);
+    if (!source.includes('create_pool_from_config')) {
+      errors.push(`${relativePath} must bootstrap pools through sdkwork-database-sqlx`);
     }
   }
 

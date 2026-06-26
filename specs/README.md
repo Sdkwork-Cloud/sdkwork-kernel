@@ -8,15 +8,15 @@ intelligence, review, artifacts, and the code-agent runtime registry.
 
 Runtime connectivity profiles for local dev and deployment live in
 [`topology.spec.json`](./topology.spec.json) with env files under
-`../configs/topology/`. See [`../docs/topology-standard.md`](../docs/topology-standard.md).
+`../configs/topology/`. See [`../docs/architecture/tech/TECH-topology-standard.md`](../docs/architecture/tech/TECH-topology-standard.md).
 
 ## Platform Framework Alignment
 
 | Framework | Status | Integration point |
 | --- | --- | --- |
-| `sdkwork-web-framework` | **Integrated** | Workspace `Cargo.toml` deps (`sdkwork-web-core`, `sdkwork-web-axum`, `sdkwork-web-bootstrap`, `sdkwork-iam-web-adapter`); route crates under `crates/sdkwork-routes-agent-*` wrap served routers with `with_web_request_context`. Verified by `tools/validators/kernel-standards/platform-integration.mjs`. |
-| `sdkwork-database` | **Integrated** | Workspace deps (`sdkwork-database-config`, `sdkwork-database-sqlx`); `sdkwork-agent-business` `postgres-sync` bootstraps pools through `BlockingPostgresPool`. Verified by `platform-integration.mjs` and `agent_postgres_sync_contracts`. |
-| `sdkwork-utils` | **Integrated** | Workspace dep `sdkwork-utils-rust` in `validation.rs` and `postgres_sync_pool.rs`; persistence storage validation delegates to `require_trimmed_non_blank`; kernel UI consumes `@sdkwork/utils`. Verified by `scripts/dev/sdkwork-kernel-utils-standard.test.mjs`. |
+| `sdkwork-web-framework` | **Integrated** | Workspace `Cargo.toml` deps; internal route crates under `crates/sdkwork-routes-agent-internal-*`. Managed agents HTTP surfaces are owned by `sdkwork-agents`. Verified by `platform-integration.mjs`. |
+| `sdkwork-database` | **Integrated** | Workspace deps (`sdkwork-database-config`, `sdkwork-database-sqlx`); `sdkwork-agent-database` `postgres-sync` bootstraps runtime session pools. Managed-store persistence is owned by `sdkwork-agents`. Verified by `platform-integration.mjs`. |
+| `sdkwork-utils` | **Integrated** | Workspace dep `sdkwork-utils-rust`; kernel UI consumes `@sdkwork/utils`. Verified by `scripts/dev/sdkwork-kernel-utils-standard.test.mjs`. |
 | `sdkwork-discovery` | **Deferred** | Kernel has no first-party gRPC/RPC services. Adopt when an RPC surface ships per `RPC_SPEC.md` and `RUST_RPC_SPEC.md`. |
 | PNPM script surface | **Integrated** | Root `package.json` exposes `dev`, `build`, `test`, `check`, `verify`, `clean` via `scripts/sdkwork-command.mjs`. Verified by `tools/validators/kernel-standards/platform-pnpm-scripts.mjs`. |
 
@@ -28,8 +28,10 @@ Sibling checkout and release refs are declared in `sdkwork.workflow.json`
 | Spec | Responsibility |
 | --- | --- |
 | [`SDK_SPEC.md`](./SDK_SPEC.md) | SDK generation source of truth, canonical `sdkwork-sdk-generator` location, generated output boundaries, regeneration contract, and conformance rules |
-| [`AGENT_SDK_SPI_SPEC.md`](./AGENT_SDK_SPI_SPEC.md) | External agent native SDK adaptation SPI, capability drivers, backend selection, mapping, registry, and extension rules |
-| [`AGENT_SDK_BINDING_SPEC.md`](./AGENT_SDK_BINDING_SPEC.md) | External agent SDK binding manifests, language package metadata, catalog layout, and onboarding checklist |
+| [`AGENT_PROVIDER_INTEGRATION_SPEC.md`](./AGENT_PROVIDER_INTEGRATION_SPEC.md) | External agent framework integration SPI, transports, drivers, registry |
+| [`AGENT_PROVIDER_BINDING_SPEC.md`](./AGENT_PROVIDER_BINDING_SPEC.md) | Provider binding manifests, integration sources, catalog layout |
+| [`AGENT_SDK_SPI_SPEC.md`](./AGENT_SDK_SPI_SPEC.md) | Deprecated alias → `AGENT_PROVIDER_INTEGRATION_SPEC.md` |
+| [`AGENT_SDK_BINDING_SPEC.md`](./AGENT_SDK_BINDING_SPEC.md) | Deprecated alias → `AGENT_PROVIDER_BINDING_SPEC.md` |
 | [`KERNEL_PLUGIN_SPEC.md`](./KERNEL_PLUGIN_SPEC.md) | Kernel plugin identity, manifests, contribution points, provider and adapter loading, lifecycle, security, dependencies, conformance, distribution, and plugin naming policy |
 
 ## Agent Kernel Standard Set

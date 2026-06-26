@@ -43,6 +43,6 @@
     "sdkwork.external.source-path": "external/openclaw",
     "sdkwork.external.initial-registration-mode": "process-adapter",
     "sdkwork.external.execution-status": "implemented-openclaw-sdk-runtime-backed-provider",
-    "sdkwork.external.implementation-crate": "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-openclaw"
+    "sdkwork.external.implementation-crate": "agent-providers/crates/sdkwork-agent-provider-openclaw"
   }
 }

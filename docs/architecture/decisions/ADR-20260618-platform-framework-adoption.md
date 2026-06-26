@@ -48,11 +48,11 @@ Adopt platform frameworks in phased migration without destabilizing existing con
 ### Phase 1 �?route boundary extraction (complete)
 
 - Route crates shipped under:
-  - `crates/sdkwork-router-agent-http-shared`
-  - `crates/sdkwork-router-agent-open-api`
-  - `crates/sdkwork-router-agent-app-api`
-  - `crates/sdkwork-router-agent-backend-api`
-  - `crates/sdkwork-router-agent-internal-api`
+  - `crates/sdkwork-routes-agent-http-shared`
+  - `crates/sdkwork-routes-agent-open-api`
+  - `crates/sdkwork-routes-agent-app-api`
+  - `crates/sdkwork-routes-agent-backend-api`
+  - `crates/sdkwork-routes-agent-internal-api`
 - Router assembly remains in `sdkwork-agent-business/src/http.rs` for legacy contract tests; served
   surfaces mount through route crates.
 
@@ -60,7 +60,7 @@ Adopt platform frameworks in phased migration without destabilizing existing con
 
 - `build_served_router` in each `*-api` route crate always wraps raw route builders with
   `sdkwork-web-axum::with_web_request_context` (no duplicate gateway middleware).
-- `build_served_combined_router` in `sdkwork-router-agent-http-shared` provides the combined served
+- `build_served_combined_router` in `sdkwork-routes-agent-http-shared` provides the combined served
   entrypoint for deployments that mount all business surfaces together.
 - Legacy `build_*_router()` and `build_combined_router()` remain for gateway-trusted contract tests
   (`http_axum_contracts.rs`) only; production mounts use route crates.

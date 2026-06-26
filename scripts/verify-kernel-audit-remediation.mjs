@@ -56,7 +56,7 @@ const commands = [
       '-q'
     ]
   ],
-  ['cargo', ['test', '-p', 'sdkwork-router-agent-internal-api', '-q']],
+  ['cargo', ['test', '-p', 'sdkwork-routes-agent-internal-api', '-q']],
   [
     'cargo',
     [

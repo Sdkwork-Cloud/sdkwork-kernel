@@ -23,17 +23,17 @@ const REQUIRED_WORKSPACE_DEPENDENCIES = [
 const REQUIRED_AUTHORITY_SURFACES = ['open-api', 'app-api', 'backend-api'];
 
 const REQUIRED_ROUTE_CRATES = [
-  'crates/sdkwork-router-agent-http-shared',
-  'crates/sdkwork-router-agent-open-api',
-  'crates/sdkwork-router-agent-app-api',
-  'crates/sdkwork-router-agent-backend-api',
-  'crates/sdkwork-router-agent-internal-api'
+  'crates/sdkwork-routes-agent-http-shared',
+  'crates/sdkwork-routes-agent-open-api',
+  'crates/sdkwork-routes-agent-app-api',
+  'crates/sdkwork-routes-agent-backend-api',
+  'crates/sdkwork-routes-agent-internal-api'
 ];
 
 const WEB_FRAMEWORK_ROUTE_CRATES = [
-  'crates/sdkwork-router-agent-open-api',
-  'crates/sdkwork-router-agent-app-api',
-  'crates/sdkwork-router-agent-backend-api'
+  'crates/sdkwork-routes-agent-open-api',
+  'crates/sdkwork-routes-agent-app-api',
+  'crates/sdkwork-routes-agent-backend-api'
 ];
 
 const ROUTE_HTTP_SHARED_DEPENDENCIES = [
@@ -208,16 +208,16 @@ export function validatePlatformIntegration({ kernelRoot, errors, ensureFile, re
   }
 
   const internalRouterLib = readFileIfExists(
-    path.join(kernelRoot, 'crates/sdkwork-router-agent-internal-api', 'src', 'lib.rs')
+    path.join(kernelRoot, 'crates/sdkwork-routes-agent-internal-api', 'src', 'lib.rs')
   );
   if (internalRouterLib && !internalRouterLib.includes('internal_route_manifest')) {
     errors.push(
-      'crates/sdkwork-router-agent-internal-api/src/lib.rs must export internal_route_manifest for internal-api route boundary'
+      'crates/sdkwork-routes-agent-internal-api/src/lib.rs must export internal_route_manifest for internal-api route boundary'
     );
   }
   if (internalRouterLib && !internalRouterLib.includes('build_internal_runtime_routes')) {
     errors.push(
-      'crates/sdkwork-router-agent-internal-api/src/lib.rs must re-export build_internal_runtime_routes'
+      'crates/sdkwork-routes-agent-internal-api/src/lib.rs must re-export build_internal_runtime_routes'
     );
   }
 

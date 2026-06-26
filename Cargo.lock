@@ -2809,33 +2809,33 @@ dependencies = [
 ]
 
 [[package]]
-name = "sdkwork-router-agent-app-api"
+name = "sdkwork-routes-agent-app-api"
 version = "0.1.0"
 dependencies = [
  "axum 0.8.9",
  "sdkwork-agent-business",
  "sdkwork-iam-web-adapter",
- "sdkwork-router-agent-http-shared",
+ "sdkwork-routes-agent-http-shared",
  "sdkwork-web-contract",
  "tokio",
  "tower 0.5.3",
 ]
 
 [[package]]
-name = "sdkwork-router-agent-backend-api"
+name = "sdkwork-routes-agent-backend-api"
 version = "0.1.0"
 dependencies = [
  "axum 0.8.9",
  "sdkwork-agent-business",
  "sdkwork-iam-web-adapter",
- "sdkwork-router-agent-http-shared",
+ "sdkwork-routes-agent-http-shared",
  "sdkwork-web-contract",
  "tokio",
  "tower 0.5.3",
 ]
 
 [[package]]
-name = "sdkwork-router-agent-http-shared"
+name = "sdkwork-routes-agent-http-shared"
 version = "0.1.0"
 dependencies = [
  "axum 0.8.9",
@@ -2850,23 +2850,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "sdkwork-router-agent-internal-api"
+name = "sdkwork-routes-agent-internal-api"
 version = "0.1.0"
 dependencies = [
  "axum 0.8.9",
  "sdkwork-agent-server",
- "sdkwork-router-agent-http-shared",
+ "sdkwork-routes-agent-http-shared",
  "sdkwork-web-contract",
 ]
 
 [[package]]
-name = "sdkwork-router-agent-open-api"
+name = "sdkwork-routes-agent-open-api"
 version = "0.1.0"
 dependencies = [
  "axum 0.8.9",
  "sdkwork-agent-business",
  "sdkwork-iam-web-adapter",
- "sdkwork-router-agent-http-shared",
+ "sdkwork-routes-agent-http-shared",
  "sdkwork-web-contract",
  "tokio",
  "tower 0.5.3",

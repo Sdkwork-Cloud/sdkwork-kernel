@@ -504,6 +504,6 @@ Verification evidence (2026-06-18 closeout):
 
 - `node scripts/check-kernel-standards.mjs` -> exit 0
 - `node --test tests/kernel_workspace_structure.test.mjs` -> exit 0; platform framework + packaging tests pass
-- `cargo test -p sdkwork-router-agent-*` -> route manifest and web-framework contract tests pass
+- `cargo test -p sdkwork-routes-agent-*` -> route manifest and web-framework contract tests pass
 - `node scripts/verify-kernel-audit-remediation.mjs` -> exit 0
 

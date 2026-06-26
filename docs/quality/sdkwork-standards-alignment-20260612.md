@@ -483,9 +483,9 @@ Decision and evidence:
 
 Deferred by design:
 
-- `sdkwork-discovery` â€?no first-party gRPC/RPC services in kernel
-- `sdkwork.app.config.json` â€?kernel is a standards repository, not an application root
-- `sdkwork-discovery` â€?no first-party gRPC/RPC services in kernel
+- `sdkwork-discovery` ï¿½?no first-party gRPC/RPC services in kernel
+- `sdkwork.app.config.json` ï¿½?kernel is a standards repository, not an application root
+- `sdkwork-discovery` ï¿½?no first-party gRPC/RPC services in kernel
 
 Phase 5 utils (2026-06-20 closeout):
 
@@ -503,5 +503,5 @@ Verification evidence (2026-06-18 closeout):
 
 - `node scripts/check-kernel-standards.mjs` -> exit 0
 - `node --test tests/kernel_workspace_structure.test.mjs` -> exit 0; platform framework + packaging tests pass
-- `cargo test -p sdkwork-router-agent-*` -> route manifest and web-framework contract tests pass
+- `cargo test -p sdkwork-routes-agent-*` -> route manifest and web-framework contract tests pass
 - `node scripts/verify-kernel-audit-remediation.mjs` -> exit 0

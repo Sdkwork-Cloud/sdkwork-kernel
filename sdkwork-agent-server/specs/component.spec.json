@@ -86,7 +86,7 @@
     "dependencyApiExports": [],
     "dependencyApiSurfaces": [
       "sdkwork-agent-internal-api: internal-api",
-      "sdkwork-router-agent-internal-api: internal-api"
+      "sdkwork-routes-agent-internal-api: internal-api"
     ],
     "sdkClients": [],
     "events": [],

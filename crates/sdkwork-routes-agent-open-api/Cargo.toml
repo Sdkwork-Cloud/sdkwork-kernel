@@ -1,0 +1,17 @@
+[package]
+name = "sdkwork-routes-agent-open-api"
+version.workspace = true
+edition.workspace = true
+description = "Open API route boundary for SDKWork agent business HTTP surfaces."
+
+[dependencies]
+axum = "0.8"
+sdkwork-agent-business = { workspace = true, features = ["http-axum"] }
+sdkwork-routes-agent-http-shared.workspace = true
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+sdkwork-agent-business = { workspace = true, features = ["http-axum"] }
+sdkwork-iam-web-adapter.workspace = true
+sdkwork-web-contract.workspace = true
+tower = { version = "0.5", features = ["util"] }

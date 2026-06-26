@@ -128,10 +128,10 @@ export const requiredStandardsEvidenceFiles = [
       'Phase 1',
       'Phase 2',
       'Phase 3',
-      'crates/sdkwork-router-agent-open-api',
-      'crates/sdkwork-router-agent-app-api',
-      'crates/sdkwork-router-agent-backend-api',
-      'crates/sdkwork-router-agent-internal-api',
+      'crates/sdkwork-routes-agent-open-api',
+      'crates/sdkwork-routes-agent-app-api',
+      'crates/sdkwork-routes-agent-backend-api',
+      'crates/sdkwork-routes-agent-internal-api',
       '## Verification'
     ]
   },

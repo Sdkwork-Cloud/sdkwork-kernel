@@ -34,7 +34,7 @@ Standards live in `sdkwork-specs/INTERNAL_API_SPEC.md` and `API_SPEC.md` section
 - Kernel UI consumes `@sdkwork/agent-internal-sdk` via `@sdkwork/kernel-ui-services`; handwritten `/api/kernel` fetches are retired.
 - List endpoints return `{ items: [...] }` envelopes aligned with OpenAPI and generated SDK types.
 - Validators and SDK workspace checks include the internal family.
-- `sdkwork-router-agent-internal-api` exposes the route manifest and re-exports runtime route builders from `sdkwork-agent-server`.
+- `sdkwork-routes-agent-internal-api` exposes the route manifest and re-exports runtime route builders from `sdkwork-agent-server`.
 - Retired prefixes (`/api/kernel/*`, `/api/sessions/*`, `/api/chat/*`) are not mounted; callers must use canonical internal-api paths.
 
 ## Verification

@@ -22,7 +22,7 @@ const SERVER_INTERNAL_RUNTIME_PATH = path.join(
 );
 const INTERNAL_ROUTER_PATH = path.join(
   root,
-  'crates/sdkwork-router-agent-internal-api/src/lib.rs'
+  'crates/sdkwork-routes-agent-internal-api/src/lib.rs'
 );
 const SERVER_SURFACE_PATH = path.join(
   root,

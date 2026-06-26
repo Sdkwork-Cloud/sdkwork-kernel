@@ -81,11 +81,11 @@ const requiredWorkspaceRustCrates = [
 ];
 
 const requiredRouteRustCrates = [
-  'crates/sdkwork-router-agent-http-shared',
-  'crates/sdkwork-router-agent-open-api',
-  'crates/sdkwork-router-agent-app-api',
-  'crates/sdkwork-router-agent-backend-api',
-  'crates/sdkwork-router-agent-internal-api'
+  'crates/sdkwork-routes-agent-http-shared',
+  'crates/sdkwork-routes-agent-open-api',
+  'crates/sdkwork-routes-agent-app-api',
+  'crates/sdkwork-routes-agent-backend-api',
+  'crates/sdkwork-routes-agent-internal-api'
 ];
 
 const requiredKernelPluginFiles = [

@@ -17,15 +17,15 @@ Specs: `API_SPEC.md`, `IAM_SPEC.md`, `SECURITY_SPEC.md`
 Production deployments mount raw route builders from `sdkwork-agent-business` through route
 boundary crates:
 
-- `sdkwork-router-agent-app-api::build_served_router`
-- `sdkwork-router-agent-backend-api::build_served_router`
-- `sdkwork-router-agent-open-api::build_served_router`
-- `sdkwork-router-agent-http-shared::build_served_combined_router` (all surfaces)
+- `sdkwork-routes-agent-app-api::build_served_router`
+- `sdkwork-routes-agent-backend-api::build_served_router`
+- `sdkwork-routes-agent-open-api::build_served_router`
+- `sdkwork-routes-agent-http-shared::build_served_combined_router` (all surfaces)
 
 Each served router wraps raw routes with `sdkwork-web-axum::with_web_request_context`,
 resolves `WebRequestContext` through `sdkwork-iam-web-adapter`, and injects
 `AgentRequestContext` via `AgentRequestContextInjector` in
-`sdkwork-router-agent-http-shared/src/web_bootstrap.rs`.
+`sdkwork-routes-agent-http-shared/src/web_bootstrap.rs`.
 
 The agent web profile registers `/agent/v3/api` as an open-api prefix (in addition to the
 platform default `/open/v3/api`) so surface classification and auth interceptors apply correctly.
@@ -49,11 +49,11 @@ When `postgres-sync` and `http-axum` are both enabled, `with_service_mut` runs r
 
 ## Deployment
 
-- SaaS and private deployments: mount served routers from `sdkwork-router-agent-*-api` behind the platform IAM gateway.
+- SaaS and private deployments: mount served routers from `sdkwork-routes-agent-*-api` behind the platform IAM gateway.
 - Local development: route-crate web-framework tests use dev inline dual tokens; legacy contract tests use matching `tenant_id=1` and `x-subject-tenant-id: 1` headers.
 
 ## Verification
 
 - Legacy gateway contracts: `cargo test --features http-axum --manifest-path sdkwork-agent-business/Cargo.toml`
-- Served web-framework contracts: `cargo test -p sdkwork-router-agent-app-api` (and backend/open route crates)
+- Served web-framework contracts: `cargo test -p sdkwork-routes-agent-app-api` (and backend/open route crates)
 - Contract tests: `backend_route_should_reject_subject_tenant_mismatch`, `backend_route_should_reject_missing_subject_headers`

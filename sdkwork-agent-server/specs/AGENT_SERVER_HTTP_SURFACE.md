@@ -12,7 +12,7 @@ Specs: `AGENT_KERNEL_SPEC.md`, `AGENT_UI_CONTRACT_SPEC.md`, `WEB_FRAMEWORK_SPEC.
 2. **Health probes** (`/health`, `/ready`, `/live`)
 3. **Operational metrics** (`GET /metrics`) — Prometheus text exposition for production monitoring
 
-It is **not** an SDKWork `app-api`, `backend-api`, or `open-api` business surface. Managed agent business APIs mount through `sdkwork-router-agent-*-api` route crates on `platform.api-gateway`.
+It is **not** an SDKWork `app-api`, `backend-api`, or `open-api` business surface. Managed agent business APIs mount through `sdkwork-routes-agent-*-api` route crates on `platform.api-gateway`.
 
 Retired prefixes (`/api/kernel/*`, `/api/sessions/*`, `/api/chat/*`) are **not** mounted. Consumers must use canonical internal-api paths only.
 
@@ -37,7 +37,7 @@ Retired prefixes (`/api/kernel/*`, `/api/sessions/*`, `/api/chat/*`) are **not**
 
 OpenAPI authority: `apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml`  
 SDK family: `sdks/sdkwork-agent-internal-sdk/`  
-Route boundary crate: `crates/sdkwork-router-agent-internal-api` (re-exports `build_internal_runtime_routes` and `internal_route_manifest`)  
+Route boundary crate: `crates/sdkwork-routes-agent-internal-api` (re-exports `build_internal_runtime_routes` and `internal_route_manifest`)  
 Handler module: `sdkwork-agent-server/src/api/internal_runtime.rs` (`InternalRuntimeApiState`)
 
 List endpoints (`sessions`, `messages`, `tasks`, `models`, `tools`) return `{ "items": [...] }` envelopes per the OpenAPI authority.
@@ -121,7 +121,7 @@ Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork
 - **No `sdkwork-web-framework` integration** is required for this crate.
 - Raw Axum routing remains the canonical implementation (`src/main.rs`).
 - Managed agent business APIs (`/app|backend|agent/v3/api`) mount through
-  `sdkwork-router-agent-*-api` route crates instead of this server.
+  `sdkwork-routes-agent-*-api` route crates instead of this server.
 
 ## Verification
 

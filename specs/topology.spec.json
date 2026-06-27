@@ -103,7 +103,7 @@
       "script": "dev"
     },
     "cloudGateway": {
-      "crate": "sdkwork-api-cloud-gateway-api-server",
+      "crate": "sdkwork-api-cloud-gateway",
       "binary": "sdkwork-api-cloud-gateway",
       "repository": "sdkwork-api-cloud-gateway",
       "configGlob": "configs/sdkwork-api-cloud-gateway.kernel.{profile}.toml"

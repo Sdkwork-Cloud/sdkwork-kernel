@@ -66,6 +66,19 @@ pub trait EventRepository: Send + Sync {
     fn delete_events(&self, session_id: &str) -> DatabaseResult<()>;
 }
 
+/// Permission repository trait for persisting permission request state.
+pub trait PermissionRepository: Send + Sync {
+    fn save_permission(&self, permission: &PermissionRow) -> DatabaseResult<()>;
+    fn load_permission(&self, permission_request_id: &str)
+        -> DatabaseResult<Option<PermissionRow>>;
+    fn list_permissions(&self, status: Option<&str>) -> DatabaseResult<Vec<PermissionRow>>;
+    fn update_permission_status(
+        &self,
+        permission_request_id: &str,
+        status: &str,
+    ) -> DatabaseResult<()>;
+}
+
 // Default implementations for DatabaseParam
 impl DatabaseParam for String {
     fn as_sql_value(&self) -> String {

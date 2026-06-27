@@ -2,6 +2,7 @@ use crate::error::{DatabaseError, DatabaseResult};
 use crate::sqlite::SqliteDatabase;
 use crate::traits::*;
 use crate::types::*;
+use crate::PermissionRow;
 use rusqlite::{params, OptionalExtension, Row};
 
 impl SqliteDatabase {
@@ -469,6 +470,128 @@ impl EventRepository for SqliteDatabase {
             params![session_id],
         )
         .map_err(|error| DatabaseError::Query(format!("failed to delete events: {error}")))?;
+        Ok(())
+    }
+}
+
+fn map_permission_row(row: &Row<'_>) -> rusqlite::Result<PermissionRow> {
+    Ok(PermissionRow {
+        permission_request_id: row.get("permission_request_id")?,
+        session_id: row.get("session_id")?,
+        category: row.get("category")?,
+        resource: row.get("resource")?,
+        side_effect_level: row.get("side_effect_level")?,
+        reason: row.get("reason")?,
+        status: row.get("status")?,
+        owner_tenant_id: row.get("owner_tenant_id")?,
+        owner_user_ref: row.get("owner_user_ref")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+impl PermissionRepository for SqliteDatabase {
+    fn save_permission(&self, permission: &PermissionRow) -> DatabaseResult<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO permissions (
+                permission_request_id, session_id, category, resource,
+                side_effect_level, reason, status, owner_tenant_id,
+                owner_user_ref, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                permission.permission_request_id,
+                permission.session_id,
+                permission.category,
+                permission.resource,
+                permission.side_effect_level,
+                permission.reason,
+                permission.status,
+                permission.owner_tenant_id,
+                permission.owner_user_ref,
+                permission.created_at,
+                permission.updated_at,
+            ],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to save permission: {error}")))?;
+        Ok(())
+    }
+
+    fn load_permission(
+        &self,
+        permission_request_id: &str,
+    ) -> DatabaseResult<Option<PermissionRow>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        conn.query_row(
+            "SELECT permission_request_id, session_id, category, resource,
+             side_effect_level, reason, status, owner_tenant_id,
+             owner_user_ref, created_at, updated_at
+             FROM permissions WHERE permission_request_id = ?1",
+            params![permission_request_id],
+            map_permission_row,
+        )
+        .optional()
+        .map_err(|error| DatabaseError::Query(format!("failed to load permission: {error}")))
+    }
+
+    fn list_permissions(&self, status: Option<&str>) -> DatabaseResult<Vec<PermissionRow>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let mut sql = String::from(
+            "SELECT permission_request_id, session_id, category, resource,
+             side_effect_level, reason, status, owner_tenant_id,
+             owner_user_ref, created_at, updated_at
+             FROM permissions WHERE 1 = 1",
+        );
+        let mut values: Vec<String> = Vec::new();
+        if let Some(status) = status {
+            sql.push_str(" AND status = ?");
+            values.push(status.to_string());
+        }
+        sql.push_str(" ORDER BY created_at DESC");
+        let mut stmt = conn.prepare(&sql).map_err(|error| {
+            DatabaseError::Query(format!("failed to prepare permissions: {error}"))
+        })?;
+        let rows = stmt
+            .query_map(
+                rusqlite::params_from_iter(values.iter()),
+                map_permission_row,
+            )
+            .map_err(|error| {
+                DatabaseError::Query(format!("failed to load permissions: {error}"))
+            })?;
+        let mut permissions = Vec::new();
+        for row in rows {
+            permissions.push(row.map_err(|error| {
+                DatabaseError::Query(format!("failed to read permission row: {error}"))
+            })?);
+        }
+        Ok(permissions)
+    }
+
+    fn update_permission_status(
+        &self,
+        permission_request_id: &str,
+        status: &str,
+    ) -> DatabaseResult<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let now = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE permissions SET status = ?1, updated_at = ?2 WHERE permission_request_id = ?3",
+            params![status, now, permission_request_id],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to update permission: {error}")))?;
         Ok(())
     }
 }

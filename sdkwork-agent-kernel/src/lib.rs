@@ -1,4 +1,12 @@
+//! SDKWork Agent Kernel — standardized SPI layer for all agent providers.
+//!
+//! This crate defines the kernel contracts (SPIs) for memory, tools, MCP,
+//! task scheduling, agent classification, message querying, and more.
+
+#![allow(clippy::should_implement_trait)]
+
 mod chat;
+mod classification;
 mod collaboration;
 mod configuration;
 mod conformance;
@@ -14,6 +22,7 @@ mod lifecycle;
 mod manifest;
 mod mcp;
 mod message;
+mod message_query;
 mod model;
 mod package;
 mod planning;
@@ -24,13 +33,18 @@ mod runtime;
 mod runtime_host;
 mod runtime_topology;
 mod skill;
+mod task_scheduling;
 mod telemetry;
 mod tool;
 
 pub use chat::{
-    agent_chat_rpc_adapter_manifest, AgentChatKnowledgeQuery, AgentChatMemoryQuery,
-    AgentChatRequest, AgentChatResponse, AgentChatRpcAdapter, AgentChatRpcHandler,
-    AgentChatService,
+    agent_chat_rpc_adapter_manifest, AgentChatCancelResponse, AgentChatKnowledgeQuery,
+    AgentChatMemoryQuery, AgentChatRequest, AgentChatResponse, AgentChatRpcAdapter,
+    AgentChatRpcHandler, AgentChatService, AgentChatStreamResponse,
+};
+pub use classification::{
+    AgentCategory, AgentClassification, AgentClassificationProvider, AutonomyLevel,
+    CapabilityAssessment, CapabilityLevel, ClassificationQuery,
 };
 pub use collaboration::{
     AgentCard, AgentCollaborationProvider, AgentDelegation, AgentDelegationRequest,
@@ -51,7 +65,7 @@ pub use conformance::{
 };
 pub use context_memory::{
     ContextExplanation, ContextFrame, ContextProvider, ContextRanking, MemoryProvider,
-    MemoryRecord, MemoryScope, RedactionClassification, TrustLevel,
+    MemoryRecord, MemoryScope, MemoryTier, RedactionClassification, TrustLevel,
 };
 pub use definition::{
     AgentDefinition, AgentProviderBinding, AgentProviderBindingMode, AgentProviderFamily,
@@ -99,6 +113,10 @@ pub use mcp::{
 pub use message::{
     AgentArtifact, AgentMessage, AgentMessageRole, AgentPart, AgentPartKind, ArtifactKind,
 };
+pub use message_query::{
+    MessageQuery, MessageQueryFilter, MessageQueryProvider, MessageQueryResult, MessageSortField,
+    MessageSortOrder, SessionSummary,
+};
 pub use model::{
     ModelCancellationRequest, ModelCancellationResponse, ModelDescriptor, ModelExecutionRequest,
     ModelExecutionResponse, ModelExecutionService, ModelProvider, ModelRequest, ModelResponse,
@@ -128,20 +146,24 @@ pub use runtime::{
     AgentProviderDiagnostic, AgentRuntime, AgentRuntimeDiagnostics, RuntimeBootstrapReport,
     RuntimeBuilder, RuntimeState,
 };
-pub use runtime_topology::{
-    is_production_kernel_profile, is_production_kernel_profile_from_env,
-    kernel_profile_id_from_env, mock_provider_invocation_allowed,
-    mock_provider_invocation_allowed_from_env, mock_provider_override_disabled_from_env,
-    mock_provider_override_enabled_from_env, normalize_kernel_profile_id,
-    ALLOW_MOCK_PROVIDERS_ENV, KERNEL_ENVIRONMENT_ENV, KERNEL_PROFILE_ID_ENV,
-};
 pub use runtime_host::{
     AgentKernelHost, AgentRuntimeExecutionHandle, AgentRuntimeRegistration, AgentRuntimeSlot,
     AgentRuntimeSlotState,
 };
+pub use runtime_topology::{
+    is_production_kernel_profile, is_production_kernel_profile_from_env,
+    kernel_profile_id_from_env, mock_provider_invocation_allowed,
+    mock_provider_invocation_allowed_from_env, mock_provider_override_disabled_from_env,
+    mock_provider_override_enabled_from_env, normalize_kernel_profile_id, ALLOW_MOCK_PROVIDERS_ENV,
+    KERNEL_ENVIRONMENT_ENV, KERNEL_PROFILE_ID_ENV,
+};
 pub use skill::{
     AgentSkillDescriptor, AgentSkillInvocationMode, AgentSkillProvider, AgentSkillRequest,
     AgentSkillResult, AgentSkillStatus,
+};
+pub use task_scheduling::{
+    ScheduleQuery, ScheduleResult, ScheduleState, ScheduledTask, TaskPriority,
+    TaskSchedulingProvider, TaskTrigger, TriggerKind,
 };
 pub use telemetry::{
     AuditRecord, TelemetryLogLevel, TelemetryLogRecord, TelemetryMetric, TelemetryMetricKind,

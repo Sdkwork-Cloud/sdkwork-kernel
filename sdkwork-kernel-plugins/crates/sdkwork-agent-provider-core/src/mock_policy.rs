@@ -1,8 +1,8 @@
 //! Fail-closed policy for mock/stub provider responses in production profiles.
 
 use sdkwork_agent_kernel::{
-    is_production_kernel_profile_from_env, mock_provider_invocation_allowed_from_env,
-    KernelError, KernelResult,
+    is_production_kernel_profile_from_env, mock_provider_invocation_allowed_from_env, KernelError,
+    KernelResult,
 };
 use serde_json::Value;
 
@@ -57,7 +57,7 @@ pub fn validate_runtime_model_payload(payload: &Value) -> Result<(), String> {
             if let Some(text) = message.as_str() {
                 if is_mock_response_text(text) {
                     return Err(
-                        "runtime returned mock provider text in production profile".to_string(),
+                        "runtime returned mock provider text in production profile".to_string()
                     );
                 }
             }
@@ -77,7 +77,9 @@ pub fn is_mock_response_text(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sdkwork_agent_kernel::{ALLOW_MOCK_PROVIDERS_ENV, KERNEL_ENVIRONMENT_ENV, KERNEL_PROFILE_ID_ENV};
+    use sdkwork_agent_kernel::{
+        ALLOW_MOCK_PROVIDERS_ENV, KERNEL_ENVIRONMENT_ENV, KERNEL_PROFILE_ID_ENV,
+    };
     use std::sync::{Mutex, OnceLock};
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -115,7 +117,10 @@ mod tests {
     #[test]
     fn production_topology_profile_rejects_mock_invocation() {
         let _lock = env_lock();
-        let _profile = EnvVarGuard::set(KERNEL_PROFILE_ID_ENV, Some("cloud.split-services.production"));
+        let _profile = EnvVarGuard::set(
+            KERNEL_PROFILE_ID_ENV,
+            Some("cloud.split-services.production"),
+        );
         let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, None);
         let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);
 
@@ -149,7 +154,10 @@ mod tests {
     #[test]
     fn rejects_stub_runtime_payload_in_production_profile() {
         let _lock = env_lock();
-        let _profile = EnvVarGuard::set(KERNEL_PROFILE_ID_ENV, Some("cloud.split-services.production"));
+        let _profile = EnvVarGuard::set(
+            KERNEL_PROFILE_ID_ENV,
+            Some("cloud.split-services.production"),
+        );
         let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, Some("production"));
         let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);
 
@@ -163,7 +171,10 @@ mod tests {
     #[test]
     fn allows_sdk_live_runtime_payload_in_production_profile() {
         let _lock = env_lock();
-        let _profile = EnvVarGuard::set(KERNEL_PROFILE_ID_ENV, Some("cloud.split-services.production"));
+        let _profile = EnvVarGuard::set(
+            KERNEL_PROFILE_ID_ENV,
+            Some("cloud.split-services.production"),
+        );
         let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, Some("production"));
         let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);
 

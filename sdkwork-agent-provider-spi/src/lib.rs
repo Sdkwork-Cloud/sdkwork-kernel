@@ -14,17 +14,19 @@ mod registry;
 mod runtime;
 mod selector;
 
-pub use backend::{default_backend_priority, default_transport_priority, ProviderTransportKind, SdkBackendKind};
+pub use backend::{
+    default_backend_priority, default_transport_priority, ProviderTransportKind, SdkBackendKind,
+};
 pub use binding::{
     AgentSdkBindingManifest, BackendCandidate, CapabilityBinding, IntegrationSource,
     LanguagePackages, ManifestStatus, NpmPackageRef, PythonPackageRef, RustPackageRef,
     SelectionPolicy,
 };
 pub use bridge::{
-    model_response_from_runtime, tool_result_from_runtime, RuntimeBackedProviders,
-    SdkRuntimeBackedModelProvider, SdkRuntimeBackedToolProvider, SDK_CAPABILITY_MODEL_CHAT,
-    SDK_CAPABILITY_SESSION_LIFECYCLE, SDK_CAPABILITY_SKILL_INVOKE, SDK_CAPABILITY_TOOL_INVOKE,
-    wire_runtime_providers,
+    model_response_from_runtime, tool_result_from_runtime, wire_runtime_providers,
+    RuntimeBackedProviders, SdkRuntimeBackedModelProvider, SdkRuntimeBackedToolProvider,
+    SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_SESSION_LIFECYCLE, SDK_CAPABILITY_SKILL_INVOKE,
+    SDK_CAPABILITY_TOOL_INVOKE,
 };
 pub use capability::{
     describe_capability, SdkCapabilityDescriptor, SdkCapabilityId, STANDARD_SDK_CAPABILITIES,

@@ -1,18 +1,20 @@
-use sdkwork_agent_provider_core::{
-    create_session_from_config, reject_direct_mock_provider_invocation, uuid_simple,
-    MessageAdapter, SessionAdapter, SessionConfig,
-};
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
     ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
     ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
     SessionState, SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
+use sdkwork_agent_provider_core::{
+    create_session_from_config, reject_direct_mock_provider_invocation, uuid_simple,
+    MessageAdapter, SessionAdapter, SessionConfig,
+};
 
 #[cfg(test)]
-use sdkwork_agent_provider_core::{ConversationManager, InMemoryConversationManager, SessionLifecycleProvider};
-#[cfg(test)]
 use sdkwork_agent_kernel::{ModelStatus, ToolCallStatus};
+#[cfg(test)]
+use sdkwork_agent_provider_core::{
+    ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
+};
 
 // ============================================================================
 // OpenClaw Message Types
@@ -444,7 +446,9 @@ sdkwork_agent_provider_core::define_provider_lifecycle_provider!(
 );
 
 pub mod sdk_integration;
-pub use sdk_integration::{openclaw_binding_manifest, OpenClawSdkIntegration, OPENCLAW_NPM_PACKAGE};
+pub use sdk_integration::{
+    openclaw_binding_manifest, OpenClawSdkIntegration, OPENCLAW_NPM_PACKAGE,
+};
 
 mod agent_definition;
 mod conformance;
@@ -722,9 +726,7 @@ mod tests {
         let tools = provider.list_tools();
         assert_eq!(tools.len(), 4);
         assert!(tools.iter().any(|t| t.tool_id == "openclaw.message"));
-        assert!(tools
-            .iter()
-            .any(|t| t.tool_id == "openclaw.sessions_spawn"));
+        assert!(tools.iter().any(|t| t.tool_id == "openclaw.sessions_spawn"));
         assert!(tools.iter().any(|t| t.tool_id == "openclaw.web_search"));
         assert!(tools.iter().any(|t| t.tool_id == "openclaw.cron"));
     }

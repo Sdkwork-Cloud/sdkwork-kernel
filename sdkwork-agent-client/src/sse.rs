@@ -1,7 +1,7 @@
-use crate::ingress_auth;
-use crate::AgentAuth;
 use crate::chat::ChatClient;
+use crate::ingress_auth;
 use crate::types::*;
+use crate::AgentAuth;
 use reqwest::Client;
 use serde::Deserialize;
 
@@ -57,9 +57,7 @@ impl SseChatClient {
             return Err(format!("request failed with status: {}", response.status()));
         }
 
-        let messages = self
-            .get_messages_async(&request.session_id, None)
-            .await?;
+        let messages = self.get_messages_async(&request.session_id, None).await?;
         let assistant = messages
             .iter()
             .rev()

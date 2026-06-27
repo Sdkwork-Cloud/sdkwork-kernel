@@ -176,7 +176,9 @@ mod tests {
             api_surface: None,
             route_template: String::new(),
         };
-        assert!(assert_session_access(policy, &ctx, &session_with_owner("tenant.1", "user.1")).is_ok());
+        assert!(
+            assert_session_access(policy, &ctx, &session_with_owner("tenant.1", "user.1")).is_ok()
+        );
     }
 
     fn session_without_owner() -> SessionRow {

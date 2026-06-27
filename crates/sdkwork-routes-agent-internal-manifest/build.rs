@@ -22,8 +22,8 @@ fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let kernel_root = manifest_dir.join("../..");
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
-    let openapi_path = kernel_root
-        .join("apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml");
+    let openapi_path =
+        kernel_root.join("apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml");
 
     let yaml = fs::read_to_string(&openapi_path)
         .unwrap_or_else(|error| panic!("failed to read {openapi_path:?}: {error}"));

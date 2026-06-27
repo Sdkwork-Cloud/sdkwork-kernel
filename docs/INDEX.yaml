@@ -55,4 +55,14 @@ entries:
     layer: work
     audience: [engineering, architecture]
     status: accepted
+  - id: ADR-20260612-agent-implementation-type
+    path: docs/architecture/decisions/ADR-20260612-agent-implementation-type.md
+    layer: work
+    audience: [engineering, architecture]
+    status: accepted
+  - id: ADR-20260612-sdkwork-kernel-root-dictionary
+    path: docs/architecture/decisions/ADR-20260612-sdkwork-kernel-root-dictionary.md
+    layer: work
+    audience: [engineering, architecture]
+    status: accepted
 domains: []

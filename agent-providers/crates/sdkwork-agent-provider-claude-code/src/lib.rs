@@ -1,8 +1,3 @@
-use sdkwork_agent_provider_core::{
-    create_session_from_config, now_iso, uuid_simple, ConversationManager,
-    InMemoryConversationManager, MessageAdapter, SessionAdapter, SessionConfig,
-    SessionLifecycleProvider,
-};
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
     ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
@@ -11,6 +6,11 @@ use sdkwork_agent_kernel::{
     ToolResult, ToolSchema,
 };
 use sdkwork_agent_provider_core::reject_direct_mock_provider_invocation;
+use sdkwork_agent_provider_core::{
+    create_session_from_config, now_iso, uuid_simple, ConversationManager,
+    InMemoryConversationManager, MessageAdapter, SessionAdapter, SessionConfig,
+    SessionLifecycleProvider,
+};
 
 // ============================================================================
 // Claude Message Types

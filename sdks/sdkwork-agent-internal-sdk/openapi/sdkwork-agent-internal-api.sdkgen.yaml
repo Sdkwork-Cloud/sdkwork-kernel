@@ -19,6 +19,111 @@ tags:
   - name: intelligence
     description: Agent intelligence runtime operations on application ingress.
 paths:
+  /internal/v3/api/intelligence/runtime/manifest:
+    get:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Load runtime capability manifest
+      description: Returns the runtime capability manifest (runtime id, agent id, kernel version, capabilities, providers) without persistence-derived state. Suitable for UI clients, CI gates, and conformance runners. Aligns with AGENT_RUNTIME_SPEC §4 get_runtime_manifest and get_capability_manifest.
+      operationId: runtime.manifest.get
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
+      responses:
+        '200':
+          description: Runtime capability manifest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeManifest'
+        default:
+          description: RFC 9457 problem detail response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+  /internal/v3/api/intelligence/runtime/health:
+    get:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Runtime liveness and readiness probe
+      description: Lightweight liveness/readiness surface combining runtime state and persistence health. Side-effect-free; safe for load-balancer polls. Aligns with AGENT_RUNTIME_SPEC §4 get_health.
+      operationId: runtime.health.get
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
+      responses:
+        '200':
+          description: Runtime health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeHealth'
+        '503':
+          description: Runtime degraded
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        default:
+          description: RFC 9457 problem detail response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+  /internal/v3/api/intelligence/runtime/diagnostics:
+    get:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Load runtime diagnostics report
+      description: Machine-readable runtime diagnostic report validating against schemas/agent-runtime-diagnostics.schema.json. Suitable for support bundles, registry validation, and conformance runners. Aligns with AGENT_RUNTIME_SPEC §4.1 get_diagnostics.
+      operationId: runtime.diagnostics.get
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
+      responses:
+        '200':
+          description: Runtime diagnostics report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeDiagnostics'
+        default:
+          description: RFC 9457 problem detail response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
   /internal/v3/api/intelligence/runtime/snapshot:
     get:
       x-sdkwork-owner: sdkwork-kernel
@@ -534,6 +639,100 @@ paths:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetail'
+  /internal/v3/api/intelligence/runtime/sessions/{sessionId}/model/stream:
+    post:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Stream a model response via SSE
+      description: |
+        Returns a Server-Sent Events stream of model output chunks for
+        real-time token-by-token display in chat UIs. Each SSE event has
+        type `model.chunk` with a JSON payload containing `modelRequestId`,
+        `sequence`, `content`, and `finishReason`. The stream terminates
+        with a `model.done` event.
+      operationId: runtime.sessions.model.stream
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StreamModelRequest'
+      responses:
+        '200':
+          description: Server-sent events stream of model output chunks
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '503':
+          description: Maximum concurrent SSE streams reached
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        default:
+          description: RFC 9457 problem detail response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+  /internal/v3/api/intelligence/runtime/sessions/{sessionId}/model/cancel:
+    post:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Cancel an in-flight model invocation
+      description: |
+        Signals the model provider to cancel the generation identified by
+        `modelRequestId`. Returns a terminal `ModelResponse` with
+        `status: "cancelled"` and `finishReason: "cancelled"`.
+      operationId: runtime.sessions.model.cancel
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelModelRequest'
+      responses:
+        '200':
+          description: Model cancellation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelModelResponse'
+        default:
+          description: RFC 9457 problem detail response
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
   /internal/v3/api/intelligence/runtime/sessions/{sessionId}/tools:
     get:
       x-sdkwork-owner: sdkwork-kernel
@@ -722,6 +921,25 @@ components:
       schema:
         type: integer
         minimum: 0
+    ListLimit:
+      name: limit
+      in: query
+      required: false
+      description: Maximum number of items to return (default 100, max 1000).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 100
+    ListOffset:
+      name: offset
+      in: query
+      required: false
+      description: Number of items to skip for pagination.
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
   responses:
     Problem:
       description: RFC 9457 problem detail response
@@ -748,9 +966,212 @@ components:
           type: string
         retryable:
           type: boolean
+    RuntimeManifest:
+      type: object
+      required: [runtimeId, agentId, kernelVersion, securityProfile, capabilities, providers, missingRequiredCapabilities, degradedCapabilities]
+      properties:
+        runtimeId:
+          type: string
+        agentId:
+          type: string
+        kernelVersion:
+          type: string
+        securityProfile:
+          type: string
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Capability'
+        providers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderManifest'
+        missingRequiredCapabilities:
+          type: array
+          items:
+            type: string
+        degradedCapabilities:
+          type: array
+          items:
+            type: string
+    Capability:
+      type: object
+      required: [capabilityId, providerId, status, required]
+      properties:
+        capabilityId:
+          type: string
+        providerId:
+          type: string
+        status:
+          type: string
+        required:
+          type: boolean
+    ProviderManifest:
+      type: object
+      required: [providerId, providerFamily, name, version, capabilities]
+      properties:
+        providerId:
+          type: string
+        providerFamily:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        healthStatus:
+          type: string
+          nullable: true
+    RuntimeHealth:
+      type: object
+      required: [runtimeId, state, health, persistenceHealthy, degradedCapabilities]
+      properties:
+        runtimeId:
+          type: string
+        state:
+          type: string
+        health:
+          type: string
+          enum: [healthy, degraded]
+        persistenceHealthy:
+          type: boolean
+        degradedCapabilities:
+          type: array
+          items:
+            type: string
+    RuntimeDiagnostics:
+      type: object
+      required: [runtimeId, agentId, state, providerCount, capabilityCount, typedProviderCount, manifestOnlyProviderCount, missingRequiredCapabilities, degradedCapabilities, providerDiagnostics]
+      properties:
+        runtimeId:
+          type: string
+        agentId:
+          type: string
+        state:
+          type: string
+        providerCount:
+          type: integer
+        capabilityCount:
+          type: integer
+        typedProviderCount:
+          type: integer
+        manifestOnlyProviderCount:
+          type: integer
+        missingRequiredCapabilities:
+          type: array
+          items:
+            type: string
+        degradedCapabilities:
+          type: array
+          items:
+            type: string
+        providerDiagnostics:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProviderDiagnostic'
+    ProviderDiagnostic:
+      type: object
+      required: [providerId, providerFamily, providerVersion, typedRegistered, capabilities]
+      properties:
+        providerId:
+          type: string
+        providerFamily:
+          type: string
+        providerVersion:
+          type: string
+        typedRegistered:
+          type: boolean
+        healthStatus:
+          type: string
+          nullable: true
+        capabilities:
+          type: array
+          items:
+            type: string
     KernelUiSnapshot:
       type: object
-      additionalProperties: true
+      required: [runtime, events, permissions, workspace, patches, verificationReports, terminalCommands, terminalOutput, reviewFindings]
+      properties:
+        runtime:
+          $ref: '#/components/schemas/KernelRuntime'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/KernelEvent'
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PermissionRequest'
+        workspace:
+          $ref: '#/components/schemas/Workspace'
+        patches:
+          type: array
+          items:
+            type: object
+        verificationReports:
+          type: array
+          items:
+            type: object
+        terminalCommands:
+          type: array
+          items:
+            type: object
+        terminalOutput:
+          type: array
+          items:
+            type: object
+        reviewFindings:
+          type: array
+          items:
+            type: object
+    KernelRuntime:
+      type: object
+      required: [runtimeId, agentId, kernelVersion, state, health, capabilities, missingRequiredCapabilities, degradedCapabilities]
+      properties:
+        runtimeId:
+          type: string
+        agentId:
+          type: string
+        kernelVersion:
+          type: string
+        state:
+          type: string
+        health:
+          type: string
+        capabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Capability'
+        missingRequiredCapabilities:
+          type: array
+          items:
+            type: string
+        degradedCapabilities:
+          type: array
+          items:
+            type: string
+    KernelEvent:
+      type: object
+      required: [eventId, eventType, occurredAt]
+      properties:
+        eventId:
+          type: string
+        eventType:
+          type: string
+        occurredAt:
+          type: string
+        payload:
+          type: object
+    Workspace:
+      type: object
+      properties:
+        roots:
+          type: array
+          items:
+            type: string
     PermissionDecisionRequest:
       type: object
       required: [decision]
@@ -760,7 +1181,26 @@ components:
           enum: [allow, deny]
     PermissionRequest:
       type: object
-      additionalProperties: true
+      required: [permissionRequestId, sessionId, capability, status]
+      properties:
+        permissionRequestId:
+          type: string
+        sessionId:
+          type: string
+        capability:
+          type: string
+        status:
+          type: string
+          enum: [pending, allow, deny, needs_approval]
+        detail:
+          type: string
+          nullable: true
+        requestedAt:
+          type: string
+          nullable: true
+        decidedAt:
+          type: string
+          nullable: true
     CreateSessionRequest:
       type: object
       required: [agentId]
@@ -801,9 +1241,102 @@ components:
             type: string
     SessionResponse:
       type: object
-      additionalProperties: true
+      required: [sessionId, source, kind, agentId, state, workspaceRoots, tokenUsage, messageCount, toolCallCount, compressionCount, changeSummary, childSessionIds, metadata]
+      properties:
+        sessionId:
+          type: string
+        source:
+          type: string
+        kind:
+          type: string
+        agentId:
+          type: string
+        userRef:
+          type: string
+          nullable: true
+        tenantId:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        goal:
+          type: string
+          nullable: true
+        state:
+          type: string
+        createdAt:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          nullable: true
+        model:
+          type: string
+          nullable: true
+        modelProvider:
+          type: string
+          nullable: true
+        cwd:
+          type: string
+          nullable: true
+        workspaceRoots:
+          type: array
+          items:
+            type: string
+        instructions:
+          type: string
+          nullable: true
+        tokenUsage:
+          $ref: '#/components/schemas/TokenUsage'
+        messageCount:
+          type: integer
+        toolCallCount:
+          type: integer
+        compressionCount:
+          type: integer
+        changeSummary:
+          $ref: '#/components/schemas/ChangeSummary'
+        childSessionIds:
+          type: array
+          items:
+            type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+    TokenUsage:
+      type: object
+      required: [inputTokens, outputTokens, cachedTokens, reasoningTokens, totalTokens]
+      properties:
+        inputTokens:
+          type: integer
+          format: uint64
+        outputTokens:
+          type: integer
+          format: uint64
+        cachedTokens:
+          type: integer
+          format: uint64
+        reasoningTokens:
+          type: integer
+          format: uint64
+        totalTokens:
+          type: integer
+          format: uint64
+    ChangeSummary:
+      type: object
+      required: [additions, deletions, filesChanged]
+      properties:
+        additions:
+          type: integer
+        deletions:
+          type: integer
+        filesChanged:
+          type: integer
     SessionListResponse:
       type: object
+      required: [items]
       properties:
         items:
           type: array
@@ -817,9 +1350,38 @@ components:
           type: string
     MessageResponse:
       type: object
-      additionalProperties: true
+      required: [messageId, sessionId, role, parts]
+      properties:
+        messageId:
+          type: string
+        sessionId:
+          type: string
+        role:
+          type: string
+        parts:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessagePart'
+        createdAt:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+    MessagePart:
+      type: object
+      required: [partId, kind, content]
+      properties:
+        partId:
+          type: string
+        kind:
+          type: string
+        content:
+          type: string
     MessageListResponse:
       type: object
+      required: [items]
       properties:
         items:
           type: array
@@ -833,22 +1395,54 @@ components:
           type: string
     TaskResponse:
       type: object
-      additionalProperties: true
+      required: [taskId, sessionId, instruction, state]
+      properties:
+        taskId:
+          type: string
+        sessionId:
+          type: string
+        instruction:
+          type: string
+        state:
+          type: string
+        createdAt:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          nullable: true
     TaskListResponse:
       type: object
+      required: [items]
       properties:
         items:
           type: array
           items:
             $ref: '#/components/schemas/TaskResponse'
+    ModelDescriptor:
+      type: object
+      required: [modelId, providerId, displayName, family, capabilities]
+      properties:
+        modelId:
+          type: string
+        providerId:
+          type: string
+        displayName:
+          type: string
+        family:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
     ModelListResponse:
       type: object
+      required: [items]
       properties:
         items:
           type: array
           items:
-            type: object
-            additionalProperties: true
+            $ref: '#/components/schemas/ModelDescriptor'
     InvokeModelRequest:
       type: object
       properties:
@@ -856,15 +1450,30 @@ components:
           type: string
     InvokeModelResponse:
       type: object
-      additionalProperties: true
+      required: [modelRequestId, providerId, status, messages, toolCalls]
+      properties:
+        modelRequestId:
+          type: string
+        providerId:
+          type: string
+        status:
+          type: string
+        messages:
+          type: array
+          items:
+            type: string
+        toolCalls:
+          type: array
+          items:
+            type: object
     ToolListResponse:
       type: object
+      required: [items]
       properties:
         items:
           type: array
           items:
             type: object
-            additionalProperties: true
     ExecuteToolRequest:
       type: object
       required: [input]
@@ -873,4 +1482,16 @@ components:
           type: string
     ExecuteToolResponse:
       type: object
-      additionalProperties: true
+      required: [toolCallId, toolId, input, status]
+      properties:
+        toolCallId:
+          type: string
+        toolId:
+          type: string
+        input:
+          type: string
+        status:
+          type: string
+        output:
+          type: string
+          nullable: true

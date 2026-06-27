@@ -942,6 +942,7 @@ impl AgentExecutionService {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn execution_report(
         &self,
         request: &AgentExecutionRequest,

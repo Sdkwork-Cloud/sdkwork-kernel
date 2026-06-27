@@ -1,6 +1,4 @@
-use sdkwork_agent_kernel::{
-    AgentMessage, AgentSession, ModelResponse, ToolDescriptor, ToolResult,
-};
+use sdkwork_agent_kernel::{AgentMessage, AgentSession, ModelResponse, ToolDescriptor, ToolResult};
 
 /// Configuration for creating a new agent session through the bridge
 #[derive(Debug, Clone)]

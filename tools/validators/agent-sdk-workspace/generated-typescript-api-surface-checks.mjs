@@ -297,7 +297,7 @@ function validateInternalGeneratedAgentApi({ label, content, errors }) {
     'export class IntelligenceRuntimeSnapshotApi',
     'export class IntelligenceRuntimeSessionsApi',
     'export class IntelligenceRuntimeSessionsMessagesApi',
-    'async load(): Promise<KernelUiSnapshot>',
+    'async load(params?: IntelligenceRuntimeSnapshotLoadParams): Promise<KernelUiSnapshot>',
     'async create(body: CreateSessionRequest',
     'async send(sessionId: string, body: SendMessageRequest',
     'CreateSessionRequest',

@@ -183,7 +183,8 @@ fn hermes_binding_manifest_declares_run_agent_module() {
 
 #[test]
 fn openclaw_binding_manifest_declares_typescript_package() {
-    let json = include_str!("../../bindings/agent-providers/openclaw/provider-binding.manifest.json");
+    let json =
+        include_str!("../../bindings/agent-providers/openclaw/provider-binding.manifest.json");
     let manifest = AgentSdkBindingManifest::from_json(json).expect("openclaw manifest");
     let typescript = manifest
         .language_packages
@@ -202,13 +203,17 @@ fn bootstrap_binding_loads_hermes_manifest() {
     let negotiation =
         bootstrap_binding(manifest, &mut drivers, &mut bindings).expect("bootstrap should succeed");
 
-    assert_eq!(negotiation.binding_id, sdkwork_agent_provider_spi::HERMES_BINDING_ID);
+    assert_eq!(
+        negotiation.binding_id,
+        sdkwork_agent_provider_spi::HERMES_BINDING_ID
+    );
     assert!(drivers.len() >= 4);
 }
 
 #[test]
 fn bootstrap_binding_loads_openclaw_manifest() {
-    let json = include_str!("../../bindings/agent-providers/openclaw/provider-binding.manifest.json");
+    let json =
+        include_str!("../../bindings/agent-providers/openclaw/provider-binding.manifest.json");
     let manifest = AgentSdkBindingManifest::from_json(json).expect("manifest should parse");
     let mut drivers = DriverRegistry::new();
     let mut bindings = BindingRegistry::new();
@@ -224,7 +229,8 @@ fn bootstrap_binding_loads_openclaw_manifest() {
 
 #[test]
 fn hermes_and_openclaw_manifests_parse() {
-    let hermes = include_str!("../../bindings/agent-providers/hermes/provider-binding.manifest.json");
+    let hermes =
+        include_str!("../../bindings/agent-providers/hermes/provider-binding.manifest.json");
     let openclaw =
         include_str!("../../bindings/agent-providers/openclaw/provider-binding.manifest.json");
 

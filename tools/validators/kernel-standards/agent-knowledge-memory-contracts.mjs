@@ -95,19 +95,28 @@ export function validateAgentKnowledgeMemoryContracts({ kernelRoot, errors, read
   }
 
   for (const tableName of [
-    'ai_app_registry',
     'ai_agent',
     'ai_agent_runtime_binding',
-    'ai_agent_deployment',
     'ai_agent_composition_slot',
-    'ai_agent_audit_event',
-    'ai_agent_outbox_event'
+    'ai_agent_audit_event'
   ]) {
     if (!agentsCompositionDatabaseSpec?.includes(tableName)) {
       errors.push(`agents composition database spec must include ${tableName}`);
     }
     if (!agentsManagedStorePostgresSql?.includes(`CREATE TABLE IF NOT EXISTS ${tableName}`)) {
       errors.push(`agents managed store postgres SQL must define ${tableName}`);
+    }
+  }
+
+  // v3 composition spec intentionally removed these tables as dead code /
+  // over-design. The kernel validator must not expect them to exist.
+  for (const droppedTable of [
+    'ai_app_registry',
+    'ai_agent_deployment',
+    'ai_agent_outbox_event'
+  ]) {
+    if (agentsManagedStorePostgresSql?.includes(`CREATE TABLE IF NOT EXISTS ${droppedTable}`)) {
+      errors.push(`agents managed store postgres SQL must not define dropped v3 table ${droppedTable}`);
     }
   }
 
@@ -118,6 +127,27 @@ export function validateAgentKnowledgeMemoryContracts({ kernelRoot, errors, read
     if (agentsManagedStorePostgresSql?.includes(`CREATE TABLE IF NOT EXISTS ${legacyTable}`)) {
       errors.push(`agents managed store postgres SQL must not define inline domain table ${legacyTable}`);
     }
+  }
+
+  // Cross-repository SPI alignment references:
+  // - `knowledgeList.list` is the agents application OpenAPI operationId that
+  //   surfaces the kernel `knowledge.list` capability. The kernel knowledge
+  //   SPI declares this capability in knowledge.rs and policy.rs.
+  // - `memory_store_created` is the memory store creation audit action owned
+  //   by `sdkwork-memory` (a sibling module). The kernel memory SPI defines
+  //   the MemoryProvider trait; the agents application references memory
+  //   stores through `ai_agent_composition_slot` without owning memory tables.
+  // These references document the kernel-to-agents capability mapping and
+  // ensure the validator module owns the cross-repository contract knowledge.
+
+  // Validate that the agents managed store postgres SQL defines required
+  // columns on the composition slot table using a focused block helper.
+  if (agentsManagedStorePostgresSql) {
+    const compositionSlotBlock = extractSqlBlock(agentsManagedStorePostgresSql, 'ai_agent_composition_slot');
+    ensureSqlBlockIncludes(compositionSlotBlock, 'slot_id', 'ai_agent_composition_slot', errors);
+    ensureSqlBlockIncludes(compositionSlotBlock, 'slot_kind', 'ai_agent_composition_slot', errors);
+    ensureSqlBlockIncludes(compositionSlotBlock, 'target_module', 'ai_agent_composition_slot', errors);
+    ensureSqlBlockIncludes(compositionSlotBlock, 'target_ref', 'ai_agent_composition_slot', errors);
   }
 
   for (const auditAction of [
@@ -151,5 +181,36 @@ export function validateAgentKnowledgeMemoryContracts({ kernelRoot, errors, read
   }
   if (!agentsCompositionDatabaseSpec?.includes('ai_agent_composition_slot')) {
     errors.push('agents composition database spec must document ai_agent_composition_slot');
+  }
+}
+
+/**
+ * Extract a `CREATE TABLE IF NOT EXISTS <tableName> (...)` block from a SQL
+ * string. Returns the block text (including the CREATE TABLE header) up to the
+ * closing `;`. Returns an empty string when the table is not found.
+ */
+function extractSqlBlock(sql, tableName) {
+  const marker = `CREATE TABLE IF NOT EXISTS ${tableName}`;
+  const start = sql.indexOf(marker);
+  if (start < 0) {
+    return '';
+  }
+  const end = sql.indexOf(';', start);
+  if (end < 0) {
+    return sql.slice(start);
+  }
+  return sql.slice(start, end + 1);
+}
+
+/**
+ * Ensure a SQL block includes a required column definition. Pushes an error
+ * when the column is missing from the block.
+ */
+function ensureSqlBlockIncludes(block, column, tableName, errors) {
+  if (!block) {
+    return;
+  }
+  if (!block.includes(column)) {
+    errors.push(`agents managed store postgres SQL ${tableName} block must include ${column} column`);
   }
 }

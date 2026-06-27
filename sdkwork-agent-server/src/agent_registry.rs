@@ -1,5 +1,5 @@
-use sdkwork_agent_provider_codex::ids as codex_ids;
 use sdkwork_agent_plugin_core::StandardPluginIds;
+use sdkwork_agent_provider_codex::ids as codex_ids;
 use sdkwork_agent_provider_hermes::ids as hermes_ids;
 use sdkwork_agent_provider_openclaw::ids as openclaw_ids;
 use sdkwork_agent_provider_rig::ids as rig_ids;
@@ -73,9 +73,8 @@ pub fn resolve_registered_agent(agent_id: &str) -> Option<RegisteredAgent> {
 pub fn validate_hosted_agent_id(agent_id: &str) -> Result<RegisteredAgent, String> {
     StandardPluginIds::validate_agent_id(agent_id)
         .map_err(|error| format!("invalid agent id: {error}"))?;
-    resolve_registered_agent(agent_id).ok_or_else(|| {
-        format!("agent id is not hosted by this kernel process: {agent_id}")
-    })
+    resolve_registered_agent(agent_id)
+        .ok_or_else(|| format!("agent id is not hosted by this kernel process: {agent_id}"))
 }
 
 /// Stamp default provider metadata for a hosted agent when the caller omitted it.
@@ -109,8 +108,8 @@ mod tests {
     fn resolves_openclaw_agent_when_plugin_env_set() {
         let _lock = lock();
         let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, Some("openclaw"));
-        let agent =
-            validate_hosted_agent_id(openclaw_ids::AGENT_ID).expect("openclaw agent should resolve");
+        let agent = validate_hosted_agent_id(openclaw_ids::AGENT_ID)
+            .expect("openclaw agent should resolve");
         assert_eq!(
             agent.default_model_provider_id,
             openclaw_ids::MODEL_PROVIDER_ID
@@ -124,7 +123,10 @@ mod tests {
         let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, Some("hermes"));
         let agent =
             validate_hosted_agent_id(hermes_ids::AGENT_ID).expect("hermes agent should resolve");
-        assert_eq!(agent.default_model_provider_id, hermes_ids::MODEL_PROVIDER_ID);
+        assert_eq!(
+            agent.default_model_provider_id,
+            hermes_ids::MODEL_PROVIDER_ID
+        );
     }
 
     #[test]
@@ -133,7 +135,10 @@ mod tests {
         let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, Some("codex"));
         let agent =
             validate_hosted_agent_id(codex_ids::AGENT_ID).expect("codex agent should resolve");
-        assert_eq!(agent.default_model_provider_id, codex_ids::MODEL_PROVIDER_ID);
+        assert_eq!(
+            agent.default_model_provider_id,
+            codex_ids::MODEL_PROVIDER_ID
+        );
     }
 
     #[test]

@@ -54,7 +54,9 @@ fn internal_runtime_route_template(path: &str) -> &'static str {
         p if p.starts_with("/sessions/") && p.ends_with("/events/stream") => {
             "/internal/v3/api/intelligence/runtime/sessions/{session_id}/events/stream"
         }
-        p if p.starts_with("/sessions/") => "/internal/v3/api/intelligence/runtime/sessions/{session_id}",
+        p if p.starts_with("/sessions/") => {
+            "/internal/v3/api/intelligence/runtime/sessions/{session_id}"
+        }
         p if p.starts_with("/tasks/") && p.ends_with("/cancel") => {
             "/internal/v3/api/intelligence/runtime/tasks/{task_id}/cancel"
         }

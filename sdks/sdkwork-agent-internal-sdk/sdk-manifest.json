@@ -13,7 +13,7 @@
   "generatedOutput": "sdkwork-agent-internal-sdk-typescript/generated/server-openapi",
   "standardProfile": "sdkwork-v3",
   "sdkDependencies": [],
-  "ownerOnlyOperationCount": 18,
+  "ownerOnlyOperationCount": 23,
   "standardVersion": "2026-06-26",
   "managedBy": "sdks/_shared/agent-sdk-ownership.mjs"
 }

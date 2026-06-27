@@ -15,7 +15,18 @@ const SERVICE_NAME: &str = "sdkwork-agent-server";
 const RUNTIME_TARGET: &str = "server";
 
 const DURATION_BUCKETS_SECS: [f64; 12] = [
-    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, f64::INFINITY,
+    0.005,
+    0.01,
+    0.025,
+    0.05,
+    0.1,
+    0.25,
+    0.5,
+    1.0,
+    2.5,
+    5.0,
+    10.0,
+    f64::INFINITY,
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -151,9 +162,7 @@ impl MetricsRegistry {
         let provider = sanitize_metric_label(provider_id, "unknown");
         let status_label = sanitize_metric_label(status, "unknown");
         if let Ok(mut invocations) = self.model_invocations.lock() {
-            *invocations
-                .entry((provider, status_label))
-                .or_insert(0) += 1;
+            *invocations.entry((provider, status_label)).or_insert(0) += 1;
         }
     }
 
@@ -164,9 +173,7 @@ impl MetricsRegistry {
         let provider = sanitize_metric_label(provider_id, "unknown");
         let direction_label = sanitize_metric_label(direction, "total");
         if let Ok(mut usage) = self.model_token_usage.lock() {
-            *usage
-                .entry((provider, direction_label))
-                .or_insert(0) += tokens;
+            *usage.entry((provider, direction_label)).or_insert(0) += tokens;
         }
     }
 
@@ -232,7 +239,10 @@ impl MetricsRegistry {
             output,
             "# HELP sdkwork_kernel_http_auth_failures_total Ingress auth or identity failures."
         );
-        let _ = writeln!(output, "# TYPE sdkwork_kernel_http_auth_failures_total counter");
+        let _ = writeln!(
+            output,
+            "# TYPE sdkwork_kernel_http_auth_failures_total counter"
+        );
         let _ = writeln!(
             output,
             "sdkwork_kernel_http_auth_failures_total{{{base}}} {}",
@@ -243,7 +253,10 @@ impl MetricsRegistry {
             output,
             "# HELP sdkwork_kernel_http_rate_limited_total Requests rejected by rate limiting."
         );
-        let _ = writeln!(output, "# TYPE sdkwork_kernel_http_rate_limited_total counter");
+        let _ = writeln!(
+            output,
+            "# TYPE sdkwork_kernel_http_rate_limited_total counter"
+        );
         let _ = writeln!(
             output,
             "sdkwork_kernel_http_rate_limited_total{{{base}}} {}",
@@ -297,7 +310,10 @@ impl MetricsRegistry {
             output,
             "# HELP sdkwork_kernel_model_invocations_total Model invoke operations by provider and status."
         );
-        let _ = writeln!(output, "# TYPE sdkwork_kernel_model_invocations_total counter");
+        let _ = writeln!(
+            output,
+            "# TYPE sdkwork_kernel_model_invocations_total counter"
+        );
         if let Ok(invocations) = self.model_invocations.lock() {
             let mut entries: Vec<_> = invocations.iter().collect();
             entries.sort_by(|left, right| format!("{left:?}").cmp(&format!("{right:?}")));
@@ -353,7 +369,9 @@ fn sanitize_metric_label(value: &str, fallback: &str) -> String {
 
 async fn health_serving(_health_state: &HealthState, persistence: &PersistenceState) -> bool {
     let persistence_health = persistence.run(|state| state.health()).await;
-    let components = vec![health::persistence_component_for_metrics(persistence_health)];
+    let components = vec![health::persistence_component_for_metrics(
+        persistence_health,
+    )];
     health::aggregate_component_status(&components) != "unhealthy"
 }
 
@@ -439,7 +457,8 @@ mod tests {
             ..Default::default()
         };
         let registry = MetricsRegistry::from_config(&config);
-        let body = registry.render_prometheus(true, &OperationalProfile::from_runtime("postgres", true));
+        let body =
+            registry.render_prometheus(true, &OperationalProfile::from_runtime("postgres", true));
         assert!(body.contains("environment=\"production\""));
     }
 

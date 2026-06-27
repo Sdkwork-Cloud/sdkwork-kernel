@@ -178,6 +178,12 @@ for (const family of families) {
       ]);
     }
     familyReport.generated = Boolean(dryRun.hasChanges);
+    // After apply, the SDK is in sync with the OpenAPI authority. The report
+    // must reflect the post-generation state so downstream validators can
+    // confirm no further changes are pending. Keeping the dry-run's
+    // `hasChanges: true` would falsely signal pending work after a successful
+    // apply.
+    familyReport.hasChanges = false;
   } else {
     familyReport.generated = false;
   }

@@ -2,17 +2,17 @@ use crate::{
     ClaudeCodeAdapter, ClaudeCodeLifecycleProvider, ClaudeMessageAdapter, ClaudeModelProvider,
     ClaudeToolProvider,
 };
+use sdkwork_agent_provider_spi::{
+    bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
+    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
+    SdkRuntimeBackedToolProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
+    CLAUDE_CODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_TOOL_INVOKE,
+};
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
     TypeScriptNodeTransportHost,
 };
 use sdkwork_agent_provider_transport_node::NodeSdkBackendRuntime;
-use sdkwork_agent_provider_spi::{
-    bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
-    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider, SdkRuntimeBackedToolProvider,
-    SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter, CLAUDE_CODE_BINDING_ID,
-    SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_TOOL_INVOKE,
-};
 use std::sync::Arc;
 
 const CLAUDE_CODE_BINDING_MANIFEST_JSON: &str =
@@ -97,8 +97,7 @@ mod tests {
 
     #[test]
     fn bootstrap_negotiates_claude_code_capabilities() {
-        let integration =
-            ClaudeCodeSdkIntegration::bootstrap().expect("bootstrap should succeed");
+        let integration = ClaudeCodeSdkIntegration::bootstrap().expect("bootstrap should succeed");
         assert_eq!(integration.binding_id(), CLAUDE_CODE_BINDING_ID);
         assert_eq!(
             integration.sdk.selected_backend_kind("sdk.model.chat"),
@@ -108,8 +107,7 @@ mod tests {
 
     #[test]
     fn model_provider_routes_invoke_through_typescript_runtime() {
-        let integration =
-            ClaudeCodeSdkIntegration::bootstrap().expect("bootstrap should succeed");
+        let integration = ClaudeCodeSdkIntegration::bootstrap().expect("bootstrap should succeed");
         let response = integration
             .model
             .invoke(ModelRequest::new("req-claude-1", vec!["hello".to_string()]))

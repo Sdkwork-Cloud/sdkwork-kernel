@@ -1,6 +1,6 @@
 use sdkwork_agent_kernel::{
-    AgentConfigSectionKind, AgentPackageLifecycle, AgentPackageManifest, AgentPackageProviderBinding,
-    AgentPackageSource,
+    AgentConfigSectionKind, AgentPackageLifecycle, AgentPackageManifest,
+    AgentPackageProviderBinding, AgentPackageSource,
 };
 
 use crate::ids;

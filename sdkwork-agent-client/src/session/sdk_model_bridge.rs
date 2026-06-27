@@ -4,8 +4,7 @@ use crate::types::*;
 use sdkwork_agent_kernel::{ModelRequest, ModelResponse, ModelStatus};
 use std::sync::Arc;
 
-pub type ModelInvokeFn =
-    Arc<dyn Fn(ModelRequest) -> Result<ModelResponse, String> + Send + Sync>;
+pub type ModelInvokeFn = Arc<dyn Fn(ModelRequest) -> Result<ModelResponse, String> + Send + Sync>;
 pub type HealthProbeFn = Arc<dyn Fn() -> AgentBridgeHealth + Send + Sync>;
 
 /// Local bridge runtime that persists sessions in SQLite and routes chat through a kernel model provider.
@@ -78,11 +77,7 @@ impl SdkModelBridgeRuntime {
         }
 
         let model_response = (self.invoke_model)(model_request)?;
-        let assistant_content = model_response
-            .messages
-            .last()
-            .cloned()
-            .unwrap_or_default();
+        let assistant_content = model_response.messages.last().cloned().unwrap_or_default();
         let assistant_message_id = format!("msg.{}", uuid_simple());
         let assistant_message = ChatMessage {
             id: assistant_message_id.clone(),

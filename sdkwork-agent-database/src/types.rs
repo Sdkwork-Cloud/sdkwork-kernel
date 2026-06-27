@@ -92,3 +92,19 @@ pub struct EventQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
+
+/// Permission row for persisting permission request state across restarts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionRow {
+    pub permission_request_id: String,
+    pub session_id: Option<String>,
+    pub category: String,
+    pub resource: String,
+    pub side_effect_level: String,
+    pub reason: String,
+    pub status: String,
+    pub owner_tenant_id: Option<String>,
+    pub owner_user_ref: Option<String>,
+    pub created_at: String,
+    pub updated_at: Option<String>,
+}

@@ -1,10 +1,10 @@
 use sdkwork_agent_kernel::{
     AgentConfigField, AgentConfigSection, AgentConfigSectionKind, AgentConfigValue,
-    AgentConfigValueKind, AgentConfiguration, AgentConfigurationProvider,
-    AgentConfigurationSpec, AgentConfigurationValidation, AgentInstallPlan, AgentInstallReport,
-    AgentInstallRequest, AgentInstallStep, AgentInstallStepKind, AgentInstaller,
-    AgentUninstallReport, AgentUninstallRequest, AgentUpgradePlan, AgentUpgradeReport,
-    AgentUpgradeRequest, KernelError, KernelEventRedaction, KernelResult, ProviderHealth,
+    AgentConfigValueKind, AgentConfiguration, AgentConfigurationProvider, AgentConfigurationSpec,
+    AgentConfigurationValidation, AgentInstallPlan, AgentInstallReport, AgentInstallRequest,
+    AgentInstallStep, AgentInstallStepKind, AgentInstaller, AgentUninstallReport,
+    AgentUninstallRequest, AgentUpgradePlan, AgentUpgradeReport, AgentUpgradeRequest, KernelError,
+    KernelEventRedaction, KernelResult, ProviderHealth,
 };
 
 /// Fail-closed installer for external npm/PyPI process-adapter agents.
@@ -115,11 +115,9 @@ impl ProcessAdapterConfigurationProvider {
                     AgentConfigField::text("agent.display_name", "Display name").required(),
                 ),
             )
-            .add_section(
-                AgentConfigSection::llm_api_key("llm", "LLM").add_field(
-                    AgentConfigField::llm_api_key("llm.api_key", "Model provider API key"),
-                ),
-            )
+            .add_section(AgentConfigSection::llm_api_key("llm", "LLM").add_field(
+                AgentConfigField::llm_api_key("llm.api_key", "Model provider API key"),
+            ))
             .add_section(
                 AgentConfigSection::new("runtime", "Runtime", AgentConfigSectionKind::Runtime)
                     .add_field(

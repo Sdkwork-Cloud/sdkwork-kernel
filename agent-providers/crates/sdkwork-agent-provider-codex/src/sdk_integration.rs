@@ -2,18 +2,18 @@ use crate::{
     CodexAdapter, CodexLifecycleProvider, CodexMessageAdapter, CodexModelProvider,
     CodexToolProvider,
 };
-use sdkwork_agent_provider_transport_core::{
-    IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
-    RustNativeTransportHost, TypeScriptNodeTransportHost,
-};
-use sdkwork_agent_provider_transport_node::NodeSdkBackendRuntime;
-use sdkwork_agent_provider_transport_rust::{InProcessRustSdkRuntime, ProviderBackedRustHandler};
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
     DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
     SdkRuntimeBackedToolProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
     CODEX_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_TOOL_INVOKE,
 };
+use sdkwork_agent_provider_transport_core::{
+    IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
+    RustNativeTransportHost, TypeScriptNodeTransportHost,
+};
+use sdkwork_agent_provider_transport_node::NodeSdkBackendRuntime;
+use sdkwork_agent_provider_transport_rust::{InProcessRustSdkRuntime, ProviderBackedRustHandler};
 use std::sync::Arc;
 
 const CODEX_BINDING_MANIFEST_JSON: &str =
@@ -52,7 +52,9 @@ impl CodexSdkIntegration {
 
         let mut bootstrap = ProviderTransportBootstrap::new();
         bootstrap.register_host(Arc::new(RustNativeTransportHost::new("codex-core")));
-        bootstrap.register_host(Arc::new(TypeScriptNodeTransportHost::new("@openai/codex-sdk")));
+        bootstrap.register_host(Arc::new(TypeScriptNodeTransportHost::new(
+            "@openai/codex-sdk",
+        )));
         bootstrap.register_host(Arc::new(IpcProtocolTransportHost::new("jsonrpc_stdio")));
         bootstrap.with_typescript_runtime(Arc::new(NodeSdkBackendRuntime::bootstrap(
             "@openai/codex-sdk",

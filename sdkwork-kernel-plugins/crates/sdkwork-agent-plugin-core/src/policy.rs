@@ -32,7 +32,10 @@ impl PolicyProvider for SdkStandardPolicyProvider {
         self.provider_manifest_for()
     }
 
-    fn evaluate(&self, request: PolicyRequest) -> sdkwork_agent_kernel::KernelResult<PolicyDecision> {
+    fn evaluate(
+        &self,
+        request: PolicyRequest,
+    ) -> sdkwork_agent_kernel::KernelResult<PolicyDecision> {
         if requires_local_approval(&request) {
             return Ok(PolicyDecision::needs_approval(
                 format!("decision.{}", request.policy_request_id),
@@ -40,9 +43,7 @@ impl PolicyProvider for SdkStandardPolicyProvider {
                 self.provider_id.clone(),
                 "sdk.standard.approval_required",
             )
-            .with_safe_reason(
-                "SDK standard policy requires approval for side-effectful actions",
-            )
+            .with_safe_reason("SDK standard policy requires approval for side-effectful actions")
             .require_audit());
         }
 

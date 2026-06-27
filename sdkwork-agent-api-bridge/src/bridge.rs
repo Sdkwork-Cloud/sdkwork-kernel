@@ -1,7 +1,7 @@
 use crate::{
     BridgeEvent, BridgeEventSeverity, BridgeMessageResponse, BridgeModelResult,
-    BridgeSessionConfig, BridgeSnapshot, BridgeToolResult, ContextBridge,
-    EventBridge, ModelBridge, SessionBridge, ToolBridge,
+    BridgeSessionConfig, BridgeSnapshot, BridgeToolResult, ContextBridge, EventBridge, ModelBridge,
+    SessionBridge, ToolBridge,
 };
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult, ModelRequest, ToolCall,
@@ -272,6 +272,16 @@ impl AgentRuntimeBridge {
         request: ModelRequest,
     ) -> KernelResult<Vec<sdkwork_agent_kernel::ModelStreamChunk>> {
         self.model_bridge.stream(&request, None)
+    }
+
+    /// Cancel an in-flight model invocation by its model request id.
+    pub fn cancel_model(
+        &self,
+        model_request_id: &str,
+        model_provider_id: Option<&str>,
+    ) -> KernelResult<sdkwork_agent_kernel::ModelResponse> {
+        self.model_bridge
+            .cancel(model_request_id, model_provider_id)
     }
 
     /// List registered model descriptors

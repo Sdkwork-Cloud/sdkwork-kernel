@@ -1,7 +1,7 @@
+use sdkwork_agent_provider_spi::SdkBackendKind;
 use sdkwork_agent_provider_transport_core::{
     BackendHostRegistry, HttpOpenApiBackendHost, RustNativeBackendHost, TypeScriptNodeBackendHost,
 };
-use sdkwork_agent_provider_spi::SdkBackendKind;
 use std::sync::Arc;
 
 #[test]

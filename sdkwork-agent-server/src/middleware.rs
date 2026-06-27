@@ -5,7 +5,6 @@ use axum::{
     response::Response,
 };
 use std::sync::Arc;
-use subtle::ConstantTimeEq;
 use tracing::{info, warn};
 
 use crate::config::ServerConfig;
@@ -13,6 +12,7 @@ use crate::http_surface::{classify_api_surface, route_template};
 use crate::ingress_identity;
 use crate::ingress_state::IngressMiddlewareState;
 use crate::metrics::MetricsRegistry;
+use crate::problem_details::ProblemDetail;
 use crate::rate_limit::RateLimitState;
 use crate::security_audit;
 
@@ -54,12 +54,7 @@ fn extract_header(headers: &axum::http::HeaderMap, key: &str) -> Option<String> 
 }
 
 fn generate_request_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{:x}", nanos)
+    format!("req.{}", uuid::Uuid::now_v7().simple())
 }
 
 /// Attach request context for downstream handlers and logging.
@@ -90,7 +85,9 @@ pub async fn logging_middleware(request: Request, next: Next) -> Response {
         .extensions()
         .get::<RequestContext>()
         .cloned()
-        .unwrap_or_else(|| RequestContext::from_headers_and_path(request.headers(), request.uri().path()));
+        .unwrap_or_else(|| {
+            RequestContext::from_headers_and_path(request.headers(), request.uri().path())
+        });
     let method = request.method().clone();
     let start = std::time::Instant::now();
 
@@ -144,7 +141,7 @@ pub async fn ingress_identity_middleware(
     State(ingress): State<Arc<IngressMiddlewareState>>,
     mut request: Request,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, ProblemDetail> {
     let config = ingress.config.as_ref();
     if config.ingress_auth_mode.eq_ignore_ascii_case("open") {
         return Ok(next.run(request).await);
@@ -181,7 +178,9 @@ pub async fn ingress_identity_middleware(
             ctx.user_id.as_deref(),
             "jwt ingress missing verified tenant/user identity",
         );
-        return Err(StatusCode::FORBIDDEN);
+        return Err(ProblemDetail::new(StatusCode::FORBIDDEN)
+            .with_detail("JWT ingress missing verified tenant/user identity")
+            .with_request_id(&ctx.request_id));
     }
 
     let ctx = request
@@ -203,7 +202,9 @@ pub async fn ingress_identity_middleware(
                 ctx.and_then(|value| value.user_id.as_deref()),
                 &format!("status={status}"),
             );
-            return Err(status);
+            return Err(ProblemDetail::new(status)
+                .with_detail(format!("Ingress identity resolution failed: {status}"))
+                .with_request_id(ctx.map(|v| v.request_id.as_str()).unwrap_or("unknown")));
         }
     };
     request.extensions_mut().insert(resolved);
@@ -219,13 +220,18 @@ pub async fn security_headers_middleware(request: Request, next: Next) -> Respon
         HeaderValue::from_static("nosniff"),
     );
     headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
-    headers.insert(
-        "referrer-policy",
-        HeaderValue::from_static("no-referrer"),
-    );
+    headers.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
     headers.insert(
         "permissions-policy",
         HeaderValue::from_static("geolocation=(), microphone=(), camera=()"),
+    );
+    headers.insert(
+        "content-security-policy",
+        HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'"),
+    );
+    headers.insert(
+        "strict-transport-security",
+        HeaderValue::from_static("max-age=63072000; includeSubDomains; preload"),
     );
     response
 }
@@ -235,7 +241,7 @@ pub async fn ingress_auth_middleware(
     State(ingress): State<Arc<IngressMiddlewareState>>,
     mut request: Request,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, ProblemDetail> {
     let config = ingress.config.as_ref();
     let auth_mode = config.ingress_auth_mode.to_ascii_lowercase();
     if auth_mode != "token" && auth_mode != "jwt" {
@@ -253,7 +259,8 @@ pub async fn ingress_auth_middleware(
         }
         let expected = config.effective_metrics_token().ok_or_else(|| {
             warn!("metrics auth mode token is enabled but no metrics token is configured");
-            StatusCode::SERVICE_UNAVAILABLE
+            ProblemDetail::new(StatusCode::SERVICE_UNAVAILABLE)
+                .with_detail("Metrics auth token is not configured")
         })?;
         if authorize_request(request.headers(), expected) {
             return Ok(next.run(request).await);
@@ -267,7 +274,9 @@ pub async fn ingress_auth_middleware(
             ctx.and_then(|value| value.user_id.as_deref()),
             "invalid or missing metrics credential",
         );
-        return Err(StatusCode::UNAUTHORIZED);
+        return Err(ProblemDetail::new(StatusCode::UNAUTHORIZED)
+            .with_detail("Invalid or missing metrics credential")
+            .with_request_id(ctx.map(|v| v.request_id.as_str()).unwrap_or("unknown")));
     }
 
     if auth_mode == "jwt" {
@@ -281,12 +290,17 @@ pub async fn ingress_auth_middleware(
                 ctx.and_then(|value| value.user_id.as_deref()),
                 "missing bearer jwt",
             );
-            StatusCode::UNAUTHORIZED
+            ProblemDetail::new(StatusCode::UNAUTHORIZED)
+                .with_detail("Missing Bearer JWT")
+                .with_request_id(ctx.map(|v| v.request_id.as_str()).unwrap_or("unknown"))
         })?;
         let identity = ingress
             .jwt_validator
             .as_ref()
-            .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
+            .ok_or_else(|| {
+                ProblemDetail::new(StatusCode::SERVICE_UNAVAILABLE)
+                    .with_detail("JWT validator is not initialized")
+            })?
             .validate(&bearer)
             .map_err(|status| {
                 let ctx = request.extensions().get::<RequestContext>();
@@ -298,7 +312,9 @@ pub async fn ingress_auth_middleware(
                     ctx.and_then(|value| value.user_id.as_deref()),
                     &format!("status={status}"),
                 );
-                status
+                ProblemDetail::new(status)
+                    .with_detail("JWT validation failed")
+                    .with_request_id(ctx.map(|v| v.request_id.as_str()).unwrap_or("unknown"))
             })?;
         let mut ctx = request
             .extensions()
@@ -318,7 +334,8 @@ pub async fn ingress_auth_middleware(
         .filter(|token| !token.is_empty())
         .ok_or_else(|| {
             warn!("ingress auth mode token is enabled but SDKWORK_KERNEL_INGRESS_TOKEN is missing");
-            StatusCode::SERVICE_UNAVAILABLE
+            ProblemDetail::new(StatusCode::SERVICE_UNAVAILABLE)
+                .with_detail("Ingress token is not configured")
         })?;
 
     if authorize_request(request.headers(), expected) {
@@ -334,28 +351,29 @@ pub async fn ingress_auth_middleware(
             ctx.and_then(|value| value.user_id.as_deref()),
             "invalid or missing ingress credential",
         );
-        Err(StatusCode::UNAUTHORIZED)
+        Err(ProblemDetail::new(StatusCode::UNAUTHORIZED)
+            .with_detail("Invalid or missing ingress credential")
+            .with_request_id(ctx.map(|v| v.request_id.as_str()).unwrap_or("unknown")))
     }
 }
 
 fn authorize_request(headers: &HeaderMap, expected: &str) -> bool {
     if let Some(token) = bearer_token(headers) {
-        return constant_time_eq(&token, expected);
+        return ingress_identity::constant_time_eq(&token, expected);
     }
     if let Some(token) = extract_header(headers, "x-api-key") {
-        return constant_time_eq(&token, expected);
+        return ingress_identity::constant_time_eq(&token, expected);
     }
     extract_header(headers, "x-sdkwork-access-token")
-        .map(|token| constant_time_eq(&token, expected))
+        .map(|token| ingress_identity::constant_time_eq(&token, expected))
         .unwrap_or(false)
 }
 
-fn constant_time_eq(left: &str, right: &str) -> bool {
-    left.as_bytes().ct_eq(right.as_bytes()).into()
-}
-
 fn bearer_token(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?;
+    let value = headers
+        .get(axum::http::header::AUTHORIZATION)?
+        .to_str()
+        .ok()?;
     const PREFIX: &str = "Bearer ";
     if value.len() <= PREFIX.len() {
         return None;
@@ -384,17 +402,14 @@ fn rate_limit_key(headers: &HeaderMap, ctx: Option<&RequestContext>) -> String {
         .or_else(|| extract_header(headers, "x-api-key"))
         .or_else(|| extract_header(headers, "x-sdkwork-access-token"))
     {
-        return format!("ingress-token:{:x}", md5_token_fingerprint(&token));
+        // Use SHA-256 for a stable, platform-independent fingerprint.
+        // DefaultHasher is not guaranteed stable across Rust versions or
+        // platforms, which would cause rate-limit keys to change unpredictably.
+        let digest = sdkwork_utils_rust::sha256_hash(token.as_bytes());
+        return format!("ingress-token:{}", &digest[..16]);
     }
 
     "global".to_string()
-}
-
-fn md5_token_fingerprint(token: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    token.hash(&mut hasher);
-    hasher.finish()
 }
 
 /// Reject excess ingress traffic before handlers run.
@@ -402,7 +417,7 @@ pub async fn rate_limit_middleware(
     State(rate_limit): State<Arc<RateLimitState>>,
     request: Request,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Result<Response, ProblemDetail> {
     if !rate_limit.is_enabled() {
         return Ok(next.run(request).await);
     }
@@ -422,7 +437,13 @@ pub async fn rate_limit_middleware(
         if let Some(metrics) = metrics {
             metrics.record_rate_limited();
         }
-        Err(StatusCode::TOO_MANY_REQUESTS)
+        Err(ProblemDetail::new(StatusCode::TOO_MANY_REQUESTS)
+            .with_detail("Rate limit exceeded; try again later")
+            .with_request_id(
+                ctx.as_ref()
+                    .map(|v| v.request_id.as_str())
+                    .unwrap_or("unknown"),
+            ))
     }
 }
 

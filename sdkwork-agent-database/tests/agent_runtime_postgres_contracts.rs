@@ -53,7 +53,10 @@ fn live_postgres_session_message_roundtrip_when_uri_configured() {
     assert_eq!(loaded.agent_id, "agent.runtime");
 
     let messages = db
-        .load_messages(&session_id, &sdkwork_agent_database::MessageQuery::default())
+        .load_messages(
+            &session_id,
+            &sdkwork_agent_database::MessageQuery::default(),
+        )
         .expect("messages");
     assert_eq!(messages.len(), 1);
 

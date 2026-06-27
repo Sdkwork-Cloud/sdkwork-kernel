@@ -1,15 +1,15 @@
 //! Bridges negotiated SDK runtime invocations to kernel provider SPI surfaces.
 
-use sdkwork_agent_provider_core::{
-    mock_provider_invocation_allowed, reject_direct_mock_provider_invocation,
-};
 use crate::runtime::{
     SdkRuntimeError, SdkRuntimeOperation, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
 };
-use sdkwork_agent_provider_core::validate_runtime_model_payload;
 use sdkwork_agent_kernel::{
     KernelResult, ModelProvider, ModelRequest, ModelResponse, ModelStatus, ProviderHealth,
     ProviderManifest, ToolCall, ToolProvider, ToolResult,
+};
+use sdkwork_agent_provider_core::validate_runtime_model_payload;
+use sdkwork_agent_provider_core::{
+    mock_provider_invocation_allowed, reject_direct_mock_provider_invocation,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -207,9 +207,8 @@ pub fn model_response_from_runtime(
         ));
     }
 
-    validate_runtime_model_payload(&payload).map_err(|message| {
-        SdkRuntimeError::new("mock_provider_disabled", message)
-    })?;
+    validate_runtime_model_payload(&payload)
+        .map_err(|message| SdkRuntimeError::new("mock_provider_disabled", message))?;
 
     let messages = extract_messages(&payload);
     if messages.is_empty() {

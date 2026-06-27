@@ -1,11 +1,7 @@
 use axum::http::{HeaderMap, StatusCode};
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
 
 use crate::config::ServerConfig;
 use crate::middleware::RequestContext;
-
-type HmacSha256 = Hmac<Sha256>;
 
 pub const IDENTITY_MAC_HEADER: &str = "x-sdkwork-identity-mac";
 
@@ -54,17 +50,16 @@ pub fn identity_mac_payload(tenant_id: &str, user_id: &str) -> String {
 }
 
 pub fn compute_identity_mac(token: &str, tenant_id: &str, user_id: &str) -> Option<String> {
-    let mut mac = HmacSha256::new_from_slice(token.as_bytes()).ok()?;
-    mac.update(identity_mac_payload(tenant_id, user_id).as_bytes());
-    Some(hex_encode(mac.finalize().into_bytes()))
+    // Delegate to sdkwork-utils-rust to avoid duplicating HMAC-SHA256 + hex
+    // encoding logic that already exists in the cross-language utility crate.
+    // The utils function returns the lowercase hex digest directly.
+    Some(sdkwork_utils_rust::hmac_sha256(
+        identity_mac_payload(tenant_id, user_id).as_bytes(),
+        token.as_bytes(),
+    ))
 }
 
-pub fn verify_identity_mac(
-    token: &str,
-    tenant_id: &str,
-    user_id: &str,
-    presented: &str,
-) -> bool {
+pub fn verify_identity_mac(token: &str, tenant_id: &str, user_id: &str, presented: &str) -> bool {
     let Some(expected) = compute_identity_mac(token, tenant_id, user_id) else {
         return false;
     };
@@ -117,15 +112,15 @@ fn extract_header(headers: &HeaderMap, key: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn hex_encode(bytes: impl AsRef<[u8]>) -> String {
-    bytes
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
-
-fn constant_time_eq(left: &str, right: &str) -> bool {
+/// Constant-time string equality backed by `subtle::ConstantTimeEq`.
+///
+/// Exposed as `pub(crate)` so `middleware::authorize_request` can reuse the
+/// same implementation instead of redefining a private copy. Using `subtle`
+/// here (rather than `sdkwork_utils_rust::secure_compare`) preserves the
+/// stricter constant-time guarantees expected for token comparison: the
+/// utils helper has an explicit early-return on length mismatch, while
+/// `subtle::ConstantTimeEq` avoids that timing side-channel.
+pub(crate) fn constant_time_eq(left: &str, right: &str) -> bool {
     use subtle::ConstantTimeEq;
     left.as_bytes().ct_eq(right.as_bytes()).into()
 }

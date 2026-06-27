@@ -46,9 +46,10 @@ impl BlockingPostgresPool {
     }
 
     pub fn connect_from_config(config: DatabaseConfig) -> DatabaseResult<Self> {
-        let runtime = Arc::new(Runtime::new().map_err(|error| {
-            DatabaseError::Connection(format!("tokio runtime: {error}"))
-        })?);
+        let runtime = Arc::new(
+            Runtime::new()
+                .map_err(|error| DatabaseError::Connection(format!("tokio runtime: {error}")))?,
+        );
         let database_pool = runtime
             .block_on(create_pool_from_config(config))
             .map_err(map_pool_error)?;
@@ -82,8 +83,7 @@ impl BlockingPostgresPool {
             }
         }
 
-        let config =
-            DatabaseConfig::from_env(service_name).map_err(map_database_config_error)?;
+        let config = DatabaseConfig::from_env(service_name).map_err(map_database_config_error)?;
         match config.engine {
             DatabaseEngine::Postgres => Self::connect_from_config(config),
             other => Err(DatabaseError::Connection(format!(
@@ -120,9 +120,7 @@ impl BlockingPostgresPool {
     where
         F: Future<Output = Result<T, sqlx::Error>>,
     {
-        self.runtime
-            .block_on(future)
-            .map_err(map_sqlx_error)
+        self.runtime.block_on(future).map_err(map_sqlx_error)
     }
 
     pub fn execute_batch_sql(&self, sql: &str) -> DatabaseResult<()> {

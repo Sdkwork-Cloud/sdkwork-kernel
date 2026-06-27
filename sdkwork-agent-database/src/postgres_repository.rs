@@ -248,11 +248,10 @@ impl MessageRepository for PostgresDatabase {
         let pool = self.pool.pool().clone();
         let session_id = session_id.to_owned();
         self.pool.run_db(async move {
-            let row: (i64,) =
-                sqlx::query_as("SELECT COUNT(*) FROM messages WHERE session_id = $1")
-                    .bind(&session_id)
-                    .fetch_one(&pool)
-                    .await?;
+            let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM messages WHERE session_id = $1")
+                .bind(&session_id)
+                .fetch_one(&pool)
+                .await?;
             Ok(row.0)
         })
     }
@@ -413,6 +412,119 @@ impl EventRepository for PostgresDatabase {
                 .bind(&session_id)
                 .execute(&pool)
                 .await?;
+            Ok(())
+        })
+    }
+}
+
+fn map_permission_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<PermissionRow> {
+    Ok(PermissionRow {
+        permission_request_id: row
+            .try_get("permission_request_id")
+            .map_err(map_sqlx_error)?,
+        session_id: row.try_get("session_id").ok(),
+        category: row.try_get("category").map_err(map_sqlx_error)?,
+        resource: row.try_get("resource").map_err(map_sqlx_error)?,
+        side_effect_level: row.try_get("side_effect_level").map_err(map_sqlx_error)?,
+        reason: row.try_get("reason").map_err(map_sqlx_error)?,
+        status: row.try_get("status").map_err(map_sqlx_error)?,
+        owner_tenant_id: row.try_get("owner_tenant_id").ok(),
+        owner_user_ref: row.try_get("owner_user_ref").ok(),
+        created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
+        updated_at: row.try_get("updated_at").ok(),
+    })
+}
+
+impl PermissionRepository for PostgresDatabase {
+    fn save_permission(&self, permission: &PermissionRow) -> DatabaseResult<()> {
+        let pool = self.pool.pool().clone();
+        let permission = permission.clone();
+        self.pool.run_db(async move {
+            sqlx::query(
+                "INSERT INTO permissions (
+                    permission_request_id, session_id, category, resource,
+                    side_effect_level, reason, status, owner_tenant_id,
+                    owner_user_ref, created_at, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                ON CONFLICT (permission_request_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    updated_at = EXCLUDED.updated_at",
+            )
+            .bind(&permission.permission_request_id)
+            .bind(&permission.session_id)
+            .bind(&permission.category)
+            .bind(&permission.resource)
+            .bind(&permission.side_effect_level)
+            .bind(&permission.reason)
+            .bind(&permission.status)
+            .bind(&permission.owner_tenant_id)
+            .bind(&permission.owner_user_ref)
+            .bind(&permission.created_at)
+            .bind(&permission.updated_at)
+            .execute(&pool)
+            .await?;
+            Ok(())
+        })
+    }
+
+    fn load_permission(
+        &self,
+        permission_request_id: &str,
+    ) -> DatabaseResult<Option<PermissionRow>> {
+        let pool = self.pool.pool().clone();
+        let permission_request_id = permission_request_id.to_owned();
+        self.pool.run_db(async move {
+            let row = sqlx::query(
+                "SELECT permission_request_id, session_id, category, resource,
+                 side_effect_level, reason, status, owner_tenant_id,
+                 owner_user_ref, created_at, updated_at
+                 FROM permissions WHERE permission_request_id = $1",
+            )
+            .bind(&permission_request_id)
+            .fetch_optional(&pool)
+            .await?;
+            row.map(|row| map_permission_row(&row)).transpose()
+        })
+    }
+
+    fn list_permissions(&self, status: Option<&str>) -> DatabaseResult<Vec<PermissionRow>> {
+        let pool = self.pool.pool().clone();
+        let status = status.map(str::to_owned);
+        self.pool.run_db(async move {
+            let mut builder = sqlx::QueryBuilder::new(
+                "SELECT permission_request_id, session_id, category, resource,
+                 side_effect_level, reason, status, owner_tenant_id,
+                 owner_user_ref, created_at, updated_at
+                 FROM permissions WHERE 1 = 1",
+            );
+            if let Some(ref status) = status {
+                builder.push(" AND status = ");
+                builder.push_bind(status);
+            }
+            builder.push(" ORDER BY created_at DESC");
+            let rows = builder.build().fetch_all(&pool).await?;
+            rows.iter().map(map_permission_row).collect()
+        })
+    }
+
+    fn update_permission_status(
+        &self,
+        permission_request_id: &str,
+        status: &str,
+    ) -> DatabaseResult<()> {
+        let pool = self.pool.pool().clone();
+        let permission_request_id = permission_request_id.to_owned();
+        let status = status.to_owned();
+        self.pool.run_db(async move {
+            let now = chrono::Utc::now().to_rfc3339();
+            sqlx::query(
+                "UPDATE permissions SET status = $1, updated_at = $2 WHERE permission_request_id = $3",
+            )
+            .bind(&status)
+            .bind(&now)
+            .bind(&permission_request_id)
+            .execute(&pool)
+            .await?;
             Ok(())
         })
     }

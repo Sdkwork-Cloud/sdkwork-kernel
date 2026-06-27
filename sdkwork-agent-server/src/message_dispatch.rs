@@ -54,10 +54,7 @@ pub async fn dispatch_user_message(
         let session_key = session_id.to_string();
         state
             .persist(move |persistence| {
-                persistence.send_message(
-                    &session_key,
-                    MessageConfig::assistant(assistant_content),
-                )
+                persistence.send_message(&session_key, MessageConfig::assistant(assistant_content))
             })
             .await
             .map_err(map_persistence_error)?;
@@ -100,10 +97,7 @@ pub async fn dispatch_user_message_stream(
         let session_key = session_id.to_string();
         state
             .persist(move |persistence| {
-                persistence.send_message(
-                    &session_key,
-                    MessageConfig::assistant(assistant_content),
-                )
+                persistence.send_message(&session_key, MessageConfig::assistant(assistant_content))
             })
             .await
             .map_err(map_persistence_error)?;
@@ -164,14 +158,10 @@ mod tests {
             .create_session(SessionConfig::new("agent.1"))
             .expect("session should be created");
 
-        let (user_row, bridge_response) = dispatch_user_message(
-            &state,
-            &session.session_id,
-            "Hello runtime",
-            &session,
-        )
-        .await
-        .expect("dispatch should succeed");
+        let (user_row, bridge_response) =
+            dispatch_user_message(&state, &session.session_id, "Hello runtime", &session)
+                .await
+                .expect("dispatch should succeed");
 
         assert_eq!(user_row.role, "user");
         assert_eq!(user_row.content, "Hello runtime");

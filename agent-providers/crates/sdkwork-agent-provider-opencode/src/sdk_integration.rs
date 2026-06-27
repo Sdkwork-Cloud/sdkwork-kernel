@@ -2,17 +2,17 @@ use crate::{
     OpenCodeAdapter, OpenCodeLifecycleProvider, OpenCodeMessageAdapter, OpenCodeModelProvider,
     OpenCodeToolProvider,
 };
-use sdkwork_agent_provider_transport_core::{
-    HttpOpenApiTransportHost, IpcProtocolTransportHost, ProviderTransportBootstrap,
-    ProviderTransportRegistry, TypeScriptNodeTransportHost,
-};
-use sdkwork_agent_provider_transport_node::NodeSdkBackendRuntime;
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
     DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
     SdkRuntimeBackedToolProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
     OPENCODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_TOOL_INVOKE,
 };
+use sdkwork_agent_provider_transport_core::{
+    HttpOpenApiTransportHost, IpcProtocolTransportHost, ProviderTransportBootstrap,
+    ProviderTransportRegistry, TypeScriptNodeTransportHost,
+};
+use sdkwork_agent_provider_transport_node::NodeSdkBackendRuntime;
 use std::sync::Arc;
 
 const OPENCODE_BINDING_MANIFEST_JSON: &str =
@@ -42,7 +42,9 @@ impl OpenCodeSdkIntegration {
         let negotiation = bootstrap_binding(manifest, &mut drivers, &mut bindings)?;
 
         let mut bootstrap = ProviderTransportBootstrap::new();
-        bootstrap.register_host(Arc::new(TypeScriptNodeTransportHost::new("@opencode-ai/sdk")));
+        bootstrap.register_host(Arc::new(TypeScriptNodeTransportHost::new(
+            "@opencode-ai/sdk",
+        )));
         bootstrap.register_host(Arc::new(HttpOpenApiTransportHost::new("opencode-open-api")));
         bootstrap.register_host(Arc::new(IpcProtocolTransportHost::new("jsonrpc_stdio")));
         bootstrap.with_typescript_runtime(Arc::new(NodeSdkBackendRuntime::bootstrap(

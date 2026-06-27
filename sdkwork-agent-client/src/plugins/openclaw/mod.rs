@@ -5,9 +5,9 @@ use crate::bridge::{
     AgentBridgeProvider, AgentBridgeStatus, AgentBridgeType,
 };
 use crate::chat::ChatClient;
+use crate::runtime_guard::lock_runtime_mutex;
 use crate::session::BridgeSessionQuery;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
-use crate::runtime_guard::lock_runtime_mutex;
 use runtime::OpenClawRuntime;
 use std::sync::{Arc, Mutex};
 

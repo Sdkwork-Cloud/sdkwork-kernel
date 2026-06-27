@@ -1,18 +1,20 @@
-use sdkwork_agent_provider_core::{
-    create_session_from_config, reject_direct_mock_provider_invocation, uuid_simple,
-    MessageAdapter, SessionAdapter, SessionConfig,
-};
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
     ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
     ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
     SessionState, SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
+use sdkwork_agent_provider_core::{
+    create_session_from_config, reject_direct_mock_provider_invocation, uuid_simple,
+    MessageAdapter, SessionAdapter, SessionConfig,
+};
 
 #[cfg(test)]
-use sdkwork_agent_provider_core::{ConversationManager, InMemoryConversationManager, SessionLifecycleProvider};
-#[cfg(test)]
 use sdkwork_agent_kernel::{ModelStatus, ToolCallStatus};
+#[cfg(test)]
+use sdkwork_agent_provider_core::{
+    ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
+};
 
 // ============================================================================
 // Hermes Message Types
@@ -410,10 +412,7 @@ impl ToolProvider for HermesToolProvider {
                 )
             }
             "hermes.delegate_task" => {
-                format!(
-                    "[Hermes DelegateTask] Mock delegation: {}",
-                    call.arguments
-                )
+                format!("[Hermes DelegateTask] Mock delegation: {}", call.arguments)
             }
             _ => {
                 return Err(KernelError::CapabilityMissing {
@@ -433,7 +432,10 @@ impl ToolProvider for HermesToolProvider {
 sdkwork_agent_provider_core::define_provider_lifecycle_provider!(HermesLifecycleProvider, "hermes");
 
 pub mod sdk_integration;
-pub use sdk_integration::{hermes_binding_manifest, HermesSdkIntegration, HERMES_PYTHON_PROBE_MODULE, HERMES_TUI_GATEWAY_MODULE};
+pub use sdk_integration::{
+    hermes_binding_manifest, HermesSdkIntegration, HERMES_PYTHON_PROBE_MODULE,
+    HERMES_TUI_GATEWAY_MODULE,
+};
 
 mod agent_definition;
 mod conformance;
@@ -709,7 +711,10 @@ mod tests {
     fn model_provider_describe_model() {
         let provider = HermesModelProvider::new();
         let model = provider.describe_model("hermes-runtime-default").unwrap();
-        assert_eq!(model.display_name, "Hermes Agent Runtime (configured model)");
+        assert_eq!(
+            model.display_name,
+            "Hermes Agent Runtime (configured model)"
+        );
         assert_eq!(model.family, "hermes");
         assert!(model.supports_capability("chat"));
         assert!(model.supports_capability("tool_call"));
@@ -756,7 +761,10 @@ mod tests {
         let tools = provider.list_tools();
         assert_eq!(tools.len(), 5);
 
-        let terminal = tools.iter().find(|t| t.tool_id == "hermes.terminal").unwrap();
+        let terminal = tools
+            .iter()
+            .find(|t| t.tool_id == "hermes.terminal")
+            .unwrap();
         assert_eq!(terminal.display_name, "Terminal");
         assert_eq!(terminal.side_effect_level, SideEffectLevel::SideEffectful);
 

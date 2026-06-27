@@ -2,11 +2,6 @@ use crate::{
     HermesAdapter, HermesLifecycleProvider, HermesMessageAdapter, HermesModelProvider,
     HermesToolProvider,
 };
-use sdkwork_agent_provider_transport_core::{
-    IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
-    PythonProcessTransportHost,
-};
-use sdkwork_agent_provider_transport_python::PythonSdkBackendRuntime;
 use sdkwork_agent_provider_spi::{
     register_manifest_drivers, wire_runtime_providers, AgentSdkBindingManifest,
     AgentSdkIntegration, BindingRegistry, DriverRegistry, SdkBackendKind, SdkDriverHealth,
@@ -14,6 +9,11 @@ use sdkwork_agent_provider_spi::{
     SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter, StaticCapabilityDriver,
     HERMES_BINDING_ID,
 };
+use sdkwork_agent_provider_transport_core::{
+    IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
+    PythonProcessTransportHost,
+};
+use sdkwork_agent_provider_transport_python::PythonSdkBackendRuntime;
 use std::sync::Arc;
 
 /// Importable Python module used to probe a live Hermes Agent install (`run_agent` py-module).

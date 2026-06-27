@@ -1,3 +1,5 @@
+import type { ModelDescriptor } from './model-descriptor';
+
 export interface ModelListResponse {
-  items?: Record<string, unknown>[];
+  items: ModelDescriptor[];
 }

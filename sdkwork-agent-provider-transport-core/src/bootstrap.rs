@@ -1,7 +1,7 @@
 use crate::host::{ProviderTransportError, ProviderTransportHost};
 use crate::registry::ProviderTransportRegistry;
 use sdkwork_agent_provider_spi::{
-    ProviderTransportKind, SdkCapabilityNegotiation, SdkNegotiationError, SdkBackendRuntime,
+    ProviderTransportKind, SdkBackendRuntime, SdkCapabilityNegotiation, SdkNegotiationError,
     SdkRuntimeRouter,
 };
 use std::collections::HashMap;
@@ -33,10 +33,7 @@ impl ProviderTransportBootstrap {
         self
     }
 
-    pub fn with_typescript_runtime(
-        &mut self,
-        runtime: Arc<dyn SdkBackendRuntime>,
-    ) -> &mut Self {
+    pub fn with_typescript_runtime(&mut self, runtime: Arc<dyn SdkBackendRuntime>) -> &mut Self {
         self.with_runtime(ProviderTransportKind::TypeScriptNode, runtime)
     }
 
@@ -74,10 +71,10 @@ impl ProviderTransportBootstrap {
                 vec![format!("transport.prepare: {error}")],
             )
         })?;
-        let router = Arc::new(self.registry.attach_runtimes(
-            SdkRuntimeRouter::new(negotiation),
-            &self.runtimes,
-        ));
+        let router = Arc::new(
+            self.registry
+                .attach_runtimes(SdkRuntimeRouter::new(negotiation), &self.runtimes),
+        );
         Ok((self.registry, router))
     }
 

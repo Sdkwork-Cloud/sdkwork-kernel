@@ -281,6 +281,60 @@ export interface EventSubscriptionOptions {
 }
 
 // ============================================================================
+// Runtime Manifest / Health / Diagnostics
+// ============================================================================
+
+export interface ProviderManifestView {
+  providerId: string;
+  providerFamily: string;
+  name: string;
+  version: string;
+  capabilities: string[];
+  healthStatus?: string;
+}
+
+export interface RuntimeManifestView {
+  runtimeId: string;
+  agentId: string;
+  kernelVersion: string;
+  securityProfile: string;
+  capabilities: KernelCapabilityView[];
+  providers: ProviderManifestView[];
+  missingRequiredCapabilities: string[];
+  degradedCapabilities: string[];
+}
+
+export interface RuntimeHealthView {
+  runtimeId: string;
+  state: KernelRuntimeState;
+  health: 'healthy' | 'degraded';
+  persistenceHealthy: boolean;
+  degradedCapabilities: string[];
+}
+
+export interface ProviderDiagnosticView {
+  providerId: string;
+  providerFamily: string;
+  providerVersion: string;
+  typedRegistered: boolean;
+  healthStatus?: string;
+  capabilities: string[];
+}
+
+export interface RuntimeDiagnosticsView {
+  runtimeId: string;
+  agentId: string;
+  state: KernelRuntimeState;
+  providerCount: number;
+  capabilityCount: number;
+  typedProviderCount: number;
+  manifestOnlyProviderCount: number;
+  missingRequiredCapabilities: string[];
+  degradedCapabilities: string[];
+  providerDiagnostics: ProviderDiagnosticView[];
+}
+
+// ============================================================================
 // Snapshot
 // ============================================================================
 
@@ -301,6 +355,11 @@ export interface KernelUiSnapshot {
 // ============================================================================
 
 export interface KernelUiClient {
+  // Runtime introspection (AGENT_RUNTIME_SPEC §4)
+  getRuntimeManifest(): Promise<RuntimeManifestView>;
+  getRuntimeHealth(): Promise<RuntimeHealthView>;
+  getRuntimeDiagnostics(): Promise<RuntimeDiagnosticsView>;
+
   // Existing
   loadSnapshot(): Promise<KernelUiSnapshot>;
   decidePermission(

@@ -2,7 +2,7 @@
 
 Status: active
 Owner: SDKWork kernel maintainers
-Updated: 2026-06-26
+Updated: 2026-06-27
 Specs: [ARCHITECTURE_DECISION_SPEC.md](../../../sdkwork-specs/ARCHITECTURE_DECISION_SPEC.md), [DOCUMENTATION_SPEC.md](../../../sdkwork-specs/DOCUMENTATION_SPEC.md), [RUST_CODE_SPEC.md](../../../sdkwork-specs/RUST_CODE_SPEC.md), [INTERNAL_API_SPEC.md](../../../sdkwork-specs/INTERNAL_API_SPEC.md), [SECURITY_SPEC.md](../../../sdkwork-specs/SECURITY_SPEC.md)
 
 ## Document Map
@@ -88,7 +88,7 @@ flowchart TB
 
 | Layer | Crate family | Responsibility |
 | --- | --- | --- |
-| L0 | `sdkwork-agent-kernel` | Model, tool, skill, session, policy semantics |
+| L0 | `sdkwork-agent-kernel` | Model, tool, skill, session, policy, memory, knowledge, planning, host, protocol, MCP, collaboration, telemetry, task scheduling, agent classification, message query semantics |
 | L1 | `sdkwork-agent-provider-spi` | Capability drivers, binding negotiation, transport selection |
 | L2 | `sdkwork-agent-provider-transport-*` | Language/runtime transport hosts and workers |
 | L3 | `sdkwork-agent-provider-{name}` | Per-framework manifest wiring, bootstrap, adapters |
@@ -162,6 +162,38 @@ Root layout authority: [SDKWORK_WORKSPACE_SPEC.md](../../../sdkwork-specs/SDKWOR
 
 Retired application-local prefixes such as `/api/kernel/*` must not be remounted.
 
+#### Internal runtime API endpoints
+
+The internal runtime API (`/internal/v3/api/intelligence/runtime/*`) exposes the
+following operation groups. The authoritative OpenAPI contract lives at
+`apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml`; the
+TypeScript SDK is regenerated via `node sdks/workspace-agent-sdkgen.mjs --mode apply`.
+
+| Operation | Method | Path | Aligns with |
+| --- | --- | --- | --- |
+| `runtime.manifest.get` | GET | `/manifest` | `AGENT_RUNTIME_SPEC` §4 `get_runtime_manifest` / `get_capability_manifest` |
+| `runtime.health.get` | GET | `/health` | `AGENT_RUNTIME_SPEC` §4 `get_health` |
+| `runtime.diagnostics.get` | GET | `/diagnostics` | `AGENT_RUNTIME_SPEC` §4.1 `get_diagnostics` |
+| `runtime.snapshot.load` | GET | `/snapshot` | UI aggregate snapshot |
+| `runtime.permissions.decide` | POST | `/permissions/{permissionRequestId}` | `respond_to_permission` |
+| `runtime.sessions.create/list` | POST/GET | `/sessions` | `create_session` / `list_sessions` |
+| `runtime.sessions.retrieve/delete` | GET/DELETE | `/sessions/{sessionId}` | `get_session` / delete |
+| `runtime.sessions.close` | POST | `/sessions/{sessionId}/close` | `close_session` |
+| `runtime.sessions.messages.send/list` | POST/GET | `/sessions/{sessionId}/messages` | `send_message` / message query |
+| `runtime.sessions.tasks.submit/list` | POST/GET | `/sessions/{sessionId}/tasks` | `create_task` / `list_tasks` |
+| `runtime.tasks.retrieve` | GET | `/tasks/{taskId}` | `get_task` |
+| `runtime.tasks.cancel` | POST | `/tasks/{taskId}/cancel` | `cancel_task` |
+| `runtime.models.list` | GET | `/models` | model catalog |
+| `runtime.sessions.model.invoke` | POST | `/sessions/{sessionId}/model/invoke` | model chat |
+| `runtime.sessions.tools.list` | GET | `/sessions/{sessionId}/tools` | tool discovery |
+| `runtime.sessions.tools.execute` | POST | `/sessions/{sessionId}/tools/{toolName}/execute` | `tool.invoke` |
+| `runtime.sessions.events.stream` | GET (SSE) | `/sessions/{sessionId}/events/stream` | `subscribe_events` |
+
+The `/manifest`, `/health`, and `/diagnostics` endpoints are side-effect-free
+and suitable for UI clients, CI gates, load-balancer probes, and conformance
+runners. `/health` combines runtime state with persistence health and may
+return `503` with `application/problem+json` when degraded.
+
 ### SDK families
 
 | SDK | Owner | Consumers |
@@ -180,6 +212,40 @@ Retired application-local prefixes such as `/api/kernel/*` must not be remounted
 Provider binding negotiation, bootstrap flow, and transport priority are documented in
 [TECH-01-kernel-module-reference.md §4–5](TECH-01-kernel-module-reference.md#4-provider-bootstrap-sequence).
 
+### Agent kernel SPI provider families
+
+The `sdkwork-agent-kernel` crate defines 18 standard provider families. Each
+family is registered through `RuntimeBuilder` and resolved at runtime via
+`AgentRuntime` accessor methods. The `RuntimeProviderRegistry` maintains both
+a primary (first-registered) provider and a multi-provider list for each
+family, enabling provider-by-id lookup and multi-provider fan-out.
+
+| Provider family | SPI trait | Capability IDs | Side-effect profile |
+| --- | --- | --- | --- |
+| `model` | `ModelProvider` | `model.chat`, `model.catalog`, `model.reasoning`, `model.tool_call`, `model.structured_output`, `model.streaming`, `model.embedding`, `model.cancellation` | External send |
+| `tool` | `ToolProvider` | `tool.invoke`, `tool.discovery`, `tool.streaming`, `tool.cancellation` | Side-effectful |
+| `policy` | `PolicyProvider` | `policy.evaluate` | Read-only |
+| `context` | `ContextProvider` | `context.collect` | Read-only |
+| `memory` | `MemoryProvider` | `memory.query`, `memory.write`, `memory.delete`, `memory.export` | Read / Side-effectful / Destructive |
+| `knowledge` | `KnowledgeProvider` | `knowledge.search`, `knowledge.read`, `knowledge.list` | Read-only |
+| `planning` | `PlanningProvider` | `planning.create` | Read-only |
+| `host` | `HostProvider` | `host.filesystem`, `host.process`, `host.network`, `host.secrets` | Read / Side-effectful |
+| `protocol_adapter` | `ProtocolAdapter` | `protocol.map`, `protocol.stream` | Read-only |
+| `mcp` | `McpProvider` | `mcp.tools`, `mcp.resources`, `mcp.prompts` | Side-effectful / Read-only |
+| `skill` | `AgentSkillProvider` | `skill.discover`, `skill.invoke` | Read-only / Side-effectful |
+| `collaboration` | `AgentCollaborationProvider` | `agent.discover`, `agent.handoff`, `agent.delegate` | Read-only / External send |
+| `telemetry` | `TelemetryProvider` | `telemetry.record` | Side-effectful |
+| `task_scheduling` | `TaskSchedulingProvider` | `task.schedule`, `task.cancel`, `task.list`, `task.pause`, `task.resume`, `task.get_due` | Side-effectful / Read-only |
+| `agent_classification` | `AgentClassificationProvider` | `agent.classify`, `agent.classification.get`, `agent.classification.list`, `agent.classification.search` | Read-only |
+| `message_query` | `MessageQueryProvider` | `message.query`, `message.count`, `message.list_sessions`, `message.search` | Read-only |
+| `agent_installer` | `AgentInstaller` | `agent.install`, `agent.uninstall`, `agent.upgrade` | Side-effectful / Destructive |
+| `agent_configuration` | `AgentConfigurationProvider` | `agent.configure` | Side-effectful |
+
+Each capability ID maps to `CapabilityMetadata` (operations, `SideEffectLevel`,
+`PolicyCategory`) via the `capability_metadata` function, enabling the policy
+layer to enforce fail-closed security decisions based on the side-effect
+classification of each operation.
+
 ## 6. Security, Privacy, And Observability
 
 ### Fail-closed production posture
@@ -188,11 +254,43 @@ Provider binding negotiation, bootstrap flow, and transport priority are documen
 - `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1` is development-only.
 - Transport `prepare()` health determines router attachment.
 - SDK workers reject fail-open invoke paths when spawn or negotiation fails.
+- **Rate limiter**: Redis failures fall back to in-process token buckets
+  (fail-closed) rather than allowing requests unconditionally.
+- **Tenant token quota**: Uses an atomic **reserve-and-adjust** pattern
+  (Redis Lua script) to eliminate the TOCTOU race between quota check and
+  usage recording. When Redis is unavailable and the tenant has a configured
+  quota, requests are rejected with 503 (Service Unavailable) to prevent
+  billing abuse during outages.
+- **JWKS URL**: Enforced HTTPS in production at both the preflight check
+  and the runtime refresh path to prevent MITM key replacement. JWKS refresh
+  (file I/O and HTTP fetch) is offloaded to `spawn_blocking` to avoid
+  blocking the async runtime.
+- **Token fingerprint**: Rate-limit keys for unauthenticated clients use
+  SHA-256 (via `sdkwork-utils-rust`) instead of `DefaultHasher`, ensuring
+  stable, platform-independent fingerprints.
+- **Metrics/Ingress token separation**: Metrics auth no longer auto-falls
+  back to the ingress token; a preflight warning is emitted when the same
+  token is reused.
+- **Security headers**: CSP, HSTS, `X-Content-Type-Options`,
+  `X-Frame-Options`, `Referrer-Policy`, and `Permissions-Policy` are set
+  on every response.
+- **RFC 9457 Problem Details**: All middleware-layer error responses
+  (auth failures, rate limiting, identity resolution) return structured
+  `application/problem+json` bodies with `type`, `title`, `status`,
+  `detail`, and `requestId` fields for machine-readable error handling.
+- **SQLite production guard**: Preflight check `runtime_sqlite_scaling`
+  returns `Failed` (not `Warning`) when SQLite is selected for production
+  scale-out deployments, preventing data corruption from RWO PVC
+  multi-replica access.
 
 ### Ingress and client auth
 
 - Server: `SDKWORK_KERNEL_INGRESS_AUTH_MODE` via `sdkwork-agent-server`.
 - Client remote mode: `sdkwork-agent-client/src/ingress_auth.rs` aligned with server.
+- Request IDs use UUID v7 (time-ordered, collision-resistant) instead of
+  nanosecond timestamps.
+- Permission decisions are persisted to the database `permissions` table,
+  surviving server restarts.
 
 Governing standards: [SECURITY_SPEC.md](../../../sdkwork-specs/SECURITY_SPEC.md), [PRIVACY_SPEC.md](../../../sdkwork-specs/PRIVACY_SPEC.md).
 
@@ -216,6 +314,67 @@ Application identity: `sdkwork.app.config.json` (`app.key: sdkwork-kernel`).
 Server plugin selection and client bridge builtins: [TECH-01-kernel-module-reference.md §5–6](TECH-01-kernel-module-reference.md#5-client-bridge-builtins).
 
 Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
+
+### Production HA posture
+
+- **PostgreSQL enforcement**: Production scale-out deployments must use
+  PostgreSQL for session persistence. The preflight check
+  `runtime_sqlite_scaling` fails if SQLite is selected, preventing
+  RWO PVC data corruption across replicas.
+- **PodDisruptionBudget**: `minAvailable: 1` ensures at least one replica
+  stays available during voluntary disruptions.
+- **Pod anti-affinity**: Soft anti-affinity on `kubernetes.io/hostname`
+  spreads pods across nodes for fault isolation.
+- **Topology spread constraints**: `maxSkew: 1` on
+  `topology.kubernetes.io/zone` ensures cross-zone distribution.
+- **Probes**: Startup, readiness, and liveness probes are all configured.
+  Readiness checks validate database connectivity.
+- **Graceful shutdown**: `shutdown_signal()` returns immediately on
+  SIGTERM/SIGINT, allowing axum to start draining in-flight requests.
+  A `select!` with `force_close_timer()` enforces a 25-second hard
+  deadline; `terminationGracePeriodSeconds: 30` in Kubernetes.
+- **SSE timeout isolation**: Standard JSON routes receive a 30-second
+  timeout; SSE streaming routes receive a 3600-second timeout. The two
+  timeout layers are applied to disjoint sub-routers to prevent the
+  shorter timeout from killing SSE connections.
+- **SSE connection limit**: Maximum 256 concurrent SSE streams per server
+  instance to prevent resource exhaustion. An `AtomicU32` counter with
+  `CountedStream` ensures accurate decrement even on abrupt disconnect.
+- **HPA**: Scales 2–6 replicas based on CPU and memory utilization with
+  stabilization windows for scale-up (30 s) and scale-down (300 s).
+  Custom metric annotations document Prometheus-exported metric names
+  for optional prometheus-adapter integration.
+- **NetworkPolicy**: Restricts ingress to the ingress controller and kubelet;
+  egress limited to DNS, HTTPS, Redis, PostgreSQL, and OTEL collector.
+- **PreStop hook**: 5-second sleep to allow load balancer deregistration
+  before the container receives SIGTERM.
+
+### Performance architecture
+
+- **RuntimeState**: Uses `RwLock` instead of `Mutex` to allow concurrent
+  read operations (model invocation, tool listing) while serializing
+  writes (session registration, message sending).
+- **PersistenceState**: Uses `Arc<UnifiedSessionManager>` instead of
+  `Arc<Mutex<...>>` — the session manager methods take `&self`, and
+  underlying repositories handle their own concurrency (SQLite internal
+  Mutex, Postgres connection pool). Blocking persistence operations
+  are offloaded via `spawn_blocking`.
+- **Rate limiter**: O(1) LRU eviction via insertion-order queue instead of
+  O(n) scan.
+- **SSE events**: Replay events are assigned sequential indices 0..N,
+  and live events continue from N onward within a single connection.
+  Clients use `event_id` for deduplication across reconnections.
+- **SSE connection cap**: `AtomicU32` counter enforces a per-server
+  maximum of 256 concurrent streams with RAII decrement via
+  `CountedStream`.
+- **Token quota**: Atomic Lua-script-based reservation eliminates the
+  TOCTOU race; pre-reserved tokens are adjusted to actual usage after
+  model invocation completes.
+- **List sessions pagination**: Supports `limit` and `offset` query
+  parameters (clamped to 200 max) for efficient cursor-based iteration.
+- **sdkwork-utils-rust**: Shared utility library provides SHA-256,
+  HMAC, AES-256-GCM, HKDF, and ID generation to reduce cross-crate
+  code duplication.
 
 ## 8. Architecture Decision Index
 

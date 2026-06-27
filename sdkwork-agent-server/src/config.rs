@@ -176,7 +176,8 @@ impl ServerConfig {
             config.environment = environment;
         }
         if let Ok(profile_id) = std::env::var("SDKWORK_KERNEL_PROFILE_ID") {
-            config.kernel_profile_id = sdkwork_agent_kernel::normalize_kernel_profile_id(&profile_id);
+            config.kernel_profile_id =
+                sdkwork_agent_kernel::normalize_kernel_profile_id(&profile_id);
         }
         if let Ok(auth_mode) = std::env::var("SDKWORK_KERNEL_INGRESS_AUTH_MODE") {
             config.ingress_auth_mode = auth_mode;
@@ -302,7 +303,9 @@ impl ServerConfig {
         }
         if config.is_production_kernel_profile()
             && config.kernel_runtime_target.as_deref() == Some("server")
-            && config.runtime_database_engine.eq_ignore_ascii_case("sqlite")
+            && config
+                .runtime_database_engine
+                .eq_ignore_ascii_case("sqlite")
         {
             if std::env::var("SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE").is_err() {
                 config.runtime_database_engine = "postgres".to_string();
@@ -326,9 +329,10 @@ impl ServerConfig {
             ];
         }
         if self.is_production_kernel_profile()
-            && self.cors_origins.iter().all(|origin| {
-                origin.contains("127.0.0.1") || origin.contains("localhost")
-            })
+            && self
+                .cors_origins
+                .iter()
+                .all(|origin| origin.contains("127.0.0.1") || origin.contains("localhost"))
         {
             self.cors_origins = vec![
                 "https://kernel.sdkwork.com".to_string(),
@@ -352,14 +356,10 @@ impl ServerConfig {
         {
             self.metrics_auth_mode = "token".to_string();
         }
-        if self.metrics_auth_mode.eq_ignore_ascii_case("token")
-            && self
-                .metrics_token
-                .as_deref()
-                .is_none_or(str::is_empty)
-        {
-            self.metrics_token = self.ingress_token.clone();
-        }
+        // Metrics token must be configured independently from the ingress
+        // token to enforce least-privilege separation. When metrics auth is
+        // required but no dedicated metrics token is set, we log a warning at
+        // preflight time rather than silently reusing the ingress token.
     }
 
     pub fn metrics_auth_required(&self) -> bool {
@@ -550,11 +550,13 @@ mod tests {
             bind_address: "0.0.0.0".to_string(),
             ingress_auth_mode: "token".to_string(),
             ingress_token: Some("secret".to_string()),
+            metrics_auth_mode: "token".to_string(),
+            metrics_token: Some("metrics-secret".to_string()),
             ..Default::default()
         };
         config.normalize_security();
         assert_eq!(config.metrics_auth_mode, "token");
-        assert_eq!(config.effective_metrics_token(), Some("secret"));
+        assert_eq!(config.effective_metrics_token(), Some("metrics-secret"));
     }
 
     #[test]
@@ -564,7 +566,8 @@ mod tests {
             "SDKWORK_KERNEL_PROFILE_ID",
             Some("cloud.split-services.production"),
         );
-        let _allow = crate::testing::env::VarGuard::set("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", None);
+        let _allow =
+            crate::testing::env::VarGuard::set("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", None);
         let config = ServerConfig {
             environment: "production".to_string(),
             ..Default::default()
@@ -579,7 +582,8 @@ mod tests {
             "SDKWORK_KERNEL_PROFILE_ID",
             Some("cloud.split-services.production"),
         );
-        let _allow = crate::testing::env::VarGuard::set("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", Some("1"));
+        let _allow =
+            crate::testing::env::VarGuard::set("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", Some("1"));
         let config = ServerConfig {
             environment: "production".to_string(),
             ..Default::default()

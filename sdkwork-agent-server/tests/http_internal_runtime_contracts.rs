@@ -41,7 +41,6 @@ fn quota_test_app(tenant_id: &str, daily_tokens: u64) -> Router {
     app::build_test_app(Arc::new(config))
 }
 
-
 fn identity_mac(token: &str, tenant: &str, user: &str) -> String {
     ingress_identity::compute_identity_mac(token, tenant, user).expect("identity mac")
 }
@@ -82,8 +81,6 @@ fn list_items(payload: &Value) -> &[Value] {
         .expect("list response should expose items[]")
 }
 
-
-
 #[tokio::test]
 async fn internal_runtime_snapshot_returns_runtime_health() {
     let app = open_test_app();
@@ -100,6 +97,132 @@ async fn internal_runtime_snapshot_returns_runtime_health() {
     assert_eq!(response.status(), StatusCode::OK);
     let snapshot = read_json(response).await;
     assert_eq!(snapshot["runtime"]["health"], "healthy");
+}
+
+#[tokio::test]
+async fn internal_runtime_manifest_returns_capability_manifest() {
+    let app = open_test_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(runtime_path("/manifest"))
+                .body(Body::empty())
+                .expect("request should be built"),
+        )
+        .await
+        .expect("manifest request should succeed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let manifest = read_json(response).await;
+    assert!(
+        manifest["runtimeId"].is_string(),
+        "runtimeId must be present"
+    );
+    assert!(manifest["agentId"].is_string(), "agentId must be present");
+    assert!(
+        manifest["kernelVersion"].is_string(),
+        "kernelVersion must be present"
+    );
+    assert!(
+        manifest["securityProfile"].is_string(),
+        "securityProfile must be present"
+    );
+    assert!(
+        manifest["capabilities"].is_array(),
+        "capabilities must be an array"
+    );
+    assert!(
+        manifest["providers"].is_array(),
+        "providers must be an array"
+    );
+    assert!(
+        manifest["missingRequiredCapabilities"].is_array(),
+        "missingRequiredCapabilities must be an array"
+    );
+    assert!(
+        manifest["degradedCapabilities"].is_array(),
+        "degradedCapabilities must be an array"
+    );
+}
+
+#[tokio::test]
+async fn internal_runtime_health_returns_health_status() {
+    let app = open_test_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(runtime_path("/health"))
+                .body(Body::empty())
+                .expect("request should be built"),
+        )
+        .await
+        .expect("health request should succeed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let health = read_json(response).await;
+    assert!(health["runtimeId"].is_string(), "runtimeId must be present");
+    assert!(health["state"].is_string(), "state must be present");
+    assert!(
+        matches!(
+            health["health"].as_str(),
+            Some("healthy") | Some("degraded")
+        ),
+        "health must be healthy or degraded"
+    );
+    assert!(
+        health["persistenceHealthy"].is_boolean(),
+        "persistenceHealthy must be boolean"
+    );
+    assert!(
+        health["degradedCapabilities"].is_array(),
+        "degradedCapabilities must be an array"
+    );
+}
+
+#[tokio::test]
+async fn internal_runtime_diagnostics_returns_provider_diagnostics() {
+    let app = open_test_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(runtime_path("/diagnostics"))
+                .body(Body::empty())
+                .expect("request should be built"),
+        )
+        .await
+        .expect("diagnostics request should succeed");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let diagnostics = read_json(response).await;
+    assert!(
+        diagnostics["runtimeId"].is_string(),
+        "runtimeId must be present"
+    );
+    assert!(
+        diagnostics["agentId"].is_string(),
+        "agentId must be present"
+    );
+    assert!(diagnostics["state"].is_string(), "state must be present");
+    assert!(
+        diagnostics["providerCount"].is_number(),
+        "providerCount must be a number"
+    );
+    assert!(
+        diagnostics["capabilityCount"].is_number(),
+        "capabilityCount must be a number"
+    );
+    assert!(
+        diagnostics["typedProviderCount"].is_number(),
+        "typedProviderCount must be a number"
+    );
+    assert!(
+        diagnostics["manifestOnlyProviderCount"].is_number(),
+        "manifestOnlyProviderCount must be a number"
+    );
+    assert!(
+        diagnostics["providerDiagnostics"].is_array(),
+        "providerDiagnostics must be an array"
+    );
 }
 
 #[tokio::test]
@@ -141,7 +264,11 @@ async fn retired_legacy_session_paths_return_not_found() {
             )
             .await
             .expect("retired path request should succeed");
-        assert_eq!(response.status(), StatusCode::NOT_FOUND, "path {path} should be retired");
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "path {path} should be retired"
+        );
     }
 }
 
@@ -187,13 +314,17 @@ async fn internal_runtime_session_roundtrip_uses_items_list_envelope() {
     assert_eq!(list.status(), StatusCode::OK);
     let sessions = read_json(list).await;
     let session_items = list_items(&sessions);
-    assert!(session_items.iter().any(|row| row["sessionId"] == session_id));
+    assert!(session_items
+        .iter()
+        .any(|row| row["sessionId"] == session_id));
 
     let send = Request::builder()
         .method("POST")
         .uri(runtime_path(&format!("/sessions/{session_id}/messages")))
         .header(CONTENT_TYPE, "application/json")
-        .body(Body::from(json!({ "content": "hello internal" }).to_string()))
+        .body(Body::from(
+            json!({ "content": "hello internal" }).to_string(),
+        ))
         .expect("send request should be built");
     let response = app
         .clone()
@@ -332,7 +463,11 @@ async fn health_probes_bypass_ingress_token_auth() {
             )
             .await
             .expect("health request should succeed");
-        assert_eq!(response.status(), StatusCode::OK, "path {path} should bypass auth");
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "path {path} should bypass auth"
+        );
     }
 }
 
@@ -483,7 +618,9 @@ async fn token_policy_blocks_foreign_task_access() {
         "tenant.owner",
         "user.owner",
     )
-    .body(Body::from(json!({ "instruction": "run contract task" }).to_string()))
+    .body(Body::from(
+        json!({ "instruction": "run contract task" }).to_string(),
+    ))
     .expect("submit request should be built");
 
     let response = app
@@ -750,7 +887,10 @@ async fn session_event_stream_honors_last_event_id() {
         .await
         .expect("stream body should be readable");
     let text = String::from_utf8_lossy(&body);
-    assert!(text.contains("data:"), "stream should contain SSE data frames");
+    assert!(
+        text.contains("data:"),
+        "stream should contain SSE data frames"
+    );
     let first_event_id = text
         .lines()
         .find_map(|line| line.strip_prefix("id:").map(str::trim))
@@ -792,14 +932,14 @@ async fn internal_runtime_session_api_enforces_token_scope() {
         "tenant.owner",
         "user.owner",
     )
-        .body(Body::from(
-            json!({
-                "agentId": "agent.1",
-                "title": "legacy owned session"
-            })
-            .to_string(),
-        ))
-        .expect("create request should be built");
+    .body(Body::from(
+        json!({
+            "agentId": "agent.1",
+            "title": "legacy owned session"
+        })
+        .to_string(),
+    ))
+    .expect("create request should be built");
 
     let response = app
         .clone()
@@ -816,14 +956,13 @@ async fn internal_runtime_session_api_enforces_token_scope() {
     let response = app
         .oneshot(
             with_signed_identity(
-                Request::builder()
-                    .uri(runtime_path(&format!("/sessions/{session_id}"))),
+                Request::builder().uri(runtime_path(&format!("/sessions/{session_id}"))),
                 TEST_INGRESS_TOKEN,
                 "tenant.other",
                 "user.other",
             )
-                .body(Body::empty())
-                .expect("get request should be built"),
+            .body(Body::empty())
+            .expect("get request should be built"),
         )
         .await
         .expect("get request should succeed");
@@ -842,14 +981,14 @@ async fn internal_runtime_send_message_rejects_foreign_session_in_token_mode() {
         "tenant.owner",
         "user.owner",
     )
-        .body(Body::from(
-            json!({
-                "agentId": "agent.1",
-                "title": "owned stream session"
-            })
-            .to_string(),
-        ))
-        .expect("create request should be built");
+    .body(Body::from(
+        json!({
+            "agentId": "agent.1",
+            "title": "owned stream session"
+        })
+        .to_string(),
+    ))
+    .expect("create request should be built");
 
     let response = app
         .clone()
@@ -871,13 +1010,13 @@ async fn internal_runtime_send_message_rejects_foreign_session_in_token_mode() {
         "tenant.other",
         "user.other",
     )
-        .body(Body::from(
-            json!({
-                "content": "hello"
-            })
-            .to_string(),
-        ))
-        .expect("message request should be built");
+    .body(Body::from(
+        json!({
+            "content": "hello"
+        })
+        .to_string(),
+    ))
+    .expect("message request should be built");
 
     let response = app
         .oneshot(stream)
@@ -945,24 +1084,18 @@ async fn token_mode_rejects_session_missing_owner_metadata() {
         )
         .expect("runtime state should initialize for tests"),
     );
-    let token_app = app::build_app(
-        token_config,
-        health_state,
-        persistence,
-        token_runtime,
-    );
+    let token_app = app::build_app(token_config, health_state, persistence, token_runtime);
 
     let response = token_app
         .oneshot(
             with_signed_identity(
-                Request::builder()
-                    .uri(runtime_path(&format!("/sessions/{session_id}"))),
+                Request::builder().uri(runtime_path(&format!("/sessions/{session_id}"))),
                 TEST_INGRESS_TOKEN,
                 "tenant.owner",
                 "user.owner",
             )
-                .body(Body::empty())
-                .expect("get request should be built"),
+            .body(Body::empty())
+            .expect("get request should be built"),
         )
         .await
         .expect("get request should succeed");
@@ -1178,7 +1311,9 @@ async fn internal_runtime_model_invoke_rejects_exhausted_tenant_token_quota() {
     let invoke = with_signed_identity(
         Request::builder()
             .method("POST")
-            .uri(runtime_path(&format!("/sessions/{session_id}/model/invoke")))
+            .uri(runtime_path(&format!(
+                "/sessions/{session_id}/model/invoke"
+            )))
             .header(CONTENT_TYPE, "application/json"),
         TEST_INGRESS_TOKEN,
         tenant,
@@ -1192,4 +1327,178 @@ async fn internal_runtime_model_invoke_rejects_exhausted_tenant_token_quota() {
         .await
         .expect("invoke request should succeed");
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+}
+
+/// Helper: create a session on the open test app and return its session id.
+async fn create_session_on_open_app(app: &Router, agent_id: &str) -> String {
+    let create = Request::builder()
+        .method("POST")
+        .uri(runtime_path("/sessions"))
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "agentId": agent_id,
+                "title": "stream contract session"
+            })
+            .to_string(),
+        ))
+        .expect("create request should be built");
+
+    let response = app
+        .clone()
+        .oneshot(create)
+        .await
+        .expect("create request should succeed");
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let session = read_json(response).await;
+    session["sessionId"]
+        .as_str()
+        .expect("sessionId should be present")
+        .to_string()
+}
+
+/// Read the full SSE response body as a UTF-8 string.
+async fn read_sse_body(response: axum::response::Response) -> String {
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("sse body should be readable");
+    String::from_utf8(body.to_vec()).expect("sse body should be valid utf-8")
+}
+
+#[tokio::test]
+async fn internal_runtime_model_stream_returns_sse_chunks() {
+    let app = open_test_app();
+    let session_id = create_session_on_open_app(&app, "agent.1").await;
+
+    let stream_request = Request::builder()
+        .method("POST")
+        .uri(runtime_path(&format!(
+            "/sessions/{session_id}/model/stream"
+        )))
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "modelId": "gpt-4",
+                "messages": ["Hello, tell me a joke"]
+            })
+            .to_string(),
+        ))
+        .expect("stream request should be built");
+
+    let response = app
+        .oneshot(stream_request)
+        .await
+        .expect("stream request should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let content_type = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    assert!(
+        content_type.starts_with("text/event-stream"),
+        "response content-type should be text/event-stream, got: {content_type}"
+    );
+
+    let body = read_sse_body(response).await;
+    assert!(
+        body.contains("event:model.chunk") || body.contains("event: model.chunk"),
+        "sse body should contain model.chunk events: {body}"
+    );
+    assert!(
+        body.contains("event:model.done") || body.contains("event: model.done"),
+        "sse body should contain model.done terminator: {body}"
+    );
+}
+
+#[tokio::test]
+async fn internal_runtime_model_cancel_returns_cancelled_response() {
+    let app = open_test_app();
+    let session_id = create_session_on_open_app(&app, "agent.1").await;
+
+    let cancel_request = Request::builder()
+        .method("POST")
+        .uri(runtime_path(&format!(
+            "/sessions/{session_id}/model/cancel"
+        )))
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "modelRequestId": "model-req.test-cancel-001",
+                "providerId": null
+            })
+            .to_string(),
+        ))
+        .expect("cancel request should be built");
+
+    let response = app
+        .oneshot(cancel_request)
+        .await
+        .expect("cancel request should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = read_json(response).await;
+    assert_eq!(
+        body["modelRequestId"], "model-req.test-cancel-001",
+        "cancel response should echo the model request id"
+    );
+    assert!(
+        body["providerId"].is_string(),
+        "cancel response should include providerId"
+    );
+    assert_eq!(
+        body["status"], "cancelled",
+        "cancel response status should be 'cancelled'"
+    );
+    assert_eq!(
+        body["finishReason"], "cancelled",
+        "cancel response finishReason should be 'cancelled'"
+    );
+}
+
+#[tokio::test]
+async fn internal_runtime_model_stream_rejects_unknown_session() {
+    let app = open_test_app();
+
+    let stream_request = Request::builder()
+        .method("POST")
+        .uri(runtime_path("/sessions/session.nonexistent/model/stream"))
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "messages": ["Hello"]
+            })
+            .to_string(),
+        ))
+        .expect("stream request should be built");
+
+    let response = app
+        .oneshot(stream_request)
+        .await
+        .expect("stream request should succeed");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn internal_runtime_model_cancel_rejects_unknown_session() {
+    let app = open_test_app();
+
+    let cancel_request = Request::builder()
+        .method("POST")
+        .uri(runtime_path("/sessions/session.nonexistent/model/cancel"))
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "modelRequestId": "model-req.unknown"
+            })
+            .to_string(),
+        ))
+        .expect("cancel request should be built");
+
+    let response = app
+        .oneshot(cancel_request)
+        .await
+        .expect("cancel request should succeed");
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }

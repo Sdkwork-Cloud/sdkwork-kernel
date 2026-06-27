@@ -2,17 +2,17 @@ use crate::{
     OpenClawAdapter, OpenClawLifecycleProvider, OpenClawMessageAdapter, OpenClawModelProvider,
     OpenClawToolProvider,
 };
-use sdkwork_agent_provider_transport_core::{
-    HttpOpenApiTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
-    TypeScriptNodeTransportHost,
-};
-use sdkwork_agent_provider_transport_node::NodeSdkBackendRuntime;
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, wire_runtime_providers, AgentSdkBindingManifest, AgentSdkIntegration,
     BindingRegistry, DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
     SdkRuntimeBackedToolProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
     OPENCLAW_BINDING_ID,
 };
+use sdkwork_agent_provider_transport_core::{
+    HttpOpenApiTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
+    TypeScriptNodeTransportHost,
+};
+use sdkwork_agent_provider_transport_node::NodeSdkBackendRuntime;
 use std::sync::Arc;
 
 const OPENCLAW_BINDING_MANIFEST_JSON: &str =
@@ -45,7 +45,9 @@ impl OpenClawSdkIntegration {
         let negotiation = bootstrap_binding(manifest, &mut drivers, &mut bindings)?;
 
         let mut bootstrap = ProviderTransportBootstrap::new();
-        bootstrap.register_host(Arc::new(TypeScriptNodeTransportHost::new(OPENCLAW_NPM_PACKAGE)));
+        bootstrap.register_host(Arc::new(TypeScriptNodeTransportHost::new(
+            OPENCLAW_NPM_PACKAGE,
+        )));
         bootstrap.register_host(Arc::new(HttpOpenApiTransportHost::new(
             "openclaw-gateway-open-api",
         )));

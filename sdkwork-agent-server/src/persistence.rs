@@ -1,6 +1,9 @@
-use sdkwork_agent_database::{EventRow, MessageRow, PostgresDatabase, SessionRow, SqliteDatabase, TaskRow};
+use sdkwork_agent_database::{
+    EventRow, MessageRow, PermissionRepository, PermissionRow, PostgresDatabase, SessionRow,
+    SqliteDatabase, TaskRow,
+};
 use sdkwork_agent_session::{MessageConfig, SessionConfig, SessionQuery, UnifiedSessionManager};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::config::ServerConfig;
 use crate::event_bus::SessionEventBus;
@@ -23,23 +26,71 @@ type AppSessionManagerPostgres = UnifiedSessionManager<
 
 #[derive(Clone)]
 enum ManagerInner {
-    Sqlite(Arc<Mutex<AppSessionManagerSqlite>>),
-    Postgres(Arc<Mutex<AppSessionManagerPostgres>>),
+    Sqlite(Arc<AppSessionManagerSqlite>),
+    Postgres(Arc<AppSessionManagerPostgres>),
+}
+
+/// Database handle for permission persistence operations.
+#[derive(Clone)]
+enum PermissionDb {
+    Sqlite(SqliteDatabase),
+    Postgres(PostgresDatabase),
+}
+
+impl PermissionRepository for PermissionDb {
+    fn save_permission(
+        &self,
+        permission: &PermissionRow,
+    ) -> Result<(), sdkwork_agent_database::DatabaseError> {
+        match self {
+            PermissionDb::Sqlite(db) => db.save_permission(permission),
+            PermissionDb::Postgres(db) => db.save_permission(permission),
+        }
+    }
+
+    fn load_permission(
+        &self,
+        permission_request_id: &str,
+    ) -> Result<Option<PermissionRow>, sdkwork_agent_database::DatabaseError> {
+        match self {
+            PermissionDb::Sqlite(db) => db.load_permission(permission_request_id),
+            PermissionDb::Postgres(db) => db.load_permission(permission_request_id),
+        }
+    }
+
+    fn list_permissions(
+        &self,
+        status: Option<&str>,
+    ) -> Result<Vec<PermissionRow>, sdkwork_agent_database::DatabaseError> {
+        match self {
+            PermissionDb::Sqlite(db) => db.list_permissions(status),
+            PermissionDb::Postgres(db) => db.list_permissions(status),
+        }
+    }
+
+    fn update_permission_status(
+        &self,
+        permission_request_id: &str,
+        status: &str,
+    ) -> Result<(), sdkwork_agent_database::DatabaseError> {
+        match self {
+            PermissionDb::Sqlite(db) => db.update_permission_status(permission_request_id, status),
+            PermissionDb::Postgres(db) => {
+                db.update_permission_status(permission_request_id, status)
+            }
+        }
+    }
 }
 
 macro_rules! with_manager {
     ($self:expr, |$mgr:ident| $body:expr) => {{
         match &$self.manager {
             ManagerInner::Sqlite(inner) => {
-                let $mgr = inner
-                    .lock()
-                    .map_err(|error| format!("lock poisoned: {error}"))?;
+                let $mgr = &**inner;
                 $body
             }
             ManagerInner::Postgres(inner) => {
-                let $mgr = inner
-                    .lock()
-                    .map_err(|error| format!("lock poisoned: {error}"))?;
+                let $mgr = &**inner;
                 $body
             }
         }
@@ -50,6 +101,7 @@ macro_rules! with_manager {
 #[derive(Clone)]
 pub struct PersistenceState {
     manager: ManagerInner,
+    permission_db: PermissionDb,
     event_bus: SessionEventBus,
     backend: PersistenceBackend,
 }
@@ -111,24 +163,28 @@ impl PersistenceState {
     }
 
     fn from_sqlite_database(db: SqliteDatabase, event_bus: SessionEventBus) -> Self {
+        let permission_db = db.clone();
         let mut manager =
             UnifiedSessionManager::new(db.clone(), db.clone(), db.clone(), db.clone(), db);
         let bus = event_bus.clone();
         manager.set_event_listener(Arc::new(move |event| bus.publish(event)));
         Self {
-            manager: ManagerInner::Sqlite(Arc::new(Mutex::new(manager))),
+            manager: ManagerInner::Sqlite(Arc::new(manager)),
+            permission_db: PermissionDb::Sqlite(permission_db),
             event_bus,
             backend: PersistenceBackend::Sqlite,
         }
     }
 
     fn from_postgres_database(db: PostgresDatabase, event_bus: SessionEventBus) -> Self {
+        let permission_db = db.clone();
         let mut manager =
             UnifiedSessionManager::new(db.clone(), db.clone(), db.clone(), db.clone(), db);
         let bus = event_bus.clone();
         manager.set_event_listener(Arc::new(move |event| bus.publish(event)));
         Self {
-            manager: ManagerInner::Postgres(Arc::new(Mutex::new(manager))),
+            manager: ManagerInner::Postgres(Arc::new(manager)),
+            permission_db: PermissionDb::Postgres(permission_db),
             event_bus,
             backend: PersistenceBackend::Postgres,
         }
@@ -219,7 +275,41 @@ impl PersistenceState {
         session_id: &str,
         limit: Option<i64>,
     ) -> Result<Vec<EventRow>, String> {
-        with_manager!(self, |manager| manager.load_session_events(session_id, limit))
+        with_manager!(self, |manager| manager
+            .load_session_events(session_id, limit))
+    }
+
+    // -- Permission persistence --
+
+    pub fn save_permission(&self, permission: &PermissionRow) -> Result<(), String> {
+        self.permission_db
+            .save_permission(permission)
+            .map_err(|error| format!("failed to save permission: {error}"))
+    }
+
+    pub fn load_permission(
+        &self,
+        permission_request_id: &str,
+    ) -> Result<Option<PermissionRow>, String> {
+        self.permission_db
+            .load_permission(permission_request_id)
+            .map_err(|error| format!("failed to load permission: {error}"))
+    }
+
+    pub fn list_permissions(&self, status: Option<&str>) -> Result<Vec<PermissionRow>, String> {
+        self.permission_db
+            .list_permissions(status)
+            .map_err(|error| format!("failed to list permissions: {error}"))
+    }
+
+    pub fn update_permission_status(
+        &self,
+        permission_request_id: &str,
+        status: &str,
+    ) -> Result<(), String> {
+        self.permission_db
+            .update_permission_status(permission_request_id, status)
+            .map_err(|error| format!("failed to update permission: {error}"))
     }
 
     /// Run a blocking persistence operation off the async runtime thread pool.

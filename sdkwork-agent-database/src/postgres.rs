@@ -113,10 +113,9 @@ struct PostgresRow {
 
 impl DatabaseRow for PostgresRow {
     fn get_string(&self, column: &str) -> DatabaseResult<String> {
-        self.values
-            .get(column)
-            .cloned()
-            .ok_or_else(|| crate::error::DatabaseError::Query(format!("column not found: {column}")))
+        self.values.get(column).cloned().ok_or_else(|| {
+            crate::error::DatabaseError::Query(format!("column not found: {column}"))
+        })
     }
 
     fn get_optional_string(&self, column: &str) -> DatabaseResult<Option<String>> {

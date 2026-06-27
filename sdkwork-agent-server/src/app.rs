@@ -1,14 +1,7 @@
-use axum::{
-    http::StatusCode,
-    middleware as axum_middleware,
-    routing::get,
-    Router,
-};
 use axum::extract::FromRef;
+use axum::{middleware as axum_middleware, routing::get, Router};
 use std::sync::Arc;
-use std::time::Duration;
 use tower_http::limit::RequestBodyLimitLayer;
-use tower_http::timeout::TimeoutLayer;
 
 use crate::api::internal_runtime;
 use crate::config::ServerConfig;
@@ -18,12 +11,14 @@ use crate::middleware;
 use crate::persistence::PersistenceState;
 use crate::runtime_routes::{build_internal_runtime_routes, INTERNAL_RUNTIME_MOUNT_PREFIX};
 
-impl FromRef<OperationalRoutesState> for (
-    Arc<metrics::MetricsRegistry>,
-    Arc<health::HealthState>,
-    Arc<PersistenceState>,
-    metrics::OperationalProfile,
-) {
+impl FromRef<OperationalRoutesState>
+    for (
+        Arc<metrics::MetricsRegistry>,
+        Arc<health::HealthState>,
+        Arc<PersistenceState>,
+        metrics::OperationalProfile,
+    )
+{
     fn from_ref(input: &OperationalRoutesState) -> Self {
         (
             input.metrics.clone(),
@@ -49,11 +44,13 @@ impl FromRef<OperationalRoutesState> for (Arc<health::HealthState>, Arc<Persiste
     }
 }
 
-impl FromRef<OperationalRoutesState> for (
-    Arc<metrics::MetricsRegistry>,
-    Arc<health::HealthState>,
-    Arc<PersistenceState>,
-) {
+impl FromRef<OperationalRoutesState>
+    for (
+        Arc<metrics::MetricsRegistry>,
+        Arc<health::HealthState>,
+        Arc<PersistenceState>,
+    )
+{
     fn from_ref(input: &OperationalRoutesState) -> Self {
         (
             input.metrics.clone(),
@@ -71,7 +68,9 @@ pub fn build_app(
     runtime_state: Arc<internal_runtime::InternalRuntimeApiState>,
 ) -> Router {
     let metrics_registry = metrics::MetricsRegistry::from_config(config.as_ref());
-    let rate_limit = Arc::new(crate::rate_limit::RateLimitState::from_config(config.as_ref()));
+    let rate_limit = Arc::new(crate::rate_limit::RateLimitState::from_config(
+        config.as_ref(),
+    ));
     let operational_profile = metrics::OperationalProfile::from_runtime(
         persistence.persistence_backend_label(),
         rate_limit.uses_redis(),
@@ -83,6 +82,11 @@ pub fn build_app(
         operational_profile,
     };
 
+    // Intentional fail-fast: ingress middleware owns JWT/JWKS validation.
+    // If it cannot initialize (e.g. JWKS URL unreachable, malformed keys),
+    // the server cannot safely authenticate any request. Starting up in a
+    // state where auth is broken would be a critical security regression.
+    // Operators must fix the ingress config before the server can serve.
     let ingress_state = Arc::new(
         crate::ingress_state::IngressMiddlewareState::from_config(config.clone())
             .expect("ingress middleware state should initialize"),
@@ -95,15 +99,14 @@ pub fn build_app(
         .route("/metrics", get(metrics::prometheus_metrics))
         .with_state(operational_state);
 
-    let internal_runtime = Router::new()
-        .nest(
-            INTERNAL_RUNTIME_MOUNT_PREFIX,
-            build_internal_runtime_routes(runtime_state),
-        )
-        .layer(TimeoutLayer::with_status_code(
-            StatusCode::REQUEST_TIMEOUT,
-            Duration::from_secs(config.request_timeout_secs),
-        ));
+    // Per-route timeout layers are applied inside `build_internal_runtime_routes`
+    // so that SSE streaming routes receive a longer timeout than standard
+    // JSON routes. Do NOT add an outer TimeoutLayer here — it would fire
+    // the shorter timeout on SSE connections.
+    let internal_runtime = Router::new().nest(
+        INTERNAL_RUNTIME_MOUNT_PREFIX,
+        build_internal_runtime_routes(runtime_state),
+    );
 
     let standard_routes = Router::new().merge(health_routes).merge(internal_runtime);
 
@@ -123,7 +126,9 @@ pub fn build_app(
             ingress_state,
             middleware::ingress_auth_middleware,
         ))
-        .layer(axum_middleware::from_fn(middleware::security_headers_middleware))
+        .layer(axum_middleware::from_fn(
+            middleware::security_headers_middleware,
+        ))
         .layer(axum_middleware::from_fn(middleware::logging_middleware))
         .layer(axum_middleware::from_fn(
             middleware::request_context_middleware,

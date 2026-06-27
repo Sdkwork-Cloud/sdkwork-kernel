@@ -91,15 +91,19 @@ traceable to `sdkwork-sdk-generator`.
 For `app=agent`, the root SDK workspace is `sdks/`. It defines these SDK
 families:
 
-| Family | Authority | Prefix | Package | Audience |
-| --- | --- | --- | --- | --- |
-| `sdkwork-agent-sdk` | `sdkwork-agent-open-api` | `/agent/v3/api` | `@sdkwork/agent-sdk` | Developer and integration authors |
-| `sdkwork-agents-app-sdk` | `sdkwork-agents-app-api` | `/app/v3/api` | `@sdkwork/agents-app-sdk` | App, desktop, mobile, H5, and user-facing clients |
-| `sdkwork-agent-backend-sdk` | `sdkwork-agent-backend-api` | `/backend/v3/api` | `@sdkwork/agent-backend-sdk` | Backend console, operators, automation, and control-plane integrations |
+| Family | Authority | Prefix | Package | Audience | Owner |
+| --- | --- | --- | --- | --- | --- |
+| `sdkwork-agent-internal-sdk` | `sdkwork-agent-internal-api` | `/internal/v3/api` | `@sdkwork/agent-internal-sdk` | Kernel UI, embedded consoles, trusted in-app automation | This repo (`sdks/`) |
+| `sdkwork-agent-sdk` | `sdkwork-agent-open-api` | `/agent/v3/api` | `@sdkwork/agent-sdk` | Developer and integration authors | Sibling repo `../sdkwork-agents/sdks/` |
+| `sdkwork-agents-app-sdk` | `sdkwork-agents-app-api` | `/app/v3/api` | `@sdkwork/agents-app-sdk` | App, desktop, mobile, H5, and user-facing clients | Sibling repo `../sdkwork-agents/sdks/` |
+| `sdkwork-agent-backend-sdk` | `sdkwork-agent-backend-api` | `/backend/v3/api` | `@sdkwork/agent-backend-sdk` | Backend console, operators, automation, and control-plane integrations | Sibling repo `../sdkwork-agents/sdks/` |
 
-All three families are owned by the SDK standard in this document and by the
-root `sdks/` workspace. No consumer may bypass these SDK families with local
-HTTP implementations for remote agent business APIs.
+The kernel-owned `sdkwork-agent-internal-sdk` family is governed by the SDK
+standard in this document and by the root `sdks/` workspace. The three
+managed-agents families are owned by the sibling application repository
+`../sdkwork-agents/sdks/`; they are listed here for catalog completeness and
+are not materialized in this repository. No consumer may bypass these SDK
+families with local HTTP implementations for remote agent business APIs.
 
 External third-party agent native SDK bindings are cataloged separately under
 `bindings/agent-providers/` and governed by `AGENT_SDK_BINDING_SPEC.md`. Those

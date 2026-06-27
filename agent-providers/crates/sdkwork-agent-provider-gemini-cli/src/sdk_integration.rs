@@ -2,17 +2,17 @@ use crate::{
     GeminiCliAdapter, GeminiCliLifecycleProvider, GeminiMessageAdapter, GeminiModelProvider,
     GeminiToolProvider,
 };
+use sdkwork_agent_provider_spi::{
+    bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
+    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
+    SdkRuntimeBackedToolProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
+    GEMINI_CLI_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_TOOL_INVOKE,
+};
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
     TypeScriptNodeTransportHost,
 };
 use sdkwork_agent_provider_transport_node::NodeSdkBackendRuntime;
-use sdkwork_agent_provider_spi::{
-    bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
-    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider, SdkRuntimeBackedToolProvider,
-    SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter, GEMINI_CLI_BINDING_ID,
-    SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_TOOL_INVOKE,
-};
 use std::sync::Arc;
 
 const GEMINI_CLI_BINDING_MANIFEST_JSON: &str =

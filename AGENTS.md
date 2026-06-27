@@ -32,7 +32,7 @@ Do not copy root standard text into this repository. If these relative paths do 
 - `.sdkwork/`: reserved local dictionary folder; create only for local skills, plugins, manifests, or AI workspace metadata.
 - `specs/`: local application/component contracts and narrowing rules.
 - `sdks/`: SDK families, OpenAPI authorities, route manifests, and generated SDK artifacts.
-- Local directories to inspect first when relevant: `docs/`, `external/`, `scripts/`, `sdks/`, `sdkwork-agent-business/`, `sdkwork-kernel-plugins/`, `sdkwork-agent-kernel/`, `sdkwork-code-kernel/`, `sdkwork-kernel-ui/`, `specs/`.
+- Local directories to inspect first when relevant: `docs/`, `external/`, `scripts/`, `sdks/`, `agent-providers/`, `sdkwork-kernel-plugins/`, `sdkwork-agent-kernel/`, `sdkwork-agent-database/`, `sdkwork-code-kernel/`, `sdkwork-kernel-ui/`, `specs/`.
 
 ## Documentation Canon
 
@@ -85,13 +85,33 @@ The repository-specific guidance below was preserved from the previous `AGENTS.m
 
 ### Project Structure & Module Organization
 
-This repository defines the SDKWork kernel standard for agent and code-agent systems. Rust crates live at `sdkwork-agent-kernel/`, `sdkwork-code-kernel/`, and `sdkwork-agent-business/`, each with `src/`, `tests/`, and local `specs/` where applicable. `sdkwork-kernel-ui/` is a pnpm TypeScript/Vite/React workspace with reusable packages under `packages/`. Cross-cutting contracts and schemas are in root `specs/`. Third-party reference source trees are under `external/` and must remain inspection and mapping inputs, not direct kernel-core dependencies.
+This repository defines the SDKWork kernel standard for agent and code-agent systems. Rust crates live at `sdkwork-agent-kernel/` (L0 SPI), `sdkwork-code-kernel/` (code-agent SPI), `sdkwork-agent-provider-spi/` (L1 provider integration), `sdkwork-agent-provider-transport-*/` (L2 transports), `agent-providers/crates/sdkwork-agent-provider-*/` (L3 per-framework implementations: codex, claude-code, opencode, gemini-cli, openclaw, hermes, mimo-code, rig), `sdkwork-agent-server/` (operational HTTP server), `sdkwork-agent-client/` (desktop/mobile bridge), `sdkwork-agent-database/` (runtime transient session/message/task state), `sdkwork-agent-session/`, `sdkwork-agent-streaming/`, `sdkwork-agent-api-bridge/`, and `sdkwork-kernel-plugins/` (plugin trait + provider-core + platform plugins). `sdkwork-kernel-ui/` is a pnpm TypeScript/Vite/React workspace with reusable packages under `packages/`. Cross-cutting contracts and schemas are in root `specs/`. Third-party reference source trees are under `external/` and must remain inspection and mapping inputs, not direct kernel-core dependencies.
+
+### Kernel ↔ Agents Responsibility Boundary
+
+SDKWork follows a Linux-kernel-style split. This repository (`sdkwork-kernel`) owns **SPI definitions, runtime mechanisms, and transient runtime state only**. Business persistence and application surfaces belong to the sibling `sdkwork-agents` repository.
+
+| Concern | Owner | Location |
+| --- | --- | --- |
+| Agent SPI (18 provider families: model, tool, policy, context, memory, knowledge, planning, host, protocol_adapter, mcp, skill, collaboration, telemetry, task_scheduling, agent_classification, message_query, agent_installer, agent_configuration) | kernel | `sdkwork-agent-kernel/src/` |
+| Provider integration SPI + transports (Rust SDK in-process, Node/Python subprocess, IPC) | kernel | `sdkwork-agent-provider-spi/`, `sdkwork-agent-provider-transport-*/` |
+| Per-framework provider implementations (pluggable, open-closed) | kernel | `agent-providers/crates/sdkwork-agent-provider-*/` |
+| Runtime transient state (active sessions, streaming buffers, in-flight tasks, SSE cursors) | kernel | `sdkwork-agent-database/` (SessionRepository/MessageRepository/TaskRepository/EventRepository traits + sqlite/postgres/memory impls) |
+| Operational HTTP server (`/internal/v3/api/intelligence/runtime/*`) | kernel | `sdkwork-agent-server/` |
+| Client bridge (desktop/mobile local + hybrid + remote) | kernel | `sdkwork-agent-client/` |
+| Business database (agent catalog, agent configuration profiles, long-term session archive, task history, scheduled job registry) | agents | `../sdkwork-agents/` |
+| Agent classification catalog, app-api / backend-api / open-api + SDK generation | agents | `../sdkwork-agents/` |
+| Integration of sdkwork-knowledge, sdkwork-drive, sdkwork-skills, sdkwork-prompts, sdkwork-memory | agents | `../sdkwork-agents/` |
+| Memory provider implementations (permanent / user / growth-tier backends) | agents | `../sdkwork-agents/` (kernel defines `MemoryProvider` SPI + `MemoryTier`/`MemoryScope` model only) |
+
+The kernel MUST NOT own business persistence (agent config catalog, long-term archives) or application HTTP surfaces (app-api/backend-api/open-api). The agents application MUST NOT depend on `sdkwork-agent-provider-*` crates directly; it consumes the kernel via `sdkwork-agent-internal-sdk` and the runtime facade.
 
 ### Build, Test, and Development Commands
 
 - `cargo test --manifest-path sdkwork-agent-kernel/Cargo.toml`: run agent-kernel Rust contracts.
 - `cargo test --manifest-path sdkwork-code-kernel/Cargo.toml`: run code-kernel Rust contracts.
-- `cargo test --manifest-path sdkwork-agent-business/Cargo.toml`: run managed-agent business contracts.
+- `cargo test --manifest-path sdkwork-agent-database/Cargo.toml`: run runtime session/message/task persistence contracts.
+- `cargo test --manifest-path sdkwork-agent-server/Cargo.toml`: run operational server HTTP contracts.
 - `pnpm --dir sdkwork-kernel-ui install --frozen-lockfile`: install UI workspace dependencies.
 - `pnpm --dir sdkwork-kernel-ui build`: build the kernel UI shell and packages.
 - `pnpm --dir sdkwork-kernel-ui typecheck`: run TypeScript checks.
@@ -101,8 +121,8 @@ This repository defines the SDKWork kernel standard for agent and code-agent sys
 - `pnpm install`: install root `@sdkwork/app-topology` workspace dependency.
 - `pnpm topology:validate`: validate `specs/topology.spec.json` against the shared topology schema.
 - `pnpm test:topology` / `pnpm test:topology-baggage`: verify topology adoption contracts and retired vocabulary.
-- `pnpm test:topology-smoke`: start `sdkwork-agent-server` with the unified-process dev profile and wait for `/health`.
-- `pnpm dev`: start the default unified-process development stack (agent server + kernel UI).
+- `pnpm test:topology-smoke`: start `sdkwork-agent-server` with the standalone split-services dev profile and wait for `/health`.
+- `pnpm dev`: start the default standalone split-services development stack (agent server + kernel UI).
 - `pnpm verify`: run the merge-ready verification aggregate.
 - `pnpm check`: run kernel standards, SDK workspace, UI architecture, and PNPM script checks.
 
@@ -116,7 +136,7 @@ Prefer contract tests that document public behavior. Rust integration tests belo
 
 ### Commit & Pull Request Guidelines
 
-History uses Conventional Commit style, for example `feat(agent-business): add expectedVersion optimistic concurrency contracts` and `refactor(agent-business): centralize problem error category mapping`. Use a scoped subject, keep it imperative, and keep unrelated changes out of the same commit. Pull requests should summarize the contract or subsystem changed, list verification commands run, link relevant specs or issues, and include screenshots only for visible UI changes.
+History uses Conventional Commit style, for example `feat(agent-kernel): add task scheduling SPI pause/resume contracts` and `refactor(agent-server): centralize problem error category mapping`. Use a scoped subject, keep it imperative, and keep unrelated changes out of the same commit. Pull requests should summarize the contract or subsystem changed, list verification commands run, link relevant specs or issues, and include screenshots only for visible UI changes.
 
 ### Security & Architecture Notes
 

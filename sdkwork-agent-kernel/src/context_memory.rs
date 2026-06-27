@@ -1,4 +1,4 @@
-use crate::{KernelResult, ProviderHealth, ProviderManifest};
+use crate::{KernelError, KernelResult, ProviderHealth, ProviderManifest};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrustLevel {
@@ -169,6 +169,65 @@ pub struct ContextExplanation {
     pub source_factors: Vec<String>,
 }
 
+// ============================================================================
+// Memory Tier - persistence and evolution behavior of a memory record
+// ============================================================================
+
+/// Describes the persistence and evolution behavior of a memory record.
+///
+/// This is orthogonal to [`MemoryScope`], which defines ownership and
+/// visibility. A record with `MemoryScope::User` and `MemoryTier::Permanent`
+/// is a permanent user-level memory that never expires.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MemoryTier {
+    /// In-memory only, lost when the process exits
+    Ephemeral,
+    /// Session-scoped, auto-expiring after session ends
+    #[default]
+    ShortTerm,
+    /// Persisted with an explicit retention policy
+    LongTerm,
+    /// Never deleted, survives across sessions and restarts
+    Permanent,
+    /// Accumulates and evolves over time through consolidation
+    Growing,
+}
+
+impl MemoryTier {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ephemeral => "ephemeral",
+            Self::ShortTerm => "short_term",
+            Self::LongTerm => "long_term",
+            Self::Permanent => "permanent",
+            Self::Growing => "growing",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "ephemeral" => Some(Self::Ephemeral),
+            "short_term" => Some(Self::ShortTerm),
+            "long_term" => Some(Self::LongTerm),
+            "permanent" => Some(Self::Permanent),
+            "growing" => Some(Self::Growing),
+            _ => None,
+        }
+    }
+
+    pub fn is_persistent(&self) -> bool {
+        matches!(self, Self::LongTerm | Self::Permanent | Self::Growing)
+    }
+
+    pub fn can_evolve(&self) -> bool {
+        matches!(self, Self::Growing)
+    }
+}
+
+// ============================================================================
+// Memory Scope - ownership and visibility of a memory record
+// ============================================================================
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MemoryScope {
     Session,
@@ -179,10 +238,51 @@ pub enum MemoryScope {
     Application,
 }
 
+impl MemoryScope {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Session => "session",
+            Self::User => "user",
+            Self::Tenant => "tenant",
+            Self::Organization => "organization",
+            Self::Agent => "agent",
+            Self::Application => "application",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "session" => Some(Self::Session),
+            "user" => Some(Self::User),
+            "tenant" => Some(Self::Tenant),
+            "organization" => Some(Self::Organization),
+            "agent" => Some(Self::Agent),
+            "application" => Some(Self::Application),
+            _ => None,
+        }
+    }
+
+    pub fn all() -> &'static [MemoryScope] {
+        &[
+            MemoryScope::Session,
+            MemoryScope::User,
+            MemoryScope::Tenant,
+            MemoryScope::Organization,
+            MemoryScope::Agent,
+            MemoryScope::Application,
+        ]
+    }
+}
+
+// ============================================================================
+// Memory Record - a single piece of memory with tier support
+// ============================================================================
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryRecord {
     pub memory_record_id: String,
     pub scope: MemoryScope,
+    pub tier: MemoryTier,
     pub owner_context: String,
     pub content: String,
     pub content_type: String,
@@ -192,6 +292,9 @@ pub struct MemoryRecord {
     pub redaction_classification: RedactionClassification,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+    pub expires_at: Option<String>,
+    pub consolidation_count: u32,
+    pub parent_record_id: Option<String>,
     pub policy_decision_id: Option<String>,
     pub metadata: Vec<(String, String)>,
 }
@@ -208,6 +311,7 @@ impl MemoryRecord {
         Self {
             memory_record_id: memory_record_id.into(),
             scope,
+            tier: MemoryTier::default(),
             owner_context: owner_context.into(),
             content: content.into(),
             content_type: "text/plain".to_string(),
@@ -217,6 +321,9 @@ impl MemoryRecord {
             redaction_classification,
             created_at: None,
             updated_at: None,
+            expires_at: None,
+            consolidation_count: 0,
+            parent_record_id: None,
             policy_decision_id: None,
             metadata: Vec::new(),
         }
@@ -234,6 +341,26 @@ impl MemoryRecord {
 
     pub fn with_retention_policy(mut self, retention_policy: impl Into<String>) -> Self {
         self.retention_policy = Some(retention_policy.into());
+        self
+    }
+
+    pub fn with_tier(mut self, tier: MemoryTier) -> Self {
+        self.tier = tier;
+        self
+    }
+
+    pub fn with_expires_at(mut self, expires_at: impl Into<String>) -> Self {
+        self.expires_at = Some(expires_at.into());
+        self
+    }
+
+    pub fn with_parent(mut self, parent_record_id: impl Into<String>) -> Self {
+        self.parent_record_id = Some(parent_record_id.into());
+        self
+    }
+
+    pub fn with_consolidation_count(mut self, count: u32) -> Self {
+        self.consolidation_count = count;
         self
     }
 
@@ -267,7 +394,58 @@ impl MemoryRecord {
     pub fn requires_redaction(&self) -> bool {
         self.redaction_classification.requires_redaction()
     }
+
+    pub fn is_persistent(&self) -> bool {
+        self.tier.is_persistent()
+    }
+
+    pub fn is_permanent(&self) -> bool {
+        self.tier == MemoryTier::Permanent
+    }
+
+    pub fn is_growing(&self) -> bool {
+        self.tier == MemoryTier::Growing
+    }
+
+    pub fn has_expired(&self, current_time: &str) -> bool {
+        match &self.expires_at {
+            Some(expires_at) => current_time >= expires_at.as_str(),
+            None => false,
+        }
+    }
+
+    /// Create a consolidated child record from this record.
+    /// Used by growing memory to track evolution history.
+    pub fn consolidate_into(
+        &self,
+        new_record_id: impl Into<String>,
+        new_content: impl Into<String>,
+    ) -> Self {
+        Self {
+            memory_record_id: new_record_id.into(),
+            scope: self.scope,
+            tier: self.tier,
+            owner_context: self.owner_context.clone(),
+            content: new_content.into(),
+            content_type: self.content_type.clone(),
+            source: self.source.clone(),
+            trust_level: self.trust_level,
+            retention_policy: self.retention_policy.clone(),
+            redaction_classification: self.redaction_classification,
+            created_at: None,
+            updated_at: None,
+            expires_at: None,
+            consolidation_count: self.consolidation_count.saturating_add(1),
+            parent_record_id: Some(self.memory_record_id.clone()),
+            policy_decision_id: None,
+            metadata: self.metadata.clone(),
+        }
+    }
 }
+
+// ============================================================================
+// Memory Provider - the SPI trait with tier-aware operations
+// ============================================================================
 
 pub trait MemoryProvider {
     fn provider_manifest(&self) -> ProviderManifest {
@@ -281,6 +459,8 @@ pub trait MemoryProvider {
                 "memory.write".to_string(),
                 "memory.delete".to_string(),
                 "memory.export".to_string(),
+                "memory.consolidate".to_string(),
+                "memory.evolve".to_string(),
             ],
         )
     }
@@ -292,6 +472,98 @@ pub trait MemoryProvider {
     fn delete(&mut self, memory_record_id: &str) -> KernelResult<()>;
 
     fn export(&self, scope: MemoryScope, owner_context: &str) -> KernelResult<Vec<MemoryRecord>>;
+
+    /// Query records by both scope and tier.
+    /// Default implementation filters query results by tier.
+    fn query_by_tier(
+        &self,
+        scope: MemoryScope,
+        owner_context: &str,
+        tier: MemoryTier,
+    ) -> KernelResult<Vec<MemoryRecord>> {
+        Ok(self
+            .query(scope, owner_context)?
+            .into_iter()
+            .filter(|record| record.tier == tier)
+            .collect())
+    }
+
+    /// Consolidate growing memory records for a given scope and owner.
+    ///
+    /// This merges multiple growing records into a consolidated record,
+    /// preserving the evolution history through `parent_record_id`.
+    fn consolidate(
+        &mut self,
+        scope: MemoryScope,
+        owner_context: &str,
+    ) -> KernelResult<Vec<MemoryRecord>> {
+        let growing_records = self.query_by_tier(scope, owner_context, MemoryTier::Growing)?;
+        if growing_records.len() < 2 {
+            return Ok(growing_records);
+        }
+
+        let consolidated_content = growing_records
+            .iter()
+            .map(|record| record.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n---\n\n");
+
+        let parent = &growing_records[0];
+        let new_record = parent
+            .consolidate_into(
+                format!("{}.consolidated", parent.memory_record_id),
+                consolidated_content,
+            )
+            .with_tier(MemoryTier::Growing);
+
+        for record in &growing_records {
+            self.delete(&record.memory_record_id)?;
+        }
+        self.write(new_record.clone())?;
+        Ok(vec![new_record])
+    }
+
+    /// Evolve a growing memory record by appending new content.
+    ///
+    /// This creates a new version of the record with the additional content,
+    /// preserving the parent link for history tracking. The caller must provide
+    /// the scope and owner context so the provider can locate the record.
+    fn evolve(
+        &mut self,
+        scope: MemoryScope,
+        owner_context: &str,
+        memory_record_id: &str,
+        additional_content: String,
+    ) -> KernelResult<MemoryRecord> {
+        let record = self
+            .query(scope, owner_context)?
+            .into_iter()
+            .find(|record| record.memory_record_id == memory_record_id)
+            .ok_or_else(|| {
+                KernelError::validation(format!(
+                    "memory record not found for evolution: {memory_record_id}"
+                ))
+            })?;
+
+        if !record.is_growing() {
+            return Err(KernelError::validation(
+                "only growing-tier memory records can be evolved",
+            ));
+        }
+
+        let new_content = format!("{}\n\n{}", record.content, additional_content);
+        let evolved = record.consolidate_into(
+            format!(
+                "{}.evolved.{}",
+                record.memory_record_id,
+                record.consolidation_count + 1
+            ),
+            new_content,
+        );
+        self.delete(memory_record_id)?;
+        self.write(evolved.clone())?;
+        Ok(evolved)
+    }
 
     fn health(&self) -> ProviderHealth;
 }

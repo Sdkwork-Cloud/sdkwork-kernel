@@ -1,5 +1,5 @@
-use sdkwork_agent_provider_opencode::OpenCodeModelProvider;
 use sdkwork_agent_kernel::ModelProvider;
+use sdkwork_agent_provider_opencode::OpenCodeModelProvider;
 use serde_json::Value;
 
 const COMPONENT_SPEC: &str = include_str!("../specs/component.spec.json");

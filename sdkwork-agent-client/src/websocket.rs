@@ -41,7 +41,11 @@ impl ChatClient for WebSocketChatClient {
         Err(INTERNAL_API_WS_UNSUPPORTED.to_string())
     }
 
-    fn get_messages(&self, _session_id: &str, _limit: Option<u32>) -> Result<Vec<ChatMessage>, String> {
+    fn get_messages(
+        &self,
+        _session_id: &str,
+        _limit: Option<u32>,
+    ) -> Result<Vec<ChatMessage>, String> {
         Err(INTERNAL_API_WS_UNSUPPORTED.to_string())
     }
 
@@ -82,4 +86,3 @@ mod tests {
             .is_err());
     }
 }
-

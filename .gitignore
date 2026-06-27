@@ -31,3 +31,7 @@ config/*.local.toml
 data/
 .sdkwork/
 **/.sdkwork/
+
+# SDKWork local runtime state
+.runtime/
+**/.runtime/

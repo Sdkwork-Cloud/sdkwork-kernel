@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use crate::types::{generate_id, BridgeEvent, BridgeEventSeverity, BridgeModelResult};
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentRuntime, AgentSession, ContextFrame, KernelResult,
-    ModelDescriptor, ModelRequest, ModelResponse, ModelStreamChunk, ModelUsage,
+    AgentMessage, AgentRuntime, AgentSession, ContextFrame, KernelResult, ModelCancellationRequest,
+    ModelDescriptor, ModelExecutionService, ModelRequest, ModelResponse, ModelStreamChunk,
+    ModelUsage,
 };
 
 /// Handles model invocations and response processing
@@ -121,6 +122,43 @@ impl ModelBridge {
     ) -> KernelResult<Vec<ModelStreamChunk>> {
         let provider = self.resolve_model_provider(runtime, model_provider_id)?;
         provider.stream(request.clone())
+    }
+
+    /// Cancel an in-flight model invocation (typed provider when registered,
+    /// otherwise mock bridge path).
+    pub fn cancel(
+        &self,
+        model_request_id: &str,
+        model_provider_id: Option<&str>,
+    ) -> KernelResult<ModelResponse> {
+        if let Some(runtime) = &self.agent_runtime {
+            match self.cancel_typed(runtime, model_request_id, model_provider_id) {
+                Ok(response) => return Ok(response),
+                Err(error) if self.allow_mock_fallback && error.retryable() => {}
+                Err(error) => return Err(error),
+            }
+        }
+
+        self.cancel_mock(model_request_id)
+    }
+
+    fn cancel_typed(
+        &self,
+        runtime: &AgentRuntime,
+        model_request_id: &str,
+        model_provider_id: Option<&str>,
+    ) -> KernelResult<ModelResponse> {
+        let mut cancellation_request =
+            ModelCancellationRequest::new("cancel.bridge", model_request_id.to_string());
+        if let Some(provider_id) = model_provider_id.filter(|value| !value.is_empty()) {
+            cancellation_request = cancellation_request.with_provider_id(provider_id.to_string());
+        }
+        let response = ModelExecutionService::new().cancel(runtime, cancellation_request)?;
+        Ok(response.model_response)
+    }
+
+    fn cancel_mock(&self, model_request_id: &str) -> KernelResult<ModelResponse> {
+        Ok(ModelResponse::cancelled(model_request_id, "provider.mock"))
     }
 
     fn stream_mock(&self, request: &ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {

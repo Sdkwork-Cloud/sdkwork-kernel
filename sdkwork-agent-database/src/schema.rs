@@ -18,6 +18,7 @@ impl SchemaManager {
         self.create_tasks_table()?;
         self.create_events_table()?;
         self.create_agents_table()?;
+        self.create_permissions_table()?;
         Ok(())
     }
 
@@ -141,6 +142,36 @@ impl SchemaManager {
             )
         ";
         self.db.execute(sql, &[])?;
+        Ok(())
+    }
+
+    /// Create permissions table for persisting permission request state.
+    /// Ensures permission decisions survive server restarts.
+    fn create_permissions_table(&self) -> DatabaseResult<()> {
+        let sql = "
+            CREATE TABLE IF NOT EXISTS permissions (
+                permission_request_id TEXT PRIMARY KEY,
+                session_id TEXT,
+                category TEXT NOT NULL,
+                resource TEXT NOT NULL,
+                side_effect_level TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                owner_tenant_id TEXT,
+                owner_user_ref TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT
+            )
+        ";
+        self.db.execute(sql, &[])?;
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_permissions_session_id ON permissions(session_id)",
+            &[],
+        )?;
+        self.db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_permissions_status ON permissions(status)",
+            &[],
+        )?;
         Ok(())
     }
 }

@@ -225,12 +225,12 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Run live PostgreSQL memory contract
+      - name: Run live PostgreSQL runtime session contract
         env:
-          SDKWORK_AGENT_BUSINESS_POSTGRES_URI: postgres://postgres:postgres@localhost:5432/sdkwork_test
+          SDKWORK_AGENT_RUNTIME_POSTGRES_URI: postgres://postgres:postgres@localhost:5432/sdkwork_test
         run: >
           cargo test --features postgres-sync
-          --test agent_postgres_sync_contracts
-          --manifest-path sdkwork-agent-business/Cargo.toml
-          live_postgres_memory_relation_get_roundtrip_when_uri_configured
+          --test agent_runtime_postgres_contracts
+          --manifest-path sdkwork-agent-database/Cargo.toml
+          live_postgres_session_message_roundtrip_when_uri_configured
           -- --nocapture

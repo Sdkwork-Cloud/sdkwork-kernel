@@ -25,10 +25,11 @@ pub use memory::InMemoryDatabase;
 pub use schema::SchemaManager;
 pub use traits::{
     AgentDatabase, DatabaseParam, DatabaseRow, EventRepository, MessageRepository,
-    SessionRepository, TaskRepository,
+    PermissionRepository, SessionRepository, TaskRepository,
 };
 pub use types::{
-    AgentRow, EventQuery, EventRow, MessageQuery, MessageRow, SessionQuery, SessionRow, TaskRow,
+    AgentRow, EventQuery, EventRow, MessageQuery, MessageRow, PermissionRow, SessionQuery,
+    SessionRow, TaskRow,
 };
 
 #[cfg(feature = "sqlite")]

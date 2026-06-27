@@ -13,6 +13,7 @@ Kernel runtime connectivity is declared in [`../specs/topology.spec.json`](../sp
 | `standalone.split-services.development` | standalone | split-services | development | `configs/topology/standalone.split-services.development.env` |
 | `standalone.unified-process.development` | standalone | unified-process | development | `configs/topology/standalone.unified-process.development.env` |
 | `standalone.split-services.production` | standalone | split-services | production | `configs/topology/standalone.split-services.production.env` |
+| `standalone.unified-process.production` | standalone | unified-process | production | `configs/topology/standalone.unified-process.production.env` |
 | `cloud.split-services.development` | cloud | split-services | development | `configs/topology/cloud.split-services.development.env` |
 | `cloud.split-services.production` | cloud | split-services | production | `configs/topology/cloud.split-services.production.env` |
 

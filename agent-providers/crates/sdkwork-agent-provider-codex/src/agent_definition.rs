@@ -17,17 +17,15 @@ pub fn codex_agent_manifest() -> AgentManifest {
             .to_string(),
         version: "0.2.0".to_string(),
         domain: "intelligence".to_string(),
-        required_capabilities: vec![
-            "model.chat".to_string(),
-            "policy.evaluate".to_string(),
-        ],
+        required_capabilities: vec!["model.chat".to_string(), "policy.evaluate".to_string()],
         optional_capabilities: vec!["tool.invoke".to_string()],
         required_capability_requirements: vec![
             CapabilityRequirement::new("model.chat").with_min_version("0.1.0"),
             CapabilityRequirement::new("policy.evaluate").with_min_version("0.1.0"),
         ],
-        optional_capability_requirements: vec![CapabilityRequirement::new("tool.invoke")
-            .with_min_version("0.1.0")],
+        optional_capability_requirements: vec![
+            CapabilityRequirement::new("tool.invoke").with_min_version("0.1.0")
+        ],
         event_families: vec![
             "agent.runtime.*".to_string(),
             "agent.session.*".to_string(),

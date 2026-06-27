@@ -176,7 +176,10 @@ fn runtime_diagnostics_report_typed_manifest_only_health_and_missing_standard_fa
             "collaboration",
             "telemetry",
             "agent_installer",
-            "agent_configuration"
+            "agent_configuration",
+            "task_scheduling",
+            "agent_classification",
+            "message_query"
         ]
     );
 }

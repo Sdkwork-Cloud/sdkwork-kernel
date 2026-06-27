@@ -16,6 +16,7 @@ pub mod middleware;
 pub mod observability;
 pub mod persistence;
 pub mod preflight;
+pub mod problem_details;
 pub mod rate_limit;
 pub mod runtime;
 pub mod runtime_bootstrap;

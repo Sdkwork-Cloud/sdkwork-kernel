@@ -43,10 +43,8 @@ fn init_with_otlp(env_filter: EnvFilter, endpoint: &str) -> anyhow::Result<()> {
         .with_endpoint(endpoint)
         .build()?;
 
-    let resource = Resource::new_with_defaults([KeyValue::new(
-        "service.name",
-        "sdkwork-agent-server",
-    )]);
+    let resource =
+        Resource::new_with_defaults([KeyValue::new("service.name", "sdkwork-agent-server")]);
 
     let provider = TracerProvider::builder()
         .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
@@ -89,10 +87,9 @@ mod tests {
 
     #[test]
     fn parses_valid_traceparent() {
-        let trace_id = trace_id_from_traceparent(
-            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-        )
-        .expect("traceparent should parse");
+        let trace_id =
+            trace_id_from_traceparent("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+                .expect("traceparent should parse");
         assert_eq!(trace_id, "4bf92f3577b34da6a3ce929d0e0e4736");
     }
 

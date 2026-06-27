@@ -36,8 +36,7 @@ impl ToolBridge {
             if let Ok(provider) = runtime.tool_provider() {
                 for descriptor in provider.list_tools() {
                     let duplicate = tools.iter().any(|existing| {
-                        existing.tool_id == descriptor.tool_id
-                            || existing.name == descriptor.name
+                        existing.tool_id == descriptor.tool_id || existing.name == descriptor.name
                     });
                     if !duplicate {
                         tools.push(descriptor);

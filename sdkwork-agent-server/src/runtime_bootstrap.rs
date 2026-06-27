@@ -1,9 +1,9 @@
 use sdkwork_agent_kernel::{AgentRuntime, KernelError, KernelResult, RuntimeBuilder};
 use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
-use sdkwork_agent_provider_codex::{CodexKernelPlugin, ids as codex_ids};
-use sdkwork_agent_provider_hermes::{HermesKernelPlugin, ids as hermes_ids};
-use sdkwork_agent_provider_openclaw::{OpenClawKernelPlugin, ids as openclaw_ids};
-use sdkwork_agent_provider_rig::{RigKernelPlugin, ids as rig_ids};
+use sdkwork_agent_provider_codex::{ids as codex_ids, CodexKernelPlugin};
+use sdkwork_agent_provider_hermes::{ids as hermes_ids, HermesKernelPlugin};
+use sdkwork_agent_provider_openclaw::{ids as openclaw_ids, OpenClawKernelPlugin};
+use sdkwork_agent_provider_rig::{ids as rig_ids, RigKernelPlugin};
 
 /// Environment variable selecting the active kernel agent plugin (`rig`, `openclaw`, `hermes`, `codex`).
 pub const KERNEL_AGENT_PLUGIN_ENV: &str = "SDKWORK_KERNEL_AGENT_PLUGIN";
@@ -44,11 +44,7 @@ pub fn bootstrap_agent_runtime() -> KernelResult<AgentRuntime> {
 }
 
 fn bootstrap_rig_runtime() -> KernelResult<AgentRuntime> {
-    bootstrap_plugin_runtime(
-        &RigKernelPlugin::fail_closed(),
-        rig_ids::AGENT_ID,
-        "rig",
-    )
+    bootstrap_plugin_runtime(&RigKernelPlugin::fail_closed(), rig_ids::AGENT_ID, "rig")
 }
 
 fn bootstrap_openclaw_runtime() -> KernelResult<AgentRuntime> {
@@ -60,19 +56,11 @@ fn bootstrap_openclaw_runtime() -> KernelResult<AgentRuntime> {
 }
 
 fn bootstrap_hermes_runtime() -> KernelResult<AgentRuntime> {
-    bootstrap_plugin_runtime(
-        &HermesKernelPlugin::new(),
-        hermes_ids::AGENT_ID,
-        "hermes",
-    )
+    bootstrap_plugin_runtime(&HermesKernelPlugin::new(), hermes_ids::AGENT_ID, "hermes")
 }
 
 fn bootstrap_codex_runtime() -> KernelResult<AgentRuntime> {
-    bootstrap_plugin_runtime(
-        &CodexKernelPlugin::new(),
-        codex_ids::AGENT_ID,
-        "codex",
-    )
+    bootstrap_plugin_runtime(&CodexKernelPlugin::new(), codex_ids::AGENT_ID, "codex")
 }
 
 fn bootstrap_plugin_runtime(

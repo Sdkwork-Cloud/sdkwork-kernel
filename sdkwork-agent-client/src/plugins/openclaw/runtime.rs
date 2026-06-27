@@ -1,8 +1,8 @@
 use crate::bridge::{AgentBridgeConfig, AgentBridgeHealth, AgentBridgeStatus};
 use crate::session::SdkModelBridgeRuntime;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
-use sdkwork_agent_provider_openclaw::OpenClawSdkIntegration;
 use sdkwork_agent_kernel::ModelProvider;
+use sdkwork_agent_provider_openclaw::OpenClawSdkIntegration;
 use sdkwork_agent_provider_spi::SdkRuntimeRequest;
 use std::sync::Arc;
 
@@ -79,7 +79,9 @@ fn runtime_health_from_ping(integration: &OpenClawSdkIntegration) -> AgentBridge
         Ok(response) if response.success => AgentBridgeHealth::healthy(),
         Ok(response) => AgentBridgeHealth::unhealthy(format!(
             "openclaw runtime ping failed: {}",
-            response.message.unwrap_or_else(|| "unknown error".to_string())
+            response
+                .message
+                .unwrap_or_else(|| "unknown error".to_string())
         )),
         Err(error) => AgentBridgeHealth {
             status: AgentBridgeStatus::Degraded,

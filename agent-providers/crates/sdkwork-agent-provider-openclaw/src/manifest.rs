@@ -25,23 +25,18 @@ impl OpenClawKernelPlugin {
 }
 
 pub fn openclaw_kernel_plugin_manifest() -> KernelPluginManifest {
-    KernelPluginManifest::new(
-        ids::PLUGIN_ID,
-        "OpenClaw",
-        "0.2.0",
-        "process-adapter",
-    )
-    .with_source_reference("external/openclaw")
-    .with_agent_id(ids::AGENT_ID)
-    .with_provider_id(ids::MODEL_PROVIDER_ID)
-    .with_provider_id(ids::TOOL_PROVIDER_ID)
-    .with_provider_id(ids::POLICY_PROVIDER_ID)
-    .with_provider_id(ids::INSTALLER_PROVIDER_ID)
-    .with_provider_id(ids::CONFIGURATION_PROVIDER_ID)
-    .with_supported_profile("runtime-manifest")
-    .with_supported_profile("provider-model")
-    .with_supported_profile("provider-tool")
-    .with_supported_profile("security-baseline")
+    KernelPluginManifest::new(ids::PLUGIN_ID, "OpenClaw", "0.2.0", "process-adapter")
+        .with_source_reference("external/openclaw")
+        .with_agent_id(ids::AGENT_ID)
+        .with_provider_id(ids::MODEL_PROVIDER_ID)
+        .with_provider_id(ids::TOOL_PROVIDER_ID)
+        .with_provider_id(ids::POLICY_PROVIDER_ID)
+        .with_provider_id(ids::INSTALLER_PROVIDER_ID)
+        .with_provider_id(ids::CONFIGURATION_PROVIDER_ID)
+        .with_supported_profile("runtime-manifest")
+        .with_supported_profile("provider-model")
+        .with_supported_profile("provider-tool")
+        .with_supported_profile("security-baseline")
 }
 
 pub fn openclaw_provider_manifests() -> Vec<ProviderManifest> {
@@ -79,11 +74,7 @@ impl SdkworkKernelPlugin for OpenClawKernelPlugin {
             .expect("openclaw sdk integration must negotiate required capabilities");
 
         builder
-            .register_model_provider(
-                ids::MODEL_PROVIDER_ID,
-                "0.2.0",
-                integration.model,
-            )
+            .register_model_provider(ids::MODEL_PROVIDER_ID, "0.2.0", integration.model)
             .register_tool_provider(ids::TOOL_PROVIDER_ID, "0.2.0", integration.tools)
             .register_policy_provider(
                 ids::POLICY_PROVIDER_ID,

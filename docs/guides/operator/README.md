@@ -2,4 +2,4 @@
 
 Deployment, monitoring, and incident response entrypoints.
 
-See `DOCUMENTATION_SPEC.md` section 2.
+See [DOCUMENTATION_SPEC.md](../../../sdkwork-specs/DOCUMENTATION_SPEC.md) section 2.

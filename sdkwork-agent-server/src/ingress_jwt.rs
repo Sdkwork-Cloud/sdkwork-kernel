@@ -65,8 +65,10 @@ impl RefreshableJwksCache {
         *last = Some(Instant::now());
         drop(last);
 
+        // Runtime refresh always enforces HTTPS for URL sources to prevent
+        // MITM attacks that could replace public keys during key rotation.
         let refreshed = match &self.source {
-            JwksRefreshSource::Url(url) => fetch_jwks_url(url),
+            JwksRefreshSource::Url(url) => fetch_jwks_url(url, true),
             JwksRefreshSource::File(path) => load_jwks_file(path),
         };
         match refreshed {
@@ -120,40 +122,37 @@ impl IngressJwtValidator {
             .filter(|value| !value.is_empty())
             .map(str::to_string);
 
-        let (hs256_secret, rsa_decoding_key, jwks_cache) =
-            if let Some(path) = config
-                .ingress_jwt_jwks_file
-                .as_deref()
-                .filter(|value| !value.is_empty())
-            {
-                let keys = load_jwks_file(path)?;
-                (
-                    None,
-                    None,
-                    Some(RefreshableJwksCache::new(
-                        JwksRefreshSource::File(path.to_string()),
-                        keys,
-                    )),
-                )
-            } else if let Some(url) = config
-                .ingress_jwt_jwks_url
-                .as_deref()
-                .filter(|value| !value.is_empty())
-            {
-                let keys = fetch_jwks_url(url)?;
-                (
-                    None,
-                    None,
-                    Some(RefreshableJwksCache::new(
-                        JwksRefreshSource::Url(url.to_string()),
-                        keys,
-                    )),
-                )
-            } else if config
-                .ingress_jwt_algorithm
-                .eq_ignore_ascii_case("rs256")
-            {
-                let pem = config
+        let (hs256_secret, rsa_decoding_key, jwks_cache) = if let Some(path) = config
+            .ingress_jwt_jwks_file
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            let keys = load_jwks_file(path)?;
+            (
+                None,
+                None,
+                Some(RefreshableJwksCache::new(
+                    JwksRefreshSource::File(path.to_string()),
+                    keys,
+                )),
+            )
+        } else if let Some(url) = config
+            .ingress_jwt_jwks_url
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            let require_https = config.is_production_kernel_profile();
+            let keys = fetch_jwks_url(url, require_https)?;
+            (
+                None,
+                None,
+                Some(RefreshableJwksCache::new(
+                    JwksRefreshSource::Url(url.to_string()),
+                    keys,
+                )),
+            )
+        } else if config.ingress_jwt_algorithm.eq_ignore_ascii_case("rs256") {
+            let pem = config
                     .ingress_jwt_rsa_public_key_pem
                     .as_deref()
                     .filter(|value| !value.is_empty())
@@ -161,27 +160,26 @@ impl IngressJwtValidator {
                         "SDKWORK_KERNEL_INGRESS_JWT_RSA_PUBLIC_KEY_PEM is required for RS256 ingress JWT"
                             .to_string()
                     })?;
-                (
-                    None,
-                    Some(
-                        DecodingKey::from_rsa_pem(pem.as_bytes()).map_err(|error| {
-                            format!("invalid ingress RSA public key PEM: {error}")
-                        })?,
-                    ),
-                    None,
-                )
-            } else {
-                let secret = config
-                    .ingress_jwt_secret
-                    .as_deref()
-                    .filter(|value| !value.is_empty())
-                    .ok_or_else(|| {
-                        "SDKWORK_KERNEL_INGRESS_JWT_SECRET is required for HS256 ingress JWT"
-                            .to_string()
-                    })?
-                    .to_string();
-                (Some(secret), None, None)
-            };
+            (
+                None,
+                Some(
+                    DecodingKey::from_rsa_pem(pem.as_bytes())
+                        .map_err(|error| format!("invalid ingress RSA public key PEM: {error}"))?,
+                ),
+                None,
+            )
+        } else {
+            let secret = config
+                .ingress_jwt_secret
+                .as_deref()
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    "SDKWORK_KERNEL_INGRESS_JWT_SECRET is required for HS256 ingress JWT"
+                        .to_string()
+                })?
+                .to_string();
+            (Some(secret), None, None)
+        };
 
         Ok(Self {
             issuer,
@@ -209,10 +207,7 @@ impl IngressJwtValidator {
         identity_from_claims(token_data.claims)
     }
 
-    fn resolve_decoding_key(
-        &self,
-        token: &str,
-    ) -> Result<(Algorithm, DecodingKey), StatusCode> {
+    fn resolve_decoding_key(&self, token: &str) -> Result<(Algorithm, DecodingKey), StatusCode> {
         if let Some(secret) = &self.hs256_secret {
             return Ok((
                 Algorithm::HS256,
@@ -251,10 +246,7 @@ fn identity_from_claims(claims: IngressJwtClaims) -> Result<VerifiedIngressIdent
     if user_id.is_empty() {
         return Err(StatusCode::FORBIDDEN);
     }
-    Ok(VerifiedIngressIdentity {
-        tenant_id,
-        user_id,
-    })
+    Ok(VerifiedIngressIdentity { tenant_id, user_id })
 }
 
 fn jwk_algorithm(jwk: &jsonwebtoken::jwk::Jwk) -> Result<Algorithm, String> {
@@ -267,11 +259,20 @@ fn jwk_algorithm(jwk: &jsonwebtoken::jwk::Jwk) -> Result<Algorithm, String> {
 fn load_jwks_file(path: &str) -> Result<HashMap<String, (Algorithm, DecodingKey)>, String> {
     let raw = fs::read_to_string(Path::new(path))
         .map_err(|error| format!("failed to read ingress JWKS file {path}: {error}"))?;
-    parse_jwks_json(&raw).map_err(|error| format!("failed to parse ingress JWKS file {path}: {error}"))
+    parse_jwks_json(&raw)
+        .map_err(|error| format!("failed to parse ingress JWKS file {path}: {error}"))
 }
 
-fn fetch_jwks_url(url: &str) -> Result<HashMap<String, (Algorithm, DecodingKey)>, String> {
+fn fetch_jwks_url(
+    url: &str,
+    require_https: bool,
+) -> Result<HashMap<String, (Algorithm, DecodingKey)>, String> {
     let trimmed = url.trim();
+    if require_https && !trimmed.starts_with("https://") {
+        return Err(format!(
+            "ingress JWKS URL must use https:// in production: {trimmed}"
+        ));
+    }
     if !(trimmed.starts_with("https://") || trimmed.starts_with("http://")) {
         return Err(format!(
             "ingress JWKS URL must use http:// or https:// scheme: {trimmed}"
@@ -305,12 +306,13 @@ fn fetch_jwks_url(url: &str) -> Result<HashMap<String, (Algorithm, DecodingKey)>
         ));
     }
 
-    parse_jwks_json(&raw).map_err(|error| format!("failed to parse ingress JWKS URL {trimmed}: {error}"))
+    parse_jwks_json(&raw)
+        .map_err(|error| format!("failed to parse ingress JWKS URL {trimmed}: {error}"))
 }
 
 fn parse_jwks_json(raw: &str) -> Result<HashMap<String, (Algorithm, DecodingKey)>, String> {
-    let jwks: JwkSet = serde_json::from_str(raw)
-        .map_err(|error| format!("invalid JWKS JSON: {error}"))?;
+    let jwks: JwkSet =
+        serde_json::from_str(raw).map_err(|error| format!("invalid JWKS JSON: {error}"))?;
     let mut keys = HashMap::new();
     for jwk in jwks.keys {
         let Some(kid) = jwk.common.key_id.clone() else {
@@ -358,9 +360,9 @@ mod tests {
         let validator = IngressJwtValidator::from_config(&config).expect("validator");
         let exp = (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize;
         let claims = serde_json::json!({
-            "sub": "user-1",
+            "sub": "1",
             "tenant_id": "100001",
-            "user_id": "user-1",
+            "user_id": "1",
             "exp": exp,
             "iss": "sdkwork-kernel",
             "aud": "internal-api",
@@ -377,7 +379,7 @@ mod tests {
             identity,
             VerifiedIngressIdentity {
                 tenant_id: "100001".to_string(),
-                user_id: "user-1".to_string(),
+                user_id: "1".to_string(),
             }
         );
     }
@@ -388,7 +390,7 @@ mod tests {
         let validator = IngressJwtValidator::from_config(&config).expect("validator");
         let exp = (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize;
         let claims = serde_json::json!({
-            "sub": "user-1",
+            "sub": "1",
             "exp": exp,
             "iss": "sdkwork-kernel",
             "aud": "internal-api",
@@ -430,7 +432,9 @@ mod tests {
             &EncodingKey::from_rsa_pem(private_pem.as_bytes()).expect("private key"),
         )
         .expect("jwt encode");
-        let identity = validator.validate(&token).expect("rs256 jwt should validate");
+        let identity = validator
+            .validate(&token)
+            .expect("rs256 jwt should validate");
         assert_eq!(identity.tenant_id, "100001");
     }
 
@@ -469,7 +473,9 @@ mod tests {
             &EncodingKey::from_rsa_pem(private_pem.as_bytes()).expect("private key"),
         )
         .expect("jwt encode");
-        let identity = validator.validate(&token).expect("jwks jwt should validate");
+        let identity = validator
+            .validate(&token)
+            .expect("jwks jwt should validate");
         assert_eq!(identity.tenant_id, "100001");
     }
 
@@ -479,6 +485,15 @@ mod tests {
         use std::net::TcpListener;
         use std::sync::mpsc;
         use std::thread;
+
+        // Acquire the env lock and clear production profile env vars to
+        // prevent parallel test interference. Other tests set
+        // `SDKWORK_KERNEL_PROFILE_ID` to a `.production` profile, which would
+        // make `is_production_kernel_profile()` return true and reject the
+        // HTTP localhost JWKS URL used by this test.
+        let _lock = crate::testing::env::lock();
+        let _profile = crate::testing::env::VarGuard::set("SDKWORK_KERNEL_PROFILE_ID", None);
+        let _environment = crate::testing::env::VarGuard::set("SDKWORK_KERNEL_ENVIRONMENT", None);
 
         let jwks_body = include_str!("../tests/fixtures/ingress_jwt_jwks.json").to_string();
         let (ready_tx, ready_rx) = mpsc::channel();
@@ -502,7 +517,9 @@ mod tests {
             }
         });
 
-        let addr = ready_rx.recv().expect("jwks test server should be listening");
+        let addr = ready_rx
+            .recv()
+            .expect("jwks test server should be listening");
         let config = ServerConfig {
             ingress_auth_mode: "jwt".to_string(),
             ingress_jwt_jwks_url: Some(format!("http://{addr}")),
@@ -529,8 +546,22 @@ mod tests {
             &EncodingKey::from_rsa_pem(private_pem.as_bytes()).expect("private key"),
         )
         .expect("jwt encode");
-        let identity = validator.validate(&token).expect("jwks url jwt should validate");
+        let identity = validator
+            .validate(&token)
+            .expect("jwks url jwt should validate");
         assert_eq!(identity.tenant_id, "100001");
+    }
+
+    #[test]
+    fn rejects_http_jwks_url_in_production() {
+        let config = ServerConfig {
+            environment: "production".to_string(),
+            ingress_auth_mode: "jwt".to_string(),
+            ingress_jwt_jwks_url: Some("http://idp.example.com/jwks".to_string()),
+            ..ServerConfig::default()
+        };
+        let result = IngressJwtValidator::from_config(&config);
+        assert!(result.is_err(), "production JWKS URL must require https://");
     }
 
     #[test]

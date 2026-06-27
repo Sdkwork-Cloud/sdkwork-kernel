@@ -15,7 +15,10 @@ import type {
   ToolCallView,
   StreamEventView,
   EventSubscription,
-  EventSubscriptionOptions
+  EventSubscriptionOptions,
+  RuntimeManifestView,
+  RuntimeHealthView,
+  RuntimeDiagnosticsView
 } from '@sdkwork/kernel-ui-types';
 import { buildKernelUiAuthHeaders } from './kernel-ui-auth.provider';
 
@@ -35,6 +38,21 @@ function asKernelView<T>(value: unknown): T {
 class InternalSdkKernelUiClient implements KernelUiClient {
   constructor(private config: KernelUiClientConfig) {}
 
+  async getRuntimeManifest(): Promise<RuntimeManifestView> {
+    const client = await this.buildSdk();
+    return asKernelView<RuntimeManifestView>(await client.intelligence.runtime.manifest.get());
+  }
+
+  async getRuntimeHealth(): Promise<RuntimeHealthView> {
+    const client = await this.buildSdk();
+    return asKernelView<RuntimeHealthView>(await client.intelligence.runtime.health.get());
+  }
+
+  async getRuntimeDiagnostics(): Promise<RuntimeDiagnosticsView> {
+    const client = await this.buildSdk();
+    return asKernelView<RuntimeDiagnosticsView>(await client.intelligence.runtime.diagnostics.get());
+  }
+
   async loadSnapshot(): Promise<KernelUiSnapshot> {
     const client = await this.buildSdk();
     return asKernelView<KernelUiSnapshot>(await client.intelligence.runtime.snapshot.load());
@@ -47,7 +65,7 @@ class InternalSdkKernelUiClient implements KernelUiClient {
     const client = await this.buildSdk();
     return asKernelView<PermissionRequestView>(
       await client.intelligence.runtime.permissions.decide(permissionRequestId, {
-        decision
+        decision: decision === 'allow' ? 'allow' : 'deny'
       })
     );
   }
@@ -218,27 +236,33 @@ class InternalSdkKernelUiClient implements KernelUiClient {
   }
 }
 
-function mapModelDescriptor(row: Record<string, unknown>): ModelDescriptorView {
+function asRecord(value: unknown): Record<string, unknown> {
+  return (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+}
+
+function mapModelDescriptor(row: unknown): ModelDescriptorView {
+  const r = asRecord(row);
   return {
-    modelId: String(row.modelId ?? ''),
-    providerId: String(row.providerId ?? ''),
-    displayName: String(row.displayName ?? row.modelId ?? ''),
-    family: String(row.family ?? ''),
-    capabilities: Array.isArray(row.capabilities) ? row.capabilities.map(String) : []
+    modelId: String(r.modelId ?? ''),
+    providerId: String(r.providerId ?? ''),
+    displayName: String(r.displayName ?? r.modelId ?? ''),
+    family: String(r.family ?? ''),
+    capabilities: Array.isArray(r.capabilities) ? r.capabilities.map(String) : []
   };
 }
 
-function mapToolDescriptor(row: Record<string, unknown>): ToolDescriptorView {
+function mapToolDescriptor(row: unknown): ToolDescriptorView {
+  const r = asRecord(row);
   return {
-    toolId: String(row.toolId ?? ''),
-    providerId: String(row.providerId ?? ''),
-    name: row.name != null ? String(row.name) : undefined,
-    displayName: String(row.displayName ?? row.name ?? row.toolId ?? ''),
-    description: row.description != null ? String(row.description) : undefined,
-    sideEffectLevel: (row.sideEffectLevel ?? 'read_only') as ToolDescriptorView['sideEffectLevel'],
-    policyCategories: Array.isArray(row.policyCategories)
-      ? row.policyCategories.map(String)
+    toolId: String(r.toolId ?? ''),
+    providerId: String(r.providerId ?? ''),
+    name: r.name != null ? String(r.name) : undefined,
+    displayName: String(r.displayName ?? r.name ?? r.toolId ?? ''),
+    description: r.description != null ? String(r.description) : undefined,
+    sideEffectLevel: (r.sideEffectLevel ?? 'read_only') as ToolDescriptorView['sideEffectLevel'],
+    policyCategories: Array.isArray(r.policyCategories)
+      ? r.policyCategories.map(String)
       : [],
-    timeoutMs: typeof row.timeoutMs === 'number' ? row.timeoutMs : undefined
+    timeoutMs: typeof r.timeoutMs === 'number' ? r.timeoutMs : undefined
   };
 }

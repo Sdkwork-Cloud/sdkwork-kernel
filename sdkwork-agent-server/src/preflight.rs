@@ -39,22 +39,18 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
         });
     }
 
-    if config.is_production_kernel_profile()
-        && config.bind_address == "0.0.0.0"
-    {
+    if config.is_production_kernel_profile() && config.bind_address == "0.0.0.0" {
         checks.push(PreflightCheck {
             name: "production_bind".to_string(),
             status: PreflightStatus::Warning,
-            message: "Production environment binds to 0.0.0.0; place ingress behind a trusted gateway"
-                .to_string(),
+            message:
+                "Production environment binds to 0.0.0.0; place ingress behind a trusted gateway"
+                    .to_string(),
         });
     }
 
     if config.ingress_auth_mode.eq_ignore_ascii_case("token")
-        && config
-            .ingress_token
-            .as_deref()
-            .is_none_or(str::is_empty)
+        && config.ingress_token.as_deref().is_none_or(str::is_empty)
     {
         checks.push(PreflightCheck {
             name: "ingress_token".to_string(),
@@ -64,9 +60,7 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
         });
     }
 
-    if config.ingress_auth_mode.eq_ignore_ascii_case("jwt")
-        && !config.has_ingress_jwt_material()
-    {
+    if config.ingress_auth_mode.eq_ignore_ascii_case("jwt") && !config.has_ingress_jwt_material() {
         checks.push(PreflightCheck {
             name: "ingress_jwt_material".to_string(),
             status: PreflightStatus::Failed,
@@ -105,23 +99,31 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
         });
     }
 
-    if config.is_production_kernel_profile()
-        && config.rate_limit_rps == 0
-    {
+    if config.is_production_kernel_profile() && config.rate_limit_rps == 0 {
         checks.push(PreflightCheck {
             name: "rate_limit".to_string(),
             status: PreflightStatus::Failed,
-            message: "Production requires a positive SDKWORK_RATE_LIMIT_RPS (default 100)".to_string(),
+            message: "Production requires a positive SDKWORK_RATE_LIMIT_RPS (default 100)"
+                .to_string(),
+        });
+    }
+
+    if config.metrics_auth_required() && config.effective_metrics_token().is_none() {
+        checks.push(PreflightCheck {
+            name: "metrics_token".to_string(),
+            status: PreflightStatus::Failed,
+            message: "Metrics token auth requires SDKWORK_KERNEL_METRICS_TOKEN".to_string(),
         });
     }
 
     if config.metrics_auth_required()
-        && config.effective_metrics_token().is_none()
+        && config.metrics_token.is_none()
+        && config.ingress_token.is_some()
     {
         checks.push(PreflightCheck {
-            name: "metrics_token".to_string(),
-            status: PreflightStatus::Failed,
-            message: "Metrics token auth requires SDKWORK_KERNEL_METRICS_TOKEN or SDKWORK_KERNEL_INGRESS_TOKEN"
+            name: "metrics_token_separation".to_string(),
+            status: PreflightStatus::Warning,
+            message: "Metrics auth reuses ingress token; set SDKWORK_KERNEL_METRICS_TOKEN separately for least-privilege"
                 .to_string(),
         });
     }
@@ -145,9 +147,7 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
         });
     }
 
-    if config.requires_postgres_runtime_database()
-        && !postgres_runtime_uri_configured()
-    {
+    if config.requires_postgres_runtime_database() && !postgres_runtime_uri_configured() {
         checks.push(PreflightCheck {
             name: "runtime_postgres".to_string(),
             status: PreflightStatus::Failed,
@@ -174,8 +174,8 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
     {
         checks.push(PreflightCheck {
             name: "runtime_sqlite_scaling".to_string(),
-            status: PreflightStatus::Warning,
-            message: "SQLite runtime persistence limits horizontal scaling; set SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres for multi-replica deployments"
+            status: PreflightStatus::Failed,
+            message: "SQLite runtime persistence cannot scale horizontally; set SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres for multi-replica production deployments"
                 .to_string(),
         });
     }
@@ -198,13 +198,16 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
 }
 
 fn postgres_runtime_uri_configured() -> bool {
-    ["SDKWORK_AGENT_RUNTIME_DATABASE_URL", "SDKWORK_AGENT_RUNTIME_POSTGRES_URI"]
-        .into_iter()
-        .any(|key| {
-            std::env::var(key)
-                .ok()
-                .is_some_and(|value| !value.trim().is_empty())
-        })
+    [
+        "SDKWORK_AGENT_RUNTIME_DATABASE_URL",
+        "SDKWORK_AGENT_RUNTIME_POSTGRES_URI",
+    ]
+    .into_iter()
+    .any(|key| {
+        std::env::var(key)
+            .ok()
+            .is_some_and(|value| !value.trim().is_empty())
+    })
 }
 
 fn validate_bind_address(address: &str) -> PreflightCheck {
@@ -328,12 +331,10 @@ mod tests {
         };
         let result = validate(&config);
         assert!(!result.passed);
-        assert!(
-            result
-                .checks
-                .iter()
-                .any(|check| check.name == "ingress_jwt_material")
-        );
+        assert!(result
+            .checks
+            .iter()
+            .any(|check| check.name == "ingress_jwt_material"));
     }
 
     #[test]
@@ -345,12 +346,10 @@ mod tests {
             ..Default::default()
         };
         let result = validate(&config);
-        assert!(
-            result
-                .checks
-                .iter()
-                .any(|check| check.name == "ingress_jwt_jwks_url_https")
-        );
+        assert!(result
+            .checks
+            .iter()
+            .any(|check| check.name == "ingress_jwt_jwks_url_https"));
     }
 
     #[test]
@@ -364,7 +363,7 @@ mod tests {
             ingress_token: Some("secret".to_string()),
             rate_limit_rps: 100,
             metrics_auth_mode: "token".to_string(),
-            metrics_token: Some("secret".to_string()),
+            metrics_token: Some("metrics-secret".to_string()),
             ..Default::default()
         };
         let result = validate(&config);

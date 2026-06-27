@@ -25,7 +25,15 @@ const client = new SdkworkCustomClient({
 client.setApiKey('your-api-key');
 
 // Use the SDK
-const result = await client.intelligence.runtime.snapshot.load();
+const xSdkworkTenantId = 'x-sdkwork-tenant-id';
+const xSdkworkUserId = 'x-sdkwork-user-id';
+const xSdkworkIdentityMac = 'x-sdkwork-identity-mac';
+const params = {
+  xSdkworkTenantId,
+  xSdkworkUserId,
+  xSdkworkIdentityMac,
+};
+const result = await client.intelligence.runtime.manifest.get(params);
 ```
 
 ## Authentication
@@ -64,8 +72,16 @@ const client = new SdkworkCustomClient({
 ### intelligence
 
 ```typescript
-// Load kernel UI aggregate snapshot
-const result = await client.intelligence.runtime.snapshot.load();
+// Load runtime capability manifest
+const xSdkworkTenantId = 'x-sdkwork-tenant-id';
+const xSdkworkUserId = 'x-sdkwork-user-id';
+const xSdkworkIdentityMac = 'x-sdkwork-identity-mac';
+const params = {
+  xSdkworkTenantId,
+  xSdkworkUserId,
+  xSdkworkIdentityMac,
+};
+const result = await client.intelligence.runtime.manifest.get(params);
 ```
 
 ## Error Handling
@@ -74,7 +90,15 @@ const result = await client.intelligence.runtime.snapshot.load();
 import { SdkworkCustomClient, NetworkError, TimeoutError, AuthenticationError } from '@sdkwork/agent-internal-sdk';
 
 try {
-  const result = await client.intelligence.runtime.snapshot.load();
+  const xSdkworkTenantId = 'x-sdkwork-tenant-id';
+  const xSdkworkUserId = 'x-sdkwork-user-id';
+  const xSdkworkIdentityMac = 'x-sdkwork-identity-mac';
+  const params = {
+    xSdkworkTenantId,
+    xSdkworkUserId,
+    xSdkworkIdentityMac,
+  };
+  const result = await client.intelligence.runtime.manifest.get(params);
 } catch (error) {
   if (error instanceof AuthenticationError) {
     console.error('Authentication failed:', error.message);

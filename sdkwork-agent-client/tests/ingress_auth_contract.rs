@@ -1,6 +1,8 @@
 //! Contract tests: Rust client ingress auth matches server ingress_identity.
 
-use sdkwork_agent_client::{compute_identity_mac, ingress_auth, AgentAuth, INGRESS_IDENTITY_MAC_HEADER};
+use sdkwork_agent_client::{
+    compute_identity_mac, ingress_auth, AgentAuth, INGRESS_IDENTITY_MAC_HEADER,
+};
 
 #[test]
 fn apply_ingress_auth_sets_canonical_headers() {
@@ -25,7 +27,9 @@ fn apply_ingress_auth_sets_canonical_headers() {
         Some("tenant.1")
     );
     assert_eq!(
-        headers.get("x-sdkwork-user-id").and_then(|v| v.to_str().ok()),
+        headers
+            .get("x-sdkwork-user-id")
+            .and_then(|v| v.to_str().ok()),
         Some("user.1")
     );
     let mac = headers
@@ -56,5 +60,7 @@ fn ingress_jwt_profile_sends_bearer_only() {
 fn signed_mac_vector_is_stable_hex_hmac_sha256() {
     let mac = compute_identity_mac("secret-token", "tenant.1", "user.1").expect("mac");
     assert_eq!(mac.len(), 64);
-    assert!(mac.chars().all(|ch| ch.is_ascii_hexdigit() && !ch.is_uppercase()));
+    assert!(mac
+        .chars()
+        .all(|ch| ch.is_ascii_hexdigit() && !ch.is_uppercase()));
 }

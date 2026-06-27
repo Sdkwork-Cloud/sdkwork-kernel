@@ -169,8 +169,7 @@ mod tests {
     async fn readiness_reports_database_state() {
         let health_state = Arc::new(HealthState::new());
         let persistence = Arc::new(PersistenceState::memory().expect("persistence"));
-        let (status, Json(response)) =
-            readiness_check(State((health_state, persistence))).await;
+        let (status, Json(response)) = readiness_check(State((health_state, persistence))).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(response.status, "ready");
     }

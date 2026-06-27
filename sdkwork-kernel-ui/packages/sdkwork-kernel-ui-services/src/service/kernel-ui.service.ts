@@ -17,7 +17,10 @@ import type {
   ToolCallView,
   StreamEventView,
   EventSubscription,
-  EventSubscriptionOptions
+  EventSubscriptionOptions,
+  RuntimeManifestView,
+  RuntimeHealthView,
+  RuntimeDiagnosticsView
 } from '@sdkwork/kernel-ui-types';
 import { kernelUiMockSnapshot } from './kernel-ui.mock';
 
@@ -34,6 +37,51 @@ export function createMockKernelUiClient(snapshot = kernelUiMockSnapshot): Kerne
   const eventCallbacks = new Map<string, Set<(event: StreamEventView) => void>>();
 
   return {
+    // =========================================================================
+    // Runtime introspection (AGENT_RUNTIME_SPEC §4)
+    // =========================================================================
+
+    async getRuntimeManifest(): Promise<RuntimeManifestView> {
+      const runtime = currentSnapshot.runtime;
+      return {
+        runtimeId: runtime.runtimeId,
+        agentId: runtime.agentId,
+        kernelVersion: runtime.kernelVersion,
+        securityProfile: 'standalone',
+        capabilities: runtime.capabilities,
+        providers: [],
+        missingRequiredCapabilities: runtime.missingRequiredCapabilities,
+        degradedCapabilities: runtime.degradedCapabilities
+      };
+    },
+
+    async getRuntimeHealth(): Promise<RuntimeHealthView> {
+      const runtime = currentSnapshot.runtime;
+      return {
+        runtimeId: runtime.runtimeId,
+        state: runtime.state,
+        health: runtime.health === 'failed' ? 'degraded' : runtime.health,
+        persistenceHealthy: true,
+        degradedCapabilities: runtime.degradedCapabilities
+      };
+    },
+
+    async getRuntimeDiagnostics(): Promise<RuntimeDiagnosticsView> {
+      const runtime = currentSnapshot.runtime;
+      return {
+        runtimeId: runtime.runtimeId,
+        agentId: runtime.agentId,
+        state: runtime.state,
+        providerCount: 0,
+        capabilityCount: runtime.capabilities.length,
+        typedProviderCount: 0,
+        manifestOnlyProviderCount: 0,
+        missingRequiredCapabilities: runtime.missingRequiredCapabilities,
+        degradedCapabilities: runtime.degradedCapabilities,
+        providerDiagnostics: []
+      };
+    },
+
     // =========================================================================
     // Existing
     // =========================================================================

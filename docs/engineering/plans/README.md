@@ -1,5 +1,3 @@
 # plans
 
-See `DOCUMENTATION_SPEC.md` section 2.
-
-See `DOCUMENTATION_SPEC.md` section 2.
+Implementation and iteration plans governed by [DOCUMENTATION_SPEC.md](../../../sdkwork-specs/DOCUMENTATION_SPEC.md) section 2.3.

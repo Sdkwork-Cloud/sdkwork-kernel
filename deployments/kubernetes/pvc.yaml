@@ -1,12 +1,23 @@
+# PersistentVolumeClaim for SDKWork Agent Server.
+#
+# Production deployments use PostgreSQL for session persistence (enforced by
+# preflight checks). This PVC is retained for development/staging
+# environments that use SQLite, and for optional local caching.
+#
+# In multi-replica production deployments, the preflight check
+# `runtime_sqlite_scaling` fails if SQLite is selected, preventing
+# the RWO PVC from causing data corruption across replicas.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: sdkwork-agent-server-data
   labels:
     app.kubernetes.io/name: sdkwork-agent-server
+    app.kubernetes.io/part-of: sdkwork-kernel
 spec:
   accessModes:
     - ReadWriteOnce
   resources:
     requests:
       storage: 10Gi
+  storageClassName: standard

@@ -25,6 +25,26 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
+      terminationGracePeriodSeconds: 30
+      # Spread pods across nodes and zones for high availability.
+      # Soft anti-affinity ensures best-effort spreading without blocking
+      # scheduling when only one node is available (e.g., dev clusters).
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: sdkwork-agent-server
+                topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: sdkwork-agent-server
       containers:
         - name: agent-server
           image: sdkwork-kernel-agent-server:latest
@@ -53,18 +73,31 @@ spec:
                   name: sdkwork-agent-server-observability
                   key: otlp-endpoint
                   optional: true
+          startupProbe:
+            httpGet:
+              path: /live
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
           readinessProbe:
             httpGet:
               path: /ready
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 5
             periodSeconds: 10
+            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /live
               port: http
-            initialDelaySeconds: 20
+            initialDelaySeconds: 15
             periodSeconds: 20
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
           resources:
             requests:
               cpu: 250m
@@ -72,10 +105,3 @@ spec:
             limits:
               cpu: "2"
               memory: 2Gi
-          volumeMounts:
-            - name: data
-              mountPath: /var/lib/sdkwork/data
-              readOnly: false
-      volumes:
-        - name: data
-          emptyDir: {}

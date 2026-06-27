@@ -11,6 +11,7 @@ pub struct InMemoryDatabase {
     messages: Arc<Mutex<Vec<MessageRow>>>,
     tasks: Arc<Mutex<HashMap<String, TaskRow>>>,
     events: Arc<Mutex<Vec<EventRow>>>,
+    permissions: Arc<Mutex<HashMap<String, PermissionRow>>>,
 }
 
 impl InMemoryDatabase {
@@ -20,6 +21,7 @@ impl InMemoryDatabase {
             messages: Arc::new(Mutex::new(Vec::new())),
             tasks: Arc::new(Mutex::new(HashMap::new())),
             events: Arc::new(Mutex::new(Vec::new())),
+            permissions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -282,6 +284,56 @@ impl EventRepository for InMemoryDatabase {
             .lock()
             .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
         events.retain(|e| e.session_id.as_deref() != Some(session_id));
+        Ok(())
+    }
+}
+
+impl PermissionRepository for InMemoryDatabase {
+    fn save_permission(&self, permission: &PermissionRow) -> DatabaseResult<()> {
+        let mut permissions = self
+            .permissions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
+        permissions.insert(permission.permission_request_id.clone(), permission.clone());
+        Ok(())
+    }
+
+    fn load_permission(
+        &self,
+        permission_request_id: &str,
+    ) -> DatabaseResult<Option<PermissionRow>> {
+        let permissions = self
+            .permissions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
+        Ok(permissions.get(permission_request_id).cloned())
+    }
+
+    fn list_permissions(&self, status: Option<&str>) -> DatabaseResult<Vec<PermissionRow>> {
+        let permissions = self
+            .permissions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
+        Ok(permissions
+            .values()
+            .filter(|p| status.is_none() || p.status == status.unwrap())
+            .cloned()
+            .collect())
+    }
+
+    fn update_permission_status(
+        &self,
+        permission_request_id: &str,
+        status: &str,
+    ) -> DatabaseResult<()> {
+        let mut permissions = self
+            .permissions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
+        if let Some(permission) = permissions.get_mut(permission_request_id) {
+            permission.status = status.to_string();
+            permission.updated_at = Some(chrono::Utc::now().to_rfc3339());
+        }
         Ok(())
     }
 }

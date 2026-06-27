@@ -54,7 +54,8 @@ impl SessionBridge {
         let mut recorder = EventRecorder::new();
         session = session.activate(&mut recorder)?;
 
-        self.sessions.insert(session_id.to_string(), session.clone());
+        self.sessions
+            .insert(session_id.to_string(), session.clone());
         self.histories.insert(session_id.to_string(), Vec::new());
 
         Ok(session)

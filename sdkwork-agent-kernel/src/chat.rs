@@ -1,13 +1,14 @@
 use crate::{
     AgentRuntime, AgentTask, ContextFrame, KernelError, KernelErrorSource, KernelEvent,
     KernelEventRedaction, KernelResult, KnowledgeRetrievalMethod, KnowledgeSearchRequest,
-    KnowledgeSearchResult, MemoryRecord, MemoryScope, ModelExecutionRequest, ModelExecutionService,
-    ModelRequest, ModelResponse, PolicyCategory, PolicyDecision, PolicyDecisionValue,
-    PolicySubject, ProtocolAdapter, ProtocolAdapterAuthMode, ProtocolAdapterManifest,
-    ProtocolAdapterRequest, ProtocolAdapterResponse, ProtocolAdapterStreamingSupport,
-    ProtocolError, ProtocolFamily, ProtocolObjectEnvelope, ProtocolObjectKind,
-    ProtocolObjectMapper, ProtocolStreamUpdate, ProtocolTransport, ProviderHealth, RuntimeState,
-    SideEffectLevel, StandardProtocolObjectMapper, TraceContext,
+    KnowledgeSearchResult, MemoryRecord, MemoryScope, ModelCancellationRequest,
+    ModelExecutionRequest, ModelExecutionService, ModelRequest, ModelResponse, ModelStreamChunk,
+    PolicyCategory, PolicyDecision, PolicyDecisionValue, PolicySubject, ProtocolAdapter,
+    ProtocolAdapterAuthMode, ProtocolAdapterManifest, ProtocolAdapterRequest,
+    ProtocolAdapterResponse, ProtocolAdapterStreamingSupport, ProtocolError, ProtocolFamily,
+    ProtocolObjectEnvelope, ProtocolObjectKind, ProtocolObjectMapper, ProtocolStreamUpdate,
+    ProtocolTransport, ProviderHealth, RuntimeState, SideEffectLevel, StandardProtocolObjectMapper,
+    TraceContext,
 };
 
 const AGENT_CHAT_CREATE_OPERATION: &str = "agent.chat.create";
@@ -331,6 +332,24 @@ pub struct AgentChatResponse {
     pub model_response: ModelResponse,
 }
 
+/// Streaming chat response containing the ordered output chunks from the model
+/// provider, along with the policy decision and provider metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentChatStreamResponse {
+    pub chat_request_id: String,
+    pub provider_id: String,
+    pub policy_decision: PolicyDecision,
+    pub chunks: Vec<ModelStreamChunk>,
+}
+
+/// Cancellation response for an in-flight chat request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentChatCancelResponse {
+    pub chat_request_id: String,
+    pub provider_id: String,
+    pub model_response: ModelResponse,
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct AgentChatService;
 
@@ -368,6 +387,75 @@ impl AgentChatService {
             provider_id: model_execution.model_response.provider_id.clone(),
             policy_decision: model_execution.invoke_policy_decision,
             model_response: model_execution.model_response,
+        })
+    }
+
+    /// Stream a chat request, returning ordered output chunks from the model
+    /// provider. This enables SSE-based real-time token streaming for chat
+    /// conversations.
+    ///
+    /// The method performs the same policy evaluation, memory attachment,
+    /// knowledge retrieval, and tool descriptor enrichment as [`invoke`],
+    /// but delegates to `ModelExecutionService::stream` instead of
+    /// `ModelExecutionService::invoke`.
+    pub fn stream(
+        &self,
+        runtime: &AgentRuntime,
+        request: AgentChatRequest,
+    ) -> KernelResult<AgentChatStreamResponse> {
+        request.validate()?;
+        self.ensure_runtime_executable(runtime)?;
+
+        let policy_request_id = format!("policy.{}", request.chat_request_id);
+        let mut model_request = request.to_model_request(policy_request_id.clone());
+        model_request = self.attach_memory_context(runtime, &request, model_request)?;
+        model_request = self.attach_knowledge_context(runtime, &request, model_request)?;
+        model_request = self.attach_tool_descriptors(runtime, &request, model_request)?;
+        let mut model_execution_request =
+            ModelExecutionRequest::new(request.chat_request_id.clone(), model_request);
+        if let Some(provider_id) = &request.provider_id {
+            model_execution_request = model_execution_request.with_provider_id(provider_id.clone());
+        }
+        if let Some(subject) = &request.subject {
+            model_execution_request = model_execution_request.with_subject(subject.clone());
+        }
+        let stream_response =
+            ModelExecutionService::new().stream(runtime, model_execution_request)?;
+
+        Ok(AgentChatStreamResponse {
+            chat_request_id: request.chat_request_id,
+            provider_id: stream_response.provider_id,
+            policy_decision: stream_response.invoke_policy_decision,
+            chunks: stream_response.chunks,
+        })
+    }
+
+    /// Cancel an in-flight chat request by its model request id. The model
+    /// provider's `cancel` method is invoked, returning a terminal
+    /// `ModelResponse` with `ModelStatus::Cancelled`.
+    pub fn cancel(
+        &self,
+        runtime: &AgentRuntime,
+        chat_request_id: &str,
+        model_request_id: &str,
+        provider_id: Option<&str>,
+    ) -> KernelResult<AgentChatCancelResponse> {
+        self.ensure_runtime_executable(runtime)?;
+
+        let mut cancellation_request = ModelCancellationRequest::new(
+            chat_request_id.to_string(),
+            model_request_id.to_string(),
+        );
+        if let Some(provider_id) = provider_id {
+            cancellation_request = cancellation_request.with_provider_id(provider_id.to_string());
+        }
+        let cancellation_response =
+            ModelExecutionService::new().cancel(runtime, cancellation_request)?;
+
+        Ok(AgentChatCancelResponse {
+            chat_request_id: chat_request_id.to_string(),
+            provider_id: cancellation_response.provider_id,
+            model_response: cancellation_response.model_response,
         })
     }
 

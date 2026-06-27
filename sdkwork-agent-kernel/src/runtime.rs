@@ -1,11 +1,13 @@
 use crate::{
-    AgentCollaborationProvider, AgentConfigSectionKind, AgentConfigurationProvider, AgentInstaller,
-    AgentManifest, AgentPackageManifest, AgentRuntimeConformanceProfile, AgentSkillProvider,
-    Capability, CapabilityManifest, CapabilityRequirement, ContextProvider, HostProvider,
-    KernelConformanceCase, KernelConformanceReport, KernelError, KernelEvent, KernelEventSeverity,
-    KernelResult, KnowledgeProvider, McpProvider, MemoryProvider, ModelProvider, PlanningProvider,
-    PolicyCategory, PolicyProvider, ProtocolAdapter, ProviderHealth, ProviderManifest,
-    SideEffectLevel, TelemetryProvider, ToolProvider, AGENT_KERNEL_SPEC_VERSION,
+    AgentClassificationProvider, AgentCollaborationProvider, AgentConfigSectionKind,
+    AgentConfigurationProvider, AgentInstaller, AgentManifest, AgentPackageManifest,
+    AgentRuntimeConformanceProfile, AgentSkillProvider, Capability, CapabilityManifest,
+    CapabilityRequirement, ContextProvider, HostProvider, KernelConformanceCase,
+    KernelConformanceReport, KernelError, KernelEvent, KernelEventSeverity, KernelResult,
+    KnowledgeProvider, McpProvider, MemoryProvider, MessageQueryProvider, ModelProvider,
+    PlanningProvider, PolicyCategory, PolicyProvider, ProtocolAdapter, ProviderHealth,
+    ProviderManifest, SideEffectLevel, TaskSchedulingProvider, TelemetryProvider, ToolProvider,
+    AGENT_KERNEL_SPEC_VERSION,
 };
 use std::sync::{Arc, Mutex};
 
@@ -432,6 +434,74 @@ impl AgentRuntime {
 
     pub fn telemetry_provider_ids(&self) -> Vec<String> {
         self.provider_registry.telemetry_provider_ids()
+    }
+
+    pub fn task_scheduling_provider(
+        &self,
+    ) -> KernelResult<Arc<Mutex<dyn TaskSchedulingProvider + Send>>> {
+        self.provider_registry
+            .task_scheduling_provider
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| self.provider_error_for_family("task_scheduling", "task.schedule"))
+    }
+
+    pub fn task_scheduling_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<Arc<Mutex<dyn TaskSchedulingProvider + Send>>> {
+        self.provider_registry
+            .task_scheduling_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "task.schedule"))
+    }
+
+    pub fn task_scheduling_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.task_scheduling_provider_ids()
+    }
+
+    pub fn classification_provider(
+        &self,
+    ) -> KernelResult<Arc<Mutex<dyn AgentClassificationProvider + Send>>> {
+        self.provider_registry
+            .classification_provider
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| self.provider_error_for_family("agent_classification", "agent.classify"))
+    }
+
+    pub fn classification_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<Arc<Mutex<dyn AgentClassificationProvider + Send>>> {
+        self.provider_registry
+            .classification_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "agent.classify"))
+    }
+
+    pub fn classification_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.classification_provider_ids()
+    }
+
+    pub fn message_query_provider(
+        &self,
+    ) -> KernelResult<&(dyn MessageQueryProvider + Send + Sync)> {
+        self.provider_registry
+            .message_query_provider
+            .as_deref()
+            .ok_or_else(|| self.provider_error_for_family("message_query", "message.query"))
+    }
+
+    pub fn message_query_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<&(dyn MessageQueryProvider + Send + Sync)> {
+        self.provider_registry
+            .message_query_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "message.query"))
+    }
+
+    pub fn message_query_provider_ids(&self) -> Vec<String> {
+        self.provider_registry.message_query_provider_ids()
     }
 
     fn provider_id_for_capability(&self, capability_id: &str) -> Option<&str> {
@@ -1318,6 +1388,117 @@ impl RuntimeBuilder {
         self
     }
 
+    pub fn register_task_scheduling_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "task_scheduling",
+            version,
+            vec!["task.schedule", "task.cancel", "task.list"],
+        ))
+    }
+
+    pub fn register_task_scheduling_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: TaskSchedulingProvider + Send + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
+            provider_id.clone(),
+            "task_scheduling",
+            version,
+            vec!["task.schedule", "task.cancel", "task.list"],
+        );
+        self.providers.push(provider_manifest);
+        self.provider_registry
+            .add_task_scheduling_provider(provider_id, Arc::new(Mutex::new(provider)));
+        self
+    }
+
+    pub fn register_classification_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "agent_classification",
+            version,
+            vec!["agent.classify", "agent.classification.list"],
+        ))
+    }
+
+    pub fn register_classification_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: AgentClassificationProvider + Send + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
+            provider_id.clone(),
+            "agent_classification",
+            version,
+            vec!["agent.classify", "agent.classification.list"],
+        );
+        self.providers.push(provider_manifest);
+        self.provider_registry
+            .add_classification_provider(provider_id, Arc::new(Mutex::new(provider)));
+        self
+    }
+
+    pub fn register_message_query_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "message_query",
+            version,
+            vec!["message.query", "message.list_sessions"],
+        ))
+    }
+
+    pub fn register_message_query_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: MessageQueryProvider + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let version = version.into();
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
+            provider_id.clone(),
+            "message_query",
+            version,
+            vec!["message.query", "message.list_sessions"],
+        );
+        self.providers.push(provider_manifest);
+        self.provider_registry
+            .add_message_query_provider(provider_id, Arc::new(provider));
+        self
+    }
+
     pub fn register_agent_installer_provider(
         self,
         provider_id: impl Into<String>,
@@ -1660,6 +1841,15 @@ pub struct RuntimeProviderRegistry {
     telemetry_provider_id: Option<String>,
     telemetry_provider: Option<Arc<Mutex<dyn TelemetryProvider + Send>>>,
     telemetry_providers: Vec<(String, Arc<Mutex<dyn TelemetryProvider + Send>>)>,
+    task_scheduling_provider_id: Option<String>,
+    task_scheduling_provider: Option<Arc<Mutex<dyn TaskSchedulingProvider + Send>>>,
+    task_scheduling_providers: Vec<(String, Arc<Mutex<dyn TaskSchedulingProvider + Send>>)>,
+    classification_provider_id: Option<String>,
+    classification_provider: Option<Arc<Mutex<dyn AgentClassificationProvider + Send>>>,
+    classification_providers: Vec<(String, Arc<Mutex<dyn AgentClassificationProvider + Send>>)>,
+    message_query_provider_id: Option<String>,
+    message_query_provider: Option<Arc<dyn MessageQueryProvider + Send + Sync>>,
+    message_query_providers: Vec<(String, Arc<dyn MessageQueryProvider + Send + Sync>)>,
 }
 
 impl RuntimeProviderRegistry {
@@ -2062,6 +2252,105 @@ impl RuntimeProviderRegistry {
         !self.telemetry_providers.is_empty()
     }
 
+    pub fn has_task_scheduling_provider(&self) -> bool {
+        !self.task_scheduling_providers.is_empty()
+    }
+
+    pub fn has_classification_provider(&self) -> bool {
+        !self.classification_providers.is_empty()
+    }
+
+    pub fn has_message_query_provider(&self) -> bool {
+        !self.message_query_providers.is_empty()
+    }
+
+    fn add_task_scheduling_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<Mutex<dyn TaskSchedulingProvider + Send>>,
+    ) {
+        if self.task_scheduling_provider.is_none() {
+            self.task_scheduling_provider_id = Some(provider_id.clone());
+            self.task_scheduling_provider = Some(provider.clone());
+        }
+        self.task_scheduling_providers.push((provider_id, provider));
+    }
+
+    fn task_scheduling_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<Arc<Mutex<dyn TaskSchedulingProvider + Send>>> {
+        self.task_scheduling_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.clone())
+    }
+
+    pub fn task_scheduling_provider_ids(&self) -> Vec<String> {
+        self.task_scheduling_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
+    fn add_classification_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<Mutex<dyn AgentClassificationProvider + Send>>,
+    ) {
+        if self.classification_provider.is_none() {
+            self.classification_provider_id = Some(provider_id.clone());
+            self.classification_provider = Some(provider.clone());
+        }
+        self.classification_providers.push((provider_id, provider));
+    }
+
+    fn classification_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<Arc<Mutex<dyn AgentClassificationProvider + Send>>> {
+        self.classification_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.clone())
+    }
+
+    pub fn classification_provider_ids(&self) -> Vec<String> {
+        self.classification_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
+    fn add_message_query_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<dyn MessageQueryProvider + Send + Sync>,
+    ) {
+        if self.message_query_provider.is_none() {
+            self.message_query_provider_id = Some(provider_id.clone());
+            self.message_query_provider = Some(provider.clone());
+        }
+        self.message_query_providers.push((provider_id, provider));
+    }
+
+    fn message_query_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<&(dyn MessageQueryProvider + Send + Sync)> {
+        self.message_query_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.as_ref())
+    }
+
+    pub fn message_query_provider_ids(&self) -> Vec<String> {
+        self.message_query_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
     fn add_telemetry_provider(
         &mut self,
         provider_id: String,
@@ -2140,6 +2429,15 @@ impl RuntimeProviderRegistry {
                 .is_some(),
             "telemetry" => self
                 .telemetry_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
+            "task_scheduling" => self
+                .task_scheduling_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
+            "agent_classification" => self
+                .classification_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
+            "message_query" => self
+                .message_query_provider_by_id(provider.provider_id.as_str())
                 .is_some(),
             _ => false,
         }
@@ -2228,6 +2526,21 @@ impl RuntimeProviderRegistry {
                 .iter()
                 .find(|(provider_id, _)| provider_id == &provider.provider_id)
                 .and_then(|(_, provider)| provider.lock().ok().map(|provider| provider.health())),
+            "task_scheduling" => self
+                .task_scheduling_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .and_then(|(_, provider)| provider.lock().ok().map(|provider| provider.health())),
+            "agent_classification" => self
+                .classification_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .and_then(|(_, provider)| provider.lock().ok().map(|provider| provider.health())),
+            "message_query" => self
+                .message_query_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .map(|(_, provider)| provider.health()),
             _ => None,
         }
     }
@@ -2301,6 +2614,39 @@ impl std::fmt::Debug for RuntimeProviderRegistry {
             .field("telemetry_provider_id", &self.telemetry_provider_id)
             .field("telemetry_provider_ids", &self.telemetry_provider_ids())
             .field("has_telemetry_provider", &self.has_telemetry_provider())
+            .field(
+                "task_scheduling_provider_id",
+                &self.task_scheduling_provider_id,
+            )
+            .field(
+                "task_scheduling_provider_ids",
+                &self.task_scheduling_provider_ids(),
+            )
+            .field(
+                "has_task_scheduling_provider",
+                &self.has_task_scheduling_provider(),
+            )
+            .field(
+                "classification_provider_id",
+                &self.classification_provider_id,
+            )
+            .field(
+                "classification_provider_ids",
+                &self.classification_provider_ids(),
+            )
+            .field(
+                "has_classification_provider",
+                &self.has_classification_provider(),
+            )
+            .field("message_query_provider_id", &self.message_query_provider_id)
+            .field(
+                "message_query_provider_ids",
+                &self.message_query_provider_ids(),
+            )
+            .field(
+                "has_message_query_provider",
+                &self.has_message_query_provider(),
+            )
             .finish()
     }
 }
@@ -2349,6 +2695,15 @@ impl PartialEq for RuntimeProviderRegistry {
             && self.telemetry_provider_id == other.telemetry_provider_id
             && self.telemetry_provider_ids() == other.telemetry_provider_ids()
             && self.has_telemetry_provider() == other.has_telemetry_provider()
+            && self.task_scheduling_provider_id == other.task_scheduling_provider_id
+            && self.task_scheduling_provider_ids() == other.task_scheduling_provider_ids()
+            && self.has_task_scheduling_provider() == other.has_task_scheduling_provider()
+            && self.classification_provider_id == other.classification_provider_id
+            && self.classification_provider_ids() == other.classification_provider_ids()
+            && self.has_classification_provider() == other.has_classification_provider()
+            && self.message_query_provider_id == other.message_query_provider_id
+            && self.message_query_provider_ids() == other.message_query_provider_ids()
+            && self.has_message_query_provider() == other.has_message_query_provider()
     }
 }
 
@@ -2700,6 +3055,76 @@ fn capability_metadata(capability_id: &str) -> CapabilityMetadata {
             SideEffectLevel::SideEffectful,
             PolicyCategory::ProductSpecific("skill.invoke".to_string()),
         ),
+        "task.schedule" => lifecycle_capability_metadata(
+            vec!["schedule", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::ProductSpecific("task.schedule".to_string()),
+        ),
+        "task.cancel" => lifecycle_capability_metadata(
+            vec!["cancel", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::ProductSpecific("task.cancel".to_string()),
+        ),
+        "task.list" => lifecycle_capability_metadata(
+            vec!["list", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("task.list".to_string()),
+        ),
+        "task.pause" => lifecycle_capability_metadata(
+            vec!["pause", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::ProductSpecific("task.pause".to_string()),
+        ),
+        "task.resume" => lifecycle_capability_metadata(
+            vec!["resume", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::ProductSpecific("task.resume".to_string()),
+        ),
+        "task.get_due" => lifecycle_capability_metadata(
+            vec!["get_due", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("task.get_due".to_string()),
+        ),
+        "agent.classify" => lifecycle_capability_metadata(
+            vec!["classify", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("agent.classify".to_string()),
+        ),
+        "agent.classification.get" => lifecycle_capability_metadata(
+            vec!["get_classification", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("agent.classification.get".to_string()),
+        ),
+        "agent.classification.list" => lifecycle_capability_metadata(
+            vec!["list_classifications", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("agent.classification.list".to_string()),
+        ),
+        "agent.classification.search" => lifecycle_capability_metadata(
+            vec!["search_by_capability", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("agent.classification.search".to_string()),
+        ),
+        "message.query" => lifecycle_capability_metadata(
+            vec!["query", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("message.query".to_string()),
+        ),
+        "message.count" => lifecycle_capability_metadata(
+            vec!["count", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("message.count".to_string()),
+        ),
+        "message.list_sessions" => lifecycle_capability_metadata(
+            vec!["list_sessions", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("message.list_sessions".to_string()),
+        ),
+        "message.search" => lifecycle_capability_metadata(
+            vec!["search_content", "health"],
+            SideEffectLevel::ReadOnly,
+            PolicyCategory::ProductSpecific("message.search".to_string()),
+        ),
         _ => CapabilityMetadata {
             operations: Vec::new(),
             side_effect_level: None,
@@ -2740,6 +3165,9 @@ fn standard_agent_provider_families() -> &'static [&'static str] {
         "telemetry",
         "agent_installer",
         "agent_configuration",
+        "task_scheduling",
+        "agent_classification",
+        "message_query",
     ]
 }
 

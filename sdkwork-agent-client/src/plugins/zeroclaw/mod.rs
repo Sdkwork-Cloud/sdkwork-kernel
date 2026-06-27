@@ -5,9 +5,9 @@ use crate::bridge::{
     AgentBridgeProvider, AgentBridgeStatus, AgentBridgeType,
 };
 use crate::chat::ChatClient;
+use crate::runtime_guard::lock_runtime_mutex;
 use crate::session::BridgeSessionQuery;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
-use crate::runtime_guard::lock_runtime_mutex;
 use runtime::ZeroClawRuntime;
 use std::sync::{Arc, Mutex};
 
@@ -282,7 +282,11 @@ mod tests {
         provider.initialize().expect("init");
         let health = provider.health_check();
         assert_eq!(health.status, AgentBridgeStatus::Degraded);
-        assert!(health.message.as_deref().unwrap().contains("not SDK-backed"));
+        assert!(health
+            .message
+            .as_deref()
+            .unwrap()
+            .contains("not SDK-backed"));
     }
 
     #[test]

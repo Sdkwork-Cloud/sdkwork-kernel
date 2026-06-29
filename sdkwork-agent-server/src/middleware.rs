@@ -44,6 +44,16 @@ impl RequestContext {
             route_template: route_template(path),
         }
     }
+
+    pub fn problem_trace_id(&self) -> String {
+        if let Some(trace_id) = self.trace_id.as_deref().filter(|value| !value.is_empty()) {
+            return trace_id.to_string();
+        }
+        self.request_id
+            .chars()
+            .filter(|c| c.is_ascii_hexdigit())
+            .collect()
+    }
 }
 
 fn extract_header(headers: &axum::http::HeaderMap, key: &str) -> Option<String> {
@@ -180,7 +190,7 @@ pub async fn ingress_identity_middleware(
         );
         return Err(ProblemDetail::new(StatusCode::FORBIDDEN)
             .with_detail("JWT ingress missing verified tenant/user identity")
-            .with_request_id(&ctx.request_id));
+            .with_trace_id(ctx.problem_trace_id()));
     }
 
     let ctx = request
@@ -204,7 +214,7 @@ pub async fn ingress_identity_middleware(
             );
             return Err(ProblemDetail::new(status)
                 .with_detail(format!("Ingress identity resolution failed: {status}"))
-                .with_request_id(ctx.map(|v| v.request_id.as_str()).unwrap_or("unknown")));
+                .with_trace_id(ctx.map(|v| v.problem_trace_id()).unwrap_or_else(|| "unknown".to_string())));
         }
     };
     request.extensions_mut().insert(resolved);
@@ -276,7 +286,7 @@ pub async fn ingress_auth_middleware(
         );
         return Err(ProblemDetail::new(StatusCode::UNAUTHORIZED)
             .with_detail("Invalid or missing metrics credential")
-            .with_request_id(ctx.map(|v| v.request_id.as_str()).unwrap_or("unknown")));
+            .with_trace_id(ctx.map(|v| v.problem_trace_id()).unwrap_or_else(|| "unknown".to_string())));
     }
 
     if auth_mode == "jwt" {
@@ -292,7 +302,7 @@ pub async fn ingress_auth_middleware(
             );
             ProblemDetail::new(StatusCode::UNAUTHORIZED)
                 .with_detail("Missing Bearer JWT")
-                .with_request_id(ctx.map(|v| v.request_id.as_str()).unwrap_or("unknown"))
+                .with_trace_id(ctx.map(|v| v.problem_trace_id()).unwrap_or_else(|| "unknown".to_string()))
         })?;
         let identity = ingress
             .jwt_validator
@@ -314,7 +324,7 @@ pub async fn ingress_auth_middleware(
                 );
                 ProblemDetail::new(status)
                     .with_detail("JWT validation failed")
-                    .with_request_id(ctx.map(|v| v.request_id.as_str()).unwrap_or("unknown"))
+                    .with_trace_id(ctx.map(|v| v.problem_trace_id()).unwrap_or_else(|| "unknown".to_string()))
             })?;
         let mut ctx = request
             .extensions()
@@ -353,7 +363,7 @@ pub async fn ingress_auth_middleware(
         );
         Err(ProblemDetail::new(StatusCode::UNAUTHORIZED)
             .with_detail("Invalid or missing ingress credential")
-            .with_request_id(ctx.map(|v| v.request_id.as_str()).unwrap_or("unknown")))
+            .with_trace_id(ctx.map(|v| v.problem_trace_id()).unwrap_or_else(|| "unknown".to_string())))
     }
 }
 
@@ -439,10 +449,10 @@ pub async fn rate_limit_middleware(
         }
         Err(ProblemDetail::new(StatusCode::TOO_MANY_REQUESTS)
             .with_detail("Rate limit exceeded; try again later")
-            .with_request_id(
+            .with_trace_id(
                 ctx.as_ref()
-                    .map(|v| v.request_id.as_str())
-                    .unwrap_or("unknown"),
+                    .map(|v| v.problem_trace_id())
+                    .unwrap_or_else(|| "unknown".to_string()),
             ))
     }
 }

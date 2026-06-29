@@ -28,6 +28,55 @@ mod package;
 mod planning;
 mod policy;
 mod protocol;
+mod a2a_protocol;
+pub use a2a_protocol::{
+    A2AAdapterHealth, A2AAdapterStatus, A2AAuthentication, A2ACapability, A2AEndpoint,
+    A2AError, A2AAgentCard, A2AProtocolAdapter, A2ATaskContext, A2ATaskRequest,
+    A2ATaskResponse, A2ATaskStatus,
+};
+mod backend_health;
+pub use backend_health::{
+    AggregateHealthStatus, BackendHealthMonitor, DriverHealthHistory, HealthHistoryEntry,
+    HealthMonitorConfig, HealthStatusChange, SdkDriverHealth, SdkDriverStatus,
+};
+mod cancellation;
+pub use cancellation::{
+    CancellationError, CancellationHandle, CancellationProvider, CancellationProviderHealth,
+    CancellationProviderManifest, CancellationProviderStatus, CancellationRequest,
+    CancellationResult, CancellationScope, CancellationSource, CancellationSourceType,
+    CancellationStatus, CancellationToken, InMemoryCancellationProvider,
+};
+mod model_stream;
+pub use model_stream::{
+    InMemoryStreamProvider, ModelStreamProvider, StreamChunk, StreamChunkType,
+    StreamConfig, StreamControl, StreamError, StreamProtocol, StreamProviderHealth,
+    StreamProviderManifest, StreamProviderStatus, StreamRequest, StreamResult,
+    StreamStatus, StreamState,
+};
+mod orchestration;
+pub use orchestration::{
+    AgentGraph, AgentNode, OrchestrationTask, AggregationStrategy, ExecutionStrategy,
+    OrchestrationPlan, OrchestrationResult, OrchestrationStatus, TaskResult,
+};
+mod rate_limit;
+pub use rate_limit::{
+    InMemoryRateLimitProvider, QuotaUsage, RateLimitError, RateLimitPolicy,
+    RateLimitProvider, RateLimitProviderHealth, RateLimitProviderManifest,
+    RateLimitProviderStatus, RateLimitRequest, RateLimitResult, ResourceType, RetryStrategy,
+};
+mod sandbox;
+pub use sandbox::{
+    FileSystemPermission, FileSystemSandboxPolicy, NetworkPermission, NetworkSandboxPolicy,
+    NoOpSandboxProvider, SandboxCommand, SandboxError, SandboxExecutionResult, SandboxPolicy,
+    SandboxProvider, SandboxType,
+};
+mod secret;
+pub use secret::{
+    EncryptionAlgorithm, InMemorySecretProvider, SecretAccessPurpose, SecretAccessRequest,
+    SecretAccessResult, SecretCreateRequest, SecretError, SecretMetadata, SecretProvider,
+    SecretProviderHealth, SecretProviderManifest, SecretProviderStatus, SecretRotateRequest,
+    SecretType, SecretValue,
+};
 mod provider;
 mod runtime;
 mod runtime_host;
@@ -85,7 +134,7 @@ pub use host::{
     EnvironmentRequest, EnvironmentResult, ExecutorRequest, ExecutorResult, ExecutorStatus,
     FilesystemOperation, FilesystemRequest, FilesystemResult, HostEnvPolicy, HostPathPolicy,
     HostProvider, NetworkRequest, NetworkResult, ProcessRequest, ProcessResult, SecretRef,
-    SecretValue, StorageRequest, StorageResult, TimeRequest, TimeResult,
+    SecretValue as ProviderSecretValue, StorageRequest, StorageResult, TimeRequest, TimeResult,
 };
 pub use installation::{
     AgentInstallPlan, AgentInstallReport, AgentInstallRequest, AgentInstallStatus,

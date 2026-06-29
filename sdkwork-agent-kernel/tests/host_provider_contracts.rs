@@ -2,8 +2,8 @@ use sdkwork_agent_kernel::{
     EnvironmentRequest, EnvironmentResult, ExecutorRequest, ExecutorResult, ExecutorStatus,
     FilesystemOperation, FilesystemRequest, FilesystemResult, HostEnvPolicy, HostPathPolicy,
     HostProvider, KernelError, KernelResult, NetworkRequest, NetworkResult, ProcessRequest,
-    ProcessResult, ProviderHealth, ProviderManifest, SecretRef, SecretValue, SideEffectLevel,
-    StorageRequest, StorageResult, TimeRequest, TimeResult,
+    ProcessResult, ProviderHealth, ProviderManifest, ProviderSecretValue, SecretRef,
+    SideEffectLevel, StorageRequest, StorageResult, TimeRequest, TimeResult,
 };
 
 #[test]
@@ -63,7 +63,7 @@ fn network_secret_storage_time_environment_and_executor_contracts_are_explicit()
     let network = NetworkRequest::get("network.1", "https://example.com")
         .with_policy_categories(vec!["host.network.request".to_string()]);
     let secret_ref = SecretRef::new("secret.openai", "OpenAI API key");
-    let secret_value = SecretValue::new(secret_ref.secret_ref_id.clone(), "super-secret-value");
+    let secret_value = ProviderSecretValue::new(secret_ref.secret_ref_id.clone(), "super-secret-value");
     let storage = StorageRequest::put("storage.1", "session", "task.summary", "result")
         .with_retention_days(7);
     let time = TimeRequest::now("time.1");
@@ -204,8 +204,8 @@ impl HostProvider for FakeHostProvider {
         ))
     }
 
-    fn resolve_secret(&self, secret_ref: SecretRef) -> KernelResult<SecretValue> {
-        Ok(SecretValue::new(
+    fn resolve_secret(&self, secret_ref: SecretRef) -> KernelResult<ProviderSecretValue> {
+        Ok(ProviderSecretValue::new(
             secret_ref.secret_ref_id,
             "fake-secret-value",
         ))

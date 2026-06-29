@@ -2567,6 +2567,8 @@ dependencies = [
 name = "sdkwork-knowledgebase-contract"
 version = "0.1.0"
 dependencies = [
+ "http",
+ "sdkwork-utils-rust",
  "serde",
  "serde_json",
  "time",
@@ -2628,7 +2630,9 @@ dependencies = [
  "getrandom 0.2.17",
  "hmac",
  "http",
+ "percent-encoding",
  "rsa",
+ "sdkwork-utils-rust",
  "sdkwork-web-contract",
  "serde",
  "serde_json",

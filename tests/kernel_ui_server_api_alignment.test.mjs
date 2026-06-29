@@ -187,15 +187,15 @@ test('internal-api runtime mount prefix stays aligned across authority, server, 
   assert.ok(sdkApiPrefixMatch, 'internal SDK must export CUSTOM_API_PREFIX');
   const sdkRuntimePrefix = `${sdkApiPrefixMatch[1]}/intelligence/runtime`;
 
-  const authorityPrefix = `${authorityIndex.surfaces[0].apiPrefix}/intelligence/runtime`;
+  const authorityPrefix = `${authorityIndex.authorities[0].pathPrefix}/intelligence/runtime`;
 
   assert.equal(openapiPrefix, INTERNAL_RUNTIME_PREFIX);
   assert.equal(serverPrefix, INTERNAL_RUNTIME_PREFIX);
   assert.equal(clientPrefix, INTERNAL_RUNTIME_PREFIX);
   assert.equal(sdkRuntimePrefix, INTERNAL_RUNTIME_PREFIX);
   assert.equal(authorityPrefix, INTERNAL_RUNTIME_PREFIX);
-  assert.equal(authorityIndex.surfaces[0].surface, 'internal-api');
-  assert.equal(authorityIndex.surfaces[0].ingress, 'application.public-ingress');
+  assert.equal(authorityIndex.authorities[0].surface, 'internal-api');
+  assert.equal(authorityIndex.authorities[0].apiAuthority, 'sdkwork-agent-internal-api');
   assert.match(
     openapiSource,
     /applicationPublicIngressOrigin/,

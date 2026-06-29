@@ -76,7 +76,7 @@ for (const family of families) {
       generated: false,
       skipped: true,
       skipReason: family.externalSdkgenProfileGap,
-      derivedFrom: 'sdkwork-agent-app-sdk'
+      derivedFrom: family.familyDir
     });
     continue;
   }

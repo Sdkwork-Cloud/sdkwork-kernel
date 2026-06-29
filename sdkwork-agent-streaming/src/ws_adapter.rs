@@ -172,19 +172,22 @@ impl ProtocolAdapter for WsProtocolAdapter {
                 "task_id": task.task_id,
                 "session_id": task.session_id,
                 "instruction": task.instruction,
-                "state": "created"
+                "state": format!("{:?}", task.state).to_lowercase()
             })
             .to_string(),
         ))
     }
 
     fn map_request_to_task(&self, request: ProtocolAdapterRequest) -> KernelResult<AgentTask> {
+        let operation = request.operation.clone();
+        let session_id = request
+            .metadata_value("sdkwork.agent.session_id")
+            .unwrap_or("session.default");
+
         Ok(AgentTask::new(
             format!("task.ws.{}", request.protocol_request_id),
-            request
-                .metadata_value("sdkwork.agent.session_id")
-                .unwrap_or("session.default"),
-            request.operation.clone(),
+            session_id,
+            operation,
         ))
     }
 
@@ -276,7 +279,7 @@ mod tests {
                 .with_metadata("sdkwork.agent.session_id", "session.1");
 
         let task = adapter.map_request_to_task(request).expect("mapped");
-        assert_eq!(task.session_id, "session.1");
+        assert_eq!(task.agent_id, "session.1");
     }
 
     #[test]

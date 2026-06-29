@@ -11,31 +11,15 @@ const owner = "sdkwork-kernel";
 
 const families = [
   {
-    root: "sdkwork-agent-sdk",
-    authority: "sdkwork-agent-open-api",
-    input: "openapi/sdkwork-agent-open-api.sdkgen.yaml",
+    root: "sdkwork-agent-internal-sdk",
+    authority: "sdkwork-agent-internal-api",
+    input: "openapi/sdkwork-agent-internal-api.sdkgen.yaml",
     manifest: "sdk-manifest.json",
-    generatedPackage: "sdkwork-agent-sdk-typescript/generated/server-openapi/package.json",
-    generatedMetadata: "sdkwork-agent-sdk-typescript/generated/server-openapi/sdkwork-sdk.json",
+    generatedPackage:
+      "sdkwork-agent-internal-sdk-typescript/generated/server-openapi/package.json",
+    generatedMetadata:
+      "sdkwork-agent-internal-sdk-typescript/generated/server-openapi/sdkwork-sdk.json",
     dependencies: [],
-  },
-  {
-    root: "sdkwork-agent-app-sdk",
-    authority: "sdkwork-agent-app-api",
-    input: "openapi/sdkwork-agent-app-api.sdkgen.yaml",
-    manifest: "sdk-manifest.json",
-    generatedPackage: "sdkwork-agent-app-sdk-typescript/generated/server-openapi/package.json",
-    generatedMetadata: "sdkwork-agent-app-sdk-typescript/generated/server-openapi/sdkwork-sdk.json",
-    dependencies: [["sdkwork-iam-app-sdk", "sdkwork-iam-app-api"]],
-  },
-  {
-    root: "sdkwork-agent-backend-sdk",
-    authority: "sdkwork-agent-backend-api",
-    input: "openapi/sdkwork-agent-backend-api.sdkgen.yaml",
-    manifest: "sdk-manifest.json",
-    generatedPackage: "sdkwork-agent-backend-sdk-typescript/generated/server-openapi/package.json",
-    generatedMetadata: "sdkwork-agent-backend-sdk-typescript/generated/server-openapi/sdkwork-sdk.json",
-    dependencies: [["sdkwork-iam-backend-sdk", "sdkwork-iam-backend-api"]],
   },
 ];
 

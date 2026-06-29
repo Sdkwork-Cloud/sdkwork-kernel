@@ -34,9 +34,9 @@ pub struct ProblemDetail {
     /// A URI reference identifying the specific occurrence of the problem.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
-    /// Optional request ID for traceability.
+    /// Optional trace ID for distributed correlation.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub request_id: Option<String>,
+    pub trace_id: Option<String>,
 }
 
 impl ProblemDetail {
@@ -51,7 +51,7 @@ impl ProblemDetail {
             status: status.as_u16(),
             detail: None,
             instance: None,
-            request_id: None,
+            trace_id: None,
         }
     }
 
@@ -67,9 +67,9 @@ impl ProblemDetail {
         self
     }
 
-    /// Attach a request ID for traceability.
-    pub fn with_request_id(mut self, request_id: impl Into<String>) -> Self {
-        self.request_id = Some(request_id.into());
+    /// Attach a trace ID for distributed correlation.
+    pub fn with_trace_id(mut self, trace_id: impl Into<String>) -> Self {
+        self.trace_id = Some(trace_id.into());
         self
     }
 }
@@ -122,12 +122,12 @@ mod tests {
     fn problem_detail_serializes_rfc_9457_fields() {
         let problem = ProblemDetail::new(StatusCode::TOO_MANY_REQUESTS)
             .with_detail("Rate limit exceeded")
-            .with_request_id("req.abc123");
+            .with_trace_id("trace.abc123");
         let json = serde_json::to_value(&problem).expect("serialize");
         assert_eq!(json["status"], 429);
         assert_eq!(json["title"], "Too Many Requests");
         assert_eq!(json["detail"], "Rate limit exceeded");
-        assert_eq!(json["requestId"], "req.abc123");
+        assert_eq!(json["traceId"], "trace.abc123");
         assert!(json["type"].as_str().unwrap().contains("429"));
     }
 
@@ -138,6 +138,6 @@ mod tests {
         assert_eq!(json["status"], 404);
         assert!(json.get("detail").is_none());
         assert!(json.get("instance").is_none());
-        assert!(json.get("requestId").is_none());
+        assert!(json.get("traceId").is_none());
     }
 }

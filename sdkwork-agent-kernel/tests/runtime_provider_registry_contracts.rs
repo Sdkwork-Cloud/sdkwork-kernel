@@ -11,7 +11,7 @@ use sdkwork_agent_kernel::{
     PolicyDecision, PolicyProvider, PolicyRequest, ProtocolAdapter, ProtocolAdapterAuthMode,
     ProtocolAdapterManifest, ProtocolAdapterRequest, ProtocolAdapterResponse, ProtocolFamily,
     ProtocolStreamUpdate, ProtocolTransport, ProviderHealth, ProviderManifest,
-    RedactionClassification, RuntimeBuilder, RuntimeState, SecretRef, SecretValue,
+    RedactionClassification, RuntimeBuilder, RuntimeState, SecretRef, ProviderSecretValue,
     TelemetryProvider, ToolCall, ToolDescriptor, ToolProvider, ToolResult, TrustLevel,
 };
 use std::sync::{Arc, Mutex};
@@ -1404,8 +1404,8 @@ impl HostProvider for FakeHostProvider {
         ))
     }
 
-    fn resolve_secret(&self, secret_ref: SecretRef) -> KernelResult<SecretValue> {
-        Ok(SecretValue::new(secret_ref.secret_ref_id, "secret"))
+    fn resolve_secret(&self, secret_ref: SecretRef) -> KernelResult<ProviderSecretValue> {
+        Ok(ProviderSecretValue::new(secret_ref.secret_ref_id, "secret"))
     }
 
     fn storage(
@@ -1511,8 +1511,8 @@ impl HostProvider for NamedHostProvider {
         ))
     }
 
-    fn resolve_secret(&self, secret_ref: SecretRef) -> KernelResult<SecretValue> {
-        Ok(SecretValue::new(secret_ref.secret_ref_id, "secret"))
+    fn resolve_secret(&self, secret_ref: SecretRef) -> KernelResult<ProviderSecretValue> {
+        Ok(ProviderSecretValue::new(secret_ref.secret_ref_id, "secret"))
     }
 
     fn storage(

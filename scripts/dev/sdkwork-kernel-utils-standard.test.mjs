@@ -35,11 +35,11 @@ assert.match(
   'postgres_pool.rs must bootstrap pools through sdkwork-database-sqlx'
 );
 
-const uiWorkspace = read('sdkwork-kernel-ui/pnpm-workspace.yaml');
+const uiWorkspace = read('pnpm-workspace.yaml');
 assert.match(
   uiWorkspace,
   /sdkwork-utils\/packages\/sdkwork-utils-typescript/u,
-  'sdkwork-kernel-ui/pnpm-workspace.yaml must include sdkwork-utils-typescript sibling package'
+  'pnpm-workspace.yaml must include sdkwork-utils-typescript sibling package'
 );
 
 const uiPackage = JSON.parse(read('sdkwork-kernel-ui/package.json'));

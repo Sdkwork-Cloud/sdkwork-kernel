@@ -1,4 +1,5 @@
 # SDKWork Agent & Code Kernel Standard
+repository-kind: foundation-dependency
 
 Domain: `intelligence`
 Capability: `agent-kernel`, `code-kernel`, `kernel-ui`

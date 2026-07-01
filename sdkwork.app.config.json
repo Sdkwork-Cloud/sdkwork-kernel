@@ -30,7 +30,10 @@
     "framework": "rust-service",
     "defaultPlatform": "API",
     "defaultArchitecture": "x64",
-    "supportedDeploymentProfiles": ["standalone", "cloud"],
+    "supportedDeploymentProfiles": [
+      "standalone",
+      "cloud"
+    ],
     "defaultDeploymentProfile": "standalone"
   },
   "media": {
@@ -52,8 +55,14 @@
   },
   "publish": {
     "status": "BETA",
-    "platforms": ["API", "WEB", "CLI"],
-    "installPlatforms": ["API"],
+    "platforms": [
+      "API",
+      "WEB",
+      "CLI"
+    ],
+    "installPlatforms": [
+      "API"
+    ],
     "installSkill": false
   },
   "environments": {
@@ -119,5 +128,6 @@
   "metadata": {
     "topologySpec": "specs/topology.spec.json",
     "workflowManifest": "sdkwork.workflow.json"
-  }
+  },
+  "sdkDependencies": []
 }

@@ -3,9 +3,9 @@
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "type": "module",
-  "packageManager": "pnpm@10.30.2",
+  "packageManager": "pnpm@10.33.0",
   "dependencies": {
-    "@sdkwork/app-topology": "file:../sdkwork-app-topology"
+    "@sdkwork/app-topology": "workspace:*"
   },
   "scripts": {
     "dev": "node scripts/sdkwork-command.mjs dev --runtime-target server --database postgres --service-layout split-services --deployment-profile standalone",
@@ -14,8 +14,8 @@
     "dev:server:postgres:split-services:cloud": "node scripts/sdkwork-command.mjs dev --runtime-target server --database postgres --service-layout split-services --deployment-profile cloud",
     "build": "node scripts/sdkwork-command.mjs build",
     "test": "node scripts/sdkwork-command.mjs test",
-    "check": "node scripts/sdkwork-command.mjs check",
-    "verify": "node scripts/sdkwork-command.mjs verify",
+    "check": "pnpm run check:app-composition && node scripts/sdkwork-command.mjs check",
+    "verify": "node scripts/sdkwork-command.mjs verify && pnpm run check:app-composition",
     "clean": "node scripts/sdkwork-command.mjs clean",
     "check:pnpm-script-standard": "node scripts/check-pnpm-script-standard.mjs",
     "topology:validate": "node ../sdkwork-app-topology/scripts/sdkwork-topology.mjs validate --root . --spec specs/topology.spec.json",
@@ -27,6 +27,7 @@
     "test:topology-smoke": "node scripts/dev/sdkwork-kernel-topology-smoke.mjs",
     "test:utils-standard": "node scripts/dev/sdkwork-kernel-utils-standard.test.mjs",
     "gateway:package:cloud": "node ../sdkwork-app-topology/scripts/gateway-cloud-bundle.mjs bundle --root .",
-    "gateway:validate:cloud": "node ../sdkwork-app-topology/scripts/gateway-cloud-bundle.mjs validate --root ."
+    "gateway:validate:cloud": "node ../sdkwork-app-topology/scripts/gateway-cloud-bundle.mjs validate --root .",
+    "check:app-composition": "node ../sdkwork-specs/tools/verify-repo.mjs --root ."
   }
 }

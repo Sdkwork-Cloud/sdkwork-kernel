@@ -126,10 +126,12 @@ export const requiredStandardsEvidenceFiles = [
       'Phase 1',
       'Phase 2',
       'Phase 3',
-      'crates/sdkwork-routes-agent-open-api',
-      'crates/sdkwork-routes-agent-app-api',
-      'crates/sdkwork-routes-agent-backend-api',
+      'Phase 4',
+      'Phase 5',
+      'apis/internal-api/authority-index.json',
+      'crates/sdkwork-routes-agent-internal-manifest',
       'crates/sdkwork-routes-agent-internal-api',
+      'ADR-20260626-agents-application-layer-separation.md',
       '## Verification'
     ]
   },

@@ -71,16 +71,98 @@ pub struct PermissionDecisionBody {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PatchOperationJson {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchSetJson {
+    pub patch_id: String,
+    pub workspace_id: String,
+    pub summary: String,
+    pub operations: Vec<PatchOperationJson>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandResultJson {
+    pub command_id: String,
+    pub exit_code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+    pub cancelled: bool,
+    pub timed_out: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerificationReportJson {
+    pub report_id: String,
+    pub verification_id: String,
+    pub command_results: Vec<CommandResultJson>,
+    pub failures: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalCommandJson {
+    pub command_id: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub working_directory: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub policy_categories: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalOutputChunkJson {
+    pub command_id: String,
+    pub sequence: u64,
+    pub channel: String,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redaction_classification: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewFindingJson {
+    pub finding_id: String,
+    pub severity: String,
+    pub file_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub line: Option<u32>,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remediation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub missing_test: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RuntimeSnapshotJson {
     pub runtime: KernelRuntimeJson,
     pub events: Vec<KernelEventJson>,
     pub permissions: Vec<PermissionRequestJson>,
     pub workspace: WorkspaceJson,
-    pub patches: Vec<serde_json::Value>,
-    pub verification_reports: Vec<serde_json::Value>,
-    pub terminal_commands: Vec<serde_json::Value>,
-    pub terminal_output: Vec<serde_json::Value>,
-    pub review_findings: Vec<serde_json::Value>,
+    pub patches: Vec<PatchSetJson>,
+    pub verification_reports: Vec<VerificationReportJson>,
+    pub terminal_commands: Vec<TerminalCommandJson>,
+    pub terminal_output: Vec<TerminalOutputChunkJson>,
+    pub review_findings: Vec<ReviewFindingJson>,
 }
 
 /// Runtime manifest view returned by `GET /runtime/manifest`.
@@ -343,8 +425,18 @@ pub struct ModelListResponseJson {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ToolListResponseJson {
-    pub items: Vec<serde_json::Value>,
+pub struct ToolDescriptorJson {
+    pub tool_id: String,
+    pub provider_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub display_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub side_effect_level: String,
+    pub policy_categories: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -429,9 +521,6 @@ pub struct ListMessagesQuery {
     pub page: Option<i64>,
     #[serde(alias = "page_size")]
     pub page_size: Option<i64>,
-    #[serde(alias = "limit")]
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -440,9 +529,6 @@ pub struct ListSessionsQuery {
     pub page: Option<i64>,
     #[serde(alias = "page_size")]
     pub page_size: Option<i64>,
-    #[serde(alias = "limit")]
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -451,9 +537,6 @@ pub struct ListTasksQuery {
     pub page: Option<i64>,
     #[serde(alias = "page_size")]
     pub page_size: Option<i64>,
-    #[serde(alias = "limit")]
-    pub limit: Option<i64>,
-    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1219,7 +1302,7 @@ pub async fn list_sessions(
     Query(query): Query<ListSessionsQuery>,
 ) -> Result<Response, ApiError> {
     let trace_id = ctx.problem_trace_id();
-    let params = resolve_list_page_params(query.page, query.page_size, query.limit, query.offset)
+    let params = resolve_list_page_params(query.page, query.page_size)
         .map_err(|_| ApiError::invalid_parameter("invalid pagination parameters", &trace_id))?;
 
     let (owner_tenant_id, owner_user_ref) = if state.access_policy.enforce_session_scope {
@@ -1322,7 +1405,7 @@ pub async fn get_messages(
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
 
-    let params = resolve_list_page_params(query.page, query.page_size, query.limit, query.offset)
+    let params = resolve_list_page_params(query.page, query.page_size)
         .map_err(|_| ApiError::invalid_parameter("invalid pagination parameters", &trace_id))?;
     let rows = state
         .persist(move |persistence| {
@@ -1393,7 +1476,7 @@ pub async fn list_tasks(
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &session, &trace_id)?;
 
-    let params = resolve_list_page_params(query.page, query.page_size, query.limit, query.offset)
+    let params = resolve_list_page_params(query.page, query.page_size)
         .map_err(|_| ApiError::invalid_parameter("invalid pagination parameters", &trace_id))?;
     let task_query = sdkwork_agent_database::TaskQuery {
         limit: Some(params.page_size + 1),
@@ -1587,17 +1670,15 @@ pub async fn list_tools(
         .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
     let items = tools
         .into_iter()
-        .map(|tool| {
-            serde_json::json!({
-                "toolId": tool.tool_id,
-                "providerId": tool.provider_id,
-                "name": tool.name,
-                "displayName": tool.display_name,
-                "description": tool.description,
-                "sideEffectLevel": tool.side_effect_level.as_str(),
-                "policyCategories": tool.policy_categories,
-                "timeoutMs": tool.timeout_ms,
-            })
+        .map(|tool| ToolDescriptorJson {
+            tool_id: tool.tool_id,
+            provider_id: tool.provider_id,
+            name: tool.name,
+            display_name: tool.display_name,
+            description: tool.description,
+            side_effect_level: tool.side_effect_level.as_str().to_string(),
+            policy_categories: tool.policy_categories,
+            timeout_ms: tool.timeout_ms,
         })
         .collect();
     Ok(catalog_list_response(items, &trace_id))
@@ -1836,15 +1917,7 @@ pub async fn stream_session_events(
 fn resolve_list_page_params(
     page: Option<i64>,
     page_size: Option<i64>,
-    limit: Option<i64>,
-    offset: Option<i64>,
 ) -> Result<sdkwork_utils_rust::OffsetListPageParams, sdkwork_utils_rust::SdkWorkResultCode> {
-    let page_size = page_size.or(limit);
-    let page = if offset.unwrap_or(0) > 0 && page.is_none() {
-        Some((offset.unwrap_or(0) / page_size.unwrap_or(20)) + 1)
-    } else {
-        page
-    };
     validated_offset_list_params(page, page_size)
 }
 

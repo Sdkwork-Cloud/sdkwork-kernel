@@ -1,36 +1,41 @@
-> Owner: SDKWork maintainers
-> Updated: 2026-06-24
-> Status: **as-built**
-
 # Agent Implementation Type
 
-## Goal
+Status: canonical reference (kernel scope)
+Owner: sdkwork-kernel maintainers
+Date: 2026-06-12
 
-First-class `implementationType` (framework/runtime family) alongside `implementationKind` (adapter shape) for managed agents across domain, persistence, HTTP, and SDK surfaces.
+## Scope
 
-## What landed
+The managed-agent `implementationKind` / `implementationType` domain model, SQL contract, HTTP DTOs,
+and generated app/backend/open SDKs are owned by **`sdkwork-agents`**, not `sdkwork-kernel`.
 
-| Layer | Location |
-| --- | --- |
-| Domain enum + validation | `sdkwork-agent-business/src/domain.rs` |
-| Service commands | `sdkwork-agent-business/src/application.rs` |
-| HTTP DTOs | `sdkwork-agent-business/src/dto.rs`, `http.rs` |
-| SQL contract | `sdkwork-agent-business/specs/sql/agent_business_postgres.sql` |
-| DB spec | `sdkwork-agent-business/specs/AGENT_BUSINESS_DATABASE_SPEC.md` |
-| Service tests | `sdkwork-agent-business/tests/agent_business_service_contracts.rs` |
-| HTTP tests | `sdkwork-agent-business/tests/http_axum_contracts.rs` |
-| ADR | `docs/architecture/decisions/ADR-20260612-agent-implementation-type.md` |
+Kernel responsibility:
 
-Defaults: missing/legacy values resolve to `sdkwork-native`. Invalid framework strings fail at domain/DTO boundaries with problem-detail `400`.
+- Agent runtime SPI (`sdkwork-agent-kernel`) and operational internal-api HTTP
+  (`sdkwork-agent-server`).
+- Product consumers integrate through `@sdkwork/agent-internal-sdk`.
+
+## Authority
+
+| Concern | Owner | Location |
+| --- | --- | --- |
+| Domain enum + validation | sdkwork-agents | `sdkwork-intelligence-agents-service` |
+| Service commands + HTTP | sdkwork-agents | managed-store service crates |
+| SQL contract | sdkwork-agents | `specs/sql/` under agents repository |
+| Architecture decision | kernel (historical) + agents (active) | `ADR-20260612-agent-implementation-type.md` |
 
 ## Verification
 
+Kernel gates (this repository):
+
 ```bash
-cargo test --manifest-path sdkwork-agent-business/Cargo.toml implementation_type
-cargo test --features http-axum --test http_axum_contracts --manifest-path sdkwork-agent-business/Cargo.toml
-cargo test --features postgres-sync --manifest-path sdkwork-agent-business/Cargo.toml
+node scripts/check-kernel-standards.mjs
 node scripts/check-agent-sdk-workspace.mjs
-pnpm verify
+cargo test --manifest-path sdkwork-agent-server/Cargo.toml
 ```
 
-Do not implement from checkbox steps in `docs/archive/superpowers/plans/2026-06-12-agent-implementation-type.md`.
+Agents gates (sibling repository):
+
+```bash
+pnpm verify
+```

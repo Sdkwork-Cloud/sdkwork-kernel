@@ -596,10 +596,10 @@ pub async fn force_close_timer() {
       </div>
 
       <div class="issue-card high">
-        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H10: OpenAPI schema 类型宽松致 SDK 类型安全失效（部分修复）</span></div>
+        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H10: OpenAPI schema 类型宽松致 SDK 类型安全失效（已修复）</span></div>
         <div class="issue-meta">文件: apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml</div>
-        <div class="issue-desc"><code>RuntimeSnapshot</code>、<code>SessionResponse</code>、<code>MessageResponse</code> 等核心 schema 已具字段定义。剩余扩展槽位（如 snapshot 内 <code>patches</code>、<code>terminalOutput</code>）仍为无属性 object 数组，生成 SDK 在这些边缘字段上仍可能退化为宽泛类型。</div>
-        <div class="issue-fix"><strong>后续：</strong>为代码智能体扩展 payload 补全具名 schema；产品 UI 由应用仓库实现（见 H11）。</div>
+        <div class="issue-desc"><code>RuntimeSnapshot</code>、<code>SessionResponse</code>、<code>PermissionRequest</code>、<code>KernelEvent</code>、<code>Workspace</code>、<code>ToolDescriptor</code> 等核心 schema 已与 server 实现对齐并具名字段定义。代码智能体扩展槽位使用 <code>PatchSet</code>、<code>VerificationReport</code>、<code>TerminalCommand</code> 等具名 schema。</div>
+        <div class="issue-fix"><strong>修复：</strong>已落地；运行 <code>node sdks/materialize-agent-internal-api-openapi.mjs</code> 并验证 SDK workspace。</div>
       </div>
 
       <div class="issue-card high">

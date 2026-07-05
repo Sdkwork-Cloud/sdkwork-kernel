@@ -40,7 +40,7 @@ SDK family: `sdks/sdkwork-agent-internal-sdk/`
 Route boundary crate: `crates/sdkwork-routes-agent-internal-api` (re-exports `build_internal_runtime_routes` and `internal_route_manifest`)  
 Handler module: `sdkwork-agent-server/src/api/internal_runtime.rs` (`InternalRuntimeApiState`)
 
-List endpoints (`sessions`, `messages`, `tasks`, `models`, `tools`) return `SdkWorkApiResponse` with `data.items` and `data.pageInfo` per `API_SPEC.md` §4.5/§16. Query input uses `page` and `page_size` (default `20`, max `200`); legacy `limit`/`offset` query aliases remain accepted by the server during client migration.
+List endpoints (`sessions`, `messages`, `tasks`, `models`, `tools`) return `SdkWorkApiResponse` with `data.items` and `data.pageInfo` per `API_SPEC.md` §4.5/§16. Query input uses `page` and `page_size` (default `20`, max `200`).
 
 Single-resource JSON endpoints (manifest, health, diagnostics, snapshot, session create/read/close, message send, task submit/read/cancel, permission decide, model invoke/cancel, tool execute) return `SdkWorkApiResponse` with `data.item`. `DELETE` session returns `204 No Content` with `X-SdkWork-Trace-Id`. Errors use `application/problem+json` (`ProblemDetail`) with numeric `code` and `traceId`.
 

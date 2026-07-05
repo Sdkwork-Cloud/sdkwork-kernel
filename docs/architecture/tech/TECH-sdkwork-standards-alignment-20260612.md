@@ -1,4 +1,4 @@
-> Migrated from `docs/quality/sdkwork-standards-alignment-20260612.md` on 2026-06-24.
+﻿> Migrated from `docs/quality/sdkwork-standards-alignment-20260612.md` on 2026-06-24.
 > Owner: SDKWork maintainers
 
 # SDKWork Standards Alignment Quality Gate Evidence
@@ -456,7 +456,7 @@ Enterprise IdP OAuth redirect flows remain future product work outside this audi
 
 ## Platform Framework Adoption Follow-up (2026-06-18)
 
-Scope: close platform integration gaps against `WEB_FRAMEWORK_SPEC.md` and `DATABASE_SPEC.md`.
+Scope: kernel runtime alignment against `WEB_FRAMEWORK_SPEC.md` and `DATABASE_SPEC.md`.
 
 Decision and evidence:
 
@@ -466,15 +466,14 @@ Decision and evidence:
 - Workspace `Cargo.toml` declares `sdkwork-web-*` and `sdkwork-database-*` dependencies
 - `tools/validators/kernel-standards/platform-integration.mjs` enforces Phase 0 evidence
 
-Deferred by design:
+Out of kernel scope (documented, not implemented in this repository):
 
-- `sdkwork-discovery` �?no first-party gRPC/RPC services in kernel
-- `sdkwork.app.config.json` �?kernel is a standards repository, not an application root
-- `sdkwork-discovery` �?no first-party gRPC/RPC services in kernel
+- `sdkwork-discovery` — no first-party gRPC/RPC services in kernel
+- `sdkwork.app.config.json` — kernel is a standards repository, not an application root
 
-Phase 5 utils (2026-06-20 closeout):
+Phase 5 utils:
 
-- `sdkwork-utils-rust` workspace dependency and `sdkwork-agent-server` ingress/runtime validation consumption
+- `sdkwork-utils-rust` workspace dependency; server list handlers use `validated_offset_list_params`
 - `sdkwork-agent-database` postgres pool bootstrap through `sdkwork-database-sqlx`
 - `tools/validators/kernel-standards/platform-utils.mjs` and `scripts/dev/sdkwork-kernel-utils-standard.test.mjs`
 - `pnpm test:utils-standard` in root `package.json`
@@ -484,10 +483,9 @@ Phase 4 packaging:
 - `sdkwork.workflow.json` and `.github/workflows/package.yml` for `sdkwork-agent-server` release artifacts
 - `deployments/` topology-linked profiles remain future work for production rollout
 
-Verification evidence (2026-06-18 closeout):
+Verification evidence (current):
 
 - `node scripts/check-kernel-standards.mjs` -> exit 0
-- `node --test tests/kernel_workspace_structure.test.mjs` -> exit 0; platform framework + packaging tests pass
-- `cargo test -p sdkwork-routes-agent-*` -> route manifest and web-framework contract tests pass
 - `node scripts/verify-kernel-audit-remediation.mjs` -> exit 0
+- `cargo test --manifest-path sdkwork-agent-server/Cargo.toml` -> exit 0
 

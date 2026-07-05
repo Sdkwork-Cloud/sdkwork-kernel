@@ -27,7 +27,10 @@ Do not move the mature component roots in this pass:
 
 - `sdkwork-agent-kernel/`
 - `sdkwork-code-kernel/`
-- `sdkwork-agent-business/`
+- `sdkwork-agent-kernel/`
+- `sdkwork-code-kernel/`
+- `sdkwork-agent-server/`
+- `sdkwork-kernel-plugins/`
 - `sdkwork-kernel-plugins/`
 - `sdks/sdkwork-agent-internal-sdk/`
 

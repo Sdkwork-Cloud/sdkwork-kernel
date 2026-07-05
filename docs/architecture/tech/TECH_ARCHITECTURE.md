@@ -370,8 +370,9 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
 - **Token quota**: Atomic Lua-script-based reservation eliminates the
   TOCTOU race; pre-reserved tokens are adjusted to actual usage after
   model invocation completes.
-- **List sessions pagination**: Supports `limit` and `offset` query
-  parameters (clamped to 200 max) for efficient cursor-based iteration.
+- **List pagination**: List endpoints use `page` and `page_size` query parameters
+  (default page size 20, max 200) with offset-mode `PageInfo` in
+  `SdkWorkApiResponse` envelopes per `PAGINATION_SPEC.md`.
 - **sdkwork-utils-rust**: Shared utility library provides SHA-256,
   HMAC, AES-256-GCM, HKDF, and ID generation to reduce cross-crate
   code duplication.

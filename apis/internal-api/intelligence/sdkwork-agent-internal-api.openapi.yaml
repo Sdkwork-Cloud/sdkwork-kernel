@@ -1040,23 +1040,23 @@ components:
         patches:
           type: array
           items:
-            type: object
+            $ref: '#/components/schemas/PatchSet'
         verificationReports:
           type: array
           items:
-            type: object
+            $ref: '#/components/schemas/VerificationReport'
         terminalCommands:
           type: array
           items:
-            type: object
+            $ref: '#/components/schemas/TerminalCommand'
         terminalOutput:
           type: array
           items:
-            type: object
+            $ref: '#/components/schemas/TerminalOutputChunk'
         reviewFindings:
           type: array
           items:
-            type: object
+            $ref: '#/components/schemas/ReviewFinding'
     KernelRuntime:
       type: object
       required: [runtimeId, agentId, kernelVersion, state, health, capabilities, missingRequiredCapabilities, degradedCapabilities]
@@ -1085,20 +1085,35 @@ components:
             type: string
     KernelEvent:
       type: object
-      required: [eventId, eventType, occurredAt]
+      required: [eventId, eventType, severity, summary, sequence]
       properties:
         eventId:
           type: string
         eventType:
           type: string
-        occurredAt:
+        severity:
           type: string
-        payload:
-          type: object
+        summary:
+          type: string
+        sequence:
+          type: integer
+          format: int32
+        traceId:
+          type: string
+          nullable: true
     Workspace:
       type: object
+      required: [workspaceId, root, branch, dirty, changedFiles]
       properties:
-        roots:
+        workspaceId:
+          type: string
+        root:
+          type: string
+        branch:
+          type: string
+        dirty:
+          type: boolean
+        changedFiles:
           type: array
           items:
             type: string
@@ -1111,24 +1126,147 @@ components:
           enum: [allow, deny]
     PermissionRequest:
       type: object
-      required: [permissionRequestId, sessionId, capability, status]
+      required: [permissionRequestId, category, resource, sideEffectLevel, reason, status]
       properties:
         permissionRequestId:
           type: string
-        sessionId:
+        category:
           type: string
-        capability:
+        resource:
+          type: string
+        sideEffectLevel:
+          type: string
+        reason:
           type: string
         status:
           type: string
           enum: [pending, allow, deny, needs_approval]
-        detail:
+    PatchSet:
+      type: object
+      required: [patchId, workspaceId, summary, operations]
+      properties:
+        patchId:
+          type: string
+        workspaceId:
+          type: string
+        summary:
+          type: string
+        operations:
+          type: array
+          items:
+            $ref: '#/components/schemas/PatchOperation'
+    PatchOperation:
+      type: object
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [createFile, updateFile, deleteFile]
+        path:
+          type: string
+        content:
           type: string
           nullable: true
-        requestedAt:
+        before:
           type: string
           nullable: true
-        decidedAt:
+        after:
+          type: string
+          nullable: true
+    VerificationReport:
+      type: object
+      required: [reportId, verificationId, commandResults, failures]
+      properties:
+        reportId:
+          type: string
+        verificationId:
+          type: string
+        commandResults:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommandResult'
+        failures:
+          type: array
+          items:
+            type: string
+    CommandResult:
+      type: object
+      required: [commandId, stdout, stderr, cancelled, timedOut]
+      properties:
+        commandId:
+          type: string
+        exitCode:
+          type: integer
+          format: int32
+          nullable: true
+        stdout:
+          type: string
+        stderr:
+          type: string
+        cancelled:
+          type: boolean
+        timedOut:
+          type: boolean
+    TerminalCommand:
+      type: object
+      required: [commandId, command, args, workingDirectory]
+      properties:
+        commandId:
+          type: string
+        command:
+          type: string
+        args:
+          type: array
+          items:
+            type: string
+        workingDirectory:
+          type: string
+        timeoutMs:
+          type: integer
+          format: int64
+          nullable: true
+        policyCategories:
+          type: array
+          items:
+            type: string
+    TerminalOutputChunk:
+      type: object
+      required: [commandId, sequence, channel, content]
+      properties:
+        commandId:
+          type: string
+        sequence:
+          type: integer
+          format: int64
+        channel:
+          type: string
+          enum: [stdout, stderr, system]
+        content:
+          type: string
+        redactionClassification:
+          type: string
+          nullable: true
+    ReviewFinding:
+      type: object
+      required: [findingId, severity, filePath, message]
+      properties:
+        findingId:
+          type: string
+        severity:
+          type: string
+          enum: [critical, high, medium, low, info]
+        filePath:
+          type: string
+        line:
+          type: integer
+          format: int32
+          nullable: true
+        message:
+          type: string
+        remediation:
+          type: string
+          nullable: true
+        missingTest:
           type: string
           nullable: true
     CreateSessionRequest:
@@ -1455,14 +1593,6 @@ components:
           type: array
           items:
             type: object
-    ToolListResponse:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            type: object
     ExecuteToolRequest:
       type: object
       required: [input]
@@ -1655,7 +1785,33 @@ components:
                     items:
                       type: array
                       items:
-                        type: object
+                        $ref: '#/components/schemas/ToolDescriptor'
+    ToolDescriptor:
+      type: object
+      required: [toolId, providerId, displayName, sideEffectLevel, policyCategories]
+      properties:
+        toolId:
+          type: string
+        providerId:
+          type: string
+        name:
+          type: string
+          nullable: true
+        displayName:
+          type: string
+        description:
+          type: string
+          nullable: true
+        sideEffectLevel:
+          type: string
+        policyCategories:
+          type: array
+          items:
+            type: string
+        timeoutMs:
+          type: integer
+          format: int64
+          nullable: true
     ExecuteToolItemResponse:
       description: Tool execution SdkWorkApiResponse envelope.
       allOf:

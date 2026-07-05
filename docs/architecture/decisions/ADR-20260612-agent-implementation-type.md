@@ -81,17 +81,15 @@ Costs:
 
 ## Verification
 
-The decision is kept true by:
+The decision is kept true by managed-agent contracts in the sibling `sdkwork-agents`
+repository:
 
-- `cargo test --manifest-path sdkwork-agent-business/Cargo.toml`
-- `cargo test --features http-axum --manifest-path sdkwork-agent-business/Cargo.toml`
-- `cargo test --features postgres-sync --manifest-path sdkwork-agent-business/Cargo.toml`
-- `node sdks/materialize-agent-v3-openapi-boundaries.mjs`
-- `node sdks/workspace-agent-sdkgen.mjs --mode dry-run`
-- `node scripts/check-agent-sdk-workspace.mjs`
-- `node scripts/check-kernel-standards.mjs`
+- `cargo test --manifest-path sdkwork-agents/sdkwork-agent-business/Cargo.toml`
+- `cargo test --features http-axum --manifest-path sdkwork-agents/sdkwork-agent-business/Cargo.toml`
+- `cargo test --features postgres-sync --manifest-path sdkwork-agents/sdkwork-agent-business/Cargo.toml`
+- `node scripts/check-kernel-standards.mjs` (kernel standards index includes this ADR)
 
-The execution evidence is recorded in
+Historical pre-separation execution evidence is recorded in
 `docs/archive/superpowers/plans/2026-06-12-agent-implementation-type.md`.
 
 ## Supersedes / Superseded By

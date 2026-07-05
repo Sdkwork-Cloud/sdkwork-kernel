@@ -76,8 +76,9 @@ export const requiredStandardsEvidenceFiles = [
       'QUALITY_GATE_SPEC.md',
       'sdkwork-agent-kernel/',
       'sdkwork-code-kernel/',
-      'sdkwork-agent-business/',
-      'sdkwork-kernel-plugins/'
+      'sdkwork-agent-server/',
+      'sdkwork-kernel-plugins/',
+      'ADR-20260626-agents-application-layer-separation.md'
     ]
   },
   {
@@ -186,8 +187,7 @@ export const requiredStandardsEvidenceFiles = [
       'Agent Implementation Type Follow-up',
       'ADR-20260612-agent-implementation-type.md',
       '2026-06-12-agent-implementation-type.md',
-      'cargo test --features http-axum --manifest-path sdkwork-agent-business/Cargo.toml',
-      'cargo test --features postgres-sync --manifest-path sdkwork-agent-business/Cargo.toml',
+      'ADR-20260626-agents-application-layer-separation.md',
       'node sdks/workspace-agent-sdkgen.mjs --mode dry-run',
       'hasChanges: false',
       'Agent implementation type evidence is enforced by tools/validators/kernel-standards/workspace-evidence.mjs',
@@ -206,7 +206,8 @@ export const requiredStandardsEvidenceFiles = [
       '"gapCount": 0',
       'Platform Framework Adoption Follow-up',
       'ADR-20260618-platform-framework-adoption.md',
-      'apis/agent-business/authority-index.json',
+      'ADR-20260626-agents-application-layer-separation.md',
+      'apis/internal-api/authority-index.json',
       'platform-integration.mjs'
     ]
   }

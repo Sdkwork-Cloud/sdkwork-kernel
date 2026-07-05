@@ -212,6 +212,9 @@ SDK surface scan:
 
 ## Agent Implementation Type Follow-up
 
+> **2026-06 separation:** `sdkwork-agent-business` moved to `sdkwork-agents`. Historical verification
+> below records the pre-separation closeout; active kernel gates use internal runtime API only.
+
 The agent implementation type contract is recorded as follow-up architecture and quality evidence
 because it changed the managed-agent domain model, explicit database storage, OpenAPI contracts, and
 generated SDK surfaces.
@@ -421,21 +424,22 @@ product applications own UI implementation and consume `@sdkwork/agent-internal-
 Historical implementation notes (auth provider surface, session bootstrap panel, i18n baseline,
 contract tests) applied to the retired workspace only.
 
+### Managed agent business (P1) — retired 2026-06
+
+In-repo `sdkwork-agent-business/` and business API/SDK families were removed per
+`ADR-20260626-agents-application-layer-separation.md`. Managed-agent CRUD, catalog persistence,
+and app/backend/open HTTP surfaces now live in `sdkwork-agents`. Kernel validators index
+`apis/internal-api/authority-index.json` only.
+
 ### Verification commands and outcomes (2026-06-17)
 
 - `node scripts/check-kernel-standards.mjs` -> exit 0; kernel standards conformance check passed.
 - `node scripts/check-agent-sdk-workspace.mjs` -> exit 0; agent SDK workspace check passed.
 - `node --test tests/*.test.mjs` -> exit 0; 20 tests pass.
-- `cargo test --manifest-path sdkwork-agent-business/Cargo.toml` -> exit 0; all contract suites pass.
-- `cargo test --features http-axum --test http_axum_contracts --manifest-path sdkwork-agent-business/Cargo.toml`
-  -> exit 0; 75 tests pass.
-- `cargo test --features postgres-sync --test agent_postgres_sync_contracts --manifest-path sdkwork-agent-business/Cargo.toml`
-  -> exit 0; 3 tests pass (including live roundtrip when `SDKWORK_AGENT_BUSINESS_POSTGRES_URI` is set).
+- `cargo test --manifest-path sdkwork-agent-server/Cargo.toml` -> exit 0; runtime HTTP contract suites pass.
 - `cargo test --doc --manifest-path sdkwork-agent-kernel/Cargo.toml` -> exit 0; 2 doctests pass.
 - `cargo test --manifest-path sdkwork-agent-kernel/Cargo.toml` -> exit 0.
 - `cargo test --manifest-path sdkwork-code-kernel/Cargo.toml` -> exit 0.
-- `cargo test --features "http-axum,postgres-sync" --manifest-path sdkwork-agent-business/Cargo.toml`
-  -> exit 0; combined HTTP + postgres-sync suites pass.
 - `node scripts/verify-kernel-audit-remediation.mjs` -> exit 0; full audit verification matrix passes.
 - `.github/workflows/kernel-verification.yml` -> audit remediation job + PostgreSQL live contract job.
 
@@ -457,7 +461,8 @@ Scope: close platform integration gaps against `WEB_FRAMEWORK_SPEC.md` and `DATA
 Decision and evidence:
 
 - `docs/architecture/decisions/ADR-20260618-platform-framework-adoption.md`
-- `apis/agent-business/authority-index.json`
+- `docs/architecture/decisions/ADR-20260626-agents-application-layer-separation.md`
+- `apis/internal-api/authority-index.json`
 - Workspace `Cargo.toml` declares `sdkwork-web-*` and `sdkwork-database-*` dependencies
 - `tools/validators/kernel-standards/platform-integration.mjs` enforces Phase 0 evidence
 
@@ -469,7 +474,7 @@ Deferred by design:
 
 Phase 5 utils (2026-06-20 closeout):
 
-- `sdkwork-utils-rust` workspace dependency and `sdkwork-agent-business/src/validation.rs` consumption
+- `sdkwork-utils-rust` workspace dependency and `sdkwork-agent-server` ingress/runtime validation consumption
 - `sdkwork-agent-database` postgres pool bootstrap through `sdkwork-database-sqlx`
 - `tools/validators/kernel-standards/platform-utils.mjs` and `scripts/dev/sdkwork-kernel-utils-standard.test.mjs`
 - `pnpm test:utils-standard` in root `package.json`

@@ -230,6 +230,8 @@ impl SqliteBridgeSessionStore {
                     .bridge_id
                     .clone()
                     .or_else(|| Some(self.bridge_id.clone())),
+                owner_tenant_id: None,
+                owner_user_ref: None,
                 limit: query.limit.map(i64::from),
                 offset: None,
             })

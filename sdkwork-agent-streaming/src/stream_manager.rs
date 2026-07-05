@@ -141,6 +141,26 @@ impl StreamManager {
         }
     }
 
+    /// Pop the next buffered update for a connection without discarding later items.
+    pub fn pop_update(&self, connection_id: &str) -> KernelResult<Option<ProtocolStreamUpdate>> {
+        let mut connections = self
+            .connections
+            .lock()
+            .map_err(|e| KernelError::validation(format!("failed to acquire lock: {}", e)))?;
+
+        if let Some(connection) = connections.get_mut(connection_id) {
+            if connection.buffer.is_empty() {
+                return Ok(None);
+            }
+            Ok(Some(connection.buffer.remove(0)))
+        } else {
+            Err(KernelError::validation(format!(
+                "connection not found: {}",
+                connection_id
+            )))
+        }
+    }
+
     /// Drain buffered updates for a connection
     pub fn drain_updates(&self, connection_id: &str) -> KernelResult<Vec<ProtocolStreamUpdate>> {
         let mut connections = self
@@ -210,6 +230,36 @@ mod tests {
 
         manager.pause_stream("conn.1").expect("paused");
         assert_eq!(manager.get_state("conn.1"), Some(StreamState::Paused));
+    }
+
+    #[test]
+    fn pop_update_preserves_remaining_items() {
+        let manager = StreamManager::new();
+        manager
+            .connect("conn.1", StreamType::WebSocket, None)
+            .expect("connected");
+
+        for event_id in ["evt.1", "evt.2"] {
+            manager
+                .push_update(
+                    "conn.1",
+                    ProtocolStreamUpdate {
+                        event_id: event_id.to_string(),
+                        event_type: "test.event".to_string(),
+                        event_version: "0.1.0".to_string(),
+                        sequence: 0,
+                        payload: event_id.to_string(),
+                        trace_context: None,
+                    },
+                )
+                .expect("pushed");
+        }
+
+        let first = manager.pop_update("conn.1").expect("first").expect("item");
+        assert_eq!(first.event_id, "evt.1");
+        let second = manager.pop_update("conn.1").expect("second").expect("item");
+        assert_eq!(second.event_id, "evt.2");
+        assert!(manager.pop_update("conn.1").expect("empty").is_none());
     }
 
     #[test]

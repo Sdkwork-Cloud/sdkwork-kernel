@@ -352,6 +352,11 @@ function validateInternalOpenApi({ label, content, family, errors }) {
     'operationId: runtime.sessions.retrieve',
     'operationId: runtime.sessions.messages.send',
     'operationId: runtime.sessions.events.stream',
+    'operationId: runtime.sessions.model.cancel',
+    'CancelModelRequest:',
+    'CancelModelResponse:',
+    'CancelModelItemResponse:',
+    'StreamModelRequest:',
     'x-sdkwork-api-surface: internal-api',
     'x-sdkwork-auth-mode: ingress-token',
     'ApiKey:'
@@ -361,9 +366,39 @@ function validateInternalOpenApi({ label, content, family, errors }) {
     }
   }
 
+  validateInternalOpenApiSchemaRefs({ label, content, errors });
+
   for (const forbiddenPrefix of forbiddenAgentApiPrefixesFor(family)) {
     if (content.includes(forbiddenPrefix)) {
       errors.push(`${label} must not include forbidden prefix ${forbiddenPrefix}`);
     }
+  }
+}
+
+function validateInternalOpenApiSchemaRefs({ label, content, errors }) {
+  const schemasMarker = '\n  schemas:\n';
+  const schemasIndex = content.indexOf(schemasMarker);
+  if (schemasIndex < 0) {
+    errors.push(`${label} missing components.schemas section`);
+    return;
+  }
+
+  const defined = new Set();
+  for (const match of content
+    .slice(schemasIndex)
+    .matchAll(/^    ([A-Za-z][A-Za-z0-9_]*):\s*$/gm)) {
+    defined.add(match[1]);
+  }
+
+  const missing = new Set();
+  for (const match of content.matchAll(/#\/components\/schemas\/([A-Za-z][A-Za-z0-9_]*)/g)) {
+    const schemaName = match[1];
+    if (!defined.has(schemaName)) {
+      missing.add(schemaName);
+    }
+  }
+
+  for (const schemaName of [...missing].sort()) {
+    errors.push(`${label} references undefined schema ${schemaName}`);
   }
 }

@@ -582,24 +582,24 @@ pub async fn force_close_timer() {
       </div>
 
       <div class="issue-card high">
-        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H8: JWT 缺少 nbf 声明验证</span></div>
-        <div class="issue-meta">文件: sdkwork-agent-server/src/ingress_jwt.rs:204-211</div>
-        <div class="issue-desc">仅验证 <code>exp</code>（过期时间），未验证 <code>nbf</code>（生效时间）。<code>jsonwebtoken</code> 库默认 <code>validate_nbf = false</code>，攻击者可使用尚未生效的令牌。</div>
-        <div class="issue-fix"><strong>修复：</strong>添加 <code>validation.validate_nbf = true;</code>。</div>
+        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H8: JWT 缺少 nbf 声明验证（已修复）</span></div>
+        <div class="issue-meta">文件: sdkwork-agent-server/src/ingress_jwt.rs</div>
+        <div class="issue-desc">历史项：仅验证 <code>exp</code>。当前 <code>IngressJwtValidator</code> 启用 <code>validation.validate_nbf = true</code>，拒绝尚未生效的令牌。</div>
+        <div class="issue-fix"><strong>修复：</strong>已落地；见 <code>rejects_token_with_future_nbf</code> 合同测试。</div>
       </div>
 
       <div class="issue-card high">
-        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H9: WsProtocolAdapter::next_message 丢弃消息</span></div>
-        <div class="issue-meta">文件: sdkwork-agent-streaming/src/ws_adapter.rs:62-71</div>
-        <div class="issue-desc"><code>next_message</code> 调用 <code>buffer.drain(..)</code> 清空整个缓冲区，但只返回 <code>updates[0]</code>，<code>updates[1..]</code> 全部永久丢弃。</div>
-        <div class="issue-fix"><strong>修复：</strong>改为 <code>buffer.first().cloned()</code> 后 <code>remove(0)</code>，或返回 <code>Vec</code> 让调用方处理全部消息。</div>
+        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H9: WsProtocolAdapter::next_message 丢弃消息（已修复）</span></div>
+        <div class="issue-meta">文件: sdkwork-agent-streaming/src/ws_adapter.rs, stream_manager.rs</div>
+        <div class="issue-desc">历史项：<code>next_message</code> 曾 <code>drain</code> 整个缓冲区但只返回首条。现通过 <code>StreamManager::pop_update</code> 逐条弹出，保留后续消息。</div>
+        <div class="issue-fix"><strong>修复：</strong>已落地；见 <code>next_message_preserves_buffered_updates</code> 测试。</div>
       </div>
 
       <div class="issue-card high">
-        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H10: OpenAPI schema 类型宽松致 SDK 类型安全失效</span></div>
-        <div class="issue-meta">文件: apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml:657-782</div>
-        <div class="issue-desc"><code>KernelUiSnapshot</code>、<code>SessionResponse</code> 等核心响应 schema 均为 <code>additionalProperties: true</code> 的裸 object，无字段定义。生成 SDK 类型退化为 <code>Record&lt;string, unknown&gt;</code>，丧失类型安全价值。Real client 大量使用 <code>as T</code> 不安全断言。</div>
-        <div class="issue-fix"><strong>修复：</strong>为每个响应 schema 补全字段定义与 required，使生成 SDK 提供强类型契约。</div>
+        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H10: OpenAPI schema 类型宽松致 SDK 类型安全失效（部分修复）</span></div>
+        <div class="issue-meta">文件: apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml</div>
+        <div class="issue-desc"><code>RuntimeSnapshot</code>、<code>SessionResponse</code>、<code>MessageResponse</code> 等核心 schema 已具字段定义。剩余扩展槽位（如 snapshot 内 <code>patches</code>、<code>terminalOutput</code>）仍为无属性 object 数组，生成 SDK 在这些边缘字段上仍可能退化为宽泛类型。</div>
+        <div class="issue-fix"><strong>后续：</strong>为代码智能体扩展 payload 补全具名 schema；产品 UI 由应用仓库实现（见 H11）。</div>
       </div>
 
       <div class="issue-card high">

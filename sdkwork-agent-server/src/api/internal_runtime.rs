@@ -938,18 +938,6 @@ pub fn bridge_config_from_row(row: &SessionRow) -> BridgeSessionConfig {
     }
 }
 
-pub fn map_runtime_error(error: sdkwork_agent_kernel::KernelError) -> StatusCode {
-    match error {
-        sdkwork_agent_kernel::KernelError::Validation { .. } => StatusCode::BAD_REQUEST,
-        sdkwork_agent_kernel::KernelError::CapabilityMissing { .. }
-        | sdkwork_agent_kernel::KernelError::ProviderUnavailable { .. } => {
-            StatusCode::SERVICE_UNAVAILABLE
-        }
-        sdkwork_agent_kernel::KernelError::PolicyDenied { .. } => StatusCode::FORBIDDEN,
-        _ => StatusCode::INTERNAL_SERVER_ERROR,
-    }
-}
-
 /// `GET /runtime/manifest` — returns the runtime capability manifest.
 ///
 /// Side-effect-free surface suitable for UI clients, CI gates, and
@@ -1308,10 +1296,14 @@ pub async fn send_message(
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
     let content = request.content.clone();
-    let (row, bridge_response) =
-        crate::message_dispatch::dispatch_user_message(&state, &session_id, &content, &row)
-            .await
-            .map_err(|status| ApiError::from_status(status, "message dispatch failed", &trace_id))?;
+    let (row, bridge_response) = crate::message_dispatch::dispatch_user_message(
+        &state,
+        &session_id,
+        &content,
+        &row,
+        &trace_id,
+    )
+    .await?;
     let _ = bridge_response;
     Ok(api_created(message_row_to_view(row), &trace_id))
 }

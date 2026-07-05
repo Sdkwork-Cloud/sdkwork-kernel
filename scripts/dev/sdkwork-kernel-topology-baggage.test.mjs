@@ -45,6 +45,16 @@ const allowlistPathFragments = [
   'scripts/kernel-dev.mjs',
   'docs/architecture/tech/TECH-sdkwork-standards-alignment-20260612.md',
   'docs/architecture/decisions/ADR-20260612-sdkwork-kernel-root-dictionary.md',
+  'docs/architecture/decisions/ADR-20260626-agents-application-layer-separation.md',
+  'docs/architecture/decisions/ADR-20260618-platform-framework-adoption.md',
+  'docs/architecture/decisions/ADR-20260612-agent-implementation-type.md',
+  'docs/architecture/tech/TECH-2026-06-12-agent-implementation-type.md',
+  'docs/architecture/tech/TECH-2026-06-04-rig-agent-provider-deployments.md',
+  'docs/architecture/tech/TECH-2026-06-04-rig-complete-plugin-design.md',
+  'docs/architecture/tech/TECH-2026-06-04-rig-complete-plugin.md',
+  'docs/architecture/tech/TECH-2026-06-12-sdkwork-specs-structure-hardening-design.md',
+  'tools/validators/kernel-standards/platform-integration.mjs',
+  'tools/validators/kernel-standards/workspace-evidence.mjs',
   'tests/kernel_workspace_structure.test.mjs',
   'scripts/dev/sdkwork-kernel-utils-standard.test.mjs',
 ];
@@ -63,6 +73,10 @@ const bannedPatterns = [
   {
     id: 'removed in-repo kernel ui workspace',
     pattern: /sdkwork-kernel-ui/u,
+  },
+  {
+    id: 'removed in-repo managed agent business crate',
+    pattern: /sdkwork-agent-business/u,
   },
 ];
 

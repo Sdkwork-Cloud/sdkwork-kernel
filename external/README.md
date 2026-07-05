@@ -11,8 +11,8 @@ SDKWork integration should happen through the existing kernel boundaries:
   skill, collaboration, host, and protocol adapter contracts.
 - `sdkwork-code-kernel` workspace, VCS, patch, terminal, verification,
   language, review, artifact, knowledge, and safety provider SPI.
-- `sdkwork-agent-business` managed lifecycle and backend orchestration when an
-  agent is installed, configured, audited, or exposed as a managed resource.
+- `sdkwork-agents` managed lifecycle and backend orchestration when an agent is
+  installed, configured, audited, or exposed as a managed resource.
 
 ## Submodules
 

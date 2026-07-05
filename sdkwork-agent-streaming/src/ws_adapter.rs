@@ -60,14 +60,8 @@ impl WsProtocolAdapter {
 
     /// Get the next WebSocket message for a connection
     pub fn next_message(&self, connection_id: &str) -> KernelResult<Option<String>> {
-        let updates = self.stream_manager.drain_updates(connection_id)?;
-        if updates.is_empty() {
-            return Ok(None);
-        }
-
-        // Return the first update as a JSON message
-        let update = &updates[0];
-        Ok(Some(self.event_mapper.to_ws_message(update)))
+        let update = self.stream_manager.pop_update(connection_id)?;
+        Ok(update.map(|update| self.event_mapper.to_ws_message(&update)))
     }
 
     /// Get all pending messages as a JSON array
@@ -250,6 +244,29 @@ mod tests {
     }
 
     #[test]
+    fn next_message_preserves_buffered_updates() {
+        let adapter = WsProtocolAdapter::new();
+        adapter
+            .create_connection("conn.1", Some("session.1".to_string()))
+            .expect("created");
+
+        let event1 = KernelEvent::new("evt.1", "test.event", KernelEventSeverity::Info, "payload1");
+        let event2 = KernelEvent::new("evt.2", "test.event", KernelEventSeverity::Info, "payload2");
+        adapter.push_event("conn.1", &event1).expect("pushed");
+        adapter.push_event("conn.1", &event2).expect("pushed");
+
+        let first = adapter.next_message("conn.1").expect("first message");
+        let second = adapter.next_message("conn.1").expect("second message");
+        assert!(first.is_some());
+        assert!(second.is_some());
+        let first_id: serde_json::Value = serde_json::from_str(&first.unwrap()).expect("valid json");
+        let second_id: serde_json::Value =
+            serde_json::from_str(&second.unwrap()).expect("valid json");
+        assert_eq!(first_id["event_id"], "evt.1");
+        assert_eq!(second_id["event_id"], "evt.2");
+    }
+
+    #[test]
     fn handle_ping_message() {
         let adapter = WsProtocolAdapter::new();
         let response = adapter
@@ -279,7 +296,7 @@ mod tests {
                 .with_metadata("sdkwork.agent.session_id", "session.1");
 
         let task = adapter.map_request_to_task(request).expect("mapped");
-        assert_eq!(task.agent_id, "session.1");
+        assert_eq!(task.session_id, "session.1");
     }
 
     #[test]

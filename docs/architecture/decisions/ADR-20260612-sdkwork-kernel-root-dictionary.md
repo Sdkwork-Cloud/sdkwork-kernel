@@ -13,7 +13,7 @@ It already has mature component roots with stable build, test, and package owner
 
 - `sdkwork-agent-kernel/`
 - `sdkwork-code-kernel/`
-- `sdkwork-agent-business/`
+- `sdkwork-agent-server/`
 - `sdkwork-kernel-plugins/`
 
 The new repository standard requires the top-level dictionary names `apis/`, `apps/`, `crates/`,
@@ -32,8 +32,11 @@ The existing mature roots remain authoritative component roots:
 
 - `sdkwork-agent-kernel/` remains the agent kernel Rust crate root.
 - `sdkwork-code-kernel/` remains the code kernel Rust crate root.
-- `sdkwork-agent-business/` remains the managed agent business crate and API contract root.
+- `sdkwork-agent-server/` remains the operational runtime HTTP server root.
 - `sdkwork-kernel-plugins/` remains the kernel plugin workspace root.
+
+Managed-agent business persistence and app/backend/open HTTP surfaces moved to the sibling
+`sdkwork-agents` repository per `ADR-20260626-agents-application-layer-separation.md`.
 
 Product UI shells are not owned by `sdkwork-kernel`. TypeScript consumers integrate through
 `sdks/sdkwork-agent-internal-sdk/` (`@sdkwork/agent-internal-sdk`) and `sdkwork-agent-client`.
@@ -94,5 +97,7 @@ authored wrappers outside generated transport output.
 
 ## Supersedes / Superseded By
 
+- 2026-06: retired in-repo `sdkwork-agent-business/` and business API/SDK families; managed agents
+  ownership moved to `sdkwork-agents` (`ADR-20260626-agents-application-layer-separation.md`).
 - 2026-07: retired in-repo `sdkwork-kernel-ui/`; product UI ownership moved to application
   repositories. Kernel runtime HTTP remains on `internal-api` with `@sdkwork/agent-internal-sdk`.

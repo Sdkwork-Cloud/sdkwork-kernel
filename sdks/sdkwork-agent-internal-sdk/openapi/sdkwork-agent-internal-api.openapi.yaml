@@ -656,7 +656,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CancelModelResponse'
+                $ref: '#/components/schemas/CancelModelItemResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/sessions/{sessionId}/tools:
@@ -1331,7 +1331,7 @@ components:
                     items:
                       type: array
                       items:
-                        $ref: '#/components/schemas/SessionItemResponse'
+                        $ref: '#/components/schemas/SessionResponse'
     SendMessageRequest:
       type: object
       required: [content]
@@ -1426,7 +1426,7 @@ components:
                     items:
                       type: array
                       items:
-                        $ref: '#/components/schemas/TaskItemResponse'
+                        $ref: '#/components/schemas/TaskResponse'
     ModelDescriptor:
       type: object
       required: [modelId, providerId, displayName, family, capabilities]
@@ -1456,6 +1456,38 @@ components:
       properties:
         modelId:
           type: string
+    CancelModelRequest:
+      type: object
+      required: [modelRequestId]
+      properties:
+        modelRequestId:
+          type: string
+        providerId:
+          type: string
+          nullable: true
+    StreamModelRequest:
+      type: object
+      properties:
+        modelId:
+          type: string
+          nullable: true
+        messages:
+          type: array
+          items:
+            type: string
+    CancelModelResponse:
+      type: object
+      required: [modelRequestId, providerId, status]
+      properties:
+        modelRequestId:
+          type: string
+        providerId:
+          type: string
+        status:
+          type: string
+        finishReason:
+          type: string
+          nullable: true
     InvokeModelResponse:
       type: object
       required: [modelRequestId, providerId, status, messages, toolCalls]
@@ -1572,7 +1604,7 @@ components:
                 - type: object
                   properties:
                     item:
-                      $ref: '#/components/schemas/PermissionRequestResponse'
+                      $ref: '#/components/schemas/PermissionRequest'
     SessionItemResponse:
       description: Session resource SdkWorkApiResponse envelope.
       allOf:
@@ -1586,7 +1618,7 @@ components:
                 - type: object
                   properties:
                     item:
-                      $ref: '#/components/schemas/SessionItemResponse'
+                      $ref: '#/components/schemas/SessionResponse'
     MessageItemResponse:
       description: Message resource SdkWorkApiResponse envelope.
       allOf:
@@ -1614,7 +1646,7 @@ components:
                 - type: object
                   properties:
                     item:
-                      $ref: '#/components/schemas/TaskItemResponse'
+                      $ref: '#/components/schemas/TaskResponse'
     ModelCatalogListResponse:
       description: Model catalog SdkWorkApiResponse page envelope.
       allOf:
@@ -1645,6 +1677,20 @@ components:
                   properties:
                     item:
                       $ref: '#/components/schemas/InvokeModelResponse'
+    CancelModelItemResponse:
+      description: Model cancel SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkResourceData'
+                - type: object
+                  properties:
+                    item:
+                      $ref: '#/components/schemas/CancelModelResponse'
     ToolCatalogListResponse:
       description: Tool catalog SdkWorkApiResponse page envelope.
       allOf:

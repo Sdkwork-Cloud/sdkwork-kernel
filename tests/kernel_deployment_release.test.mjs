@@ -87,7 +87,7 @@ test('app manifest requires SBOM and checksum evidence', () => {
   assert.equal(manifest.metadata?.topologySpec, 'specs/topology.spec.json');
   assert.equal(
     manifest.environments?.development?.topologyProfileId,
-    'standalone.split-services.development',
+    'standalone.unified-process.development',
   );
   assert.equal(
     manifest.environments?.production?.topologyProfileId,

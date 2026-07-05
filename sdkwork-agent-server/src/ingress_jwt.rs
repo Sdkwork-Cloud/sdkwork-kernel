@@ -194,6 +194,7 @@ impl IngressJwtValidator {
         let (algorithm, decoding_key) = self.resolve_decoding_key(token)?;
         let mut validation = Validation::new(algorithm);
         validation.validate_exp = true;
+        validation.validate_nbf = true;
         if let Some(issuer) = &self.issuer {
             validation.set_issuer(&[issuer.as_str()]);
         }
@@ -382,6 +383,31 @@ mod tests {
                 user_id: "1".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn rejects_token_with_future_nbf() {
+        let config = hs256_config("test-secret");
+        let validator = IngressJwtValidator::from_config(&config).expect("validator");
+        let nbf = (chrono::Utc::now() + chrono::Duration::hours(1)).timestamp() as usize;
+        let exp = (chrono::Utc::now() + chrono::Duration::hours(2)).timestamp() as usize;
+        let claims = serde_json::json!({
+            "sub": "1",
+            "tenant_id": "100001",
+            "user_id": "1",
+            "nbf": nbf,
+            "exp": exp,
+            "iss": "sdkwork-kernel",
+            "aud": "internal-api",
+        });
+        let token = encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(b"test-secret"),
+        )
+        .expect("jwt encode");
+
+        assert_eq!(validator.validate(&token), Err(StatusCode::UNAUTHORIZED));
     }
 
     #[test]

@@ -16,7 +16,7 @@ Runtime connectivity profiles for local dev and deployment live in
 | --- | --- | --- |
 | `sdkwork-web-framework` | **Integrated** | Workspace `Cargo.toml` deps; internal route crates under `crates/sdkwork-routes-agent-internal-*`. Managed agents HTTP surfaces are owned by `sdkwork-agents`. Verified by `platform-integration.mjs`. |
 | `sdkwork-database` | **Integrated** | Workspace deps (`sdkwork-database-config`, `sdkwork-database-sqlx`); `sdkwork-agent-database` `postgres-sync` bootstraps runtime session pools. Managed-store persistence is owned by `sdkwork-agents`. Verified by `platform-integration.mjs`. |
-| `sdkwork-utils` | **Integrated** | Workspace dep `sdkwork-utils-rust`; kernel UI consumes `@sdkwork/utils`. Verified by `scripts/dev/sdkwork-kernel-utils-standard.test.mjs`. |
+| `sdkwork-utils` | **Integrated** | Workspace dep `sdkwork-utils-rust`; product shells may consume `@sdkwork/utils`. Verified by `scripts/dev/sdkwork-kernel-utils-standard.test.mjs`. |
 | `sdkwork-discovery` | **Deferred** | Kernel has no first-party gRPC/RPC services. Adopt when an RPC surface ships per `RPC_SPEC.md` and `RUST_RPC_SPEC.md`. |
 | PNPM script surface | **Integrated** | Root `package.json` exposes `dev`, `build`, `test`, `check`, `verify`, `clean` via `scripts/sdkwork-command.mjs`. Verified by `tools/validators/kernel-standards/platform-pnpm-scripts.mjs`. |
 

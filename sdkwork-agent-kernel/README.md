@@ -246,7 +246,7 @@ Forbidden direction:
 
 ```text
 agent-kernel -> code-kernel
-agent-kernel -> kernel-ui
+agent-kernel -> in-repo product UI shell
 agent-kernel -> product packages
 agent-kernel -> concrete model vendor SDK as required dependency
 agent-kernel -> direct filesystem/process/network side effects outside host SPI

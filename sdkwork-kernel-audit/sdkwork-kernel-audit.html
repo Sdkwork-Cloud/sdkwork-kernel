@@ -603,10 +603,10 @@ pub async fn force_close_timer() {
       </div>
 
       <div class="issue-card high">
-        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H11: UI 无实际可交互界面，与专业产品预期严重错配</span></div>
-        <div class="issue-meta">文件: sdkwork-kernel-ui/src/App.tsx</div>
-        <div class="issue-desc">UI 仅渲染 6 个只读面板读取静态快照。Client 已实现 <code>createSession</code>、<code>sendMessage</code>、<code>submitTask</code> 等能力，但 UI 完全未暴露。无聊天输入框、无会话创建、无消息发送入口。Token 通过 localStorage 明文持久化。距 Chrome/Edge/Arc 专业产品视觉标准差距大。</div>
-        <div class="issue-fix"><strong>修复：</strong>补齐 chat 交互区、会话管理、模型/工具调用面板；引入设计 token 体系与暗色主题；接入 OAuth2/PKCE 流程替代 localStorage 明文存取。</div>
+        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H11: UI 无实际可交互界面，与专业产品预期严重错配（已退役）</span></div>
+        <div class="issue-meta">状态: 2026-07 移除 in-repo `sdkwork-kernel-ui/`；UI 由产品应用仓库负责</div>
+        <div class="issue-desc">历史审计项：kernel 曾包含演示级 UI 壳。当前 `sdkwork-kernel` 仅保留 runtime HTTP 与 `@sdkwork/agent-internal-sdk`；交互式 UI、OAuth 与设计体系由产品应用实现。</div>
+        <div class="issue-fix"><strong>修复：</strong>在产品应用仓库实现 chat/会话/模型工具面板；kernel 侧保持 OpenAPI/SDK 强类型契约（见 H10）。</div>
       </div>
     </section>
 

@@ -1,7 +1,7 @@
 import { customApiPath } from './paths';
 import type { HttpClient } from '../http/client';
 
-import type { CreateSessionRequest, ExecuteToolRequest, ExecuteToolResponse, InvokeModelRequest, InvokeModelResponse, KernelUiSnapshot, MessageListResponse, MessageResponse, ModelListResponse, PermissionDecisionRequest, PermissionRequest, RuntimeDiagnostics, RuntimeHealth, RuntimeManifest, SendMessageRequest, SessionListResponse, SessionResponse, SubmitTaskRequest, TaskListResponse, TaskResponse, ToolListResponse } from '../types';
+import type { CreateSessionRequest, ExecuteToolRequest, ExecuteToolResponse, InvokeModelRequest, InvokeModelResponse, MessageResponse, ModelDescriptor, PermissionDecisionRequest, PermissionRequestResponse, RuntimeDiagnostics, RuntimeHealth, RuntimeManifest, RuntimeSnapshot, SdkWorkPageData, SdkWorkResourceData, SendMessageRequest, SessionItemResponse, SubmitTaskRequest, TaskItemResponse } from '../types';
 
 
 export interface IntelligenceRuntimeModelsListParams {
@@ -19,7 +19,7 @@ export class IntelligenceRuntimeModelsApi {
 
 
 /** List available models */
-  async list(params?: IntelligenceRuntimeModelsListParams): Promise<ModelListResponse> {
+  async list(params?: IntelligenceRuntimeModelsListParams): Promise<SdkWorkPageData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -28,7 +28,7 @@ export class IntelligenceRuntimeModelsApi {
       },
       {}
     );
-    return this.client.get<ModelListResponse>(customApiPath(`/intelligence/runtime/models`), undefined, requestHeaders);
+    return this.client.get<SdkWorkPageData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/models`), undefined, requestHeaders);
   }
 }
 
@@ -53,7 +53,7 @@ export class IntelligenceRuntimeTasksApi {
 
 
 /** Retrieve a task */
-  async retrieve(taskId: string, params?: IntelligenceRuntimeTasksRetrieveParams): Promise<TaskResponse> {
+  async retrieve(taskId: string, params?: IntelligenceRuntimeTasksRetrieveParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -62,11 +62,11 @@ export class IntelligenceRuntimeTasksApi {
       },
       {}
     );
-    return this.client.get<TaskResponse>(customApiPath(`/intelligence/runtime/tasks/${serializePathParameter(taskId, { name: 'taskId', style: 'simple', explode: false })}`), undefined, requestHeaders);
+    return this.client.get<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/tasks/${serializePathParameter(taskId, { name: 'taskId', style: 'simple', explode: false })}`), undefined, requestHeaders);
   }
 
 /** Cancel a task */
-  async cancel(taskId: string, params?: IntelligenceRuntimeTasksCancelParams): Promise<TaskResponse> {
+  async cancel(taskId: string, params?: IntelligenceRuntimeTasksCancelParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -75,7 +75,7 @@ export class IntelligenceRuntimeTasksApi {
       },
       {}
     );
-    return this.client.post<TaskResponse>(customApiPath(`/intelligence/runtime/tasks/${serializePathParameter(taskId, { name: 'taskId', style: 'simple', explode: false })}/cancel`), undefined, undefined, requestHeaders);
+    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/tasks/${serializePathParameter(taskId, { name: 'taskId', style: 'simple', explode: false })}/cancel`), undefined, undefined, requestHeaders);
   }
 }
 
@@ -134,7 +134,7 @@ export class IntelligenceRuntimeSessionsToolsApi {
 
 
 /** List session tools */
-  async list(sessionId: string, params?: IntelligenceRuntimeSessionsToolsListParams): Promise<ToolListResponse> {
+  async list(sessionId: string, params?: IntelligenceRuntimeSessionsToolsListParams): Promise<SdkWorkPageData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -143,11 +143,11 @@ export class IntelligenceRuntimeSessionsToolsApi {
       },
       {}
     );
-    return this.client.get<ToolListResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tools`), undefined, requestHeaders);
+    return this.client.get<SdkWorkPageData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tools`), undefined, requestHeaders);
   }
 
 /** Execute a tool for a session */
-  async execute(sessionId: string, toolName: string, body: ExecuteToolRequest, params?: IntelligenceRuntimeSessionsToolsExecuteParams): Promise<ExecuteToolResponse> {
+  async execute(sessionId: string, toolName: string, body: ExecuteToolRequest, params?: IntelligenceRuntimeSessionsToolsExecuteParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -156,7 +156,7 @@ export class IntelligenceRuntimeSessionsToolsApi {
       },
       {}
     );
-    return this.client.post<ExecuteToolResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tools/${serializePathParameter(toolName, { name: 'toolName', style: 'simple', explode: false })}/execute`), body, undefined, requestHeaders, 'application/json');
+    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tools/${serializePathParameter(toolName, { name: 'toolName', style: 'simple', explode: false })}/execute`), body, undefined, requestHeaders, 'application/json');
   }
 }
 
@@ -187,7 +187,7 @@ export class IntelligenceRuntimeSessionsModelApi {
 
 
 /** Invoke a model for a session */
-  async invoke(sessionId: string, body: InvokeModelRequest, params?: IntelligenceRuntimeSessionsModelInvokeParams): Promise<InvokeModelResponse> {
+  async invoke(sessionId: string, body: InvokeModelRequest, params?: IntelligenceRuntimeSessionsModelInvokeParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -196,7 +196,7 @@ export class IntelligenceRuntimeSessionsModelApi {
       },
       {}
     );
-    return this.client.post<InvokeModelResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/model/invoke`), body, undefined, requestHeaders, 'application/json');
+    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/model/invoke`), body, undefined, requestHeaders, 'application/json');
   }
 
 /** Stream a model response via SSE */
@@ -227,6 +227,8 @@ export class IntelligenceRuntimeSessionsModelApi {
 }
 
 export interface IntelligenceRuntimeSessionsTasksListParams {
+  page?: number;
+  pageSize?: number;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
@@ -247,7 +249,11 @@ export class IntelligenceRuntimeSessionsTasksApi {
 
 
 /** List session tasks */
-  async list(sessionId: string, params?: IntelligenceRuntimeSessionsTasksListParams): Promise<TaskListResponse> {
+  async list(sessionId: string, params?: IntelligenceRuntimeSessionsTasksListParams): Promise<SdkWorkPageData & Record<string, unknown>> {
+    const query = buildQueryString([
+      { name: 'page', value: params?.page, style: 'form', explode: true, allowReserved: false },
+      { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
+    ]);
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -256,11 +262,11 @@ export class IntelligenceRuntimeSessionsTasksApi {
       },
       {}
     );
-    return this.client.get<TaskListResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tasks`), undefined, requestHeaders);
+    return this.client.get<SdkWorkPageData & Record<string, unknown>>(appendQueryString(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tasks`), query), undefined, requestHeaders);
   }
 
 /** Submit a session task */
-  async submit(sessionId: string, body: SubmitTaskRequest, params?: IntelligenceRuntimeSessionsTasksSubmitParams): Promise<TaskResponse> {
+  async submit(sessionId: string, body: SubmitTaskRequest, params?: IntelligenceRuntimeSessionsTasksSubmitParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -269,13 +275,13 @@ export class IntelligenceRuntimeSessionsTasksApi {
       },
       {}
     );
-    return this.client.post<TaskResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tasks`), body, undefined, requestHeaders, 'application/json');
+    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tasks`), body, undefined, requestHeaders, 'application/json');
   }
 }
 
 export interface IntelligenceRuntimeSessionsMessagesListParams {
-  limit?: number;
-  offset?: number;
+  page?: number;
+  pageSize?: number;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
@@ -296,10 +302,10 @@ export class IntelligenceRuntimeSessionsMessagesApi {
 
 
 /** List session messages */
-  async list(sessionId: string, params?: IntelligenceRuntimeSessionsMessagesListParams): Promise<MessageListResponse> {
+  async list(sessionId: string, params?: IntelligenceRuntimeSessionsMessagesListParams): Promise<SdkWorkPageData & Record<string, unknown>> {
     const query = buildQueryString([
-      { name: 'limit', value: params?.limit, style: 'form', explode: true, allowReserved: false },
-      { name: 'offset', value: params?.offset, style: 'form', explode: true, allowReserved: false },
+      { name: 'page', value: params?.page, style: 'form', explode: true, allowReserved: false },
+      { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
     ]);
     const requestHeaders = buildRequestHeaders(
       {
@@ -309,11 +315,11 @@ export class IntelligenceRuntimeSessionsMessagesApi {
       },
       {}
     );
-    return this.client.get<MessageListResponse>(appendQueryString(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/messages`), query), undefined, requestHeaders);
+    return this.client.get<SdkWorkPageData & Record<string, unknown>>(appendQueryString(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/messages`), query), undefined, requestHeaders);
   }
 
 /** Send a session message */
-  async send(sessionId: string, body: SendMessageRequest, params?: IntelligenceRuntimeSessionsMessagesSendParams): Promise<MessageResponse> {
+  async send(sessionId: string, body: SendMessageRequest, params?: IntelligenceRuntimeSessionsMessagesSendParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -322,11 +328,13 @@ export class IntelligenceRuntimeSessionsMessagesApi {
       },
       {}
     );
-    return this.client.post<MessageResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/messages`), body, undefined, requestHeaders, 'application/json');
+    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/messages`), body, undefined, requestHeaders, 'application/json');
   }
 }
 
 export interface IntelligenceRuntimeSessionsListParams {
+  page?: number;
+  pageSize?: number;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
@@ -375,7 +383,11 @@ export class IntelligenceRuntimeSessionsApi {
 
 
 /** List runtime sessions */
-  async list(params?: IntelligenceRuntimeSessionsListParams): Promise<SessionListResponse> {
+  async list(params?: IntelligenceRuntimeSessionsListParams): Promise<SdkWorkPageData & Record<string, unknown>> {
+    const query = buildQueryString([
+      { name: 'page', value: params?.page, style: 'form', explode: true, allowReserved: false },
+      { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
+    ]);
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -384,11 +396,11 @@ export class IntelligenceRuntimeSessionsApi {
       },
       {}
     );
-    return this.client.get<SessionListResponse>(customApiPath(`/intelligence/runtime/sessions`), undefined, requestHeaders);
+    return this.client.get<SdkWorkPageData & Record<string, unknown>>(appendQueryString(customApiPath(`/intelligence/runtime/sessions`), query), undefined, requestHeaders);
   }
 
 /** Create a runtime session */
-  async create(body: CreateSessionRequest, params?: IntelligenceRuntimeSessionsCreateParams): Promise<SessionResponse> {
+  async create(body: CreateSessionRequest, params?: IntelligenceRuntimeSessionsCreateParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -397,11 +409,11 @@ export class IntelligenceRuntimeSessionsApi {
       },
       {}
     );
-    return this.client.post<SessionResponse>(customApiPath(`/intelligence/runtime/sessions`), body, undefined, requestHeaders, 'application/json');
+    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/sessions`), body, undefined, requestHeaders, 'application/json');
   }
 
 /** Retrieve a runtime session */
-  async retrieve(sessionId: string, params?: IntelligenceRuntimeSessionsRetrieveParams): Promise<SessionResponse> {
+  async retrieve(sessionId: string, params?: IntelligenceRuntimeSessionsRetrieveParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -410,7 +422,7 @@ export class IntelligenceRuntimeSessionsApi {
       },
       {}
     );
-    return this.client.get<SessionResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}`), undefined, requestHeaders);
+    return this.client.get<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}`), undefined, requestHeaders);
   }
 
 /** Delete a runtime session */
@@ -427,7 +439,7 @@ export class IntelligenceRuntimeSessionsApi {
   }
 
 /** Close a runtime session */
-  async close(sessionId: string, params?: IntelligenceRuntimeSessionsCloseParams): Promise<SessionResponse> {
+  async close(sessionId: string, params?: IntelligenceRuntimeSessionsCloseParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -436,7 +448,7 @@ export class IntelligenceRuntimeSessionsApi {
       },
       {}
     );
-    return this.client.post<SessionResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/close`), undefined, undefined, requestHeaders);
+    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/close`), undefined, undefined, requestHeaders);
   }
 }
 
@@ -455,7 +467,7 @@ export class IntelligenceRuntimePermissionsApi {
 
 
 /** Decide a permission request */
-  async decide(permissionRequestId: string, body: PermissionDecisionRequest, params?: IntelligenceRuntimePermissionsDecideParams): Promise<PermissionRequest> {
+  async decide(permissionRequestId: string, body: PermissionDecisionRequest, params?: IntelligenceRuntimePermissionsDecideParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -464,7 +476,7 @@ export class IntelligenceRuntimePermissionsApi {
       },
       {}
     );
-    return this.client.post<PermissionRequest>(customApiPath(`/intelligence/runtime/permissions/${serializePathParameter(permissionRequestId, { name: 'permissionRequestId', style: 'simple', explode: false })}`), body, undefined, requestHeaders, 'application/json');
+    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/permissions/${serializePathParameter(permissionRequestId, { name: 'permissionRequestId', style: 'simple', explode: false })}`), body, undefined, requestHeaders, 'application/json');
   }
 }
 
@@ -482,8 +494,8 @@ export class IntelligenceRuntimeSnapshotApi {
   }
 
 
-/** Load kernel UI aggregate snapshot */
-  async load(params?: IntelligenceRuntimeSnapshotLoadParams): Promise<KernelUiSnapshot> {
+/** Load runtime aggregate snapshot */
+  async load(params?: IntelligenceRuntimeSnapshotLoadParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -492,7 +504,7 @@ export class IntelligenceRuntimeSnapshotApi {
       },
       {}
     );
-    return this.client.get<KernelUiSnapshot>(customApiPath(`/intelligence/runtime/snapshot`), undefined, requestHeaders);
+    return this.client.get<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/snapshot`), undefined, requestHeaders);
   }
 }
 
@@ -511,7 +523,7 @@ export class IntelligenceRuntimeDiagnosticsApi {
 
 
 /** Load runtime diagnostics report */
-  async get(params?: IntelligenceRuntimeDiagnosticsGetParams): Promise<RuntimeDiagnostics> {
+  async get(params?: IntelligenceRuntimeDiagnosticsGetParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -520,7 +532,7 @@ export class IntelligenceRuntimeDiagnosticsApi {
       },
       {}
     );
-    return this.client.get<RuntimeDiagnostics>(customApiPath(`/intelligence/runtime/diagnostics`), undefined, requestHeaders);
+    return this.client.get<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/diagnostics`), undefined, requestHeaders);
   }
 }
 
@@ -539,7 +551,7 @@ export class IntelligenceRuntimeHealthApi {
 
 
 /** Runtime liveness and readiness probe */
-  async get(params?: IntelligenceRuntimeHealthGetParams): Promise<RuntimeHealth> {
+  async get(params?: IntelligenceRuntimeHealthGetParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -548,7 +560,7 @@ export class IntelligenceRuntimeHealthApi {
       },
       {}
     );
-    return this.client.get<RuntimeHealth>(customApiPath(`/intelligence/runtime/health`), undefined, requestHeaders);
+    return this.client.get<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/health`), undefined, requestHeaders);
   }
 }
 
@@ -567,7 +579,7 @@ export class IntelligenceRuntimeManifestApi {
 
 
 /** Load runtime capability manifest */
-  async get(params?: IntelligenceRuntimeManifestGetParams): Promise<RuntimeManifest> {
+  async get(params?: IntelligenceRuntimeManifestGetParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -576,7 +588,7 @@ export class IntelligenceRuntimeManifestApi {
       },
       {}
     );
-    return this.client.get<RuntimeManifest>(customApiPath(`/intelligence/runtime/manifest`), undefined, requestHeaders);
+    return this.client.get<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/manifest`), undefined, requestHeaders);
   }
 }
 

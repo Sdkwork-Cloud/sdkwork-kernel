@@ -3,7 +3,7 @@ import type { KernelRuntime } from './kernel-runtime';
 import type { PermissionRequest } from './permission-request';
 import type { Workspace } from './workspace';
 
-export interface KernelUiSnapshot {
+export interface RuntimeSnapshot {
   runtime: KernelRuntime;
   events: KernelEvent[];
   permissions: PermissionRequest[];

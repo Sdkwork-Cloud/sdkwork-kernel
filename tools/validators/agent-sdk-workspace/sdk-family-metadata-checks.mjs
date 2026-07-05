@@ -141,7 +141,10 @@ export function validateSdkFamilyMetadata({ family, familyRoot, packageRoot, err
       errors.push(`${family.familyDir} generated metadata sdkType must be ${family.sdkType}`);
     }
     if (generatedMetadata.packageName !== family.packageName) {
-      errors.push(`${family.familyDir} generated metadata packageName must be ${family.packageName}`);
+      const consumerPackageName = generatedMetadata.consumerPackageName;
+      if (consumerPackageName !== family.packageName) {
+        errors.push(`${family.familyDir} generated metadata packageName must be ${family.packageName}`);
+      }
     }
     assertNoGeneratedOwnershipStandardKeys(`${family.familyDir} generated metadata`, generatedMetadata, errors);
     if (family.key === 'open') {

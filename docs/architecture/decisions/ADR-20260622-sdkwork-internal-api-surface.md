@@ -31,7 +31,7 @@ Standards live in `sdkwork-specs/INTERNAL_API_SPEC.md` and `API_SPEC.md` section
 
 ## Consequences
 
-- Kernel UI consumes `@sdkwork/agent-internal-sdk` via `@sdkwork/kernel-ui-services`; handwritten `/api/kernel` fetches are retired.
+- Product shells consume `@sdkwork/agent-internal-sdk`; handwritten `/api/kernel` fetches are retired.
 - List endpoints return `{ items: [...] }` envelopes aligned with OpenAPI and generated SDK types.
 - Validators and SDK workspace checks include the internal family.
 - `sdkwork-routes-agent-internal-api` exposes the route manifest and re-exports runtime route builders from `sdkwork-agent-server`.
@@ -44,4 +44,3 @@ Standards live in `sdkwork-specs/INTERNAL_API_SPEC.md` and `API_SPEC.md` section
 - `node scripts/check-agent-sdk-workspace.mjs`
 - `node scripts/check-kernel-standards.mjs`
 - `cargo test --test http_internal_runtime_contracts --manifest-path sdkwork-agent-server/Cargo.toml`
-- `node tests/kernel_ui_server_api_alignment.test.mjs`

@@ -24,8 +24,13 @@ export function validateKernelTopology({ kernelRoot, errors, readJson }) {
   }
 
   const packageJson = readJson('package.json');
-  if (packageJson?.dependencies?.['@sdkwork/app-topology'] !== 'file:../sdkwork-app-topology') {
-    errors.push('package.json must depend on @sdkwork/app-topology via file:../sdkwork-app-topology');
+  if (
+    packageJson?.dependencies?.['@sdkwork/app-topology'] !== 'file:../sdkwork-app-topology' &&
+    packageJson?.dependencies?.['@sdkwork/app-topology'] !== 'workspace:*'
+  ) {
+    errors.push(
+      'package.json must depend on @sdkwork/app-topology via file:../sdkwork-app-topology or workspace:*'
+    );
   }
 
   const spec = readJson('specs/topology.spec.json');

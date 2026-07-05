@@ -10,11 +10,11 @@ This repository adopts the shared SDKWork runtime topology framework.
 
 ## Archetype
 
-`realtime-application-platform` — agent HTTP/WebSocket ingress through `sdkwork-agent-server` plus optional kernel UI renderer. Shared IAM and appbase SDKs use `platform.api-gateway`.
+`realtime-application-platform` — agent HTTP/WebSocket ingress through `sdkwork-agent-server`. Shared IAM and appbase SDKs use `platform.api-gateway`. Product UI shells live in application repositories and consume `@sdkwork/agent-internal-sdk`.
 
 ## Default dev profile
 
-`standalone.split-services.development`
+`standalone.unified-process.development`
 
 ## Surfaces
 
@@ -39,11 +39,10 @@ pnpm topology:validate                                # validate specs/topology.
 | --- | --- |
 | `application.public-ingress` | `SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL` |
 | `platform.api-gateway` | `SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL` |
-| Kernel UI dev server | Vite dev server (see `sdkwork-kernel-ui` package scripts) |
 
 Client env keys:
 
-- `VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL` — kernel UI agent client
+- `VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL` — agent runtime HTTP client
 - `VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_WEBSOCKET_URL` — streaming surfaces
 - `VITE_SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL` — platform / IAM SDKs
 

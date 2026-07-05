@@ -34,13 +34,19 @@ const skipPathFragments = [
   'docs/topology-standard.md',
   'configs/topology/',
   'docs/quality/',
+  'docs/archive/',
   'docs/archive/superpowers/',
   'docs/superpowers/',
+  'sdkwork-kernel-audit/',
 ];
 
 const allowlistPathFragments = [
   'specs/topology.spec.json',
   'scripts/kernel-dev.mjs',
+  'docs/architecture/tech/TECH-sdkwork-standards-alignment-20260612.md',
+  'docs/architecture/decisions/ADR-20260612-sdkwork-kernel-root-dictionary.md',
+  'tests/kernel_workspace_structure.test.mjs',
+  'scripts/dev/sdkwork-kernel-utils-standard.test.mjs',
 ];
 
 const bannedPatterns = [
@@ -53,6 +59,10 @@ const bannedPatterns = [
   {
     id: 'hardcoded application ingress url',
     pattern: /http:\/\/127\.0\.0\.1:18280/u,
+  },
+  {
+    id: 'removed in-repo kernel ui workspace',
+    pattern: /sdkwork-kernel-ui/u,
   },
 ];
 

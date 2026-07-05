@@ -27,8 +27,7 @@ concerns.
 - SDKWork module standard: [`../sdkwork-specs/MODULE_SPEC.md`](../sdkwork-specs/MODULE_SPEC.md)
 - SDKWork documentation standard: [`../sdkwork-specs/DOCUMENTATION_SPEC.md`](../sdkwork-specs/DOCUMENTATION_SPEC.md)
 - SDKWork Rust RPC standard: [`../sdkwork-specs/RUST_RPC_SPEC.md`](../sdkwork-specs/RUST_RPC_SPEC.md)
-- SDKWork UI architecture standard for TypeScript/Vite/React workspaces:
-  [`../sdkwork-specs/UI_ARCHITECTURE_SPEC.md`](../sdkwork-specs/UI_ARCHITECTURE_SPEC.md)
+- Agent internal SDK: [`./sdks/sdkwork-agent-internal-sdk/`](./sdks/sdkwork-agent-internal-sdk/)
 - Kernel-local specs index: [`./specs/README.md`](./specs/README.md)
 
 Local kernel documents may extend these standards, but they must not contradict
@@ -52,9 +51,10 @@ The kernel standard must support these composition and plugin modes:
 - Headless agent runtime embedded into another Rust host.
 - Code-agent runtime embedded into an IDE, CLI, desktop app, web shell, or
   automation service.
-- Standard React kernel UI embedded into a product application.
+- TypeScript product shells embedded into a product application via
+  `@sdkwork/agent-internal-sdk`.
 - Full product assembly, such as BirdCoder, that combines Rust kernel,
-  code-agent kernel, kernel UI, product modules, and host adapters.
+  code-agent kernel, product UI modules, and host adapters.
 - Custom providers for model, tool, memory, storage, workspace, VCS, terminal,
   sandbox, policy, telemetry, MCP, Agent Skills, agent installation, and agent
   configuration behavior.
@@ -448,11 +448,9 @@ Code capability manifests, runtime diagnostics, and conformance reports are
 also exposed as machine-readable schema constants for registry, CI, and
 cross-application composition.
 
-Current kernel UI baseline defines a 10-package TypeScript + Vite + React
-workspace and enforces layered package conformance: feature packages separate
-`components`, `service`, `hooks`, and `types`; shared primitives live in
-`commons`; runtime composition lives in `core`; kernel client adapters and mock
-data live in `services`; cross-package deep imports are rejected.
+Product UI integration uses `@sdkwork/agent-internal-sdk` on application
+ingress. TypeScript consumers enforce layered package boundaries in their
+own application repositories; this kernel repo does not ship a UI workspace.
 
 ## Security And Policy
 

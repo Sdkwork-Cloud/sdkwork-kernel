@@ -100,7 +100,7 @@ Forbidden dependency direction:
 
 ```text
 agent-kernel -> code-kernel
-agent-kernel -> kernel-ui
+agent-kernel -> in-repo product UI shell
 agent-kernel -> product package
 agent-kernel -> concrete model vendor as required runtime dependency
 agent-kernel -> direct filesystem/process/network/secrets side effects

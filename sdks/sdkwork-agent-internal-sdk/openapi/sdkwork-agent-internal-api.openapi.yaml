@@ -2,7 +2,7 @@ openapi: 3.1.2
 info:
   title: SDKWork Agent Internal API
   version: 0.1.0
-  description: Application-ingress internal runtime API for SDKWork agent kernel UI and trusted in-app automation.
+  description: Application-ingress internal runtime API for SDKWork agent runtime hosts and trusted in-app automation.
 x-sdkwork-owner: sdkwork-kernel
 x-sdkwork-api-authority: sdkwork-agent-internal-api
 x-sdkwork-sdk-family: sdkwork-agent-internal-sdk
@@ -10,7 +10,7 @@ x-sdkwork-owner-only-input: true
 x-sdkwork-standard-version: '2026-06-26'
 servers:
   - url: '{applicationPublicIngressOrigin}'
-    description: Runtime origin from topology env `SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL` (kernel UI client uses `VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL`).
+    description: Runtime origin from topology env `SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL`.
     variables:
       applicationPublicIngressOrigin:
         default: http://127.0.0.1:18280
@@ -117,7 +117,7 @@ paths:
       x-sdkwork-owner: sdkwork-kernel
       x-sdkwork-api-authority: sdkwork-agent-internal-api
       tags: [intelligence]
-      summary: Load kernel UI aggregate snapshot
+      summary: Load runtime aggregate snapshot
       operationId: runtime.snapshot.load
       security:
         - ApiKey: []
@@ -133,11 +133,11 @@ paths:
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
       responses:
         '200':
-          description: Kernel UI snapshot
+          description: Runtime aggregate snapshot
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/KernelUiSnapshotResponse'
+                $ref: '#/components/schemas/RuntimeSnapshotResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/permissions/{permissionRequestId}:
@@ -584,6 +584,8 @@ paths:
         `sequence`, `content`, and `finishReason`. The stream terminates
         with a `model.done` event.
       operationId: runtime.sessions.model.stream
+      x-sdkwork-wire-protocol: external
+      x-sdkwork-external-protocol-id: server-sent-events
       security:
         - ApiKey: []
       x-sdkwork-request-context: WebRequestContext
@@ -729,6 +731,8 @@ paths:
       tags: [intelligence]
       summary: Stream session events
       operationId: runtime.sessions.events.stream
+      x-sdkwork-wire-protocol: external
+      x-sdkwork-external-protocol-id: server-sent-events
       security:
         - ApiKey: []
       x-sdkwork-request-context: WebRequestContext
@@ -1068,7 +1072,7 @@ components:
           type: array
           items:
             type: string
-    KernelUiSnapshot:
+    RuntimeSnapshot:
       type: object
       required: [runtime, events, permissions, workspace, patches, verificationReports, terminalCommands, terminalOutput, reviewFindings]
       properties:
@@ -1541,8 +1545,8 @@ components:
                   properties:
                     item:
                       $ref: '#/components/schemas/RuntimeDiagnostics'
-    KernelUiSnapshotResponse:
-      description: Kernel UI snapshot SdkWorkApiResponse envelope.
+    RuntimeSnapshotResponse:
+      description: Runtime aggregate snapshot SdkWorkApiResponse envelope.
       allOf:
         - $ref: '#/components/schemas/SdkWorkApiResponse'
         - type: object
@@ -1554,7 +1558,7 @@ components:
                 - type: object
                   properties:
                     item:
-                      $ref: '#/components/schemas/KernelUiSnapshot'
+                      $ref: '#/components/schemas/RuntimeSnapshot'
     PermissionRequestResponse:
       description: Permission request SdkWorkApiResponse envelope.
       allOf:

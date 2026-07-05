@@ -2,7 +2,7 @@
 
 This directory is the application-root SDK workspace for **kernel runtime** surfaces only.
 
-It owns the internal runtime API authority, derived generator inputs, generated SDK output boundaries, and verification entrypoints for trusted in-app automation and kernel UI.
+It owns the internal runtime API authority, derived generator inputs, generated SDK output boundaries, and verification entrypoints for trusted in-app automation and product shells.
 
 Managed agents open/app/backend SDK families (`sdkwork-agents-sdk`, `sdkwork-agents-app-sdk`, `sdkwork-agents-backend-sdk`) are owned by the sibling application repository [`../sdkwork-agents/sdks/`](../sdkwork-agents/sdks/).
 

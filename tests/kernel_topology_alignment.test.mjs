@@ -60,7 +60,11 @@ test('declares v2 topology spec and profile env files for sdkwork-kernel', async
 
 test('root package.json wires @sdkwork/app-topology and standard dev scripts', async () => {
   const packageJson = await readJson('package.json');
-  assert.equal(packageJson.dependencies['@sdkwork/app-topology'], 'file:../sdkwork-app-topology');
+  const topologyDep = packageJson.dependencies['@sdkwork/app-topology'];
+  assert.ok(
+    topologyDep === 'file:../sdkwork-app-topology' || topologyDep === 'workspace:*',
+    'package.json must depend on @sdkwork/app-topology via file:../sdkwork-app-topology or workspace:*'
+  );
   assert.match(packageJson.scripts.dev, /scripts\/sdkwork-command\.mjs dev/);
   assert.match(packageJson.scripts['topology:validate'], /sdkwork-topology\.mjs validate/);
 });

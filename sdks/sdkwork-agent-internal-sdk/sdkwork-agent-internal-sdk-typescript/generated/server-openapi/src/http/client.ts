@@ -12,6 +12,7 @@ type HttpRequestOptions = RequestOptions & {
 export class HttpClient extends BaseHttpClient {
   private static readonly API_KEY_HEADER: string = 'X-API-Key';
   private static readonly API_KEY_USE_BEARER = false;
+  private static readonly SDKWORK_V3_UNWRAP = true;
 
   constructor(config: SdkworkCustomConfig) {
     super(config as any);
@@ -181,6 +182,35 @@ export class HttpClient extends BaseHttpClient {
   setApiKey(apiKey: string): void {
     this.getInternalAuthConfig().apiKey = apiKey;
   }
+  private unwrapSdkworkV3Payload<T>(payload: unknown): T {
+    if (!HttpClient.SDKWORK_V3_UNWRAP || payload == null || typeof payload !== 'object') {
+      return payload as T;
+    }
+
+    const record = payload as Record<string, unknown>;
+    if (record.code !== 0 || !('data' in record)) {
+      return payload as T;
+    }
+
+    const data = record.data;
+    if (!data || typeof data !== 'object') {
+      return data as T;
+    }
+
+    const envelopeData = data as Record<string, unknown>;
+    if ('items' in envelopeData && 'pageInfo' in envelopeData) {
+      return data as T;
+    }
+    if ('accepted' in envelopeData) {
+      return data as T;
+    }
+    if ('item' in envelopeData) {
+      return envelopeData.item as T;
+    }
+
+    return data as T;
+  }
+
   async request<T>(path: string, options: HttpRequestOptions = {}): Promise<T> {
     const execute = (this as any).execute;
     if (typeof execute !== 'function') {
@@ -188,7 +218,7 @@ export class HttpClient extends BaseHttpClient {
     }
     const { body, headers, contentType, method = 'GET', skipAuth, ...rest } = options;
     const requestHeaders = headers;
-    return withRetry(
+    const payload = await withRetry(
       () => execute.call(this, {
         url: path,
         method,
@@ -199,6 +229,7 @@ export class HttpClient extends BaseHttpClient {
       }),
       { maxRetries: 3 }
     );
+    return this.unwrapSdkworkV3Payload<T>(payload);
   }
 
   async *streamJson<T>(path: string, options: HttpRequestOptions = {}): AsyncIterable<T> {

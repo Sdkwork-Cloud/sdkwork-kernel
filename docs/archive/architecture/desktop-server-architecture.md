@@ -18,7 +18,9 @@ The original comparative design (Tauri desktop vs Axum server, unified `AgentRun
 
 | Concern | Desktop / local profile | Server / cloud profile |
 | --- | --- | --- |
-| UI shell | `sdkwork-kernel-ui` (Vite/React) against topology public HTTP | Same shell; optional split-services topology |
+> **2026-07:** In-repo `sdkwork-kernel-ui/` was removed. Product UI shells live in application repositories.
+
+| UI shell | Product application repository consuming `@sdkwork/agent-internal-sdk` | Same integration against topology public HTTP |
 | Client runtime | `sdkwork-agent-client` `AgentClient` — **Local**, **Remote**, **Hybrid** | Consumers use **Remote** + typed internal SDK |
 | Local persistence | SQLite via `SDKWORK_CLIENT_DATABASE_PATH` (`sdkwork-agent-client/src/session/sqlite.rs`) | N/A on client |
 | Server persistence | N/A | Postgres runtime DB + Redis rate limits (topology `*.production.env`) |
@@ -40,7 +42,7 @@ Retired application-local prefixes such as `/api/kernel/*` and draft-only REST/W
 
 ## Intentionally deferred (outside current repo scope)
 
-- Tauri/Electron desktop host (`sdkwork-kernel-ui-desktop` from the draft does not exist here)
+- Tauri/Electron desktop host (owned by product applications outside `sdkwork-kernel`)
 - Draft `UnifiedSessionManager` / `SessionRouter` types as a single merged crate API
 - ZeroClaw local SDK bridge (fail-closed; mapping-only upstream)
 - opencode / claude-code / gemini-cli adapters (mapping-only)

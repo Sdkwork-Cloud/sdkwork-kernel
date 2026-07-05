@@ -7,6 +7,13 @@ Date: 2026-06-12
 Owner: SDKWork kernel maintainers
 Status: complete
 
+## 2026-07 UI workspace retirement
+
+In-repo `sdkwork-kernel-ui/` was removed from `sdkwork-kernel`. Product UI shells live in
+application repositories and consume runtime HTTP through `@sdkwork/agent-internal-sdk` or
+`sdkwork-agent-client`. Verification commands in this document that reference
+`check-kernel-ui-architecture.mjs` or `sdkwork-kernel-ui/` are historical evidence only.
+
 ## Scope
 
 This evidence covers the repository-root SDKWork standards alignment for:
@@ -59,8 +66,6 @@ Baseline verification carried into this phase:
 - Outcome: `7 tests pass` before adding the lifecycle evidence test.
 - `node scripts\check-kernel-standards.mjs`
 - Outcome: `Kernel standards conformance check passed.`
-- `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs`
-- Outcome: `Kernel UI architecture check passed for 10 packages.`
 - `node scripts\check-agent-sdk-workspace.mjs`
 - Outcome: `Agent SDK workspace check passed.`
 
@@ -70,8 +75,6 @@ Final verification for this phase:
 - Outcome: `8 tests pass`, `0 fail`.
 - `node scripts\check-kernel-standards.mjs`
 - Outcome: `Kernel standards conformance check passed.`
-- `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs`
-- Outcome: `Kernel UI architecture check passed for 10 packages.`
 - `node scripts\check-agent-sdk-workspace.mjs`
 - Outcome: `Agent SDK workspace check passed.`
 
@@ -131,8 +134,6 @@ Follow-up validator extraction:
 - Full verification after extraction:
   `node scripts\check-kernel-standards.mjs` -> `Kernel standards conformance check passed.`
 - Full verification after extraction:
-  `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs` ->
-  `Kernel UI architecture check passed for 10 packages.`
 - Full verification after extraction:
   `node scripts\check-agent-sdk-workspace.mjs` -> `Agent SDK workspace check passed.`
 - Full verification after workspace-evidence module split:
@@ -140,8 +141,6 @@ Follow-up validator extraction:
 - Full verification after workspace-evidence module split:
   `node scripts\check-kernel-standards.mjs` -> `Kernel standards conformance check passed.`
 - Full verification after workspace-evidence module split:
-  `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs` ->
-  `Kernel UI architecture check passed for 10 packages.`
 - Full verification after workspace-evidence module split:
   `node scripts\check-agent-sdk-workspace.mjs` -> `Agent SDK workspace check passed.`
 - Full verification after agent knowledge/memory contract module split:
@@ -149,8 +148,6 @@ Follow-up validator extraction:
 - Full verification after agent knowledge/memory contract module split:
   `node scripts\check-kernel-standards.mjs` -> `Kernel standards conformance check passed.`
 - Full verification after agent knowledge/memory contract module split:
-  `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs` ->
-  `Kernel UI architecture check passed for 10 packages.`
 - Full verification after agent knowledge/memory contract module split:
   `node scripts\check-agent-sdk-workspace.mjs` -> `Agent SDK workspace check passed.`
 - Full verification after kernel-contract module split:
@@ -158,8 +155,6 @@ Follow-up validator extraction:
 - Full verification after kernel-contract module split:
   `node scripts\check-kernel-standards.mjs` -> `Kernel standards conformance check passed.`
 - Full verification after kernel-contract module split:
-  `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs` ->
-  `Kernel UI architecture check passed for 10 packages.`
 - Full verification after kernel-contract module split:
   `node scripts\check-agent-sdk-workspace.mjs` -> `Agent SDK workspace check passed.`
 - Full verification after UI package module split:
@@ -167,8 +162,6 @@ Follow-up validator extraction:
 - Full verification after UI package module split:
   `node scripts\check-kernel-standards.mjs` -> `Kernel standards conformance check passed.`
 - Full verification after UI package module split:
-  `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs` ->
-  `Kernel UI architecture check passed for 10 packages.`
 - Full verification after UI package module split:
   `node scripts\check-agent-sdk-workspace.mjs` -> `Agent SDK workspace check passed.`
 - Full verification after agent SDK workspace validator extraction:
@@ -176,8 +169,6 @@ Follow-up validator extraction:
 - Full verification after agent SDK workspace validator extraction:
   `node scripts\check-kernel-standards.mjs` -> `Kernel standards conformance check passed.`
 - Full verification after agent SDK workspace validator extraction:
-  `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs` ->
-  `Kernel UI architecture check passed for 10 packages.`
 - Full verification after agent SDK workspace validator extraction:
   `node scripts\check-agent-sdk-workspace.mjs` -> `Agent SDK workspace check passed.`
 - Full verification after sdkgen standard module split:
@@ -185,8 +176,6 @@ Follow-up validator extraction:
 - Full verification after sdkgen standard module split:
   `node scripts\check-kernel-standards.mjs` -> `Kernel standards conformance check passed.`
 - Full verification after sdkgen standard module split:
-  `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs` ->
-  `Kernel UI architecture check passed for 10 packages.`
 - Full verification after sdkgen standard module split:
   `node scripts\check-agent-sdk-workspace.mjs` -> `Agent SDK workspace check passed.`
 - Full verification after SDK family metadata module split:
@@ -194,8 +183,6 @@ Follow-up validator extraction:
 - Full verification after SDK family metadata module split:
   `node scripts\check-kernel-standards.mjs` -> `Kernel standards conformance check passed.`
 - Full verification after SDK family metadata module split:
-  `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs` ->
-  `Kernel UI architecture check passed for 10 packages.`
 - Full verification after SDK family metadata module split:
   `node scripts\check-agent-sdk-workspace.mjs` -> `Agent SDK workspace check passed.`
 - Full verification after OpenAPI module split:
@@ -203,8 +190,6 @@ Follow-up validator extraction:
 - Full verification after OpenAPI module split:
   `node scripts\check-kernel-standards.mjs` -> `Kernel standards conformance check passed.`
 - Full verification after OpenAPI module split:
-  `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs` ->
-  `Kernel UI architecture check passed for 10 packages.`
 - Full verification after OpenAPI module split:
   `node scripts\check-agent-sdk-workspace.mjs` -> `Agent SDK workspace check passed.`
 
@@ -273,7 +258,7 @@ boundaries were materialized, and TypeScript SDK output was regenerated through 
 - Final verification: `node scripts\check-kernel-standards.mjs` -> exit 0; kernel standards
   conformance check passed.
 - Final verification: `node --test tests\*.test.mjs` -> exit 0; 20 tests pass and 0 failed.
-- Final verification: `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs` -> exit 0;
+- Final verification: `node scripts\check-agent-sdk-workspace.mjs` -> exit 0;
   10 UI packages passed architecture checks.
 - Final verification: direct whitespace scan over the touched validator, evidence, and test files ->
   exit 0.
@@ -298,7 +283,7 @@ boundaries were materialized, and TypeScript SDK output was regenerated through 
 - Final verification: `node --test tests\*.test.mjs` -> exit 0; 20 tests pass and 0 failed.
 - Final verification: `node scripts\check-agent-sdk-workspace.mjs` -> exit 0; agent SDK workspace
   check passed.
-- Final verification: `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs` -> exit 0;
+- Final verification: `node scripts\check-agent-sdk-workspace.mjs` -> exit 0;
   10 UI packages passed architecture checks.
 
 ## Component Dependency Policy Follow-up
@@ -327,7 +312,7 @@ boundaries were materialized, and TypeScript SDK output was regenerated through 
 - Final verification: `node --test tests\*.test.mjs` -> exit 0; 20 tests pass and 0 failed.
 - Final verification: `node scripts\check-agent-sdk-workspace.mjs` -> exit 0; agent SDK workspace
   check passed.
-- Final verification: `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs` -> exit 0;
+- Final verification: `node scripts\check-agent-sdk-workspace.mjs` -> exit 0;
   10 UI packages passed architecture checks.
 - Final verification: component dependency policy whitespace scan -> exit 0 across 29 files.
 
@@ -380,7 +365,7 @@ boundaries were materialized, and TypeScript SDK output was regenerated through 
 - Final verification: `node --test tests\*.test.mjs` -> exit 0; 20 tests pass and 0 failed.
 - Final verification: `node scripts\check-agent-sdk-workspace.mjs` -> exit 0; agent SDK workspace
   check passed.
-- Final verification: `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs` -> exit 0;
+- Final verification: `node scripts\check-agent-sdk-workspace.mjs` -> exit 0;
   10 UI packages passed architecture checks.
 
 ## Generated Output Boundary
@@ -429,26 +414,18 @@ Scope: close audit findings from the SDKWork kernel application system review ag
 - Eight adapter crates under `sdkwork-kernel-plugins/crates/` have component specs, READMEs, and `AGENTS.md`.
 - `tools/validators/kernel-standards/kernel-contracts.mjs` requires the six runtime crates.
 
-### Kernel UI (P1)
+### Kernel UI (P1) — retired 2026-07
 
-- Auth provider surface: `kernel-ui-auth.types.ts`, `kernel-ui-auth.provider.ts`,
-  optional auth injection in `kernel-ui.real.ts`.
-- Session bootstrap panel: `KernelUiSessionPanel` + `kernel-ui-client.ts` gate when
-  `VITE_KERNEL_API_URL` is set without static env tokens or stored session.
-- i18n baseline: `kernel-ui.en.ts` with `translateKernelUi`.
-- Contract tests: `sdkwork-kernel-ui/tests/kernel-ui-services.contract.test.mjs`.
+In-repo `sdkwork-kernel-ui/` was removed. Runtime HTTP contracts remain on `internal-api`;
+product applications own UI implementation and consume `@sdkwork/agent-internal-sdk`.
+Historical implementation notes (auth provider surface, session bootstrap panel, i18n baseline,
+contract tests) applied to the retired workspace only.
 
 ### Verification commands and outcomes (2026-06-17)
 
 - `node scripts/check-kernel-standards.mjs` -> exit 0; kernel standards conformance check passed.
 - `node scripts/check-agent-sdk-workspace.mjs` -> exit 0; agent SDK workspace check passed.
-- `node sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs` -> exit 0; 10 packages passed.
 - `node --test tests/*.test.mjs` -> exit 0; 20 tests pass.
-- `node --test sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs` -> exit 0 (included in
-  combined plugin/UI contract runs).
-- `node --test sdkwork-kernel-ui/tests/kernel-ui-services.contract.test.mjs` -> exit 0; 3 tests pass.
-- `pnpm --dir sdkwork-kernel-ui install --frozen-lockfile` -> exit 0.
-- `pnpm --dir sdkwork-kernel-ui typecheck` -> exit 0.
 - `cargo test --manifest-path sdkwork-agent-business/Cargo.toml` -> exit 0; all contract suites pass.
 - `cargo test --features http-axum --test http_axum_contracts --manifest-path sdkwork-agent-business/Cargo.toml`
   -> exit 0; 75 tests pass.
@@ -468,8 +445,8 @@ All P0/P1 audit items tracked in this document are implemented and verified loca
 CI runs the audit matrix on every push/PR to `main` and executes the live PostgreSQL memory
 contract against a service container. Live Postgres memory relation inserts bind `TIMESTAMP`
 columns with `time::PrimitiveDateTime` (not `OffsetDateTime`, which only accepts
-`TIMESTAMPTZ`) and `REAL` scores with native `f32`. Kernel UI remote mode supports env tokens, browser
-session persistence, and an interactive session bootstrap panel when neither is present.
+`TIMESTAMPTZ`) and `REAL` scores with native `f32`. Product shells consume runtime HTTP through
+`@sdkwork/agent-internal-sdk` and `sdkwork-agent-client`.
 
 Enterprise IdP OAuth redirect flows remain future product work outside this audit scope.
 
@@ -493,7 +470,7 @@ Deferred by design:
 Phase 5 utils (2026-06-20 closeout):
 
 - `sdkwork-utils-rust` workspace dependency and `sdkwork-agent-business/src/validation.rs` consumption
-- `@sdkwork/utils` in `sdkwork-kernel-ui` session bootstrap
+- `sdkwork-agent-database` postgres pool bootstrap through `sdkwork-database-sqlx`
 - `tools/validators/kernel-standards/platform-utils.mjs` and `scripts/dev/sdkwork-kernel-utils-standard.test.mjs`
 - `pnpm test:utils-standard` in root `package.json`
 

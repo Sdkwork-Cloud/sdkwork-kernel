@@ -14,7 +14,6 @@ It already has mature component roots with stable build, test, and package owner
 - `sdkwork-agent-kernel/`
 - `sdkwork-code-kernel/`
 - `sdkwork-agent-business/`
-- `sdkwork-kernel-ui/`
 - `sdkwork-kernel-plugins/`
 
 The new repository standard requires the top-level dictionary names `apis/`, `apps/`, `crates/`,
@@ -34,8 +33,10 @@ The existing mature roots remain authoritative component roots:
 - `sdkwork-agent-kernel/` remains the agent kernel Rust crate root.
 - `sdkwork-code-kernel/` remains the code kernel Rust crate root.
 - `sdkwork-agent-business/` remains the managed agent business crate and API contract root.
-- `sdkwork-kernel-ui/` remains the pnpm TypeScript/Vite/React workspace root.
 - `sdkwork-kernel-plugins/` remains the kernel plugin workspace root.
+
+Product UI shells are not owned by `sdkwork-kernel`. TypeScript consumers integrate through
+`sdks/sdkwork-agent-internal-sdk/` (`@sdkwork/agent-internal-sdk`) and `sdkwork-agent-client`.
 
 SDK family and generated-output ownership stays under `sdks/` according to `SDK_SPEC.md` and
 `SDK_WORKSPACE_GENERATION_SPEC.md`. Generated SDK output is not used as a place to store repository
@@ -85,8 +86,6 @@ The decision is kept true by:
   metadata, SDK surface metadata, this ADR, and quality gate evidence.
 - `scripts/check-kernel-standards.mjs`, which repeats the same repository standards checks for
   command-line and CI use.
-- `node sdkwork-kernel-ui\scripts\check-kernel-ui-architecture.mjs`, which validates the kernel UI
-  package layering.
 - `node scripts\check-agent-sdk-workspace.mjs`, which validates the agent SDK workspace.
 
 Generated SDK output was not hand-edited. SDK ownership and dependency metadata remain in SDK family
@@ -95,4 +94,5 @@ authored wrappers outside generated transport output.
 
 ## Supersedes / Superseded By
 
-None.
+- 2026-07: retired in-repo `sdkwork-kernel-ui/`; product UI ownership moved to application
+  repositories. Kernel runtime HTTP remains on `internal-api` with `@sdkwork/agent-internal-sdk`.

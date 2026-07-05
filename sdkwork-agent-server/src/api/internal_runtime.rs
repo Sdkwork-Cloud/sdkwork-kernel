@@ -71,7 +71,7 @@ pub struct PermissionDecisionBody {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct KernelUiSnapshotJson {
+pub struct RuntimeSnapshotJson {
     pub runtime: KernelRuntimeJson,
     pub events: Vec<KernelEventJson>,
     pub permissions: Vec<PermissionRequestJson>,
@@ -487,7 +487,7 @@ impl InternalRuntimeApiState {
         self.persistence.run(operation).await
     }
 
-    async fn build_snapshot(&self) -> Result<KernelUiSnapshotJson, String> {
+    async fn build_snapshot(&self) -> Result<RuntimeSnapshotJson, String> {
         let db_healthy = matches!(
             self.persist(|persistence| persistence.health()).await,
             Ok(true)
@@ -550,7 +550,7 @@ impl InternalRuntimeApiState {
             .map(|(index, row)| event_row_to_kernel_json(row, index as u32))
             .collect();
 
-        Ok(KernelUiSnapshotJson {
+        Ok(RuntimeSnapshotJson {
             runtime: KernelRuntimeJson {
                 runtime_id: diagnostics.runtime_id.clone(),
                 agent_id: diagnostics.agent_id.clone(),

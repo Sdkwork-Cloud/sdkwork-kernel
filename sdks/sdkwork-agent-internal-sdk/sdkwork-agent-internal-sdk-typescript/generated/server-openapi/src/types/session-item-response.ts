@@ -1,0 +1,10 @@
+import type { SdkWorkResourceData } from './sdk-work-resource-data';
+
+/** Session resource SdkWorkApiResponse envelope. */
+export interface SessionItemResponse {
+  /** Numeric success result code. MUST be 0 on HTTP 2xx JSON bodies. */
+  code: 0;
+  data: unknown & SdkWorkResourceData & Record<string, unknown>;
+  /** Server-owned request correlation id. */
+  traceId: string;
+}

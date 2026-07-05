@@ -28,8 +28,8 @@ Do not move the mature component roots in this pass:
 - `sdkwork-agent-kernel/`
 - `sdkwork-code-kernel/`
 - `sdkwork-agent-business/`
-- `sdkwork-kernel-ui/`
 - `sdkwork-kernel-plugins/`
+- `sdks/sdkwork-agent-internal-sdk/`
 
 Those roots remain documented compatibility component roots. New cross-cutting API, app, crate, plugin, config, deployment, tool, example, job, and test content should use the standard dictionary unless a component-local spec narrows it.
 
@@ -54,7 +54,7 @@ Testing remains static and deterministic:
 
 - `node --test tests/kernel_workspace_structure.test.mjs`
 - `node scripts/check-kernel-standards.mjs`
-- `node sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs`
+- `node scripts/check-agent-sdk-workspace.mjs`
 
 The workspace structure test should include a regression check that every `canonicalSpecs[].path` in every `component.spec.json` resolves to a real file from the component root.
 

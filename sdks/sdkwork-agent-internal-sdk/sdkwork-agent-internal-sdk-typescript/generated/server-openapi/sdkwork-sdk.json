@@ -5,6 +5,8 @@
   "language": "typescript",
   "sdkType": "custom",
   "packageName": "sdkwork-agent-internal-sdk-generated-typescript",
+  "transportPackageName": "sdkwork-agent-internal-sdk-generated-typescript",
+  "consumerPackageName": "@sdkwork/agent-internal-sdk",
   "generator": "@sdkwork/sdk-generator",
   "capabilities": {
     "supportsGeneratedTests": true,
@@ -26,7 +28,5 @@
     "stateRoots": [
       ".sdkwork/"
     ]
-  },
-  "transportPackageName": "sdkwork-agent-internal-sdk-generated-typescript",
-  "consumerPackageName": "@sdkwork/agent-internal-sdk"
+  }
 }

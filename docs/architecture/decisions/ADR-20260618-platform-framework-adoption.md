@@ -89,12 +89,12 @@ Adopt platform frameworks in phased migration without destabilizing existing con
 - `deployments/topology-profiles.md` links topology profile env files to PNPM standard dev entrypoints.
 - Root `package.json` exposes `PNPM_SCRIPT_SPEC.md` commands through `scripts/sdkwork-command.mjs`.
 
-### Phase 5 �?`sdkwork-utils` integration (complete for canonical validation + UI bootstrap)
+### Phase 5 �?`sdkwork-utils` integration (complete for canonical validation)
 
 - Workspace `Cargo.toml` declares `sdkwork-utils-rust`; `sdkwork-agent-business` consumes `is_blank` and `trim`
   in `validation.rs` and reuses `optional_non_blank` from list-query builders in `ports.rs`.
-- `sdkwork-kernel-ui` links `@sdkwork/utils` through the sibling workspace package for session
-  bootstrap trimming and blank checks in `KernelUiSessionPanel.tsx`.
+- `sdkwork-agent-database` postgres pool bootstrap uses `sdkwork-database-sqlx` helpers validated by
+  `scripts/dev/sdkwork-kernel-utils-standard.test.mjs`.
 - `sdkwork.workflow.json` and `.github/workflows/package.yml` declare `sdkwork-utils` sibling checkout refs.
 - `tools/validators/kernel-standards/platform-utils.mjs` and
   `scripts/dev/sdkwork-kernel-utils-standard.test.mjs` enforce the integration boundary.

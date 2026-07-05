@@ -15,5 +15,52 @@
   "sdkDependencies": [],
   "ownerOnlyOperationCount": 23,
   "standardVersion": "2026-06-26",
-  "managedBy": "sdks/_shared/agent-sdk-ownership.mjs"
+  "managedBy": "sdks/_shared/agent-sdk-ownership.mjs",
+  "transportPackageName": "sdkwork-agent-internal-sdk-generated-typescript",
+  "typescript": {
+    "composedRoot": "sdkwork-agent-internal-sdk-typescript",
+    "composedEntry": "sdkwork-agent-internal-sdk-typescript/src/index.ts",
+    "transportRoot": "sdkwork-agent-internal-sdk-typescript/generated/server-openapi",
+    "transportEntry": "sdkwork-agent-internal-sdk-typescript/generated/server-openapi/src/index.ts"
+  },
+  "workspace": "sdkwork-agent-internal-sdk",
+  "title": "SDKWork Agent Internal API",
+  "apiVersion": "0.1.0",
+  "openapiVersion": "3.1.2",
+  "authoritySpec": "openapi/sdkwork-agent-internal-api.openapi.yaml",
+  "derivedSpecs": {
+    "default": "openapi/sdkwork-agent-internal-api.sdkgen.yaml"
+  },
+  "discoverySurface": {
+    "sdkTarget": "internal",
+    "apiPrefix": "/internal/v3/api",
+    "schemaUrl": "/internal/v3/openapi.json",
+    "generatedProtocols": [
+      "http-openapi"
+    ],
+    "manualTransports": []
+  },
+  "metadata": {
+    "managedBy": "sdks/_shared/agent-sdk-ownership.mjs",
+    "standardVersion": "2026-06-26",
+    "ownerOnlyOperationCount": 23
+  },
+  "languages": [
+    {
+      "language": "typescript",
+      "workspace": "sdkwork-agent-internal-sdk-typescript",
+      "generationState": "materialized",
+      "releaseState": "not_published",
+      "generatedPath": "sdkwork-agent-internal-sdk-typescript/generated/server-openapi",
+      "manifestPath": "sdkwork-agent-internal-sdk-typescript/generated/server-openapi/package.json",
+      "version": "0.1.0",
+      "description": "Generator-owned TypeScript transport SDK for SDKWork Agent Internal API.",
+      "consumerSurface": {
+        "primaryClient": "SdkworkCustomClient",
+        "apiPrefix": "/internal/v3/api"
+      },
+      "consumerPackageName": "@sdkwork/agent-internal-sdk",
+      "transportPackageName": "sdkwork-agent-internal-sdk-generated-typescript"
+    }
+  ]
 }

@@ -1,5 +1,5 @@
 {
-  "name": "@sdkwork/agent-internal-sdk",
+  "name": "sdkwork-agent-internal-sdk-generated-typescript",
   "version": "0.1.0",
   "private": true,
   "description": "Generator-owned TypeScript transport SDK for sdkwork-agent-internal-sdk.",
@@ -37,5 +37,6 @@
     "api",
     "custom",
     "sdkwork"
-  ]
+  ],
+  "sdkworkRole": "transport"
 }

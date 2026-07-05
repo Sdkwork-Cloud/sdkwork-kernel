@@ -99,6 +99,8 @@ where
             kind: query.kind,
             provider_id: query.provider_id,
             bridge_id: query.bridge_id,
+            owner_tenant_id: query.owner_tenant_id,
+            owner_user_ref: query.owner_user_ref,
             limit: query.limit,
             offset: query.offset,
         };
@@ -133,32 +135,9 @@ where
 
     /// Delete a session and all associated data
     pub fn delete_session(&self, session_id: &str) -> Result<(), String> {
-        // Delete associated data first
-        self.event_repo
-            .delete_events(session_id)
-            .map_err(|e| format!("failed to delete events: {}", e))?;
-
-        self.message_repo
-            .delete_messages(session_id)
-            .map_err(|e| format!("failed to delete messages: {}", e))?;
-
-        // Delete tasks
-        let tasks = self
-            .task_repo
-            .load_tasks(session_id)
-            .map_err(|e| format!("failed to load tasks: {}", e))?;
-        for task in tasks {
-            self.task_repo
-                .delete_task(&task.task_id)
-                .map_err(|e| format!("failed to delete task: {}", e))?;
-        }
-
-        // Delete session
         self.session_repo
-            .delete_session(session_id)
-            .map_err(|e| format!("failed to delete session: {}", e))?;
-
-        Ok(())
+            .delete_session_cascade(session_id)
+            .map_err(|e| format!("failed to delete session: {}", e))
     }
 
     /// Send a message in a session
@@ -227,11 +206,9 @@ where
         &self,
         session_id: &str,
         limit: Option<i64>,
+        offset: Option<i64>,
     ) -> Result<Vec<MessageRow>, String> {
-        let query = sdkwork_agent_database::MessageQuery {
-            limit,
-            offset: None,
-        };
+        let query = sdkwork_agent_database::MessageQuery { limit, offset };
         self.message_repo
             .load_messages(session_id, &query)
             .map_err(|e| format!("failed to load messages: {}", e))
@@ -316,10 +293,14 @@ where
     }
 
     /// List tasks for a session.
-    pub fn list_tasks(&self, session_id: &str) -> Result<Vec<TaskRow>, String> {
+    pub fn list_tasks(
+        &self,
+        session_id: &str,
+        query: sdkwork_agent_database::TaskQuery,
+    ) -> Result<Vec<TaskRow>, String> {
         self.get_session(session_id)?;
         self.task_repo
-            .load_tasks(session_id)
+            .load_tasks(session_id, &query)
             .map_err(|e| format!("failed to load tasks: {}", e))
     }
 
@@ -356,6 +337,16 @@ where
         self.event_repo
             .load_events(session_id, &query)
             .map_err(|e| format!("failed to load events: {}", e))
+    }
+
+    /// Load recent events across all sessions (newest first).
+    pub fn list_recent_events(
+        &self,
+        query: sdkwork_agent_database::EventQuery,
+    ) -> Result<Vec<EventRow>, String> {
+        self.event_repo
+            .list_recent_events(&query)
+            .map_err(|e| format!("failed to list recent events: {}", e))
     }
 
     /// Health check
@@ -447,7 +438,7 @@ mod tests {
         assert_eq!(msg.content, "Hello");
 
         let messages = manager
-            .get_messages(&session.session_id, None)
+            .get_messages(&session.session_id, None, None)
             .expect("loaded");
         assert_eq!(messages.len(), 1);
     }

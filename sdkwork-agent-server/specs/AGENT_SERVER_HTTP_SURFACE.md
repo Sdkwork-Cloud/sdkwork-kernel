@@ -8,7 +8,7 @@ Specs: `AGENT_KERNEL_SPEC.md`, `AGENT_UI_CONTRACT_SPEC.md`, `WEB_FRAMEWORK_SPEC.
 
 `sdkwork-agent-server` is an internal agent runtime host. It exposes:
 
-1. **Internal-api runtime** (`/internal/v3/api/intelligence/runtime/*`) — SDKWork `internal-api` surface for `sdkwork-kernel-ui`, generated `@sdkwork/agent-internal-sdk`, and `sdkwork-agent-client` remote mode
+1. **Internal-api runtime** (`/internal/v3/api/intelligence/runtime/*`) — SDKWork `internal-api` surface for generated `@sdkwork/agent-internal-sdk`, product shells, and `sdkwork-agent-client` remote mode
 2. **Health probes** (`/health`, `/ready`, `/live`)
 3. **Operational metrics** (`GET /metrics`) — Prometheus text exposition for production monitoring
 
@@ -40,7 +40,11 @@ SDK family: `sdks/sdkwork-agent-internal-sdk/`
 Route boundary crate: `crates/sdkwork-routes-agent-internal-api` (re-exports `build_internal_runtime_routes` and `internal_route_manifest`)  
 Handler module: `sdkwork-agent-server/src/api/internal_runtime.rs` (`InternalRuntimeApiState`)
 
-List endpoints (`sessions`, `messages`, `tasks`, `models`, `tools`) return `{ "items": [...] }` envelopes per the OpenAPI authority.
+List endpoints (`sessions`, `messages`, `tasks`, `models`, `tools`) return `SdkWorkApiResponse` with `data.items` and `data.pageInfo` per `API_SPEC.md` §4.5/§16. Query input uses `page` and `page_size` (default `20`, max `200`); legacy `limit`/`offset` query aliases remain accepted by the server during client migration.
+
+Single-resource JSON endpoints (manifest, health, diagnostics, snapshot, session create/read/close, message send, task submit/read/cancel, permission decide, model invoke/cancel, tool execute) return `SdkWorkApiResponse` with `data.item`. `DELETE` session returns `204 No Content` with `X-SdkWork-Trace-Id`. Errors use `application/problem+json` (`ProblemDetail`) with numeric `code` and `traceId`.
+
+`GET /snapshot` loads recent runtime events from persistence (bounded replay window), runtime health from live diagnostics, and workspace fields from runtime state — not hardcoded placeholders.
 
 Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork-agent-server/src/http_surface.rs`).
 
@@ -108,7 +112,7 @@ Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork
 - Default `modelProvider` metadata is stamped from the hosted agent binding when omitted.
 - Non-production profiles may set `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1` (debug builds default on) so typed `ProviderUnavailable` / missing streaming capabilities fall back to the bridge mock path.
 - Production profiles (`SDKWORK_KERNEL_ENVIRONMENT=production` or `SDKWORK_KERNEL_PROFILE_ID` ending in `.production`) disable mock fallback unless `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1`; provider failures surface as `503` on invoke/stream routes.
-- `GET /internal/v3/api/intelligence/runtime/snapshot` reports runtime diagnostics from `AgentRuntime::diagnostics()` and `capability_manifest()` rather than hard-coded placeholders.
+- `GET /internal/v3/api/intelligence/runtime/snapshot` reports runtime diagnostics from `AgentRuntime::diagnostics()` and `capability_manifest()`; includes the 100 most recent persisted session events and pending permissions from the runtime database.
 
 ## Event streaming
 

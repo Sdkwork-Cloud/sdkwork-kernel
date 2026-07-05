@@ -39,7 +39,7 @@ can pass the relevant conformance profile.
 | `provider-host` | Host provider | Filesystem/process/network/secrets/storage host access |
 | `adapter-protocol` | Protocol adapter | MCP, A2A, HTTP/RPC, IPC, Tauri, WebSocket, UI client adapters |
 | `security-baseline` | Runtime plus providers | Any runtime that executes side-effectful actions |
-| `ui-contract` | Kernel UI client/service adapter | `sdkwork-kernel-ui` integration |
+| `ui-contract` | Kernel UI client/service adapter | Product application integration |
 
 Rules:
 

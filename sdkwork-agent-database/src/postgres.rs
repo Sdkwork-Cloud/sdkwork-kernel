@@ -77,6 +77,23 @@ CREATE TABLE IF NOT EXISTS agents (
     created_at TEXT NOT NULL,
     updated_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS permissions (
+    permission_request_id TEXT PRIMARY KEY,
+    session_id TEXT,
+    category TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    side_effect_level TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    owner_tenant_id TEXT,
+    owner_user_ref TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_permissions_session_id ON permissions(session_id);
+CREATE INDEX IF NOT EXISTS idx_permissions_status ON permissions(status);
 "#;
 
 impl PostgresDatabase {

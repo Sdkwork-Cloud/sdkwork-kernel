@@ -35,7 +35,7 @@ Out of scope here:
 
 - Kernel core dependencies on `external/` (forbidden).
 - Mapping-only upstreams without shipped adapters (see mapping status sections).
-- UI product surfaces (owned by `sdkwork-kernel-ui`).
+- UI product surfaces (owned by product applications outside `sdkwork-kernel`).
 
 ## Directory Model
 

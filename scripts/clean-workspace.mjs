@@ -6,11 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-const removablePaths = [
-  'target',
-  path.join('sdkwork-kernel-ui', 'dist'),
-  path.join('sdkwork-kernel-ui', 'node_modules', '.vite'),
-];
+const removablePaths = ['target'];
 
 for (const relativePath of removablePaths) {
   const absolutePath = path.join(repoRoot, relativePath);

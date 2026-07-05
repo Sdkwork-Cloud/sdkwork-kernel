@@ -522,7 +522,8 @@ Allowed extension points:
 - Code-specific event families under `code.*`.
 - Code-specific policy requests for patch application, terminal execution,
   destructive filesystem changes, and generated-client protection.
-- Code-specific UI views implemented in `sdkwork-kernel-ui`.
+- Code-specific UI views implemented in product applications that consume
+  `@sdkwork/agent-internal-sdk`.
 
 Forbidden changes:
 

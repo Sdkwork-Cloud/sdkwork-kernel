@@ -1,7 +1,7 @@
 use axum::{
     extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
-    response::sse::{Event, KeepAlive, Sse},
+    response::{sse::{Event, KeepAlive, Sse}, Response},
     Json,
 };
 use futures::stream::{self, Stream, StreamExt};
@@ -9,6 +9,7 @@ use sdkwork_agent_api_bridge::BridgeSessionConfig;
 use sdkwork_agent_database::{EventRow, MessageRow, PermissionRow, SessionRow, TaskRow};
 use sdkwork_agent_kernel::ModelRequest;
 use sdkwork_agent_session::{SessionConfig, SessionQuery};
+use sdkwork_utils_rust::validated_offset_list_params;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -26,6 +27,9 @@ use crate::access::{
 };
 use crate::agent_registry::{apply_hosted_agent_defaults, validate_hosted_agent_id};
 use crate::config::ServerConfig;
+use crate::http_response::{
+    api_created, api_item, api_no_content, catalog_list_response, offset_list_response, ApiError,
+};
 use crate::metrics::MetricsRegistry;
 use crate::middleware::RequestContext;
 use crate::persistence::PersistenceState;
@@ -419,17 +423,37 @@ pub struct StreamEventJson {
     pub timestamp: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
 pub struct ListMessagesQuery {
-    pub limit: Option<u32>,
-    pub offset: Option<u32>,
+    pub page: Option<i64>,
+    #[serde(alias = "page_size")]
+    pub page_size: Option<i64>,
+    #[serde(alias = "limit")]
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
 pub struct ListSessionsQuery {
-    pub limit: Option<u32>,
-    pub offset: Option<u32>,
+    pub page: Option<i64>,
+    #[serde(alias = "page_size")]
+    pub page_size: Option<i64>,
+    #[serde(alias = "limit")]
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ListTasksQuery {
+    pub page: Option<i64>,
+    #[serde(alias = "page_size")]
+    pub page_size: Option<i64>,
+    #[serde(alias = "limit")]
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -496,11 +520,34 @@ impl InternalRuntimeApiState {
             .collect();
 
         let permissions = self
-            .persist(|persistence| persistence.list_permissions(None))
+            .persist(|persistence| {
+                persistence.list_permissions(sdkwork_agent_database::PermissionQuery {
+                    status: None,
+                    limit: Some(100),
+                    offset: None,
+                })
+            })
             .await
             .map_err(|error| format!("failed to load permissions: {error}"))?
             .into_iter()
             .map(permission_row_to_view)
+            .collect();
+
+        let event_rows = self
+            .persist(|persistence| {
+                persistence.list_recent_events(sdkwork_agent_database::EventQuery {
+                    event_type: None,
+                    severity: None,
+                    limit: Some(100),
+                    offset: None,
+                })
+            })
+            .await
+            .map_err(|error| format!("failed to load recent events: {error}"))?;
+        let events = event_rows
+            .iter()
+            .enumerate()
+            .map(|(index, row)| event_row_to_kernel_json(row, index as u32))
             .collect();
 
         Ok(KernelUiSnapshotJson {
@@ -508,18 +555,18 @@ impl InternalRuntimeApiState {
                 runtime_id: diagnostics.runtime_id.clone(),
                 agent_id: diagnostics.agent_id.clone(),
                 kernel_version: env!("CARGO_PKG_VERSION").to_string(),
-                state: runtime_state,
+                state: runtime_state.clone(),
                 health: runtime_health.to_string(),
                 capabilities,
                 missing_required_capabilities: manifest.missing_required_capabilities.clone(),
                 degraded_capabilities,
             },
-            events: Vec::new(),
+            events,
             permissions,
             workspace: WorkspaceJson {
-                workspace_id: "workspace.local".to_string(),
-                root: ".".to_string(),
-                branch: "main".to_string(),
+                workspace_id: diagnostics.runtime_id.clone(),
+                root: diagnostics.agent_id.clone(),
+                branch: runtime_state,
                 dirty: false,
                 changed_files: Vec::new(),
             },
@@ -765,6 +812,21 @@ fn event_row_to_stream(row: &EventRow, sequence: u32) -> StreamEventJson {
     }
 }
 
+fn event_row_to_kernel_json(row: &EventRow, sequence: u32) -> KernelEventJson {
+    KernelEventJson {
+        event_id: row.event_id.clone(),
+        event_type: row.event_type.clone(),
+        severity: row.severity.clone(),
+        summary: row
+            .payload
+            .clone()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| row.event_type.clone()),
+        sequence,
+        trace_id: None,
+    }
+}
+
 fn events_after_cursor(events: Vec<EventRow>, last_event_id: Option<String>) -> Vec<EventRow> {
     let Some(last_event_id) = last_event_id.filter(|event_id| !event_id.is_empty()) else {
         return events;
@@ -832,6 +894,34 @@ pub fn ensure_session_access(
     assert_session_access(state.access_policy, ctx, row)
 }
 
+fn ensure_session_access_api(
+    state: &InternalRuntimeApiState,
+    ctx: &RequestContext,
+    row: &SessionRow,
+    trace_id: &str,
+) -> Result<(), ApiError> {
+    ensure_session_access(state, ctx, row)
+        .map_err(|status| ApiError::from_status(status, "session access denied", trace_id))
+}
+
+fn assert_permission_access_api(
+    policy: AccessPolicy,
+    ctx: &RequestContext,
+    owner_tenant_id: Option<&str>,
+    owner_user_ref: Option<&str>,
+    permission_id: &str,
+    trace_id: &str,
+) -> Result<(), ApiError> {
+    assert_permission_access(
+        policy,
+        ctx,
+        owner_tenant_id,
+        owner_user_ref,
+        permission_id,
+    )
+    .map_err(|status| ApiError::from_status(status, "permission access denied", trace_id))
+}
+
 pub fn bridge_config_from_row(row: &SessionRow) -> BridgeSessionConfig {
     let metadata = parse_metadata_map(row.metadata_json.as_deref());
     BridgeSessionConfig {
@@ -867,7 +957,9 @@ pub fn map_runtime_error(error: sdkwork_agent_kernel::KernelError) -> StatusCode
 /// `get_runtime_manifest` and `get_capability_manifest`.
 pub async fn get_runtime_manifest(
     State(state): State<Arc<InternalRuntimeApiState>>,
-) -> Result<Json<RuntimeManifestJson>, StatusCode> {
+    Extension(ctx): Extension<RequestContext>,
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let manifest = state.runtime.agent_runtime().capability_manifest();
     let diagnostics = state.runtime.agent_runtime().diagnostics();
 
@@ -897,16 +989,19 @@ pub async fn get_runtime_manifest(
         })
         .collect();
 
-    Ok(Json(RuntimeManifestJson {
-        runtime_id: manifest.runtime_id.clone(),
-        agent_id: manifest.agent_id.clone(),
-        kernel_version: manifest.kernel_version.clone(),
-        security_profile: manifest.security_profile.clone(),
-        capabilities,
-        providers,
-        missing_required_capabilities: manifest.missing_required_capabilities.clone(),
-        degraded_capabilities: manifest.degraded_capabilities.clone(),
-    }))
+    Ok(api_item(
+        RuntimeManifestJson {
+            runtime_id: manifest.runtime_id.clone(),
+            agent_id: manifest.agent_id.clone(),
+            kernel_version: manifest.kernel_version.clone(),
+            security_profile: manifest.security_profile.clone(),
+            capabilities,
+            providers,
+            missing_required_capabilities: manifest.missing_required_capabilities.clone(),
+            degraded_capabilities: manifest.degraded_capabilities.clone(),
+        },
+        &trace_id,
+    ))
 }
 
 /// `GET /runtime/health` — lightweight liveness/readiness probe.
@@ -915,7 +1010,9 @@ pub async fn get_runtime_manifest(
 /// polls. Aligns with `AGENT_RUNTIME_SPEC` §4 `get_health`.
 pub async fn get_runtime_health(
     State(state): State<Arc<InternalRuntimeApiState>>,
-) -> Result<Json<RuntimeHealthJson>, StatusCode> {
+    Extension(ctx): Extension<RequestContext>,
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let diagnostics = state.runtime.agent_runtime().diagnostics();
     let db_healthy = matches!(
         state.persist(|persistence| persistence.health()).await,
@@ -933,13 +1030,16 @@ pub async fn get_runtime_health(
         degraded.push("persistence".to_string());
     }
 
-    Ok(Json(RuntimeHealthJson {
-        runtime_id: diagnostics.runtime_id,
-        state: runtime_state,
-        health: health.to_string(),
-        persistence_healthy: db_healthy,
-        degraded_capabilities: degraded,
-    }))
+    Ok(api_item(
+        RuntimeHealthJson {
+            runtime_id: diagnostics.runtime_id,
+            state: runtime_state,
+            health: health.to_string(),
+            persistence_healthy: db_healthy,
+            degraded_capabilities: degraded,
+        },
+        &trace_id,
+    ))
 }
 
 /// `GET /runtime/diagnostics` — machine-readable runtime diagnostic report.
@@ -948,7 +1048,9 @@ pub async fn get_runtime_health(
 /// Aligns with `AGENT_RUNTIME_SPEC` §4.1 `get_diagnostics`.
 pub async fn get_runtime_diagnostics(
     State(state): State<Arc<InternalRuntimeApiState>>,
-) -> Result<Json<RuntimeDiagnosticsJson>, StatusCode> {
+    Extension(ctx): Extension<RequestContext>,
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let diagnostics = state.runtime.agent_runtime().diagnostics();
 
     let provider_diagnostics = diagnostics
@@ -964,28 +1066,33 @@ pub async fn get_runtime_diagnostics(
         })
         .collect();
 
-    Ok(Json(RuntimeDiagnosticsJson {
-        runtime_id: diagnostics.runtime_id,
-        agent_id: diagnostics.agent_id,
-        state: diagnostics.state,
-        provider_count: diagnostics.provider_count,
-        capability_count: diagnostics.capability_count,
-        typed_provider_count: diagnostics.typed_provider_count,
-        manifest_only_provider_count: diagnostics.manifest_only_provider_count,
-        missing_required_capabilities: diagnostics.missing_required_capabilities,
-        degraded_capabilities: diagnostics.degraded_capabilities,
-        provider_diagnostics,
-    }))
+    Ok(api_item(
+        RuntimeDiagnosticsJson {
+            runtime_id: diagnostics.runtime_id,
+            agent_id: diagnostics.agent_id,
+            state: diagnostics.state,
+            provider_count: diagnostics.provider_count,
+            capability_count: diagnostics.capability_count,
+            typed_provider_count: diagnostics.typed_provider_count,
+            manifest_only_provider_count: diagnostics.manifest_only_provider_count,
+            missing_required_capabilities: diagnostics.missing_required_capabilities,
+            degraded_capabilities: diagnostics.degraded_capabilities,
+            provider_diagnostics,
+        },
+        &trace_id,
+    ))
 }
 
 pub async fn load_snapshot(
     State(state): State<Arc<InternalRuntimeApiState>>,
-) -> Result<Json<KernelUiSnapshotJson>, StatusCode> {
-    state
+    Extension(ctx): Extension<RequestContext>,
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
+    let snapshot = state
         .build_snapshot()
         .await
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|error| ApiError::internal(error, &trace_id))?;
+    Ok(api_item(snapshot, &trace_id))
 }
 
 pub async fn decide_permission(
@@ -993,7 +1100,8 @@ pub async fn decide_permission(
     Extension(ctx): Extension<RequestContext>,
     Path(permission_request_id): Path<String>,
     Json(body): Json<PermissionDecisionBody>,
-) -> Result<Json<PermissionRequestJson>, StatusCode> {
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     if state.access_policy.enforce_session_scope {
         if ctx.tenant_id.as_deref().is_none_or(str::is_empty)
             || ctx
@@ -1002,63 +1110,68 @@ pub async fn decide_permission(
                 .or_else(|| ctx.subject_id.as_deref())
                 .is_none_or(str::is_empty)
         {
-            return Err(StatusCode::FORBIDDEN);
+            return Err(ApiError::from_status(
+                StatusCode::FORBIDDEN,
+                "tenant and user identity required",
+                &trace_id,
+            ));
         }
     }
 
     if !matches!(body.decision.as_str(), "allow" | "deny") {
-        return Err(StatusCode::BAD_REQUEST);
+        return Err(ApiError::invalid_parameter(
+            "decision must be allow or deny",
+            &trace_id,
+        ));
     }
 
-    // Load the permission from the database to verify ownership before
-    // applying the decision. This replaces the previous in-memory map and
-    // ensures permission state survives server restarts.
     let permission_id = permission_request_id.clone();
     let permission = state
         .persist(move |persistence| persistence.load_permission(&permission_id))
         .await
-        .map_err(map_persistence_error)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?
+        .ok_or_else(|| ApiError::not_found("permission request not found", &trace_id))?;
 
-    assert_permission_access(
+    assert_permission_access_api(
         state.access_policy,
         &ctx,
         permission.owner_tenant_id.as_deref(),
         permission.owner_user_ref.as_deref(),
         &permission_request_id,
+        &trace_id,
     )?;
 
-    // Apply the decision atomically in the database.
     let decision = body.decision.clone();
     let permission_id = permission_request_id.clone();
     state
         .persist(move |persistence| persistence.update_permission_status(&permission_id, &decision))
         .await
-        .map_err(map_persistence_error)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
 
-    // Reload to return the updated record.
     let permission_id = permission_request_id.clone();
     let updated = state
         .persist(move |persistence| persistence.load_permission(&permission_id))
         .await
-        .map_err(map_persistence_error)?
-        .ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?
+        .ok_or_else(|| ApiError::not_found("permission request not found", &trace_id))?;
 
-    Ok(Json(permission_row_to_view(updated)))
+    Ok(api_item(permission_row_to_view(updated), &trace_id))
 }
 
 pub async fn create_session(
     State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Json(request): Json<CreateKernelSessionRequest>,
-) -> Result<(StatusCode, Json<SessionViewJson>), StatusCode> {
-    let registered =
-        validate_hosted_agent_id(&request.agent_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
+    let registered = validate_hosted_agent_id(&request.agent_id)
+        .map_err(|_| ApiError::invalid_parameter("unknown hosted agent id", &trace_id))?;
 
     let mut metadata_map = request.metadata.clone().unwrap_or_default();
     apply_create_session_metadata(&mut metadata_map, &request);
     apply_hosted_agent_defaults(&mut metadata_map, registered);
-    stamp_session_ownership(&mut metadata_map, &ctx, &state.config)?;
+    stamp_session_ownership(&mut metadata_map, &ctx, &state.config)
+        .map_err(|status| ApiError::from_status(status, "session ownership denied", &trace_id))?;
 
     let mut config = SessionConfig::new(request.agent_id);
     if let Some(title) = request.title {
@@ -1088,113 +1201,97 @@ pub async fn create_session(
     let row = state
         .persist(move |persistence| persistence.create_session(config))
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
 
     let _ = state
         .runtime
         .register_session(&row.session_id, bridge_config_from_row(&row));
 
-    Ok((StatusCode::CREATED, Json(session_row_to_view(row))))
+    Ok(api_created(session_row_to_view(row), &trace_id))
 }
 
 pub async fn get_session(
     State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
-) -> Result<Json<SessionViewJson>, StatusCode> {
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-        .map_err(map_persistence_error)?;
-    ensure_session_access(&state, &ctx, &row)?;
-    Ok(Json(session_row_to_view(row)))
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
+    Ok(api_item(session_row_to_view(row), &trace_id))
 }
 
 pub async fn list_sessions(
     State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Query(query): Query<ListSessionsQuery>,
-) -> Result<Json<SessionListResponseJson>, StatusCode> {
-    // Clamp pagination parameters to safe bounds.
-    let limit = query.limit.unwrap_or(50).min(200);
-    let offset = query.offset.unwrap_or(0);
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
+    let params = resolve_list_page_params(query.page, query.page_size, query.limit, query.offset)
+        .map_err(|_| ApiError::invalid_parameter("invalid pagination parameters", &trace_id))?;
 
-    // When access policy enforces session scope, fetch a larger batch from
-    // the database to account for in-memory tenant filtering. This is a
-    // transitional measure until DB-level metadata filtering is added.
-    let fetch_limit = if state.access_policy.enforce_session_scope {
-        // Fetch enough rows to satisfy limit + offset after filtering.
-        // Use a generous multiplier since not all rows will pass the filter.
-        i64::try_from(limit.saturating_add(offset).saturating_mul(3).max(1000)).unwrap_or(1000)
+    let (owner_tenant_id, owner_user_ref) = if state.access_policy.enforce_session_scope {
+        (ctx.tenant_id.clone(), ctx.user_id.clone())
     } else {
-        i64::try_from(limit.saturating_add(offset)).unwrap_or(100)
+        (None, None)
     };
+
     let db_query = SessionQuery {
-        limit: Some(fetch_limit),
+        owner_tenant_id,
+        owner_user_ref,
+        limit: Some(params.page_size + 1),
+        offset: Some(params.offset),
         ..SessionQuery::default()
     };
     let rows = state
         .persist(move |persistence| persistence.list_sessions(db_query))
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let mut views = Vec::new();
-    for row in rows {
-        if ensure_session_access(&state, &ctx, &row).is_ok() {
-            views.push(session_row_to_view(row));
-        }
-    }
-    // Apply offset and limit after in-memory filtering.
-    let views: Vec<_> = views
-        .into_iter()
-        .skip(offset as usize)
-        .take(limit as usize)
-        .collect();
-    Ok(Json(SessionListResponseJson { items: views }))
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    let views: Vec<_> = rows.into_iter().map(session_row_to_view).collect();
+    Ok(offset_list_response(views, params.page_size, params, &trace_id))
 }
 
 pub async fn close_session(
     State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
-) -> Result<Json<SessionViewJson>, StatusCode> {
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-        .map_err(map_persistence_error)?;
-    ensure_session_access(&state, &ctx, &row)?;
-    state
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
+    let view = state
         .persist(move |persistence| persistence.close_session(&session_id))
         .await
         .map(session_row_to_view)
-        .map(Json)
-        .map_err(map_persistence_error)
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    Ok(api_item(view, &trace_id))
 }
 
 pub async fn delete_session(
     State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
-) -> StatusCode {
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let session_key = session_id.clone();
-    let row = match state
+    let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-    {
-        Ok(row) => row,
-        Err(error) => return map_persistence_error(error),
-    };
-    if ensure_session_access(&state, &ctx, &row).is_err() {
-        return StatusCode::FORBIDDEN;
-    }
-    match state
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
+    state
         .persist(move |persistence| persistence.delete_session(&session_id))
         .await
-    {
-        Ok(()) => StatusCode::NO_CONTENT,
-        Err(error) => map_persistence_error(error),
-    }
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    Ok(api_no_content(&trace_id))
 }
 
 pub async fn send_message(
@@ -1202,18 +1299,21 @@ pub async fn send_message(
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
     Json(request): Json<SendKernelMessageRequest>,
-) -> Result<(StatusCode, Json<MessageViewJson>), StatusCode> {
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-        .map_err(map_persistence_error)?;
-    ensure_session_access(&state, &ctx, &row)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
     let content = request.content.clone();
     let (row, bridge_response) =
-        crate::message_dispatch::dispatch_user_message(&state, &session_id, &content, &row).await?;
+        crate::message_dispatch::dispatch_user_message(&state, &session_id, &content, &row)
+            .await
+            .map_err(|status| ApiError::from_status(status, "message dispatch failed", &trace_id))?;
     let _ = bridge_response;
-    Ok((StatusCode::CREATED, Json(message_row_to_view(row))))
+    Ok(api_created(message_row_to_view(row), &trace_id))
 }
 
 pub async fn get_messages(
@@ -1221,28 +1321,29 @@ pub async fn get_messages(
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
     Query(query): Query<ListMessagesQuery>,
-) -> Result<Json<MessageListResponseJson>, StatusCode> {
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-        .map_err(map_persistence_error)?;
-    ensure_session_access(&state, &ctx, &row)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
 
-    let limit = query.limit.unwrap_or(100).min(500);
-    let offset = query.offset.unwrap_or(0);
-    let fetch_limit = i64::from(limit) + i64::from(offset);
+    let params = resolve_list_page_params(query.page, query.page_size, query.limit, query.offset)
+        .map_err(|_| ApiError::invalid_parameter("invalid pagination parameters", &trace_id))?;
     let rows = state
-        .persist(move |persistence| persistence.get_messages(&session_id, Some(fetch_limit)))
+        .persist(move |persistence| {
+            persistence.get_messages(
+                &session_id,
+                Some(params.page_size + 1),
+                Some(params.offset),
+            )
+        })
         .await
-        .map_err(map_persistence_error)?;
-    let rows = rows
-        .into_iter()
-        .skip(offset as usize)
-        .take(limit as usize)
-        .map(message_row_to_view)
-        .collect();
-    Ok(Json(MessageListResponseJson { items: rows }))
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    let views = rows.into_iter().map(message_row_to_view).collect();
+    Ok(offset_list_response(views, params.page_size, params, &trace_id))
 }
 
 pub async fn submit_task(
@@ -1250,100 +1351,115 @@ pub async fn submit_task(
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
     Json(request): Json<SubmitTaskRequest>,
-) -> Result<(StatusCode, Json<TaskViewJson>), StatusCode> {
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let session_key = session_id.clone();
     let session = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-        .map_err(map_persistence_error)?;
-    ensure_session_access(&state, &ctx, &session)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &session, &trace_id)?;
     let instruction = request.instruction.clone();
     let row = state
         .persist(move |persistence| persistence.create_task(&session_id, &instruction))
         .await
-        .map_err(map_persistence_error)?;
-    Ok((StatusCode::CREATED, Json(task_row_to_view(row))))
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    Ok(api_created(task_row_to_view(row), &trace_id))
 }
 
 pub async fn get_task(
     State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(task_id): Path<String>,
-) -> Result<Json<TaskViewJson>, StatusCode> {
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let task_key = task_id.clone();
     let task = state
         .persist(move |persistence| persistence.get_task(&task_key))
         .await
-        .map_err(map_persistence_error)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     let session_key = task.session_id.clone();
     let session = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-        .map_err(map_persistence_error)?;
-    ensure_session_access(&state, &ctx, &session)?;
-    Ok(Json(task_row_to_view(task)))
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &session, &trace_id)?;
+    Ok(api_item(task_row_to_view(task), &trace_id))
 }
 
 pub async fn list_tasks(
     State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
-) -> Result<Json<TaskListResponseJson>, StatusCode> {
+    Query(query): Query<ListTasksQuery>,
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let session_key = session_id.clone();
     let session = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-        .map_err(map_persistence_error)?;
-    ensure_session_access(&state, &ctx, &session)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &session, &trace_id)?;
+
+    let params = resolve_list_page_params(query.page, query.page_size, query.limit, query.offset)
+        .map_err(|_| ApiError::invalid_parameter("invalid pagination parameters", &trace_id))?;
+    let task_query = sdkwork_agent_database::TaskQuery {
+        limit: Some(params.page_size + 1),
+        offset: Some(params.offset),
+    };
     let rows = state
-        .persist(move |persistence| persistence.list_tasks(&session_id))
+        .persist(move |persistence| persistence.list_tasks(&session_id, task_query))
         .await
-        .map_err(map_persistence_error)?;
-    Ok(Json(TaskListResponseJson {
-        items: rows.into_iter().map(task_row_to_view).collect(),
-    }))
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    let views = rows.into_iter().map(task_row_to_view).collect();
+    Ok(offset_list_response(views, params.page_size, params, &trace_id))
 }
 
 pub async fn cancel_task(
     State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(task_id): Path<String>,
-) -> Result<Json<TaskViewJson>, StatusCode> {
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let task_key = task_id.clone();
     let task = state
         .persist(move |persistence| persistence.get_task(&task_key))
         .await
-        .map_err(map_persistence_error)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     let session_key = task.session_id.clone();
     let session = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-        .map_err(map_persistence_error)?;
-    ensure_session_access(&state, &ctx, &session)?;
-    state
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &session, &trace_id)?;
+    let view = state
         .persist(move |persistence| persistence.cancel_task(&task_id))
         .await
         .map(task_row_to_view)
-        .map(Json)
-        .map_err(map_persistence_error)
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    Ok(api_item(view, &trace_id))
 }
 
 pub async fn list_models(
     State(state): State<Arc<InternalRuntimeApiState>>,
-) -> Result<Json<ModelListResponseJson>, StatusCode> {
-    let models = state.runtime.list_models().map_err(map_runtime_error)?;
-    Ok(Json(ModelListResponseJson {
-        items: models
-            .into_iter()
-            .map(|model| ModelDescriptorJson {
-                model_id: model.model_id,
-                provider_id: model.provider_id,
-                display_name: model.display_name,
-                family: model.family,
-                capabilities: model.capabilities,
-            })
-            .collect(),
-    }))
+    Extension(ctx): Extension<RequestContext>,
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
+    let models = state
+        .runtime
+        .list_models()
+        .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
+    let items = models
+        .into_iter()
+        .map(|model| ModelDescriptorJson {
+            model_id: model.model_id,
+            provider_id: model.provider_id,
+            display_name: model.display_name,
+            family: model.family,
+            capabilities: model.capabilities,
+        })
+        .collect();
+    Ok(catalog_list_response(items, &trace_id))
 }
 
 pub async fn invoke_model(
@@ -1352,13 +1468,14 @@ pub async fn invoke_model(
     Extension(metrics): Extension<Arc<MetricsRegistry>>,
     Path(session_id): Path<String>,
     Json(request): Json<InvokeModelRequest>,
-) -> Result<Json<ModelResponseJson>, StatusCode> {
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-        .map_err(map_persistence_error)?;
-    ensure_session_access(&state, &ctx, &row)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
     let _ = state
         .runtime
         .register_session(&session_id, bridge_config_from_row(&row));
@@ -1374,7 +1491,11 @@ pub async fn invoke_model(
                 "tenant daily model token quota exhausted",
             );
             metrics.record_tenant_token_quota_rejection();
-            return Err(status);
+            return Err(ApiError::from_status(
+                status,
+                "tenant daily model token quota exhausted",
+                &trace_id,
+            ));
         }
     }
 
@@ -1402,7 +1523,7 @@ pub async fn invoke_model(
     let result = state
         .runtime
         .invoke_model(model_request)
-        .map_err(map_runtime_error)?;
+        .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
 
     let status_label = format!("{:?}", result.response.status).to_lowercase();
     metrics.record_model_invocation(&result.response.provider_id, &status_label);
@@ -1425,9 +1546,6 @@ pub async fn invoke_model(
             u64::from(usage.output_tokens),
         );
         if let Some(tenant_id) = ctx.tenant_id.as_deref() {
-            // Adjust the pre-reserved token estimate to the actual usage.
-            // This closes the TOCTOU window: tokens were atomically reserved
-            // before the model call, and now we reconcile with reality.
             state
                 .tenant_token_quota
                 .adjust_usage(tenant_id, u64::from(usage.total_tokens()))
@@ -1435,56 +1553,62 @@ pub async fn invoke_model(
         }
     }
 
-    Ok(Json(ModelResponseJson {
-        model_request_id: result.response.model_request_id,
-        provider_id: result.response.provider_id,
-        status: format!("{:?}", result.response.status).to_lowercase(),
-        messages: result.response.messages,
-        tool_calls: result
-            .response
-            .tool_calls
-            .into_iter()
-            .map(|call| {
-                serde_json::json!({
-                    "toolCallId": call.tool_call_id,
-                    "toolId": call.tool_id,
-                    "input": call.arguments,
+    Ok(api_item(
+        ModelResponseJson {
+            model_request_id: result.response.model_request_id,
+            provider_id: result.response.provider_id,
+            status: format!("{:?}", result.response.status).to_lowercase(),
+            messages: result.response.messages,
+            tool_calls: result
+                .response
+                .tool_calls
+                .into_iter()
+                .map(|call| {
+                    serde_json::json!({
+                        "toolCallId": call.tool_call_id,
+                        "toolId": call.tool_id,
+                        "input": call.arguments,
+                    })
                 })
-            })
-            .collect(),
-    }))
+                .collect(),
+        },
+        &trace_id,
+    ))
 }
 
 pub async fn list_tools(
     State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
-) -> Result<Json<ToolListResponseJson>, StatusCode> {
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-        .map_err(map_persistence_error)?;
-    ensure_session_access(&state, &ctx, &row)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
 
-    let tools = state.runtime.list_tools().map_err(map_runtime_error)?;
-    Ok(Json(ToolListResponseJson {
-        items: tools
-            .into_iter()
-            .map(|tool| {
-                serde_json::json!({
-                    "toolId": tool.tool_id,
-                    "providerId": tool.provider_id,
-                    "name": tool.name,
-                    "displayName": tool.display_name,
-                    "description": tool.description,
-                    "sideEffectLevel": tool.side_effect_level.as_str(),
-                    "policyCategories": tool.policy_categories,
-                    "timeoutMs": tool.timeout_ms,
-                })
+    let tools = state
+        .runtime
+        .list_tools()
+        .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
+    let items = tools
+        .into_iter()
+        .map(|tool| {
+            serde_json::json!({
+                "toolId": tool.tool_id,
+                "providerId": tool.provider_id,
+                "name": tool.name,
+                "displayName": tool.display_name,
+                "description": tool.description,
+                "sideEffectLevel": tool.side_effect_level.as_str(),
+                "policyCategories": tool.policy_categories,
+                "timeoutMs": tool.timeout_ms,
             })
-            .collect(),
-    }))
+        })
+        .collect();
+    Ok(catalog_list_response(items, &trace_id))
 }
 
 pub async fn execute_tool(
@@ -1492,13 +1616,14 @@ pub async fn execute_tool(
     Extension(ctx): Extension<RequestContext>,
     Path((session_id, tool_name)): Path<(String, String)>,
     Json(request): Json<ExecuteToolRequest>,
-) -> Result<Json<ToolCallJson>, StatusCode> {
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-        .map_err(map_persistence_error)?;
-    ensure_session_access(&state, &ctx, &row)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
     let _ = state
         .runtime
         .register_session(&session_id, bridge_config_from_row(&row));
@@ -1506,15 +1631,18 @@ pub async fn execute_tool(
     let result = state
         .runtime
         .execute_tool(&session_id, &tool_name, &request.input)
-        .map_err(map_runtime_error)?;
+        .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
 
-    Ok(Json(ToolCallJson {
-        tool_call_id: result.call_id,
-        tool_id: tool_name,
-        input: request.input,
-        status: result.result.status,
-        output: Some(result.result.output),
-    }))
+    Ok(api_item(
+        ToolCallJson {
+            tool_call_id: result.call_id,
+            tool_id: tool_name,
+            input: request.input,
+            status: result.result.status,
+            output: Some(result.result.output),
+        },
+        &trace_id,
+    ))
 }
 
 /// `POST /sessions/{sessionId}/model/stream` — stream a model response via SSE.
@@ -1530,19 +1658,23 @@ pub async fn stream_model(
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
     Json(request): Json<StreamModelRequest>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let current = state.sse_connection_count.fetch_add(1, Ordering::Relaxed);
     if current >= MAX_CONCURRENT_SSE_STREAMS {
         state.sse_connection_count.fetch_sub(1, Ordering::Relaxed);
-        return Err(StatusCode::SERVICE_UNAVAILABLE);
+        return Err(ApiError::service_unavailable(
+            "too many concurrent SSE streams",
+            &trace_id,
+        ));
     }
 
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-        .map_err(map_persistence_error)?;
-    ensure_session_access(&state, &ctx, &row)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
     let _ = state
         .runtime
         .register_session(&session_id, bridge_config_from_row(&row));
@@ -1572,7 +1704,7 @@ pub async fn stream_model(
     let chunks = state
         .runtime
         .stream_model(model_request)
-        .map_err(map_runtime_error)?;
+        .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
 
     let connection_count = state.sse_connection_count.clone();
     let chunk_events: Vec<Event> = chunks
@@ -1614,25 +1746,29 @@ pub async fn cancel_model(
     Extension(ctx): Extension<RequestContext>,
     Path(session_id): Path<String>,
     Json(request): Json<CancelModelRequest>,
-) -> Result<Json<ModelCancelResponseJson>, StatusCode> {
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-        .map_err(map_persistence_error)?;
-    ensure_session_access(&state, &ctx, &row)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
 
     let response = state
         .runtime
         .cancel_model(&request.model_request_id, request.provider_id.as_deref())
-        .map_err(map_runtime_error)?;
+        .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
 
-    Ok(Json(ModelCancelResponseJson {
-        model_request_id: response.model_request_id,
-        provider_id: response.provider_id,
-        status: format!("{:?}", response.status).to_lowercase(),
-        finish_reason: response.finish_reason,
-    }))
+    Ok(api_item(
+        ModelCancelResponseJson {
+            model_request_id: response.model_request_id,
+            provider_id: response.provider_id,
+            status: format!("{:?}", response.status).to_lowercase(),
+            finish_reason: response.finish_reason,
+        },
+        &trace_id,
+    ))
 }
 
 /// SSE event stream for a session.
@@ -1648,21 +1784,23 @@ pub async fn stream_session_events(
     headers: HeaderMap,
     Path(session_id): Path<String>,
     Query(query): Query<StreamEventsQuery>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, StatusCode> {
-    // Enforce a per-server concurrent SSE connection limit to prevent
-    // resource exhaustion from too many long-lived streams.
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let trace_id = ctx.problem_trace_id();
     let current = state.sse_connection_count.fetch_add(1, Ordering::Relaxed);
     if current >= MAX_CONCURRENT_SSE_STREAMS {
         state.sse_connection_count.fetch_sub(1, Ordering::Relaxed);
-        return Err(StatusCode::SERVICE_UNAVAILABLE);
+        return Err(ApiError::service_unavailable(
+            "too many concurrent SSE streams",
+            &trace_id,
+        ));
     }
 
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
         .await
-        .map_err(map_persistence_error)?;
-    ensure_session_access(&state, &ctx, &row)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
 
     let last_event_id = last_event_id_from_request(&headers, &query);
     let live = query.live.unwrap_or(true);
@@ -1670,7 +1808,7 @@ pub async fn stream_session_events(
     let events = state
         .persist(move |persistence| persistence.load_session_events(&session_for_events, Some(100)))
         .await
-        .map_err(map_persistence_error)?;
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     let events = events_after_cursor(events, last_event_id);
     let replay_count = events.len();
     let replay = stream::iter(
@@ -1703,33 +1841,19 @@ pub async fn stream_session_events(
     ))
 }
 
-/// Typed classification of persistence errors for deterministic HTTP
-/// status mapping. Replaces fragile string matching with a centralized
-/// classifier that can be extended as the persistence layer evolves.
-#[derive(Debug)]
-enum PersistenceErrorKind {
-    NotFound,
-    Conflict,
-    Internal,
-}
-
-fn classify_persistence_error(error: &str) -> PersistenceErrorKind {
-    let lower = error.to_lowercase();
-    if lower.contains("not found") {
-        PersistenceErrorKind::NotFound
-    } else if lower.contains("is closed") || lower.contains("already closed") {
-        PersistenceErrorKind::Conflict
+fn resolve_list_page_params(
+    page: Option<i64>,
+    page_size: Option<i64>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<sdkwork_utils_rust::OffsetListPageParams, sdkwork_utils_rust::SdkWorkResultCode> {
+    let page_size = page_size.or(limit);
+    let page = if offset.unwrap_or(0) > 0 && page.is_none() {
+        Some((offset.unwrap_or(0) / page_size.unwrap_or(20)) + 1)
     } else {
-        PersistenceErrorKind::Internal
-    }
-}
-
-fn map_persistence_error(error: String) -> StatusCode {
-    match classify_persistence_error(&error) {
-        PersistenceErrorKind::NotFound => StatusCode::NOT_FOUND,
-        PersistenceErrorKind::Conflict => StatusCode::CONFLICT,
-        PersistenceErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
-    }
+        page
+    };
+    validated_offset_list_params(page, page_size)
 }
 
 /// Generate a collision-resistant ID using UUID v7 (time-ordered).
@@ -1799,15 +1923,19 @@ mod tests {
             None,
         );
         let state = test_state();
-        let snapshot = load_snapshot(State(state.clone()))
+        let ctx = test_context();
+        let snapshot_response = load_snapshot(State(state.clone()), ctx.clone())
             .await
-            .expect("snapshot")
-            .0;
-        assert_eq!(snapshot.runtime.health, "healthy");
+            .expect("snapshot");
+        assert_eq!(snapshot_response.status(), StatusCode::OK);
+        let snapshot_body: serde_json::Value =
+            serde_json::from_slice(&axum::body::to_bytes(snapshot_response.into_body(), usize::MAX).await.expect("body"))
+                .expect("json");
+        assert_eq!(snapshot_body["data"]["item"]["runtime"]["health"], "healthy");
 
-        let (status, Json(session)) = create_session(
+        let create_response = create_session(
             State(state.clone()),
-            test_context(),
+            ctx.clone(),
             Json(CreateKernelSessionRequest {
                 agent_id: "agent.1".to_string(),
                 tenant_id: Some("tenant.1".to_string()),
@@ -1827,16 +1955,27 @@ mod tests {
         )
         .await
         .expect("created");
-        assert_eq!(status, StatusCode::CREATED);
-        assert_eq!(session.agent_id, "agent.1");
+        assert_eq!(create_response.status(), StatusCode::CREATED);
+        let create_body: serde_json::Value =
+            serde_json::from_slice(&axum::body::to_bytes(create_response.into_body(), usize::MAX).await.expect("body"))
+                .expect("json");
+        assert_eq!(create_body["data"]["item"]["agentId"], "agent.1");
 
-        let Json(loaded) = get_session(
+        let session_id = create_body["data"]["item"]["sessionId"]
+            .as_str()
+            .expect("sessionId")
+            .to_string();
+
+        let loaded_response = get_session(
             State(state.clone()),
-            test_context(),
-            Path(session.session_id.clone()),
+            ctx,
+            Path(session_id),
         )
         .await
         .expect("loaded");
-        assert_eq!(loaded.tenant_id, Some("tenant.1".to_string()));
+        let loaded_body: serde_json::Value =
+            serde_json::from_slice(&axum::body::to_bytes(loaded_response.into_body(), usize::MAX).await.expect("body"))
+                .expect("json");
+        assert_eq!(loaded_body["data"]["item"]["tenantId"], "tenant.1");
     }
 }

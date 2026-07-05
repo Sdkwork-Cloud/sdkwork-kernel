@@ -40,7 +40,7 @@ Rules:
 | `ipc` | Local inter-process communication |
 | `tauri` | Desktop host command/event bridge |
 | `websocket` | Streaming events and bidirectional session updates |
-| `kernel-ui-client` | Typed UI client contract for `sdkwork-kernel-ui` |
+| `kernel-ui-client` | Typed UI client contract for product shells consuming internal runtime HTTP |
 
 Rules:
 

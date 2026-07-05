@@ -6,6 +6,7 @@ pub mod app;
 pub mod config;
 pub mod event_bus;
 pub mod health;
+pub mod http_response;
 pub mod http_surface;
 pub mod ingress_identity;
 pub mod ingress_jwt;

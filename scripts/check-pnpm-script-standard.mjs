@@ -13,7 +13,7 @@ const RETIRED_COMMAND_PATTERNS = [
   [/\bself-hosted\b/u, 'self-hosted'],
   [/\bcloud-hosted\b/u, 'cloud-hosted'],
 ];
-const PACKAGE_SCAN_ROOTS = ['sdkwork-kernel-ui'];
+const PACKAGE_SCAN_ROOTS = ['sdks'];
 const DOC_SCAN_ROOTS = ['README.md', 'AGENTS.md', 'docs', 'configs', 'deployments', 'specs'];
 const IGNORED_DOC_PARTS = ['docs/archive/superpowers', 'docs/superpowers', 'docs/quality', 'docs/review'];
 

@@ -19,7 +19,7 @@ impl ModelBridge {
         Self {
             default_model: "gpt-4".to_string(),
             agent_runtime: None,
-            allow_mock_fallback: true,
+            allow_mock_fallback: false,
         }
     }
 
@@ -28,6 +28,15 @@ impl ModelBridge {
             default_model: "gpt-4".to_string(),
             agent_runtime: Some(agent_runtime),
             allow_mock_fallback,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_mock_fallback_enabled() -> Self {
+        Self {
+            default_model: "gpt-4".to_string(),
+            agent_runtime: None,
+            allow_mock_fallback: true,
         }
     }
 
@@ -74,6 +83,20 @@ impl ModelBridge {
                 Err(error) if self.allow_mock_fallback && error.retryable() => {}
                 Err(error) => return Err(error),
             }
+        } else if !self.allow_mock_fallback {
+            return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: model_provider_id
+                    .unwrap_or("provider.model")
+                    .to_string(),
+            });
+        }
+
+        if !self.allow_mock_fallback {
+            return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: model_provider_id
+                    .unwrap_or("provider.model")
+                    .to_string(),
+            });
         }
 
         self.invoke_mock(request)
@@ -95,6 +118,20 @@ impl ModelBridge {
                 Err(error) if self.allow_mock_fallback => {}
                 Err(error) => return Err(error),
             }
+        } else if !self.allow_mock_fallback {
+            return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: model_provider_id
+                    .unwrap_or("provider.model")
+                    .to_string(),
+            });
+        }
+
+        if !self.allow_mock_fallback {
+            return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: model_provider_id
+                    .unwrap_or("provider.model")
+                    .to_string(),
+            });
         }
 
         self.stream_mock(request)
@@ -295,7 +332,7 @@ mod tests {
 
     #[test]
     fn invoke_returns_mock_response() {
-        let bridge = ModelBridge::new();
+        let bridge = ModelBridge::with_mock_fallback_enabled();
         let request = ModelRequest::new("req.1", vec!["Hello".to_string()]);
 
         let result = bridge.invoke(&request, None).expect("invoked");
@@ -304,7 +341,7 @@ mod tests {
 
     #[test]
     fn stream_returns_chunks() {
-        let bridge = ModelBridge::new();
+        let bridge = ModelBridge::with_mock_fallback_enabled();
         let request = ModelRequest::new("req.1", vec!["Hello".to_string()]);
 
         let chunks = bridge.stream(&request, None).expect("streamed");

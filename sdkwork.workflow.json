@@ -70,11 +70,6 @@
         "name": "Install workspace topology dependency",
         "shell": "pwsh",
         "run": "pnpm install --ignore-scripts"
-      },
-      {
-        "name": "Install kernel UI workspace",
-        "shell": "pwsh",
-        "run": "pnpm --dir sdkwork-kernel-ui install --frozen-lockfile"
       }
     ],
     "build": [

@@ -48,8 +48,8 @@ This repository defines the SDKWork kernel standard for agent and code-agent sys
 ### Plugin Layer
 - `sdkwork-kernel-plugins/` - Plugin trait + provider-core + platform plugins
 
-### UI Layer
-- `sdkwork-kernel-ui/` - PNPM TypeScript/Vite/React workspace with reusable packages under `packages/`
+### SDK Layer
+- `sdks/sdkwork-agent-internal-sdk/` - Generated `@sdkwork/agent-internal-sdk` TypeScript facade for internal runtime HTTP
 
 ### Cross-Cutting
 - `specs/` - Cross-cutting contracts and schemas
@@ -106,30 +106,20 @@ cargo test --manifest-path sdkwork-agent-database/Cargo.toml
 cargo test --manifest-path sdkwork-agent-server/Cargo.toml
 ```
 
-### UI Build and Test
+### SDK Verification
 
 ```bash
-# Install UI workspace dependencies
-pnpm --dir sdkwork-kernel-ui install --frozen-lockfile
-
-# Build the kernel UI shell and packages
-pnpm --dir sdkwork-kernel-ui build
-
-# Run TypeScript checks
-pnpm --dir sdkwork-kernel-ui typecheck
+pnpm --dir sdks/sdkwork-agent-internal-sdk/sdkwork-agent-internal-sdk-typescript verify
 ```
 
 ### Standards Verification
 
 ```bash
-# Verify required specs, schemas, crates, and UI package structure
+# Verify required specs, schemas, crates, and SDK workspace structure
 node scripts/check-kernel-standards.mjs
 
 # Run the full kernel audit remediation verification matrix
 node scripts/verify-kernel-audit-remediation.mjs
-
-# Enforce UI package layering
-node sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs
 ```
 
 ### Topology Validation
@@ -145,20 +135,20 @@ pnpm topology:validate
 pnpm test:topology
 pnpm test:topology-baggage
 
-# Start sdkwork-agent-server with the standalone split-services dev profile and wait for /health
+# Start sdkwork-agent-server with the standalone unified-process dev profile and wait for /health
 pnpm test:topology-smoke
 ```
 
 ### Development Stack
 
 ```bash
-# Start the default standalone split-services development stack (agent server + kernel UI)
+# Start the default standalone unified-process development stack (agent server only)
 pnpm dev
 
 # Run the merge-ready verification aggregate
 pnpm verify
 
-# Run kernel standards, SDK workspace, UI architecture, and PNPM script checks
+# Run kernel standards, SDK workspace, and PNPM script checks
 pnpm check
 ```
 
@@ -175,8 +165,8 @@ pnpm check
 
 ### TypeScript
 
-- Packages use scoped names: `@sdkwork/kernel-ui-agent`
-- Source exports go through `src/index.ts` or `src/index.tsx`
+- SDK packages use scoped names such as `@sdkwork/agent-internal-sdk`
+- Source exports go through `src/index.ts`
 
 ### IDs and Manifests
 
@@ -191,8 +181,7 @@ pnpm check
 
 - Prefer contract tests that document public behavior
 - Rust integration tests: `tests/` directory with names ending in `_contracts.rs`
-- UI architecture checks: Node scripts
-- TypeScript validation: `pnpm --dir sdkwork-kernel-ui typecheck`
+- SDK workspace checks: Node scripts under `scripts/` and `tools/validators/`
 
 ### Test-Driven Development
 

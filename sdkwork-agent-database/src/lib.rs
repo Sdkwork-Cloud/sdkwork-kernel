@@ -1,4 +1,5 @@
 mod error;
+mod pagination;
 mod schema;
 mod traits;
 mod types;
@@ -28,8 +29,8 @@ pub use traits::{
     PermissionRepository, SessionRepository, TaskRepository,
 };
 pub use types::{
-    AgentRow, EventQuery, EventRow, MessageQuery, MessageRow, PermissionRow, SessionQuery,
-    SessionRow, TaskRow,
+    AgentRow, EventQuery, EventRow, MessageQuery, MessageRow, PermissionQuery, PermissionRow,
+    SessionQuery, SessionRow, TaskQuery, TaskRow,
 };
 
 #[cfg(feature = "sqlite")]

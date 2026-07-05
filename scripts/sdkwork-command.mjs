@@ -103,8 +103,8 @@ function printUsage() {
   console.error(`Usage: node scripts/sdkwork-command.mjs <command> [flags]
 
 Commands:
-  dev      Start topology-aware kernel dev stack (agent server + kernel UI)
-  build    Build Rust workspace and kernel UI shell
+  dev      Start topology-aware kernel dev stack (agent server)
+  build    Build Rust workspace and agent internal SDK
   test     Run default repository test subset
   check    Run static standards and policy checks
   verify   Run merge-ready verification aggregate
@@ -156,9 +156,11 @@ function dispatch({ command, flags }) {
     }
     case 'build': {
       runStep('cargo', ['build', '--workspace']);
-      if (existsSync(path.join(repoRoot, 'sdkwork-kernel-ui', 'package.json'))) {
-        runStep('pnpm', ['--dir', 'sdkwork-kernel-ui', 'build']);
-      }
+      runStep('pnpm', [
+        '--dir',
+        'sdks/sdkwork-agent-internal-sdk/sdkwork-agent-internal-sdk-typescript',
+        'verify',
+      ]);
       break;
     }
     case 'test': {
@@ -172,7 +174,6 @@ function dispatch({ command, flags }) {
     case 'check': {
       runNodeScript('scripts/check-kernel-standards.mjs');
       runNodeScript('scripts/check-agent-sdk-workspace.mjs');
-      runNodeScript('sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs');
       runStep('pnpm', ['check:pnpm-script-standard']);
       runStep('pnpm', ['topology:validate']);
       break;

@@ -36,6 +36,8 @@ pub trait SessionRepository: Send + Sync {
     fn list_sessions(&self, query: &SessionQuery) -> DatabaseResult<Vec<SessionRow>>;
     fn update_session(&self, session: &SessionRow) -> DatabaseResult<()>;
     fn delete_session(&self, session_id: &str) -> DatabaseResult<()>;
+    /// Atomically delete a session and all dependent rows.
+    fn delete_session_cascade(&self, session_id: &str) -> DatabaseResult<()>;
 }
 
 /// Message repository trait
@@ -54,7 +56,7 @@ pub trait MessageRepository: Send + Sync {
 pub trait TaskRepository: Send + Sync {
     fn save_task(&self, task: &TaskRow) -> DatabaseResult<()>;
     fn load_task(&self, task_id: &str) -> DatabaseResult<Option<TaskRow>>;
-    fn load_tasks(&self, session_id: &str) -> DatabaseResult<Vec<TaskRow>>;
+    fn load_tasks(&self, session_id: &str, query: &TaskQuery) -> DatabaseResult<Vec<TaskRow>>;
     fn update_task(&self, task: &TaskRow) -> DatabaseResult<()>;
     fn delete_task(&self, task_id: &str) -> DatabaseResult<()>;
 }
@@ -63,6 +65,8 @@ pub trait TaskRepository: Send + Sync {
 pub trait EventRepository: Send + Sync {
     fn save_event(&self, event: &EventRow) -> DatabaseResult<()>;
     fn load_events(&self, session_id: &str, query: &EventQuery) -> DatabaseResult<Vec<EventRow>>;
+    /// List recent events across all sessions (newest first).
+    fn list_recent_events(&self, query: &EventQuery) -> DatabaseResult<Vec<EventRow>>;
     fn delete_events(&self, session_id: &str) -> DatabaseResult<()>;
 }
 
@@ -71,7 +75,7 @@ pub trait PermissionRepository: Send + Sync {
     fn save_permission(&self, permission: &PermissionRow) -> DatabaseResult<()>;
     fn load_permission(&self, permission_request_id: &str)
         -> DatabaseResult<Option<PermissionRow>>;
-    fn list_permissions(&self, status: Option<&str>) -> DatabaseResult<Vec<PermissionRow>>;
+    fn list_permissions(&self, query: &PermissionQuery) -> DatabaseResult<Vec<PermissionRow>>;
     fn update_permission_status(
         &self,
         permission_request_id: &str,

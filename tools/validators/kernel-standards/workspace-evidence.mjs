@@ -39,11 +39,9 @@ const requiredWorkspaceFiles = [
 
 const staleRootReadmeCommands = [
   'node kernel/scripts/check-kernel-standards.mjs',
-  'node kernel/sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs',
   'cargo test --manifest-path kernel/sdkwork-agent-kernel/Cargo.toml',
   'cargo test --manifest-path kernel/sdkwork-agent-business/Cargo.toml',
-  'cargo test --manifest-path kernel/sdkwork-code-kernel/Cargo.toml',
-  'pnpm --dir kernel/sdkwork-kernel-ui'
+  'cargo test --manifest-path kernel/sdkwork-code-kernel/Cargo.toml'
 ];
 
 const staleDictionaryPatterns = [
@@ -79,7 +77,6 @@ export const requiredStandardsEvidenceFiles = [
       'sdkwork-agent-kernel/',
       'sdkwork-code-kernel/',
       'sdkwork-agent-business/',
-      'sdkwork-kernel-ui/',
       'sdkwork-kernel-plugins/'
     ]
   },
@@ -156,7 +153,6 @@ export const requiredStandardsEvidenceFiles = [
       'Definition Of Done',
       'node --test tests\\*.test.mjs',
       'node scripts\\check-kernel-standards.mjs',
-      'node sdkwork-kernel-ui\\scripts\\check-kernel-ui-architecture.mjs',
       'node scripts\\check-agent-sdk-workspace.mjs',
       '7 tests pass',
       '8 tests pass',
@@ -171,7 +167,6 @@ export const requiredStandardsEvidenceFiles = [
       '17 tests pass',
       '18 tests pass',
       'Kernel standards conformance check passed.',
-      'Kernel UI architecture check passed for 10 packages.',
       'Agent SDK workspace check passed.',
       'No generated output was hand-edited',
       'SDK metadata scan',
@@ -181,7 +176,6 @@ export const requiredStandardsEvidenceFiles = [
       'tools/validators/kernel-standards/workspace-evidence.mjs',
       'tools/validators/kernel-standards/agent-knowledge-memory-contracts.mjs',
       'tools/validators/kernel-standards/kernel-contracts.mjs',
-      'tools/validators/kernel-standards/ui-packages.mjs',
       'tools/validators/kernel-standards/platform-integration.mjs',
       'tools/validators/agent-sdk-workspace/check-agent-sdk-workspace.mjs',
       'tools/validators/agent-sdk-workspace/sdkgen-standard-checks.mjs',
@@ -283,10 +277,7 @@ export function listCurrentDictionaryFiles(kernelRoot) {
     path.join(kernelRoot, 'sdkwork-code-kernel', 'README.md'),
     path.join(kernelRoot, 'sdkwork-code-kernel', 'specs'),
     path.join(kernelRoot, 'sdkwork-kernel-plugins', 'README.md'),
-    path.join(kernelRoot, 'sdkwork-kernel-plugins', 'specs'),
-    path.join(kernelRoot, 'sdkwork-kernel-ui', 'README.md'),
-    path.join(kernelRoot, 'sdkwork-kernel-ui', 'specs'),
-    path.join(kernelRoot, 'sdkwork-kernel-ui', 'packages')
+    path.join(kernelRoot, 'sdkwork-kernel-plugins', 'specs')
   ];
 
   return roots.flatMap((scanRoot) => listDictionaryFiles(scanRoot));

@@ -8,7 +8,6 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 
 const scanRoots = [
   'sdkwork-agent-server',
-  'sdkwork-kernel-ui',
   'sdkwork-agent-kernel',
   'sdkwork-code-kernel',
   'sdkwork-kernel-plugins',
@@ -134,7 +133,7 @@ for (const { id, pattern } of bannedPatterns) {
 const spec = JSON.parse(readText('specs/topology.spec.json'));
 assert.equal(spec.schemaVersion, 2);
 assert.equal(spec.archetype, 'realtime-application-platform');
-assert.equal(spec.defaults.developmentProfileId, 'standalone.split-services.development');
+assert.equal(spec.defaults.developmentProfileId, 'standalone.unified-process.development');
 
 const profileDir = path.join(repoRoot, 'configs/topology');
 const profileFiles = fs.readdirSync(profileDir).filter((name) => name.endsWith('.env'));

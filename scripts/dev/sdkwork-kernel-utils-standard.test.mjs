@@ -35,24 +35,16 @@ assert.match(
   'postgres_pool.rs must bootstrap pools through sdkwork-database-sqlx'
 );
 
-const uiWorkspace = read('pnpm-workspace.yaml');
+const workspaceManifest = read('pnpm-workspace.yaml');
 assert.match(
-  uiWorkspace,
+  workspaceManifest,
   /sdkwork-utils\/packages\/sdkwork-utils-typescript/u,
   'pnpm-workspace.yaml must include sdkwork-utils-typescript sibling package'
 );
-
-const uiPackage = JSON.parse(read('sdkwork-kernel-ui/package.json'));
-assert(
-  uiPackage.dependencies?.['@sdkwork/utils'],
-  'sdkwork-kernel-ui must depend on @sdkwork/utils for shared utility standardization'
-);
-
-const sessionPanel = read('sdkwork-kernel-ui/src/KernelUiSessionPanel.tsx');
-assert.match(
-  sessionPanel,
-  /@sdkwork\/utils/u,
-  'KernelUiSessionPanel must consume @sdkwork/utils helpers'
+assert.doesNotMatch(
+  workspaceManifest,
+  /sdkwork-kernel-ui/u,
+  'pnpm-workspace.yaml must not reference removed sdkwork-kernel-ui workspace'
 );
 
 const packageWorkflow = read('.github/workflows/package.yml');

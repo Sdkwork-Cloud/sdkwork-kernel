@@ -45,7 +45,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RuntimeManifest'
+                $ref: '#/components/schemas/RuntimeManifestResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/health:
@@ -74,7 +74,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RuntimeHealth'
+                $ref: '#/components/schemas/RuntimeHealthResponse'
         '503':
           description: Runtime degraded
           content:
@@ -109,7 +109,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RuntimeDiagnostics'
+                $ref: '#/components/schemas/RuntimeDiagnosticsResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/snapshot:
@@ -137,7 +137,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/KernelUiSnapshot'
+                $ref: '#/components/schemas/KernelUiSnapshotResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/permissions/{permissionRequestId}:
@@ -172,7 +172,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/PermissionRequest'
+                $ref: '#/components/schemas/PermissionRequestResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/sessions:
@@ -191,6 +191,8 @@ paths:
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
       parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -233,7 +235,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SessionResponse'
+                $ref: '#/components/schemas/SessionItemResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/sessions/{sessionId}:
@@ -262,7 +264,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SessionResponse'
+                $ref: '#/components/schemas/SessionItemResponse'
         default:
           $ref: '#/components/responses/Problem'
     delete:
@@ -315,7 +317,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SessionResponse'
+                $ref: '#/components/schemas/SessionItemResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/sessions/{sessionId}/messages:
@@ -335,8 +337,8 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
-        - $ref: '#/components/parameters/MessageLimitQuery'
-        - $ref: '#/components/parameters/MessageOffsetQuery'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -380,7 +382,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MessageResponse'
+                $ref: '#/components/schemas/MessageItemResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/sessions/{sessionId}/tasks:
@@ -400,6 +402,8 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -443,7 +447,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TaskResponse'
+                $ref: '#/components/schemas/TaskItemResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/tasks/{taskId}:
@@ -472,7 +476,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TaskResponse'
+                $ref: '#/components/schemas/TaskItemResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/tasks/{taskId}/cancel:
@@ -501,7 +505,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TaskResponse'
+                $ref: '#/components/schemas/TaskItemResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/models:
@@ -529,7 +533,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ModelListResponse'
+                $ref: '#/components/schemas/ModelCatalogListResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/sessions/{sessionId}/model/invoke:
@@ -564,7 +568,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/InvokeModelResponse'
+                $ref: '#/components/schemas/InvokeModelItemResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/sessions/{sessionId}/model/stream:
@@ -679,7 +683,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ToolListResponse'
+                $ref: '#/components/schemas/ToolCatalogListResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/sessions/{sessionId}/tools/{toolName}/execute:
@@ -715,7 +719,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ExecuteToolResponse'
+                $ref: '#/components/schemas/ExecuteToolItemResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/sessions/{sessionId}/events/stream:
@@ -814,40 +818,27 @@ components:
       required: false
       schema:
         type: boolean
-    MessageLimitQuery:
-      name: limit
+    Page:
+      name: page
       in: query
       required: false
+      description: One-based page index for offset pagination. Default 1.
       schema:
         type: integer
+        format: int32
         minimum: 1
-        maximum: 500
-    MessageOffsetQuery:
-      name: offset
+        default: 1
+    PageSize:
+      name: page_size
       in: query
       required: false
+      description: Page size for offset pagination. Default 20, maximum 200.
       schema:
         type: integer
-        minimum: 0
-    ListLimit:
-      name: limit
-      in: query
-      required: false
-      description: Maximum number of items to return (default 100, max 1000).
-      schema:
-        type: integer
+        format: int32
         minimum: 1
-        maximum: 1000
-        default: 100
-    ListOffset:
-      name: offset
-      in: query
-      required: false
-      description: Number of items to skip for pagination.
-      schema:
-        type: integer
-        minimum: 0
-        default: 0
+        maximum: 200
+        default: 20
   responses:
     Problem:
       description: RFC 9457 problem detail response
@@ -858,21 +849,99 @@ components:
   schemas:
     ProblemDetail:
       type: object
-      required: [type, title, status]
+      additionalProperties: true
+      required: [type, title, status, code, traceId]
       properties:
         type:
           type: string
+          format: uri-reference
         title:
           type: string
         status:
           type: integer
+          minimum: 100
+          maximum: 599
         detail:
           type: string
-        code:
+        instance:
           type: string
+          description: Request endpoint occurrence in the form `{METHOD} {routeTemplate}`.
+        operationId:
+          type: string
+        code:
+          type: integer
+          format: int32
+          description: Numeric error result code. MUST be non-zero. See API_SPEC.md §15.3.
+          minimum: 40001
+          maximum: 79999
+        traceId:
+          type: string
+          format: uuid
+          description: Server-owned request correlation id.
         errorCategory:
           type: string
         retryable:
+          type: boolean
+    SdkWorkApiResponse:
+      type: object
+      additionalProperties: false
+      required: [code, data, traceId]
+      properties:
+        code:
+          type: integer
+          format: int32
+          description: Numeric success result code. MUST be 0 on HTTP 2xx JSON bodies.
+          enum: [0]
+          default: 0
+          minimum: 0
+          maximum: 0
+        data:
+          description: Operation-specific payload.
+        traceId:
+          type: string
+          format: uuid
+          description: Server-owned request correlation id.
+    SdkWorkPageData:
+      type: object
+      additionalProperties: false
+      required: [items, pageInfo]
+      properties:
+        items:
+          type: array
+          items: {}
+        pageInfo:
+          $ref: '#/components/schemas/PageInfo'
+    SdkWorkResourceData:
+      type: object
+      additionalProperties: false
+      required: [item]
+      properties:
+        item:
+          description: Typed domain resource for the operation.
+    PageInfo:
+      type: object
+      additionalProperties: false
+      required: [mode]
+      properties:
+        mode:
+          type: string
+          enum: [offset, cursor]
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 200
+        totalItems:
+          type: string
+          pattern: '^[0-9]+$'
+        totalPages:
+          type: integer
+          minimum: 0
+        nextCursor:
+          type: [string, 'null']
+        hasMore:
           type: boolean
     RuntimeManifest:
       type: object
@@ -1243,13 +1312,22 @@ components:
         filesChanged:
           type: integer
     SessionListResponse:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/SessionResponse'
+      description: Paginated runtime session list following SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkPageData'
+                - type: object
+                  required: [items]
+                  properties:
+                    items:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/SessionItemResponse'
     SendMessageRequest:
       type: object
       required: [content]
@@ -1288,13 +1366,22 @@ components:
         content:
           type: string
     MessageListResponse:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/MessageResponse'
+      description: Paginated session message list following SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkPageData'
+                - type: object
+                  required: [items]
+                  properties:
+                    items:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/MessageResponse'
     SubmitTaskRequest:
       type: object
       required: [instruction]
@@ -1320,13 +1407,22 @@ components:
           type: string
           nullable: true
     TaskListResponse:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/TaskResponse'
+      description: Paginated session task list following SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkPageData'
+                - type: object
+                  required: [items]
+                  properties:
+                    items:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/TaskItemResponse'
     ModelDescriptor:
       type: object
       required: [modelId, providerId, displayName, family, capabilities]
@@ -1403,3 +1499,175 @@ components:
         output:
           type: string
           nullable: true
+    RuntimeManifestResponse:
+      description: Runtime manifest SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkResourceData'
+                - type: object
+                  properties:
+                    item:
+                      $ref: '#/components/schemas/RuntimeManifest'
+    RuntimeHealthResponse:
+      description: Runtime health SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkResourceData'
+                - type: object
+                  properties:
+                    item:
+                      $ref: '#/components/schemas/RuntimeHealth'
+    RuntimeDiagnosticsResponse:
+      description: Runtime diagnostics SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkResourceData'
+                - type: object
+                  properties:
+                    item:
+                      $ref: '#/components/schemas/RuntimeDiagnostics'
+    KernelUiSnapshotResponse:
+      description: Kernel UI snapshot SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkResourceData'
+                - type: object
+                  properties:
+                    item:
+                      $ref: '#/components/schemas/KernelUiSnapshot'
+    PermissionRequestResponse:
+      description: Permission request SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkResourceData'
+                - type: object
+                  properties:
+                    item:
+                      $ref: '#/components/schemas/PermissionRequestResponse'
+    SessionItemResponse:
+      description: Session resource SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkResourceData'
+                - type: object
+                  properties:
+                    item:
+                      $ref: '#/components/schemas/SessionItemResponse'
+    MessageItemResponse:
+      description: Message resource SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkResourceData'
+                - type: object
+                  properties:
+                    item:
+                      $ref: '#/components/schemas/MessageResponse'
+    TaskItemResponse:
+      description: Task resource SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkResourceData'
+                - type: object
+                  properties:
+                    item:
+                      $ref: '#/components/schemas/TaskItemResponse'
+    ModelCatalogListResponse:
+      description: Model catalog SdkWorkApiResponse page envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkPageData'
+                - type: object
+                  properties:
+                    items:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/ModelDescriptor'
+    InvokeModelItemResponse:
+      description: Model invoke SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkResourceData'
+                - type: object
+                  properties:
+                    item:
+                      $ref: '#/components/schemas/InvokeModelResponse'
+    ToolCatalogListResponse:
+      description: Tool catalog SdkWorkApiResponse page envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkPageData'
+                - type: object
+                  properties:
+                    items:
+                      type: array
+                      items:
+                        type: object
+    ExecuteToolItemResponse:
+      description: Tool execution SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkResourceData'
+                - type: object
+                  properties:
+                    item:
+                      $ref: '#/components/schemas/ExecuteToolResponse'

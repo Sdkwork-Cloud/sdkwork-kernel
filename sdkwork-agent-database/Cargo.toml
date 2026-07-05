@@ -12,18 +12,17 @@ postgres-sync = [
     "dep:sdkwork-database-sqlx",
     "dep:sqlx",
     "dep:tokio",
-    "dep:sdkwork-utils-rust",
 ]
 
 [dependencies]
 sdkwork-agent-kernel = { path = "../sdkwork-agent-kernel" }
+sdkwork-utils-rust = { workspace = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2.0"
 sdkwork-database-config = { workspace = true, optional = true }
 sdkwork-database-sqlx = { workspace = true, optional = true }
-sdkwork-utils-rust = { workspace = true, optional = true }
 sqlx = { version = "0.8", default-features = false, optional = true, features = ["runtime-tokio", "postgres"] }
 tokio = { version = "1.0", optional = true, features = ["rt-multi-thread", "macros"] }
 

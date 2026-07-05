@@ -32,7 +32,7 @@ Do not copy root standard text into this repository. If these relative paths do 
 - `.sdkwork/`: reserved local dictionary folder; create only for local skills, plugins, manifests, or AI workspace metadata.
 - `specs/`: local application/component contracts and narrowing rules.
 - `sdks/`: SDK families, OpenAPI authorities, route manifests, and generated SDK artifacts.
-- Local directories to inspect first when relevant: `docs/`, `external/`, `scripts/`, `sdks/`, `agent-providers/`, `sdkwork-kernel-plugins/`, `sdkwork-agent-kernel/`, `sdkwork-agent-database/`, `sdkwork-code-kernel/`, `sdkwork-kernel-ui/`, `specs/`.
+- Local directories to inspect first when relevant: `docs/`, `external/`, `scripts/`, `sdks/`, `agent-providers/`, `sdkwork-kernel-plugins/`, `sdkwork-agent-kernel/`, `sdkwork-agent-database/`, `sdkwork-code-kernel/`, `specs/`.
 
 ## Documentation Canon
 
@@ -215,7 +215,7 @@ The repository-specific guidance below was preserved from the previous `AGENTS.m
 
 ### Project Structure & Module Organization
 
-This repository defines the SDKWork kernel standard for agent and code-agent systems. Rust crates live at `sdkwork-agent-kernel/` (L0 SPI), `sdkwork-code-kernel/` (code-agent SPI), `sdkwork-agent-provider-spi/` (L1 provider integration), `sdkwork-agent-provider-transport-*/` (L2 transports), `agent-providers/crates/sdkwork-agent-provider-*/` (L3 per-framework implementations: codex, claude-code, opencode, gemini-cli, openclaw, hermes, mimo-code, rig), `sdkwork-agent-server/` (operational HTTP server), `sdkwork-agent-client/` (desktop/mobile bridge), `sdkwork-agent-database/` (runtime transient session/message/task state), `sdkwork-agent-session/`, `sdkwork-agent-streaming/`, `sdkwork-agent-api-bridge/`, and `sdkwork-kernel-plugins/` (plugin trait + provider-core + platform plugins). `sdkwork-kernel-ui/` is a pnpm TypeScript/Vite/React workspace with reusable packages under `packages/`. Cross-cutting contracts and schemas are in root `specs/`. Third-party reference source trees are under `external/` and must remain inspection and mapping inputs, not direct kernel-core dependencies.
+This repository defines the SDKWork kernel standard for agent and code-agent systems. Rust crates live at `sdkwork-agent-kernel/` (L0 SPI), `sdkwork-code-kernel/` (code-agent SPI), `sdkwork-agent-provider-spi/` (L1 provider integration), `sdkwork-agent-provider-transport-*/` (L2 transports), `agent-providers/crates/sdkwork-agent-provider-*/` (L3 per-framework implementations: codex, claude-code, opencode, gemini-cli, openclaw, hermes, mimo-code, rig), `sdkwork-agent-server/` (operational HTTP server), `sdkwork-agent-client/` (desktop/mobile bridge), `sdkwork-agent-database/` (runtime transient session/message/task state), `sdkwork-agent-session/`, `sdkwork-agent-streaming/`, `sdkwork-agent-api-bridge/`, and `sdkwork-kernel-plugins/` (plugin trait + provider-core + platform plugins). TypeScript integration ships through `sdks/sdkwork-agent-internal-sdk/` (`@sdkwork/agent-internal-sdk`). Cross-cutting contracts and schemas are in root `specs/`. Third-party reference source trees are under `external/` and must remain inspection and mapping inputs, not direct kernel-core dependencies.
 
 ### Kernel ↔ Agents Responsibility Boundary
 
@@ -242,27 +242,24 @@ The kernel MUST NOT own business persistence (agent config catalog, long-term ar
 - `cargo test --manifest-path sdkwork-code-kernel/Cargo.toml`: run code-kernel Rust contracts.
 - `cargo test --manifest-path sdkwork-agent-database/Cargo.toml`: run runtime session/message/task persistence contracts.
 - `cargo test --manifest-path sdkwork-agent-server/Cargo.toml`: run operational server HTTP contracts.
-- `pnpm --dir sdkwork-kernel-ui install --frozen-lockfile`: install UI workspace dependencies.
-- `pnpm --dir sdkwork-kernel-ui build`: build the kernel UI shell and packages.
-- `pnpm --dir sdkwork-kernel-ui typecheck`: run TypeScript checks.
-- `node scripts/check-kernel-standards.mjs`: verify required specs, schemas, crates, and UI package structure.
+- `node scripts/check-kernel-standards.mjs`: verify required specs, schemas, crates, and SDK workspace structure.
 - `node scripts/verify-kernel-audit-remediation.mjs`: run the full kernel audit remediation verification matrix.
-- `node sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs`: enforce UI package layering.
+- `pnpm --dir sdks/sdkwork-agent-internal-sdk/sdkwork-agent-internal-sdk-typescript verify`: verify the agent internal SDK family.
 - `pnpm install`: install root `@sdkwork/app-topology` workspace dependency.
 - `pnpm topology:validate`: validate `specs/topology.spec.json` against the shared topology schema.
 - `pnpm test:topology` / `pnpm test:topology-baggage`: verify topology adoption contracts and retired vocabulary.
-- `pnpm test:topology-smoke`: start `sdkwork-agent-server` with the standalone split-services dev profile and wait for `/health`.
-- `pnpm dev`: start the default standalone split-services development stack (agent server + kernel UI).
+- `pnpm test:topology-smoke`: start `sdkwork-agent-server` with the standalone unified-process dev profile and wait for `/health`.
+- `pnpm dev`: start the default standalone unified-process development stack (agent server only).
 - `pnpm verify`: run the merge-ready verification aggregate.
-- `pnpm check`: run kernel standards, SDK workspace, UI architecture, and PNPM script checks.
+- `pnpm check`: run kernel standards, SDK workspace, and PNPM script checks.
 
 ### Coding Style & Naming Conventions
 
-Rust uses standard `cargo fmt` style, snake_case modules, PascalCase types, and explicit contract names such as `AgentRuntimeDiagnostics`. TypeScript packages use scoped names like `@sdkwork/kernel-ui-agent`; source exports should go through `src/index.ts` or `src/index.tsx`. Keep provider and manifest IDs stable, lowercase, and dot-delimited when they represent kernel capabilities or events, for example `agent.business.created`.
+Rust uses standard `cargo fmt` style, snake_case modules, PascalCase types, and explicit contract names such as `AgentRuntimeDiagnostics`. TypeScript SDK packages use scoped names like `@sdkwork/agent-internal-sdk`; source exports should go through `src/index.ts`.
 
 ### Testing Guidelines
 
-Prefer contract tests that document public behavior. Rust integration tests belong in each crate's `tests/` directory and typically use names ending in `_contracts.rs`. UI architecture checks are Node scripts, while TypeScript validation runs through `pnpm --dir sdkwork-kernel-ui typecheck`. When adding behavior, add the failing test first and verify the targeted test before broader checks.
+Prefer contract tests that document public behavior. Rust integration tests belong in each crate's `tests/` directory and typically use names ending in `_contracts.rs`. SDK workspace checks are Node scripts. When adding behavior, add the failing test first and verify the targeted test before broader checks.
 
 ### Commit & Pull Request Guidelines
 
@@ -270,6 +267,6 @@ History uses Conventional Commit style, for example `feat(agent-kernel): add tas
 
 ### Security & Architecture Notes
 
-Kernel crates must not depend on React, Vite, product UI, or `external/` source trees. UI packages must use typed service adapters rather than raw kernel mutations. Generated SDK contracts, schemas, and provider manifests should be updated deliberately and reviewed as compatibility surfaces.
+Kernel crates must not depend on React, Vite, product UI, or `external/` source trees. Product applications must use typed SDK clients rather than raw kernel HTTP mutations. Generated SDK contracts, schemas, and provider manifests should be updated deliberately and reviewed as compatibility surfaces.
 
 Agent runtime HTTP on `application.public-ingress` uses the SDKWork `internal-api` surface only (`/internal/v3/api/intelligence/runtime/*`). Authoritative OpenAPI lives under `apis/internal-api/`; SDK family materialization runs through `node sdks/materialize-agent-internal-api-openapi.mjs` before `node scripts/check-agent-sdk-workspace.mjs`. Retired application-local prefixes such as `/api/kernel/*` must not be remounted.

@@ -3,7 +3,7 @@
 - Version: 0.1.0
 - Status: standard candidate
 - Scope: typed UI client surface, event stream, capability-driven rendering,
-  permission response, diagnostics, and `sdkwork-kernel-ui` integration
+  permission response, diagnostics, and external product UI integration
 - Domain: `intelligence`
 - Capability: `agent-kernel.ui-contract`
 - Related:
@@ -13,9 +13,10 @@
   - `AGENT_SECURITY_POLICY_SPEC.md`
   - [`ARCHITECT.md`](../../../docs/ARCHITECT.md)
 
-This spec defines the contract consumed by `sdkwork-kernel-ui` and product UIs.
-UI packages render and control kernel behavior through typed clients and service
-adapters. They do not implement kernel policy or perform host side effects.
+This spec defines the contract consumed by product UIs and shells outside
+`sdkwork-kernel`. UI packages render and control kernel behavior through typed
+clients and service adapters. They do not implement kernel policy or perform host
+side effects.
 
 ## 1. UI Boundary
 
@@ -122,7 +123,7 @@ Rules:
 
 ## 7. TypeScript Package Boundary
 
-`sdkwork-kernel-ui` packages must follow `../sdkwork-specs/UI_ARCHITECTURE_SPEC.md`.
+Product UI packages that consume this contract must follow `../sdkwork-specs/UI_ARCHITECTURE_SPEC.md`.
 
 Rules:
 

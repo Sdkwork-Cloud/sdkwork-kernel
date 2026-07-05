@@ -63,8 +63,8 @@ Non-goals:
 
 - This spec does not define code-agent-specific workspace, VCS, patch, terminal,
   build/test, or review behavior. Those belong to `sdkwork-code-kernel`.
-- This spec does not define React UI components. Those belong to
-  `sdkwork-kernel-ui`.
+- This spec does not define React UI components. Those belong to product
+  applications outside `sdkwork-kernel`.
 - This spec does not require one model vendor, external agent protocol, storage
   engine, or transport.
 

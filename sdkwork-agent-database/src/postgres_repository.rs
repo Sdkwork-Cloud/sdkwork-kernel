@@ -1,6 +1,7 @@
 use sqlx::Row;
 
 use crate::error::{DatabaseError, DatabaseResult};
+use crate::pagination::{resolve_list_limit, resolve_list_offset};
 use crate::postgres::PostgresDatabase;
 use crate::traits::*;
 use crate::types::*;
@@ -157,15 +158,21 @@ impl SessionRepository for PostgresDatabase {
                 builder.push(" AND bridge_id = ");
                 builder.push_bind(bridge_id);
             }
+            if let Some(owner_tenant_id) = query.owner_tenant_id.as_deref() {
+                builder.push(" AND (metadata_json::json)->>'tenantId' = ");
+                builder.push_bind(owner_tenant_id);
+            }
+            if let Some(owner_user_ref) = query.owner_user_ref.as_deref() {
+                builder.push(" AND (metadata_json::json)->>'userRef' = ");
+                builder.push_bind(owner_user_ref);
+            }
             builder.push(" ORDER BY COALESCE(updated_at, created_at) DESC");
-            if let Some(limit) = query.limit {
-                builder.push(" LIMIT ");
-                builder.push_bind(limit);
-            }
-            if let Some(offset) = query.offset {
-                builder.push(" OFFSET ");
-                builder.push_bind(offset);
-            }
+            let limit = resolve_list_limit(query.limit);
+            let offset = resolve_list_offset(query.offset);
+            builder.push(" LIMIT ");
+            builder.push_bind(limit);
+            builder.push(" OFFSET ");
+            builder.push_bind(offset);
             let rows = builder.build().fetch_all(&pool).await?;
             rows.iter().map(map_session_row).collect()
         })
@@ -183,6 +190,32 @@ impl SessionRepository for PostgresDatabase {
                 .bind(&session_id)
                 .execute(&pool)
                 .await?;
+            Ok(())
+        })
+    }
+
+    fn delete_session_cascade(&self, session_id: &str) -> DatabaseResult<()> {
+        let pool = self.pool.pool().clone();
+        let session_id = session_id.to_owned();
+        self.pool.run_db(async move {
+            let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            sqlx::query("DELETE FROM events WHERE session_id = $1")
+                .bind(&session_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("DELETE FROM messages WHERE session_id = $1")
+                .bind(&session_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("DELETE FROM tasks WHERE session_id = $1")
+                .bind(&session_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("DELETE FROM sessions WHERE session_id = $1")
+                .bind(&session_id)
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await.map_err(map_sqlx_error)?;
             Ok(())
         })
     }
@@ -231,14 +264,12 @@ impl MessageRepository for PostgresDatabase {
             );
             builder.push_bind(&session_id);
             builder.push(" ORDER BY created_at ASC");
-            if let Some(limit) = query.limit {
-                builder.push(" LIMIT ");
-                builder.push_bind(limit);
-            }
-            if let Some(offset) = query.offset {
-                builder.push(" OFFSET ");
-                builder.push_bind(offset);
-            }
+            let limit = resolve_list_limit(query.limit);
+            let offset = resolve_list_offset(query.offset);
+            builder.push(" LIMIT ");
+            builder.push_bind(limit);
+            builder.push(" OFFSET ");
+            builder.push_bind(offset);
             let rows = builder.build().fetch_all(&pool).await?;
             rows.iter().map(map_message_row).collect()
         })
@@ -312,15 +343,20 @@ impl TaskRepository for PostgresDatabase {
         })
     }
 
-    fn load_tasks(&self, session_id: &str) -> DatabaseResult<Vec<TaskRow>> {
+    fn load_tasks(&self, session_id: &str, query: &TaskQuery) -> DatabaseResult<Vec<TaskRow>> {
         let pool = self.pool.pool().clone();
         let session_id = session_id.to_owned();
+        let limit = resolve_list_limit(query.limit);
+        let offset = resolve_list_offset(query.offset);
         self.pool.run_db(async move {
             let rows = sqlx::query(
                 "SELECT task_id, session_id, instruction, state, created_at, updated_at
-                 FROM tasks WHERE session_id = $1 ORDER BY created_at ASC",
+                 FROM tasks WHERE session_id = $1 ORDER BY created_at ASC
+                 LIMIT $2 OFFSET $3",
             )
             .bind(&session_id)
+            .bind(limit)
+            .bind(offset)
             .fetch_all(&pool)
             .await?;
             rows.iter().map(map_task_row).collect()
@@ -391,14 +427,40 @@ impl EventRepository for PostgresDatabase {
                 builder.push_bind(severity);
             }
             builder.push(" ORDER BY created_at ASC");
-            if let Some(limit) = query.limit {
-                builder.push(" LIMIT ");
-                builder.push_bind(limit);
+            let limit = resolve_list_limit(query.limit);
+            let offset = resolve_list_offset(query.offset);
+            builder.push(" LIMIT ");
+            builder.push_bind(limit);
+            builder.push(" OFFSET ");
+            builder.push_bind(offset);
+            let rows = builder.build().fetch_all(&pool).await?;
+            rows.iter().map(map_event_row).collect()
+        })
+    }
+
+    fn list_recent_events(&self, query: &EventQuery) -> DatabaseResult<Vec<EventRow>> {
+        let pool = self.pool.pool().clone();
+        let query = query.clone();
+        self.pool.run_db(async move {
+            let mut builder = sqlx::QueryBuilder::new(
+                "SELECT event_id, session_id, event_type, severity, payload, created_at
+                 FROM events WHERE 1 = 1",
+            );
+            if let Some(event_type) = query.event_type.as_deref() {
+                builder.push(" AND event_type = ");
+                builder.push_bind(event_type);
             }
-            if let Some(offset) = query.offset {
-                builder.push(" OFFSET ");
-                builder.push_bind(offset);
+            if let Some(severity) = query.severity.as_deref() {
+                builder.push(" AND severity = ");
+                builder.push_bind(severity);
             }
+            builder.push(" ORDER BY created_at DESC");
+            let limit = resolve_list_limit(query.limit);
+            let offset = resolve_list_offset(query.offset);
+            builder.push(" LIMIT ");
+            builder.push_bind(limit);
+            builder.push(" OFFSET ");
+            builder.push_bind(offset);
             let rows = builder.build().fetch_all(&pool).await?;
             rows.iter().map(map_event_row).collect()
         })
@@ -447,7 +509,15 @@ impl PermissionRepository for PostgresDatabase {
                     owner_user_ref, created_at, updated_at
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 ON CONFLICT (permission_request_id) DO UPDATE SET
+                    session_id = EXCLUDED.session_id,
+                    category = EXCLUDED.category,
+                    resource = EXCLUDED.resource,
+                    side_effect_level = EXCLUDED.side_effect_level,
+                    reason = EXCLUDED.reason,
                     status = EXCLUDED.status,
+                    owner_tenant_id = EXCLUDED.owner_tenant_id,
+                    owner_user_ref = EXCLUDED.owner_user_ref,
+                    created_at = EXCLUDED.created_at,
                     updated_at = EXCLUDED.updated_at",
             )
             .bind(&permission.permission_request_id)
@@ -487,9 +557,9 @@ impl PermissionRepository for PostgresDatabase {
         })
     }
 
-    fn list_permissions(&self, status: Option<&str>) -> DatabaseResult<Vec<PermissionRow>> {
+    fn list_permissions(&self, query: &PermissionQuery) -> DatabaseResult<Vec<PermissionRow>> {
         let pool = self.pool.pool().clone();
-        let status = status.map(str::to_owned);
+        let query = query.clone();
         self.pool.run_db(async move {
             let mut builder = sqlx::QueryBuilder::new(
                 "SELECT permission_request_id, session_id, category, resource,
@@ -497,11 +567,17 @@ impl PermissionRepository for PostgresDatabase {
                  owner_user_ref, created_at, updated_at
                  FROM permissions WHERE 1 = 1",
             );
-            if let Some(ref status) = status {
+            if let Some(ref status) = query.status {
                 builder.push(" AND status = ");
                 builder.push_bind(status);
             }
             builder.push(" ORDER BY created_at DESC");
+            let limit = resolve_list_limit(query.limit);
+            let offset = resolve_list_offset(query.offset);
+            builder.push(" LIMIT ");
+            builder.push_bind(limit);
+            builder.push(" OFFSET ");
+            builder.push_bind(offset);
             let rows = builder.build().fetch_all(&pool).await?;
             rows.iter().map(map_permission_row).collect()
         })

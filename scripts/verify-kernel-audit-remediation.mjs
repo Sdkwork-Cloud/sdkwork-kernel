@@ -11,8 +11,6 @@ const requiredArtifacts = [
   '.github/workflows/kernel-verification.yml',
   'docs/architecture/decisions/ADR-20260626-agents-application-layer-separation.md',
   'sdkwork-agent-server/specs/AGENT_SERVER_HTTP_SURFACE.md',
-  'sdkwork-kernel-ui/src/KernelUiSessionPanel.tsx',
-  'sdkwork-kernel-ui/src/kernel-ui-client.ts',
   'scripts/verify-kernel-audit-remediation.mjs'
 ];
 
@@ -27,22 +25,13 @@ for (const artifact of requiredArtifacts) {
 const commands = [
   ['node', ['scripts/check-kernel-standards.mjs']],
   ['node', ['scripts/check-agent-sdk-workspace.mjs']],
-  ['node', ['sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs']],
   ['node', ['--test', 'scripts/dev/sdkwork-kernel-utils-standard.test.mjs']],
   ['node', ['scripts/provider-transport-workers/engine-sdk-live.test.mjs']],
   ['node', ['--test', 'tests/kernel_workspace_structure.test.mjs']],
   ['node', ['--test', 'tests/kernel_topology_alignment.test.mjs']],
   ['node', ['--test', 'tests/kernel_deployment_release.test.mjs']],
-  ['node', ['--test', 'tests/kernel_ui_server_api_alignment.test.mjs']],
   ['node', ['--test', 'scripts/dev/sdkwork-kernel-topology-baggage.test.mjs']],
-  [
-    'node',
-    [
-      '--test',
-      'sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs',
-      'sdkwork-kernel-ui/tests/kernel-ui-services.contract.test.mjs'
-    ]
-  ],
+  ['node', ['--test', 'sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs']],
   ['cargo', ['test', '--manifest-path', 'sdkwork-agent-kernel/Cargo.toml', '-q']],
   ['cargo', ['test', '--manifest-path', 'sdkwork-agent-server/Cargo.toml', '-q']],
   [
@@ -71,8 +60,14 @@ const commands = [
   ['cargo', ['test', '--manifest-path', 'sdkwork-agent-client/Cargo.toml', '-q']],
   ['cargo', ['test', '--doc', '--manifest-path', 'sdkwork-agent-kernel/Cargo.toml', '-q']],
   ['cargo', ['test', '--manifest-path', 'sdkwork-code-kernel/Cargo.toml', '-q']],
-  ['pnpm', ['--dir', 'sdkwork-kernel-ui', '--filter', '@sdkwork/agent-internal-sdk', 'build']],
-  ['pnpm', ['--dir', 'sdkwork-kernel-ui', 'typecheck']]
+  [
+    'pnpm',
+    [
+      '--dir',
+      'sdks/sdkwork-agent-internal-sdk/sdkwork-agent-internal-sdk-typescript',
+      'verify'
+    ]
+  ]
 ];
 
 const runtimePostgresUri = process.env.SDKWORK_AGENT_RUNTIME_POSTGRES_URI;

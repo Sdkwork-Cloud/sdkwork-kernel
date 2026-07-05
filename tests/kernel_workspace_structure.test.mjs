@@ -71,17 +71,15 @@ test('documented verification commands target the current repository root', () =
 });
 
 test('structure checks run successfully from the repository root', () => {
-  for (const [label, command, args] of [
-    ['kernel standards', process.execPath, ['scripts/check-kernel-standards.mjs']],
-    ['kernel UI architecture', process.execPath, ['sdkwork-kernel-ui/scripts/check-kernel-ui-architecture.mjs']]
-  ]) {
-    const result = spawnSync(command, args, { cwd: root, encoding: 'utf8' });
-    assert.equal(
-      result.status,
-      0,
-      `${label} check should pass from root\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
-    );
-  }
+  const result = spawnSync(process.execPath, ['scripts/check-kernel-standards.mjs'], {
+    cwd: root,
+    encoding: 'utf8'
+  });
+  assert.equal(
+    result.status,
+    0,
+    `kernel standards check should pass from root\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`
+  );
 });
 
 test('current dictionary files do not point to pre-sdkwork-specs roots', () => {
@@ -259,7 +257,6 @@ test('standards alignment records architecture decision and quality gate evidenc
     'sdkwork-agent-kernel/',
     'sdkwork-code-kernel/',
     'sdkwork-agent-business/',
-    'sdkwork-kernel-ui/',
     'sdkwork-kernel-plugins/'
   ]) {
     assert.ok(adr.includes(requiredText), `ADR should include ${requiredText}`);
@@ -280,7 +277,6 @@ test('standards alignment records architecture decision and quality gate evidenc
     'Definition Of Done',
     'node --test tests\\*.test.mjs',
     'node scripts\\check-kernel-standards.mjs',
-    'node sdkwork-kernel-ui\\scripts\\check-kernel-ui-architecture.mjs',
     'node scripts\\check-agent-sdk-workspace.mjs',
     '7 tests pass',
     '8 tests pass',
@@ -295,7 +291,6 @@ test('standards alignment records architecture decision and quality gate evidenc
     '17 tests pass',
     '18 tests pass',
     'Kernel standards conformance check passed.',
-    'Kernel UI architecture check passed for 10 packages.',
     'Agent SDK workspace check passed.',
     'No generated output was hand-edited',
     'SDK metadata scan',
@@ -305,7 +300,6 @@ test('standards alignment records architecture decision and quality gate evidenc
     'tools/validators/kernel-standards/workspace-evidence.mjs',
     'tools/validators/kernel-standards/agent-knowledge-memory-contracts.mjs',
     'tools/validators/kernel-standards/kernel-contracts.mjs',
-    'tools/validators/kernel-standards/ui-packages.mjs',
     'tools/validators/kernel-standards/platform-integration.mjs',
     'tools/validators/agent-sdk-workspace/check-agent-sdk-workspace.mjs',
     'tools/validators/agent-sdk-workspace/sdkgen-standard-checks.mjs',
@@ -815,57 +809,6 @@ test('kernel standards validator splits kernel contract checks into a focused mo
   }
 });
 
-test('kernel standards validator splits kernel UI package checks into a focused module', () => {
-  const validatorPath = path.join(
-    root,
-    'tools',
-    'validators',
-    'kernel-standards',
-    'check-kernel-standards.mjs'
-  );
-  const uiPackagesPath = path.join(
-    root,
-    'tools',
-    'validators',
-    'kernel-standards',
-    'ui-packages.mjs'
-  );
-
-  assert.equal(fs.existsSync(uiPackagesPath), true, 'kernel UI package validator module should exist');
-
-  const validator = fs.readFileSync(validatorPath, 'utf8');
-  assert.match(
-    validator,
-    /from '\.\/ui-packages\.mjs'/,
-    'kernel standards validator should import kernel UI package helpers'
-  );
-  assert.doesNotMatch(
-    validator,
-    /const requiredUiPackages = \[/,
-    'kernel standards validator should not inline required UI package data'
-  );
-  assert.doesNotMatch(
-    validator,
-    /kernel UI architecture check failed/,
-    'kernel standards validator should not inline kernel UI architecture command validation'
-  );
-  assert.doesNotMatch(
-    validator,
-    /must expose src\/index\.ts or src\/index\.tsx/,
-    'kernel standards validator should not inline kernel UI package export checks'
-  );
-
-  const uiPackages = fs.readFileSync(uiPackagesPath, 'utf8');
-  for (const requiredText of [
-    'export function validateKernelUiPackages',
-    'requiredUiPackages',
-    'kernel UI architecture check failed',
-    'must expose src/index.ts or src/index.tsx'
-  ]) {
-    assert.ok(uiPackages.includes(requiredText), `kernel UI package module should include ${requiredText}`);
-  }
-});
-
 test('kernel standards validator splits runtime topology checks into a focused module', () => {
   const validatorPath = path.join(
     root,
@@ -1226,10 +1169,7 @@ function listCurrentDictionaryFiles() {
     path.join(root, 'sdkwork-code-kernel', 'README.md'),
     path.join(root, 'sdkwork-code-kernel', 'specs'),
     path.join(root, 'sdkwork-kernel-plugins', 'README.md'),
-    path.join(root, 'sdkwork-kernel-plugins', 'specs'),
-    path.join(root, 'sdkwork-kernel-ui', 'README.md'),
-    path.join(root, 'sdkwork-kernel-ui', 'specs'),
-    path.join(root, 'sdkwork-kernel-ui', 'packages')
+    path.join(root, 'sdkwork-kernel-plugins', 'specs')
   ];
 
   return roots.flatMap((scanRoot) => listDictionaryFiles(scanRoot));

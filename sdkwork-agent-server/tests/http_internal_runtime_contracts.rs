@@ -73,12 +73,34 @@ async fn read_json(response: axum::response::Response) -> Value {
     serde_json::from_slice(&body).expect("response body should be valid json")
 }
 
+fn assert_sdkwork_success_envelope(payload: &Value) {
+    assert_eq!(
+        payload.get("code").and_then(Value::as_i64),
+        Some(0),
+        "success responses must use numeric code 0"
+    );
+    assert!(
+        payload.get("traceId").and_then(Value::as_str).is_some(),
+        "success responses must include traceId"
+    );
+}
+
 fn list_items(payload: &Value) -> &[Value] {
+    assert_sdkwork_success_envelope(payload);
     payload
-        .get("items")
+        .get("data")
+        .and_then(|data| data.get("items"))
         .and_then(|value| value.as_array())
         .map(|items| items.as_slice())
-        .expect("list response should expose items[]")
+        .expect("list response should expose data.items[]")
+}
+
+fn item_value(payload: &Value) -> &Value {
+    assert_sdkwork_success_envelope(payload);
+    payload
+        .get("data")
+        .and_then(|data| data.get("item"))
+        .expect("resource response should expose data.item")
 }
 
 #[tokio::test]
@@ -96,7 +118,7 @@ async fn internal_runtime_snapshot_returns_runtime_health() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let snapshot = read_json(response).await;
-    assert_eq!(snapshot["runtime"]["health"], "healthy");
+    assert_eq!(item_value(&snapshot)["runtime"]["health"], "healthy");
 }
 
 #[tokio::test]
@@ -114,6 +136,7 @@ async fn internal_runtime_manifest_returns_capability_manifest() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let manifest = read_json(response).await;
+    let manifest = item_value(&manifest);
     assert!(
         manifest["runtimeId"].is_string(),
         "runtimeId must be present"
@@ -160,6 +183,7 @@ async fn internal_runtime_health_returns_health_status() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let health = read_json(response).await;
+    let health = item_value(&health);
     assert!(health["runtimeId"].is_string(), "runtimeId must be present");
     assert!(health["state"].is_string(), "state must be present");
     assert!(
@@ -194,6 +218,7 @@ async fn internal_runtime_diagnostics_returns_provider_diagnostics() {
 
     assert_eq!(response.status(), StatusCode::OK);
     let diagnostics = read_json(response).await;
+    let diagnostics = item_value(&diagnostics);
     assert!(
         diagnostics["runtimeId"].is_string(),
         "runtimeId must be present"
@@ -296,7 +321,8 @@ async fn internal_runtime_session_roundtrip_uses_items_list_envelope() {
         .expect("internal create request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
 
-    let session = read_json(response).await;
+    let session_payload = read_json(response).await;
+    let session = item_value(&session_payload);
     let session_id = session["sessionId"]
         .as_str()
         .expect("sessionId should be present");
@@ -374,7 +400,8 @@ async fn internal_runtime_session_create_and_read_roundtrip() {
         .expect("create request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
 
-    let session = read_json(response).await;
+    let session_payload = read_json(response).await;
+    let session = item_value(&session_payload);
     let session_id = session["sessionId"]
         .as_str()
         .expect("sessionId should be present");
@@ -391,7 +418,8 @@ async fn internal_runtime_session_create_and_read_roundtrip() {
         .await
         .expect("get request should succeed");
     assert_eq!(response.status(), StatusCode::OK);
-    let loaded = read_json(response).await;
+    let loaded_payload = read_json(response).await;
+    let loaded = item_value(&loaded_payload);
     assert_eq!(loaded["sessionId"], session_id);
 }
 
@@ -532,7 +560,8 @@ async fn token_policy_blocks_foreign_session_access() {
         .await
         .expect("create request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let session = read_json(response).await;
+    let session_payload = read_json(response).await;
+    let session = item_value(&session_payload);
     let session_id = session["sessionId"]
         .as_str()
         .expect("sessionId should be present");
@@ -604,7 +633,8 @@ async fn token_policy_blocks_foreign_task_access() {
         .await
         .expect("create request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let session = read_json(response).await;
+    let session_payload = read_json(response).await;
+    let session = item_value(&session_payload);
     let session_id = session["sessionId"]
         .as_str()
         .expect("sessionId should be present");
@@ -629,7 +659,8 @@ async fn token_policy_blocks_foreign_task_access() {
         .await
         .expect("submit request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let task = read_json(response).await;
+    let task_payload = read_json(response).await;
+    let task = item_value(&task_payload);
     let task_id = task["taskId"].as_str().expect("taskId should be present");
 
     let response = app
@@ -670,7 +701,8 @@ async fn closed_session_rejects_messages() {
         .await
         .expect("create request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let session = read_json(response).await;
+    let session_payload = read_json(response).await;
+    let session = item_value(&session_payload);
     let session_id = session["sessionId"]
         .as_str()
         .expect("sessionId should be present");
@@ -722,7 +754,8 @@ async fn internal_runtime_send_message_persists_turn() {
         .await
         .expect("create request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let session = read_json(response).await;
+    let session_payload = read_json(response).await;
+    let session = item_value(&session_payload);
     let session_id = session["sessionId"]
         .as_str()
         .expect("sessionId should be present");
@@ -739,7 +772,8 @@ async fn internal_runtime_send_message_persists_turn() {
         .await
         .expect("send request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let user_message = read_json(response).await;
+    let user_message_payload = read_json(response).await;
+    let user_message = item_value(&user_message_payload);
     assert_eq!(user_message["role"], "user");
 
     let response = app
@@ -804,7 +838,8 @@ async fn internal_runtime_send_message_emits_turn_completed_event() {
         .await
         .expect("create request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let session = read_json(response).await;
+    let session_payload = read_json(response).await;
+    let session = item_value(&session_payload);
     let session_id = session["sessionId"]
         .as_str()
         .expect("sessionId should be present");
@@ -864,7 +899,8 @@ async fn session_event_stream_honors_last_event_id() {
         .await
         .expect("create request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let session = read_json(response).await;
+    let session_payload = read_json(response).await;
+    let session = item_value(&session_payload);
     let session_id = session["sessionId"]
         .as_str()
         .expect("sessionId should be present");
@@ -947,7 +983,8 @@ async fn internal_runtime_session_api_enforces_token_scope() {
         .await
         .expect("create request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let session = read_json(response).await;
+    let session_payload = read_json(response).await;
+    let session = item_value(&session_payload);
     let session_id = session["sessionId"]
         .as_str()
         .or(session["session_id"].as_str())
@@ -996,7 +1033,8 @@ async fn internal_runtime_send_message_rejects_foreign_session_in_token_mode() {
         .await
         .expect("create request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let session = read_json(response).await;
+    let session_payload = read_json(response).await;
+    let session = item_value(&session_payload);
     let session_id = session["sessionId"]
         .as_str()
         .expect("sessionId should be present");
@@ -1068,7 +1106,8 @@ async fn token_mode_rejects_session_missing_owner_metadata() {
         .await
         .expect("create request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let session = read_json(response).await;
+    let session_payload = read_json(response).await;
+    let session = item_value(&session_payload);
     let session_id = session["sessionId"]
         .as_str()
         .expect("session id should be present");
@@ -1124,7 +1163,8 @@ async fn internal_runtime_delete_session_returns_no_content() {
         .await
         .expect("create request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let session = read_json(response).await;
+    let session_payload = read_json(response).await;
+    let session = item_value(&session_payload);
     let session_id = session["sessionId"]
         .as_str()
         .expect("sessionId should be present");
@@ -1303,7 +1343,8 @@ async fn internal_runtime_model_invoke_rejects_exhausted_tenant_token_quota() {
         .await
         .expect("create request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let session = read_json(response).await;
+    let session_payload = read_json(response).await;
+    let session = item_value(&session_payload);
     let session_id = session["sessionId"]
         .as_str()
         .expect("sessionId should be present");
@@ -1350,7 +1391,8 @@ async fn create_session_on_open_app(app: &Router, agent_id: &str) -> String {
         .await
         .expect("create request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let session = read_json(response).await;
+    let session_payload = read_json(response).await;
+    let session = item_value(&session_payload);
     session["sessionId"]
         .as_str()
         .expect("sessionId should be present")
@@ -1439,6 +1481,7 @@ async fn internal_runtime_model_cancel_returns_cancelled_response() {
     assert_eq!(response.status(), StatusCode::OK);
 
     let body = read_json(response).await;
+    let body = item_value(&body);
     assert_eq!(
         body["modelRequestId"], "model-req.test-cancel-001",
         "cancel response should echo the model request id"

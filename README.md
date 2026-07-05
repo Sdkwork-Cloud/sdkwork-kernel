@@ -2,7 +2,7 @@
 repository-kind: foundation-dependency
 
 Domain: `intelligence`
-Capability: `agent-kernel`, `code-kernel`, `kernel-ui`
+Capability: `agent-kernel`, `code-kernel`, `agent-runtime`
 Package type: industry kernel standard
 Status: standard candidate
 
@@ -104,9 +104,10 @@ sdkwork-kernel/
 |-- tests/
 |-- sdkwork-kernel-plugins/
 |-- sdkwork-agent-kernel/
-|-- sdkwork-code-kernel/
-`-- sdkwork-kernel-ui/
+`-- sdkwork-code-kernel/
 ```
+
+Product UIs and shells consume the kernel through `@sdkwork/agent-internal-sdk`, `sdkwork-agent-client`, or host-specific adapters. They are not shipped from this repository.
 
 Managed agents domain logic (`sdkwork-intelligence-agents-service`, HTTP routes, SDKs, managed-store persistence) lives in the sibling application repository [`../sdkwork-agents/`](../sdkwork-agents/). See `docs/architecture/decisions/ADR-20260626-agents-application-layer-separation.md`.
 
@@ -240,105 +241,16 @@ Managed-agent CRUD, marketplace metadata, knowledge/memory store HTTP APIs, and 
 
 The kernel exposes runtime SPI only: sessions, providers, internal API, operational HTTP (`/health`, `/metrics`, `/internal/v3/api/...`).
 
-### `sdkwork-kernel-ui`
+### `sdks/` and `@sdkwork/agent-internal-sdk`
 
-TypeScript + Vite + React implementation boundary for the standard kernel UI
-subsystem.
-
-This is a first-class kernel subsystem, not an ad hoc BirdCoder UI. It defines
-reusable UI packages, service adapters, hooks, and components that any SDKWork
-application can embed to present and control agent/code-agent kernel behavior.
-
-The UI architecture and package standard must follow
-[`../sdkwork-specs/UI_ARCHITECTURE_SPEC.md`](../sdkwork-specs/UI_ARCHITECTURE_SPEC.md)
-and the selected PC React UI rules in
-[`../sdkwork-specs/APP_PC_REACT_UI_SPEC.md`](../sdkwork-specs/APP_PC_REACT_UI_SPEC.md):
-
-- Use `pnpm` workspace semantics.
-- Use TypeScript for types, React for UI, and Vite for development/build.
-- Keep the root app thin.
-- Put reusable modules and business modules under `packages/`.
-- Keep business processing, mock data, kernel client adapters, request/response
-  mapping, validation, and error normalization in `service/`.
-- Keep `pages/` focused on route-level composition.
-- Keep `components/` focused on rendering.
-- Keep `hooks/` focused on React state binding and UI behavior.
-- Export public APIs only from `src/index.ts`.
-- Use internal dependencies with `workspace:*`.
-- Do not import another package through deep internal paths.
-
-Recommended kernel UI package family:
-
-```text
-sdkwork-kernel-ui/
-|-- src/                              # thin demo/composition shell only
-|-- packages/
-|   |-- sdkwork-kernel-ui-types/
-|   |-- sdkwork-kernel-ui-core/
-|   |-- sdkwork-kernel-ui-commons/
-|   |-- sdkwork-kernel-ui-services/
-|   |-- sdkwork-kernel-ui-agent/
-|   |-- sdkwork-kernel-ui-code/
-|   |-- sdkwork-kernel-ui-workspace/
-|   |-- sdkwork-kernel-ui-terminal/
-|   |-- sdkwork-kernel-ui-telemetry/
-|   `-- sdkwork-kernel-ui-permissions/
-|-- package.json
-|-- pnpm-workspace.yaml
-|-- tsconfig.json
-`-- vite.config.ts
-```
-
-Package manifest names must use the scoped SDKWork form:
-
-```text
-@sdkwork/kernel-ui-types
-@sdkwork/kernel-ui-core
-@sdkwork/kernel-ui-commons
-@sdkwork/kernel-ui-services
-@sdkwork/kernel-ui-agent
-@sdkwork/kernel-ui-code
-@sdkwork/kernel-ui-workspace
-@sdkwork/kernel-ui-terminal
-@sdkwork/kernel-ui-telemetry
-@sdkwork/kernel-ui-permissions
-```
-
-Kernel UI responsibilities:
-
-- Agent session views: session header, task status, plan, step timeline,
-  tool-call timeline, streaming output, pause/resume/cancel controls.
-- Code-agent views: workspace explorer, changed-file list, diff viewer, patch
-  review, apply/reject controls, build/test result summaries, and review
-  findings.
-- Terminal views: command list, streaming stdout/stderr, exit status, retry,
-  cancellation, and permission prompts.
-- Permission views: capability prompts, sandbox decisions, destructive action
-  confirmations, policy explanations, and audit context.
-- Provider views: model/tool/provider capability display, health state,
-  configuration status, and diagnostics.
-- Telemetry views: trace ids, request ids, event stream, logs, metrics summaries,
-  and troubleshooting panels.
-- Composition components: embeddable panels and hooks that product applications
-  can compose without reimplementing kernel behavior.
-
-Kernel UI must not:
-
-- Directly mutate workspace files outside the kernel client/service boundary.
-- Run terminal commands directly through browser APIs or ad hoc host calls.
-- Apply patches without going through code-kernel patch SPI.
-- Parse or enforce security policy in place of the Rust kernel.
-- Construct raw HTTP requests, manual auth headers, or local DTO forks for
-  kernel operations.
-- Depend on BirdCoder product packages for standard kernel behavior.
+TypeScript consumers integrate through the generated internal API SDK family under `sdks/sdkwork-agent-internal-sdk/`. Authoritative OpenAPI lives in `apis/internal-api/`; product applications and shells own their UI layers and call the kernel runtime HTTP surface through the SDK or `sdkwork-agent-client`.
 
 ## Layered Architecture
 
 ```text
 SDKWork applications and hosts
-  -> product shell and product modules
-  -> sdkwork-kernel-ui packages (TypeScript + Vite + React)
-  -> kernel UI service adapters and typed clients
+  -> product shell and product modules (outside sdkwork-kernel)
+  -> @sdkwork/agent-internal-sdk or sdkwork-agent-client
   -> IPC / RPC / SDK port / event stream
   -> sdkwork-code-kernel (Rust)
   -> sdkwork-agent-kernel (Rust)
@@ -350,10 +262,8 @@ Dependency rules:
 
 - Rust kernel crates must not depend on React, Vite, product UI packages, or
   browser-only APIs.
-- Kernel UI packages must call Rust kernel behavior through typed clients,
+- Product UIs must call Rust kernel behavior through typed clients,
   service adapters, IPC/RPC, SDK ports, or event streams.
-- Product applications may compose kernel UI packages, but kernel UI packages
-  must not depend on product applications.
 - Provider implementations depend on kernel SPI; kernel SPI must not depend on
   provider implementations.
 - `sdkwork-code-kernel` may depend on `sdkwork-agent-kernel`; the reverse
@@ -588,8 +498,8 @@ BirdCoder is a proving application for this kernel standard.
 
 BirdCoder may:
 
-- Compose `sdkwork-agent-kernel`, `sdkwork-code-kernel`, and
-  `sdkwork-kernel-ui`.
+- Compose `sdkwork-agent-kernel` and `sdkwork-code-kernel` through product shells
+  that consume `@sdkwork/agent-internal-sdk`.
 - Provide product-specific defaults, routes, shell layout, branding, commands,
   and workflow presets.
 - Add BirdCoder-specific providers or product modules through published SPI.
@@ -598,7 +508,7 @@ BirdCoder may:
 BirdCoder must not:
 
 - Add BirdCoder-only assumptions to kernel SPI.
-- Make kernel UI depend on BirdCoder product modules for standard behavior.
+- Make product shells depend on kernel SPI instead of typed SDK clients.
 - Bypass code-kernel patch, terminal, workspace, policy, or audit contracts.
 - Treat a product route or component as the source of truth for kernel
   behavior.
@@ -646,11 +556,8 @@ pnpm verify
 cargo test --manifest-path sdkwork-agent-kernel/Cargo.toml
 cargo test --manifest-path sdkwork-code-kernel/Cargo.toml
 
-# Kernel UI checks
-pnpm --dir sdkwork-kernel-ui install --frozen-lockfile
-pnpm --dir sdkwork-kernel-ui build
-pnpm --dir sdkwork-kernel-ui typecheck
-pnpm --dir sdkwork-kernel-ui test
+# Agent internal SDK
+pnpm --dir sdks/sdkwork-agent-internal-sdk/sdkwork-agent-internal-sdk-typescript verify
 ```
 
 If a command is not yet available, the owning subsystem README must state what
@@ -664,11 +571,10 @@ is missing and which contract is being implemented first.
 - [ ] `sdkwork-agent-kernel` is the Rust base SPI for all agents.
 - [ ] `sdkwork-code-kernel` is the Rust code-agent SPI built on top of the
       agent kernel.
-- [ ] `sdkwork-kernel-ui` is a first-class TypeScript + Vite + React kernel UI
-      standard subsystem.
-- [ ] Kernel UI package structure follows `UI_ARCHITECTURE_SPEC.md` and `APP_PC_REACT_UI_SPEC.md`.
+- [ ] Product applications integrate through `@sdkwork/agent-internal-sdk` or
+      `sdkwork-agent-client`, not in-repo UI packages.
 - [ ] Rust kernel does not depend on React/Vite/product UI.
-- [ ] Kernel UI talks to Rust kernel through typed service adapters, IPC/RPC,
+- [ ] Product UIs talk to Rust kernel through typed service adapters, IPC/RPC,
       SDK ports, or event streams.
 - [ ] Provider and plugin variation is expressed through typed SPI and manifests.
 - [ ] Security, policy, telemetry, lifecycle, and compatibility are defined as

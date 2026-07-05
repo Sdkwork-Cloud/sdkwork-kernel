@@ -33,7 +33,7 @@
     }
   },
   "defaults": {
-    "developmentProfileId": "standalone.split-services.development",
+    "developmentProfileId": "standalone.unified-process.development",
     "productionProfileId": "cloud.split-services.production"
   },
   "profileFiles": {
@@ -98,10 +98,6 @@
       "crate": "sdkwork-agent-server",
       "binary": "sdkwork-agent-server"
     },
-    "kernelUi": {
-      "package": "sdkwork-kernel-ui",
-      "script": "dev"
-    },
     "cloudGateway": {
       "crate": "sdkwork-api-cloud-gateway",
       "binary": "sdkwork-api-cloud-gateway",
@@ -117,12 +113,6 @@
             "id": "application.public-ingress",
             "crate": "sdkwork-agent-server",
             "binary": "sdkwork-agent-server",
-            "required": true
-          },
-          {
-            "id": "kernel-ui-renderer",
-            "package": "sdkwork-kernel-ui",
-            "script": "dev",
             "required": true
           }
         ],
@@ -167,12 +157,6 @@
             "crate": "sdkwork-agent-server",
             "binary": "sdkwork-agent-server",
             "required": true
-          },
-          {
-            "id": "kernel-ui-renderer",
-            "package": "sdkwork-kernel-ui",
-            "script": "dev",
-            "required": false
           }
         ],
         "healthSurfaces": [

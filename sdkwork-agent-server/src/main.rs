@@ -50,21 +50,15 @@ async fn main() -> anyhow::Result<()> {
     info!("Server listening on {}", bind_addr);
     info!("Internal runtime API: /internal/v3/api/intelligence/runtime/*");
 
-    // Graceful shutdown: when `shutdown_signal()` completes, axum stops
-    // accepting new connections and begins draining in-flight requests.
-    // `force_close_timer()` enforces a hard deadline — if draining takes
-    // longer than GRACEFUL_SHUTDOWN_TIMEOUT, the `select!` drops the
-    // `serve` future, closing all remaining connections.
-    let serve = axum::serve(listener, app).with_graceful_shutdown(shutdown::shutdown_signal());
-
-    tokio::select! {
-        result = serve => {
-            result?;
-        }
-        _ = shutdown::force_close_timer() => {
-            // The serve future is dropped, closing all connections.
-        }
-    }
+    // Graceful shutdown: on signal, axum stops accepting new connections and
+    // drains in-flight requests. `force_close_timer()` caps total drain time
+    // from the signal — it must not start at process boot.
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            shutdown::shutdown_signal().await;
+            shutdown::force_close_timer().await;
+        })
+        .await?;
 
     info!("Server shutdown complete");
 

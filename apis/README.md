@@ -14,7 +14,7 @@ Related specs: `../sdkwork-specs/SDKWORK_WORKSPACE_SPEC.md`, `../sdkwork-specs/A
 
 | Index | Owner component | Surfaces |
 | --- | --- | --- |
-| [`internal-api/authority-index.json`](./internal-api/authority-index.json) | `sdkwork-agent-server` / `sdkwork-kernel-ui` | `internal-api` |
+| [`internal-api/authority-index.json`](./internal-api/authority-index.json) | `sdkwork-agent-server` / product shells via `@sdkwork/agent-internal-sdk` | `internal-api` |
 
 Managed agents open/app/backend API authorities (`sdkwork-agents-open-api`, `sdkwork-agents-app-api`, `sdkwork-agents-backend-api`) are owned by the sibling application repository [`../sdkwork-agents/apis/agents/authority-index.json`](../sdkwork-agents/apis/agents/authority-index.json).
 

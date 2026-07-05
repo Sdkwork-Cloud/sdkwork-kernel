@@ -1,4 +1,5 @@
 use crate::error::{DatabaseError, DatabaseResult};
+use crate::pagination::{resolve_list_limit, resolve_list_offset};
 use crate::sqlite::SqliteDatabase;
 use crate::traits::*;
 use crate::types::*;
@@ -196,13 +197,20 @@ impl SessionRepository for SqliteDatabase {
             sql.push_str(" AND bridge_id = ?");
             values.push(bridge_id.to_string());
         }
+        if let Some(owner_tenant_id) = query.owner_tenant_id.as_deref() {
+            sql.push_str(" AND json_extract(metadata_json, '$.tenantId') = ?");
+            values.push(owner_tenant_id.to_string());
+        }
+        if let Some(owner_user_ref) = query.owner_user_ref.as_deref() {
+            sql.push_str(" AND json_extract(metadata_json, '$.userRef') = ?");
+            values.push(owner_user_ref.to_string());
+        }
         sql.push_str(" ORDER BY COALESCE(updated_at, created_at) DESC");
-        if let Some(limit) = query.limit {
-            sql.push_str(&format!(" LIMIT {limit}"));
-        }
-        if let Some(offset) = query.offset {
-            sql.push_str(&format!(" OFFSET {offset}"));
-        }
+        let limit = resolve_list_limit(query.limit);
+        let offset = resolve_list_offset(query.offset);
+        sql.push_str(" LIMIT ? OFFSET ?");
+        values.push(limit.to_string());
+        values.push(offset.to_string());
 
         let mut stmt = conn.prepare(&sql).map_err(|error| {
             DatabaseError::Query(format!("failed to prepare session list: {error}"))
@@ -233,6 +241,27 @@ impl SessionRepository for SqliteDatabase {
             params![session_id],
         )
         .map_err(|error| DatabaseError::Query(format!("failed to delete session: {error}")))?;
+        Ok(())
+    }
+
+    fn delete_session_cascade(&self, session_id: &str) -> DatabaseResult<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let tx = conn
+            .unchecked_transaction()
+            .map_err(|error| DatabaseError::Transaction(format!("failed to begin transaction: {error}")))?;
+        tx.execute("DELETE FROM events WHERE session_id = ?1", params![session_id])
+            .map_err(|error| DatabaseError::Query(format!("failed to delete events: {error}")))?;
+        tx.execute("DELETE FROM messages WHERE session_id = ?1", params![session_id])
+            .map_err(|error| DatabaseError::Query(format!("failed to delete messages: {error}")))?;
+        tx.execute("DELETE FROM tasks WHERE session_id = ?1", params![session_id])
+            .map_err(|error| DatabaseError::Query(format!("failed to delete tasks: {error}")))?;
+        tx.execute("DELETE FROM sessions WHERE session_id = ?1", params![session_id])
+            .map_err(|error| DatabaseError::Query(format!("failed to delete session: {error}")))?;
+        tx.commit()
+            .map_err(|error| DatabaseError::Transaction(format!("failed to commit cascade delete: {error}")))?;
         Ok(())
     }
 }
@@ -273,17 +302,14 @@ impl MessageRepository for SqliteDatabase {
             "SELECT message_id, session_id, role, content, created_at, metadata_json
              FROM messages WHERE session_id = ?1 ORDER BY created_at ASC",
         );
-        if let Some(limit) = query.limit {
-            sql.push_str(&format!(" LIMIT {limit}"));
-        }
-        if let Some(offset) = query.offset {
-            sql.push_str(&format!(" OFFSET {offset}"));
-        }
+        let limit = resolve_list_limit(query.limit);
+        let offset = resolve_list_offset(query.offset);
+        sql.push_str(" LIMIT ? OFFSET ?");
         let mut stmt = conn.prepare(&sql).map_err(|error| {
             DatabaseError::Query(format!("failed to prepare messages: {error}"))
         })?;
         let rows = stmt
-            .query_map(params![session_id], map_message_row)
+            .query_map(params![session_id, limit, offset], map_message_row)
             .map_err(|error| DatabaseError::Query(format!("failed to load messages: {error}")))?;
         let mut messages = Vec::new();
         for row in rows {
@@ -359,19 +385,22 @@ impl TaskRepository for SqliteDatabase {
         .map_err(|error| DatabaseError::Query(format!("failed to load task: {error}")))
     }
 
-    fn load_tasks(&self, session_id: &str) -> DatabaseResult<Vec<TaskRow>> {
+    fn load_tasks(&self, session_id: &str, query: &TaskQuery) -> DatabaseResult<Vec<TaskRow>> {
         let conn = self
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let limit = resolve_list_limit(query.limit);
+        let offset = resolve_list_offset(query.offset);
         let mut stmt = conn
             .prepare(
                 "SELECT task_id, session_id, instruction, state, created_at, updated_at
-                 FROM tasks WHERE session_id = ?1 ORDER BY created_at ASC",
+                 FROM tasks WHERE session_id = ?1 ORDER BY created_at ASC
+                 LIMIT ?2 OFFSET ?3",
             )
             .map_err(|error| DatabaseError::Query(format!("failed to prepare tasks: {error}")))?;
         let rows = stmt
-            .query_map(params![session_id], map_task_row)
+            .query_map(params![session_id, limit, offset], map_task_row)
             .map_err(|error| DatabaseError::Query(format!("failed to load tasks: {error}")))?;
         let mut tasks = Vec::new();
         for row in rows {
@@ -439,18 +468,56 @@ impl EventRepository for SqliteDatabase {
             values.push(severity.to_string());
         }
         sql.push_str(" ORDER BY created_at ASC");
-        if let Some(limit) = query.limit {
-            sql.push_str(&format!(" LIMIT {limit}"));
-        }
-        if let Some(offset) = query.offset {
-            sql.push_str(&format!(" OFFSET {offset}"));
-        }
+        let limit = resolve_list_limit(query.limit);
+        let offset = resolve_list_offset(query.offset);
+        sql.push_str(" LIMIT ? OFFSET ?");
+        values.push(limit.to_string());
+        values.push(offset.to_string());
         let mut stmt = conn
             .prepare(&sql)
             .map_err(|error| DatabaseError::Query(format!("failed to prepare events: {error}")))?;
         let rows = stmt
             .query_map(rusqlite::params_from_iter(values.iter()), map_event_row)
             .map_err(|error| DatabaseError::Query(format!("failed to load events: {error}")))?;
+        let mut events = Vec::new();
+        for row in rows {
+            events.push(row.map_err(|error| {
+                DatabaseError::Query(format!("failed to read event row: {error}"))
+            })?);
+        }
+        Ok(events)
+    }
+
+    fn list_recent_events(&self, query: &EventQuery) -> DatabaseResult<Vec<EventRow>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let mut sql = String::from(
+            "SELECT event_id, session_id, event_type, severity, payload, created_at
+             FROM events WHERE 1 = 1",
+        );
+        let mut values: Vec<String> = Vec::new();
+        if let Some(event_type) = query.event_type.as_deref() {
+            sql.push_str(" AND event_type = ?");
+            values.push(event_type.to_string());
+        }
+        if let Some(severity) = query.severity.as_deref() {
+            sql.push_str(" AND severity = ?");
+            values.push(severity.to_string());
+        }
+        sql.push_str(" ORDER BY created_at DESC");
+        let limit = resolve_list_limit(query.limit);
+        let offset = resolve_list_offset(query.offset);
+        sql.push_str(" LIMIT ? OFFSET ?");
+        values.push(limit.to_string());
+        values.push(offset.to_string());
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|error| DatabaseError::Query(format!("failed to prepare events: {error}")))?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(values.iter()), map_event_row)
+            .map_err(|error| DatabaseError::Query(format!("failed to list recent events: {error}")))?;
         let mut events = Vec::new();
         for row in rows {
             events.push(row.map_err(|error| {
@@ -540,7 +607,7 @@ impl PermissionRepository for SqliteDatabase {
         .map_err(|error| DatabaseError::Query(format!("failed to load permission: {error}")))
     }
 
-    fn list_permissions(&self, status: Option<&str>) -> DatabaseResult<Vec<PermissionRow>> {
+    fn list_permissions(&self, query: &PermissionQuery) -> DatabaseResult<Vec<PermissionRow>> {
         let conn = self
             .conn
             .lock()
@@ -552,11 +619,16 @@ impl PermissionRepository for SqliteDatabase {
              FROM permissions WHERE 1 = 1",
         );
         let mut values: Vec<String> = Vec::new();
-        if let Some(status) = status {
+        if let Some(status) = query.status.as_deref() {
             sql.push_str(" AND status = ?");
             values.push(status.to_string());
         }
         sql.push_str(" ORDER BY created_at DESC");
+        let limit = resolve_list_limit(query.limit);
+        let offset = resolve_list_offset(query.offset);
+        sql.push_str(" LIMIT ? OFFSET ?");
+        values.push(limit.to_string());
+        values.push(offset.to_string());
         let mut stmt = conn.prepare(&sql).map_err(|error| {
             DatabaseError::Query(format!("failed to prepare permissions: {error}"))
         })?;

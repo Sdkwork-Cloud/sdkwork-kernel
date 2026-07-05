@@ -73,6 +73,8 @@ pub struct SessionQuery {
     pub kind: Option<String>,
     pub provider_id: Option<String>,
     pub bridge_id: Option<String>,
+    pub owner_tenant_id: Option<String>,
+    pub owner_user_ref: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -93,7 +95,20 @@ pub struct EventQuery {
     pub offset: Option<i64>,
 }
 
-/// Permission row for persisting permission request state across restarts.
+/// Task query parameters
+#[derive(Debug, Clone, Default)]
+pub struct TaskQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+/// Permission list query parameters
+#[derive(Debug, Clone, Default)]
+pub struct PermissionQuery {
+    pub status: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionRow {
     pub permission_request_id: String,

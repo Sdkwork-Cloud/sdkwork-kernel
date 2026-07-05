@@ -36,7 +36,7 @@ test('declares v2 topology spec and profile env files for sdkwork-kernel', async
   assert.equal(spec.kind, 'sdkwork.app.topology');
   assert.equal(spec.appId, 'sdkwork-kernel');
   assert.equal(spec.archetype, 'realtime-application-platform');
-  assert.equal(spec.defaults.developmentProfileId, 'standalone.split-services.development');
+  assert.equal(spec.defaults.developmentProfileId, 'standalone.unified-process.development');
   assert.ok(spec.surfaces['application.public-ingress']);
   assert.ok(spec.surfaces['platform.api-gateway']);
 
@@ -159,12 +159,6 @@ test('topology profiles declare supported kernel agent plugin values', async () 
       `${profileId} uses unsupported SDKWORK_KERNEL_AGENT_PLUGIN=${plugin}`,
     );
   }
-});
-
-test('kernel UI client prefers topology surface env keys', async () => {
-  const clientSource = await read('sdkwork-kernel-ui/src/kernel-ui-client.ts');
-  assert.match(clientSource, /VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL/);
-  assert.match(clientSource, /VITE_KERNEL_API_URL/);
 });
 
 test('topology smoke probes canonical internal-api snapshot path only', async () => {

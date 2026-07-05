@@ -28,6 +28,17 @@ impl AgentRuntimeBridge {
         }
     }
 
+    #[cfg(test)]
+    pub fn new_with_mock_fallback() -> Self {
+        Self {
+            session_bridge: SessionBridge::new(),
+            model_bridge: ModelBridge::with_mock_fallback_enabled(),
+            tool_bridge: ToolBridge::with_mock_fallback_enabled(),
+            context_bridge: ContextBridge::new(),
+            event_bridge: EventBridge::new(),
+        }
+    }
+
     /// Create a bridge wired to a bootstrapped typed agent runtime.
     pub fn with_agent_runtime(
         agent_runtime: std::sync::Arc<sdkwork_agent_kernel::AgentRuntime>,
@@ -416,7 +427,7 @@ mod tests {
 
     #[test]
     fn bridge_send_message() {
-        let mut bridge = AgentRuntimeBridge::new();
+        let mut bridge = AgentRuntimeBridge::new_with_mock_fallback();
         let config = BridgeSessionConfig {
             agent_id: "agent.test".to_string(),
             tenant_id: 100_001,

@@ -1,6 +1,8 @@
 //! Live PostgreSQL contract tests for agent runtime session persistence.
 
-use sdkwork_agent_database::{MessageRow, PostgresDatabase, SessionRepository};
+use sdkwork_agent_database::{
+    MessageRow, PermissionRepository, PermissionRow, PostgresDatabase, SessionRepository,
+};
 
 fn runtime_postgres_uri() -> Option<String> {
     std::env::var("SDKWORK_AGENT_RUNTIME_POSTGRES_URI")
@@ -60,7 +62,49 @@ fn live_postgres_session_message_roundtrip_when_uri_configured() {
         .expect("messages");
     assert_eq!(messages.len(), 1);
 
-    let _ = db.delete_session(&session_id);
+    let _ = db.delete_session_cascade(&session_id);
+}
+
+#[test]
+fn live_postgres_permissions_roundtrip_when_uri_configured() {
+    let Some(uri) = runtime_postgres_uri() else {
+        return;
+    };
+
+    let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
+    let permission_id = format!("perm.runtime.pg.{}", uuid_like_suffix());
+
+    db.save_permission(&PermissionRow {
+        permission_request_id: permission_id.clone(),
+        session_id: Some("session.runtime.pg".to_string()),
+        category: "host.filesystem.read".to_string(),
+        resource: "/workspace/README.md".to_string(),
+        side_effect_level: "read_only".to_string(),
+        reason: "contract test".to_string(),
+        status: "pending".to_string(),
+        owner_tenant_id: Some("tenant.contract".to_string()),
+        owner_user_ref: Some("user.contract".to_string()),
+        created_at: "2026-06-23T00:00:00Z".to_string(),
+        updated_at: None,
+    })
+    .expect("save permission");
+
+    let loaded = db
+        .load_permission(&permission_id)
+        .expect("load")
+        .expect("found");
+    assert_eq!(loaded.status, "pending");
+
+    let listed = db
+        .list_permissions(&sdkwork_agent_database::PermissionQuery {
+            status: Some("pending".to_string()),
+            limit: Some(20),
+            offset: None,
+        })
+        .expect("list");
+    assert!(listed.iter().any(|row| row.permission_request_id == permission_id));
+
+    let _ = db.update_permission_status(&permission_id, "approved");
 }
 
 fn uuid_like_suffix() -> String {

@@ -60,11 +60,11 @@ impl PermissionRepository for PermissionDb {
 
     fn list_permissions(
         &self,
-        status: Option<&str>,
+        query: &sdkwork_agent_database::PermissionQuery,
     ) -> Result<Vec<PermissionRow>, sdkwork_agent_database::DatabaseError> {
         match self {
-            PermissionDb::Sqlite(db) => db.list_permissions(status),
-            PermissionDb::Postgres(db) => db.list_permissions(status),
+            PermissionDb::Sqlite(db) => db.list_permissions(query),
+            PermissionDb::Postgres(db) => db.list_permissions(query),
         }
     }
 
@@ -238,8 +238,9 @@ impl PersistenceState {
         &self,
         session_id: &str,
         limit: Option<i64>,
+        offset: Option<i64>,
     ) -> Result<Vec<MessageRow>, String> {
-        with_manager!(self, |manager| manager.get_messages(session_id, limit))
+        with_manager!(self, |manager| manager.get_messages(session_id, limit, offset))
     }
 
     pub fn message_count(&self, session_id: &str) -> Result<i64, String> {
@@ -262,8 +263,12 @@ impl PersistenceState {
         with_manager!(self, |manager| manager.get_task(task_id))
     }
 
-    pub fn list_tasks(&self, session_id: &str) -> Result<Vec<TaskRow>, String> {
-        with_manager!(self, |manager| manager.list_tasks(session_id))
+    pub fn list_tasks(
+        &self,
+        session_id: &str,
+        query: sdkwork_agent_database::TaskQuery,
+    ) -> Result<Vec<TaskRow>, String> {
+        with_manager!(self, |manager| manager.list_tasks(session_id, query))
     }
 
     pub fn cancel_task(&self, task_id: &str) -> Result<TaskRow, String> {
@@ -277,6 +282,13 @@ impl PersistenceState {
     ) -> Result<Vec<EventRow>, String> {
         with_manager!(self, |manager| manager
             .load_session_events(session_id, limit))
+    }
+
+    pub fn list_recent_events(
+        &self,
+        query: sdkwork_agent_database::EventQuery,
+    ) -> Result<Vec<EventRow>, String> {
+        with_manager!(self, |manager| manager.list_recent_events(query))
     }
 
     // -- Permission persistence --
@@ -296,9 +308,12 @@ impl PersistenceState {
             .map_err(|error| format!("failed to load permission: {error}"))
     }
 
-    pub fn list_permissions(&self, status: Option<&str>) -> Result<Vec<PermissionRow>, String> {
+    pub fn list_permissions(
+        &self,
+        query: sdkwork_agent_database::PermissionQuery,
+    ) -> Result<Vec<PermissionRow>, String> {
         self.permission_db
-            .list_permissions(status)
+            .list_permissions(&query)
             .map_err(|error| format!("failed to list permissions: {error}"))
     }
 

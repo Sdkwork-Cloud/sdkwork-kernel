@@ -66,6 +66,8 @@ pub struct SessionQuery {
     pub kind: Option<String>,
     pub provider_id: Option<String>,
     pub bridge_id: Option<String>,
+    pub owner_tenant_id: Option<String>,
+    pub owner_user_ref: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }

@@ -17,7 +17,7 @@ impl ToolBridge {
         Self {
             tools: builtin_tools(),
             agent_runtime: None,
-            allow_mock_fallback: true,
+            allow_mock_fallback: false,
         }
     }
 
@@ -26,6 +26,15 @@ impl ToolBridge {
             tools: builtin_tools(),
             agent_runtime: Some(agent_runtime),
             allow_mock_fallback,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_mock_fallback_enabled() -> Self {
+        Self {
+            tools: builtin_tools(),
+            agent_runtime: None,
+            allow_mock_fallback: true,
         }
     }
 
@@ -66,14 +75,21 @@ impl ToolBridge {
     /// Execute a tool call through typed providers with optional mock fallback.
     pub fn execute(&self, call: &ToolCall) -> KernelResult<ToolResult> {
         if let Some(runtime) = &self.agent_runtime {
-            if let Ok(provider) = runtime.tool_provider() {
-                let result = provider.invoke_tool(call.clone())?;
-                if result.normalized_status == ToolCallStatus::Succeeded
-                    || !self.allow_mock_fallback
-                {
-                    return Ok(result);
-                }
+            let provider = runtime.tool_provider()?;
+            let result = provider.invoke_tool(call.clone())?;
+            if result.normalized_status == ToolCallStatus::Succeeded || !self.allow_mock_fallback {
+                return Ok(result);
             }
+        } else if !self.allow_mock_fallback {
+            return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: "provider.tool".to_string(),
+            });
+        }
+
+        if !self.allow_mock_fallback {
+            return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: "provider.tool".to_string(),
+            });
         }
 
         self.execute_mock(call)
@@ -179,8 +195,19 @@ mod tests {
     }
 
     #[test]
-    fn execute_bash() {
+    fn execute_bash_requires_mock_fallback_when_runtime_missing() {
         let bridge = ToolBridge::new();
+        let call = ToolCall::new("call.1", "bash", "echo hello");
+        let error = bridge.execute(&call).expect_err("mock disabled without runtime");
+        assert!(matches!(
+            error,
+            sdkwork_agent_kernel::KernelError::ProviderUnavailable { .. }
+        ));
+    }
+
+    #[test]
+    fn execute_bash_with_mock_fallback() {
+        let bridge = ToolBridge::with_mock_fallback_enabled();
         let call = ToolCall::new("call.1", "bash", "echo hello");
         let result = bridge.execute(&call).expect("executed");
         assert_eq!(result.status, "succeeded");

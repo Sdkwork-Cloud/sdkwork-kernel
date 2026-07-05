@@ -6,7 +6,7 @@
     "name": "sdkwork-kernel",
     "displayName": "SDKWork Kernel",
     "officialWebsiteUrl": "https://sdkwork.com",
-    "appType": "APP_REACT",
+    "appType": "SDK",
     "description": "SDKWork intelligence kernel platform for agent and code-agent systems.",
     "identifiers": {
       "containerImage": "sdkwork-kernel"
@@ -57,7 +57,6 @@
     "status": "BETA",
     "platforms": [
       "API",
-      "WEB",
       "CLI"
     ],
     "installPlatforms": [
@@ -67,7 +66,7 @@
   },
   "environments": {
     "development": {
-      "topologyProfileId": "standalone.split-services.development",
+      "topologyProfileId": "standalone.unified-process.development",
       "accessUrlEnv": "SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL"
     },
     "production": {

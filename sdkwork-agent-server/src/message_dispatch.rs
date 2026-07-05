@@ -168,7 +168,7 @@ mod tests {
         assert!(!assistant_content_from_bridge(&bridge_response).is_empty());
 
         let messages = persistence
-            .get_messages(&session.session_id, None)
+            .get_messages(&session.session_id, None, None)
             .expect("messages should load");
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, "user");

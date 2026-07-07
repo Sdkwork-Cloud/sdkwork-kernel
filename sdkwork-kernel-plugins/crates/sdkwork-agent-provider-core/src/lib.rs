@@ -12,7 +12,8 @@ mod provider_session_store;
 pub use mock_policy::{
     is_mock_response_text, is_production_kernel_profile, kernel_profile_id,
     mock_provider_invocation_allowed, reject_direct_mock_provider_invocation,
-    reject_in_process_model_invoke, reject_in_process_model_stream, validate_runtime_model_payload,
+    reject_in_process_model_invoke, reject_in_process_model_stream,
+    reject_in_process_tool_invoke, validate_runtime_model_payload,
 };
 pub use model_wire::{
     build_model_chat_operation, model_request_has_structured_input, resolve_model_wire_messages,

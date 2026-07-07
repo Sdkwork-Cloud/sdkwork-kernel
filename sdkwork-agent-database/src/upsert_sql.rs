@@ -31,12 +31,7 @@ pub mod sqlite {
     pub const SAVE_MESSAGE: &str = "INSERT INTO messages (
                 message_id, session_id, role, content, created_at, metadata_json
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-            ON CONFLICT(message_id) DO UPDATE SET
-                session_id = excluded.session_id,
-                role = excluded.role,
-                content = excluded.content,
-                created_at = excluded.created_at,
-                metadata_json = excluded.metadata_json";
+            ON CONFLICT(message_id) DO NOTHING";
 
     pub const SAVE_TASK: &str = "INSERT INTO tasks (
                 task_id, session_id, instruction, state, created_at, updated_at

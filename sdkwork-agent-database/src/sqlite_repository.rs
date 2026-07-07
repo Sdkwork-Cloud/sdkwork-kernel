@@ -317,18 +317,32 @@ impl MessageRepository for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        conn.execute(
-            crate::upsert_sql::sqlite::SAVE_MESSAGE,
-            params![
-                message.message_id,
-                message.session_id,
-                message.role,
-                message.content,
-                message.created_at,
-                message.metadata_json,
-            ],
-        )
-        .map_err(|error| DatabaseError::Query(format!("failed to save message: {error}")))?;
+        let inserted_rows = conn
+            .execute(
+                crate::upsert_sql::sqlite::SAVE_MESSAGE,
+                params![
+                    message.message_id,
+                    message.session_id,
+                    message.role,
+                    message.content,
+                    message.created_at,
+                    message.metadata_json,
+                ],
+            )
+            .map_err(|error| DatabaseError::Query(format!("failed to save message: {error}")))?;
+        if inserted_rows == 0 {
+            let existing = conn
+                .query_row(
+                    "SELECT message_id, session_id, role, content, created_at, metadata_json
+                     FROM messages WHERE message_id = ?1",
+                    params![message.message_id],
+                    map_message_row,
+                )
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to load existing message: {error}"))
+                })?;
+            crate::message_identity::ensure_message_retry_matches(&existing, message)?;
+        }
         Ok(())
     }
 
@@ -823,21 +837,17 @@ impl RuntimeSessionWrites for SqliteDatabase {
                 }
             })?
         } else {
-            let existing_session_id: String = tx
+            let existing = tx
                 .query_row(
-                    "SELECT session_id FROM messages WHERE message_id = ?1",
+                    "SELECT message_id, session_id, role, content, created_at, metadata_json
+                     FROM messages WHERE message_id = ?1",
                     params![message.message_id],
-                    |row| row.get(0),
+                    map_message_row,
                 )
                 .map_err(|error| {
                     DatabaseError::Query(format!("failed to load existing message: {error}"))
                 })?;
-            if existing_session_id != message.session_id {
-                return Err(DatabaseError::ConstraintViolation(format!(
-                    "message {} already belongs to session {}",
-                    message.message_id, existing_session_id
-                )));
-            }
+            crate::message_identity::ensure_message_retry_matches(&existing, message)?;
             tx.query_row(
                 "SELECT message_count FROM sessions WHERE session_id = ?1",
                 params![message.session_id],
@@ -850,18 +860,20 @@ impl RuntimeSessionWrites for SqliteDatabase {
                 other => DatabaseError::Query(format!("failed to load message count: {other}")),
             })?
         };
-        tx.execute(
-            crate::upsert_sql::sqlite::SAVE_EVENT,
-            params![
-                event.event_id,
-                event.session_id,
-                event.event_type,
-                event.severity,
-                event.payload,
-                event.created_at,
-            ],
-        )
-        .map_err(|error| DatabaseError::Query(format!("failed to save event: {error}")))?;
+        if inserted_rows > 0 {
+            tx.execute(
+                crate::upsert_sql::sqlite::SAVE_EVENT,
+                params![
+                    event.event_id,
+                    event.session_id,
+                    event.event_type,
+                    event.severity,
+                    event.payload,
+                    event.created_at,
+                ],
+            )
+            .map_err(|error| DatabaseError::Query(format!("failed to save event: {error}")))?;
+        }
         tx.commit().map_err(|error| {
             DatabaseError::Transaction(format!("failed to commit transaction: {error}"))
         })?;

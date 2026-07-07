@@ -9,8 +9,6 @@ use sdkwork_agent_provider_core::{
 };
 
 #[cfg(test)]
-use sdkwork_agent_kernel::{ModelStatus, ToolCallStatus};
-#[cfg(test)]
 use sdkwork_agent_provider_core::{
     ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
 };
@@ -368,33 +366,18 @@ impl ToolProvider for HermesToolProvider {
     }
 
     fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
-        let output = match call.tool_id.as_str() {
-            "hermes.terminal" => {
-                format!("[Hermes Terminal] Mock execution of: {}", call.arguments)
+        match call.tool_id.as_str() {
+            "hermes.terminal"
+            | "hermes.read_file"
+            | "hermes.write_file"
+            | "hermes.web_search"
+            | "hermes.delegate_task" => {
+                sdkwork_agent_provider_core::reject_in_process_tool_invoke("provider.tool.hermes")
             }
-            "hermes.read_file" => {
-                format!("[Hermes ReadFile] Mock read of: {}", call.arguments)
-            }
-            "hermes.write_file" => {
-                format!("[Hermes WriteFile] Mock write to: {}", call.arguments)
-            }
-            "hermes.web_search" => {
-                format!(
-                    "[Hermes WebSearch] Mock search results for: {}",
-                    call.arguments
-                )
-            }
-            "hermes.delegate_task" => {
-                format!("[Hermes DelegateTask] Mock delegation: {}", call.arguments)
-            }
-            _ => {
-                return Err(KernelError::CapabilityMissing {
-                    capability_id: call.tool_id.clone(),
-                });
-            }
-        };
-
-        Ok(ToolResult::succeeded(&call.tool_call_id, output))
+            _ => Err(KernelError::CapabilityMissing {
+                capability_id: call.tool_id.clone(),
+            }),
+        }
     }
 }
 
@@ -751,20 +734,23 @@ mod tests {
     }
 
     #[test]
-    fn tool_provider_invoke_terminal() {
+    fn tool_provider_invoke_terminal_requires_transport_worker() {
         let provider = HermesToolProvider::new();
         let call = ToolCall::new("call.1", "hermes.terminal", r#"{"command":"ls"}"#);
-        let result = provider.invoke_tool(call).unwrap();
-        assert_eq!(result.normalized_status, ToolCallStatus::Succeeded);
-        assert!(result.output.contains("Mock execution"));
+        let error = provider
+            .invoke_tool(call)
+            .expect_err("in-process tool invocation is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]
-    fn tool_provider_invoke_read_file() {
+    fn tool_provider_invoke_read_file_requires_transport_worker() {
         let provider = HermesToolProvider::new();
         let call = ToolCall::new("call.2", "hermes.read_file", r#"{"path":"/tmp/test.txt"}"#);
-        let result = provider.invoke_tool(call).unwrap();
-        assert_eq!(result.normalized_status, ToolCallStatus::Succeeded);
+        let error = provider
+            .invoke_tool(call)
+            .expect_err("in-process tool invocation is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]

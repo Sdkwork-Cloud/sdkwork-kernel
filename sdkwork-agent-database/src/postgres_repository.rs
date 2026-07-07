@@ -280,7 +280,7 @@ impl MessageRepository for PostgresDatabase {
         let pool = self.pool.pool().clone();
         let message = message.clone();
         self.pool.run_db(async move {
-            sqlx::query(
+            let insert_result = sqlx::query(
                 "INSERT INTO messages (
                     message_id, session_id, role, content, created_at, metadata_json
                 ) VALUES ($1, $2, $3, $4, $5, $6)
@@ -294,6 +294,18 @@ impl MessageRepository for PostgresDatabase {
             .bind(&message.metadata_json)
             .execute(&pool)
             .await?;
+            if insert_result.rows_affected() == 0 {
+                let existing = sqlx::query(
+                    "SELECT message_id, session_id, role, content, created_at, metadata_json
+                     FROM messages WHERE message_id = $1",
+                )
+                .bind(&message.message_id)
+                .fetch_one(&pool)
+                .await
+                .map_err(map_sqlx_error)?;
+                let existing = map_message_row(&existing)?;
+                crate::message_identity::ensure_message_retry_matches(&existing, &message)?;
+            }
             Ok(())
         })
     }
@@ -765,18 +777,16 @@ impl RuntimeSessionWrites for PostgresDatabase {
                     DatabaseError::NotFound(format!("session not found: {}", message.session_id))
                 })?
             } else {
-                let existing_session_id = sqlx::query_scalar::<_, String>(
-                    "SELECT session_id FROM messages WHERE message_id = $1",
+                let existing = sqlx::query(
+                    "SELECT message_id, session_id, role, content, created_at, metadata_json
+                     FROM messages WHERE message_id = $1",
                 )
                 .bind(&message.message_id)
                 .fetch_one(&mut *tx)
-                .await?;
-                if existing_session_id != message.session_id {
-                    return Err(DatabaseError::ConstraintViolation(format!(
-                        "message {} already belongs to session {}",
-                        message.message_id, existing_session_id
-                    )));
-                }
+                .await
+                .map_err(map_sqlx_error)?;
+                let existing = map_message_row(&existing)?;
+                crate::message_identity::ensure_message_retry_matches(&existing, &message)?;
                 let count = sqlx::query_scalar::<_, i64>(
                     "SELECT message_count FROM sessions WHERE session_id = $1",
                 )
@@ -787,25 +797,27 @@ impl RuntimeSessionWrites for PostgresDatabase {
                     DatabaseError::NotFound(format!("session not found: {}", message.session_id))
                 })?
             };
-            sqlx::query(
-                "INSERT INTO events (
-                    event_id, session_id, event_type, severity, payload, created_at
-                ) VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (event_id) DO UPDATE SET
-                    session_id = EXCLUDED.session_id,
-                    event_type = EXCLUDED.event_type,
-                    severity = EXCLUDED.severity,
-                    payload = EXCLUDED.payload,
-                    created_at = EXCLUDED.created_at",
-            )
-            .bind(&event.event_id)
-            .bind(&event.session_id)
-            .bind(&event.event_type)
-            .bind(&event.severity)
-            .bind(&event.payload)
-            .bind(&event.created_at)
-            .execute(&mut *tx)
-            .await?;
+            if insert_result.rows_affected() > 0 {
+                sqlx::query(
+                    "INSERT INTO events (
+                        event_id, session_id, event_type, severity, payload, created_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (event_id) DO UPDATE SET
+                        session_id = EXCLUDED.session_id,
+                        event_type = EXCLUDED.event_type,
+                        severity = EXCLUDED.severity,
+                        payload = EXCLUDED.payload,
+                        created_at = EXCLUDED.created_at",
+                )
+                .bind(&event.event_id)
+                .bind(&event.session_id)
+                .bind(&event.event_type)
+                .bind(&event.severity)
+                .bind(&event.payload)
+                .bind(&event.created_at)
+                .execute(&mut *tx)
+                .await?;
+            }
             tx.commit().await?;
             Ok(count)
         })

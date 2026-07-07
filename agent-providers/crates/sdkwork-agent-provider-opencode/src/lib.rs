@@ -8,6 +8,11 @@ use sdkwork_agent_provider_core::{
     create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
 };
 
+#[cfg(test)]
+use sdkwork_agent_provider_core::{
+    ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
+};
+
 // ============================================================================
 // OpenCode Message Types
 // ============================================================================
@@ -307,24 +312,16 @@ impl ToolProvider for OpenCodeToolProvider {
     }
 
     fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
-        let output = match call.tool_id.as_str() {
-            "opencode.code_edit" => {
-                format!("[OpenCode CodeEdit] Mock edit: {}", call.arguments)
+        match call.tool_id.as_str() {
+            "opencode.code_edit" | "opencode.terminal" | "opencode.search" => {
+                sdkwork_agent_provider_core::reject_in_process_tool_invoke(
+                    "provider.tool.opencode",
+                )
             }
-            "opencode.terminal" => {
-                format!("[OpenCode Terminal] Mock execution: {}", call.arguments)
-            }
-            "opencode.search" => {
-                format!("[OpenCode Search] Mock search: {}", call.arguments)
-            }
-            _ => {
-                return Err(KernelError::CapabilityMissing {
-                    capability_id: call.tool_id.clone(),
-                });
-            }
-        };
-
-        Ok(ToolResult::succeeded(&call.tool_call_id, output))
+            _ => Err(KernelError::CapabilityMissing {
+                capability_id: call.tool_id.clone(),
+            }),
+        }
     }
 }
 
@@ -532,23 +529,24 @@ mod tests {
     }
 
     #[test]
-    fn model_provider_invoke() {
+    fn model_provider_invoke_requires_transport_worker() {
         let provider = OpenCodeModelProvider::new();
         let request = ModelRequest::new("req.1", vec!["Explain async".to_string()])
             .with_model_id("opencode-default");
-        let response = provider.invoke(request).unwrap();
-        assert_eq!(response.status, ModelStatus::Succeeded);
-        assert_eq!(response.provider_id, "provider.model.opencode");
-        assert!(response.messages[0].contains("Explain async"));
+        let error = provider
+            .invoke(request)
+            .expect_err("in-process model invocation is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]
-    fn model_provider_stream() {
+    fn model_provider_stream_requires_transport_worker() {
         let provider = OpenCodeModelProvider::new();
         let request = ModelRequest::new("req.2", vec!["Hello".to_string()]);
-        let chunks = provider.stream(request).unwrap();
-        assert!(!chunks.is_empty());
-        assert_eq!(chunks[0].sequence, 0);
+        let error = provider
+            .stream(request)
+            .expect_err("in-process model streaming is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     // --- Tool Provider Tests ---
@@ -578,12 +576,13 @@ mod tests {
     }
 
     #[test]
-    fn tool_provider_invoke_success() {
+    fn tool_provider_invoke_requires_transport_worker() {
         let provider = OpenCodeToolProvider::new();
         let call = ToolCall::new("c.1", "opencode.terminal", r#"{"cmd":"echo hello"}"#);
-        let result = provider.invoke_tool(call).unwrap();
-        assert_eq!(result.normalized_status, ToolCallStatus::Succeeded);
-        assert!(result.output.contains("Mock execution"));
+        let error = provider
+            .invoke_tool(call)
+            .expect_err("in-process tool invocation is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]

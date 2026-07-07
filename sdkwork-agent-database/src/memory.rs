@@ -209,6 +209,13 @@ impl MessageRepository for InMemoryDatabase {
             .messages
             .lock()
             .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
+        if let Some(existing) = messages
+            .iter()
+            .find(|row| row.message_id == message.message_id)
+        {
+            crate::message_identity::ensure_message_retry_matches(existing, message)?;
+            return Ok(());
+        }
         messages.push(message.clone());
         Ok(())
     }
@@ -497,28 +504,21 @@ impl RuntimeSessionWrites for InMemoryDatabase {
         let session = sessions.get_mut(&message.session_id).ok_or_else(|| {
             DatabaseError::NotFound(format!("session not found: {}", message.session_id))
         })?;
-        let existing_session_id = messages
+        let existing_message = messages
             .iter()
             .find(|row| row.message_id == message.message_id)
-            .map(|row| row.session_id.clone());
-        if let Some(existing_session_id) = existing_session_id.as_deref() {
-            if existing_session_id != message.session_id {
-                return Err(DatabaseError::ConstraintViolation(format!(
-                    "message {} already belongs to session {}",
-                    message.message_id, existing_session_id
-                )));
-            }
+            .cloned();
+        if let Some(existing_message) = &existing_message {
+            crate::message_identity::ensure_message_retry_matches(existing_message, message)?;
         }
-        let message_is_new = existing_session_id.is_none();
-        messages.retain(|row| row.message_id != message.message_id);
-        messages.push(message.clone());
+        let message_is_new = existing_message.is_none();
         if message_is_new {
+            messages.push(message.clone());
             session.message_count += 1;
             session.updated_at = Some(chrono::Utc::now().to_rfc3339());
+            events.push(event.clone());
         }
         let count = session.message_count;
-        events.retain(|row| row.event_id != event.event_id);
-        events.push(event.clone());
         Ok(count)
     }
 
@@ -631,6 +631,57 @@ mod tests {
     }
 
     #[test]
+    fn save_message_is_idempotent_for_same_row() {
+        let db = InMemoryDatabase::new();
+        let message = MessageRow {
+            message_id: "msg.memory.save.idempotent".to_string(),
+            session_id: "session.memory.save".to_string(),
+            role: "user".to_string(),
+            content: "same payload".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            metadata_json: None,
+        };
+
+        db.save_message(&message).expect("first save");
+        db.save_message(&message).expect("retry save");
+
+        let messages = db
+            .load_messages("session.memory.save", &MessageQuery::default())
+            .expect("messages");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content, "same payload");
+    }
+
+    #[test]
+    fn save_message_rejects_duplicate_message_id_with_different_content() {
+        let db = InMemoryDatabase::new();
+        let message = MessageRow {
+            message_id: "msg.memory.save.conflict".to_string(),
+            session_id: "session.memory.save".to_string(),
+            role: "user".to_string(),
+            content: "original payload".to_string(),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            metadata_json: None,
+        };
+        db.save_message(&message).expect("first save");
+
+        let conflicting = MessageRow {
+            content: "changed payload".to_string(),
+            ..message.clone()
+        };
+        let error = db
+            .save_message(&conflicting)
+            .expect_err("duplicate message id with changed payload must fail");
+        assert!(matches!(error, DatabaseError::ConstraintViolation(_)));
+
+        let messages = db
+            .load_messages("session.memory.save", &MessageQuery::default())
+            .expect("messages");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].content, "original payload");
+    }
+
+    #[test]
     fn health_check() {
         let db = InMemoryDatabase::new();
         assert!(db.health().expect("health"));
@@ -717,6 +768,67 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn append_message_with_event_does_not_write_event_for_duplicate_message_id() {
+        let db = InMemoryDatabase::new();
+        let session_id = "session.memory.duplicate-event";
+        db.save_session(&SessionRow {
+            session_id: session_id.to_string(),
+            agent_id: "agent.1".to_string(),
+            kind: "main".to_string(),
+            source: "test".to_string(),
+            state: "active".to_string(),
+            title: None,
+            model: None,
+            cwd: None,
+            provider_id: None,
+            bridge_id: None,
+            token_usage_json: None,
+            message_count: 0,
+            owner_tenant_id: None,
+            owner_user_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: None,
+            metadata_json: None,
+        })
+        .expect("session saved");
+
+        let message = MessageRow {
+            message_id: "msg.memory.duplicate-event.1".to_string(),
+            session_id: session_id.to_string(),
+            role: "user".to_string(),
+            content: "retry-safe append".to_string(),
+            created_at: "2026-01-01T00:00:01Z".to_string(),
+            metadata_json: None,
+        };
+        let first_event = EventRow {
+            event_id: "evt.memory.duplicate-event.1".to_string(),
+            session_id: Some(session_id.to_string()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: None,
+            created_at: "2026-01-01T00:00:01Z".to_string(),
+        };
+        let retry_event = EventRow {
+            event_id: "evt.memory.duplicate-event.2".to_string(),
+            created_at: "2026-01-01T00:00:02Z".to_string(),
+            ..first_event.clone()
+        };
+
+        db.append_message_with_event(&message, &first_event)
+            .expect("first append");
+        let retry_count = db
+            .append_message_with_event(&message, &retry_event)
+            .expect("retry append");
+
+        let events = db
+            .load_events(session_id, &EventQuery::default())
+            .expect("events");
+        assert_eq!(retry_count, 1);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_id, "evt.memory.duplicate-event.1");
     }
 
     #[test]

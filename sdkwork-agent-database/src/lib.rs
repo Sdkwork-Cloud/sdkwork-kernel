@@ -1,4 +1,5 @@
 mod error;
+mod message_identity;
 mod pagination;
 mod schema;
 mod schema_migrations;

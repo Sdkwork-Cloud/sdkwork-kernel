@@ -2,7 +2,7 @@
 
 use sdkwork_agent_kernel::{
     is_production_kernel_profile_from_env, mock_provider_invocation_allowed_from_env, KernelError,
-    KernelResult, ModelResponse, ModelStreamChunk,
+    KernelResult, ModelResponse, ModelStreamChunk, ToolResult,
 };
 use serde_json::Value;
 
@@ -39,6 +39,14 @@ pub fn reject_in_process_model_invoke(provider_id: &str) -> KernelResult<ModelRe
 /// Model streaming must run through the provider transport worker, not in-process stubs.
 pub fn reject_in_process_model_stream(provider_id: &str) -> KernelResult<Vec<ModelStreamChunk>> {
     reject_direct_mock_provider_invocation(&format!("{provider_id}.stream"))?;
+    Err(KernelError::ProviderUnavailable {
+        provider_id: provider_id.to_string(),
+    })
+}
+
+/// Tool invocation must run through the provider transport worker, not in-process stubs.
+pub fn reject_in_process_tool_invoke(provider_id: &str) -> KernelResult<ToolResult> {
+    reject_direct_mock_provider_invocation(&format!("{provider_id}.tool.invoke"))?;
     Err(KernelError::ProviderUnavailable {
         provider_id: provider_id.to_string(),
     })
@@ -199,5 +207,21 @@ mod tests {
             "messages": ["official sdk response"]
         });
         assert!(validate_runtime_model_payload(&payload).is_ok());
+    }
+
+    #[test]
+    fn in_process_tool_invoke_rejects_without_runtime_worker() {
+        let _lock = env_lock();
+        let _profile = EnvVarGuard::set(KERNEL_PROFILE_ID_ENV, None);
+        let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, None);
+        let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);
+
+        let error = reject_in_process_tool_invoke("provider.tool.codex")
+            .expect_err("direct tool invocation must fail closed");
+
+        assert!(matches!(
+            error,
+            KernelError::ProviderUnavailable { provider_id } if provider_id == "provider.tool.codex"
+        ));
     }
 }

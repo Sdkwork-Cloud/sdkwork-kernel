@@ -140,7 +140,7 @@ Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork
 ## Event streaming
 
 - Persisted session events (`session.created`, `message.sent`, `turn.completed`, `task.*`, etc.) publish through an in-process `SessionEventBus` after durable persistence (SQLite or PostgreSQL).
-- Message persistence uses a single `RuntimeSessionWrites::append_message_with_event` transaction on SQLite and PostgreSQL. Retried appends with the same `message_id` in the same session do not increment `message_count` twice; a duplicate `message_id` for another session fails before an event is written.
+- Message persistence uses a single `RuntimeSessionWrites::append_message_with_event` transaction on SQLite and PostgreSQL. Retried appends with the same `message_id` in the same session do not increment `message_count` twice and do not create a second persisted event; a duplicate `message_id` for another session or a changed payload fails before an event is written.
 - SSE handlers replay up to `200` stored events (standard `page_size` maximum), honor `Last-Event-ID` / `lastEventId` with strict cursor semantics (unknown cursors replay nothing), then subscribe to live bus updates when `live` is true (default).
 - Session event streams consume a bounded SSE connection slot only after the session exists, access is authorized, and bounded replay rows are loaded; invalid or unauthorized stream attempts do not reduce available long-lived connection capacity.
 - Use `live=false` for finite replay-only streams (tests and one-shot catch-up).

@@ -8,6 +8,13 @@ use sdkwork_agent_provider_core::{
     create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
 };
 
+#[cfg(test)]
+use sdkwork_agent_kernel::SessionState;
+#[cfg(test)]
+use sdkwork_agent_provider_core::{
+    ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
+};
+
 // ============================================================================
 // Claude Message Types
 // ============================================================================
@@ -228,7 +235,7 @@ impl Default for ClaudeModelProvider {
 impl ModelProvider for ClaudeModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.claude",
+            "provider.model.claude-code",
             "model",
             "Claude Model Provider",
             "0.1.0",
@@ -249,7 +256,7 @@ impl ModelProvider for ClaudeModelProvider {
         vec![
             ModelDescriptor::new(
                 "claude-opus-4-20250514",
-                "provider.model.claude",
+                "provider.model.claude-code",
                 "Claude Opus 4",
                 "claude",
             )
@@ -267,7 +274,7 @@ impl ModelProvider for ClaudeModelProvider {
             .with_tool_capability("computer_use"),
             ModelDescriptor::new(
                 "claude-sonnet-4-20250514",
-                "provider.model.claude",
+                "provider.model.claude-code",
                 "Claude Sonnet 4",
                 "claude",
             )
@@ -284,7 +291,7 @@ impl ModelProvider for ClaudeModelProvider {
             .with_tool_capability("function_calling"),
             ModelDescriptor::new(
                 "claude-haiku-3-5-20241022",
-                "provider.model.claude",
+                "provider.model.claude-code",
                 "Claude 3.5 Haiku",
                 "claude",
             )
@@ -301,11 +308,11 @@ impl ModelProvider for ClaudeModelProvider {
     }
 
     fn invoke(&self, _request: ModelRequest) -> KernelResult<ModelResponse> {
-        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.model.claude")
+        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.model.claude-code")
     }
 
     fn stream(&self, _request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
-        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.model.claude")
+        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.model.claude-code")
     }
 }
 
@@ -330,7 +337,7 @@ impl Default for ClaudeToolProvider {
 impl ToolProvider for ClaudeToolProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.tool.claude",
+            "provider.tool.claude-code",
             "tool",
             "Claude Tool Provider",
             "0.1.0",
@@ -346,7 +353,7 @@ impl ToolProvider for ClaudeToolProvider {
         vec![
             ToolDescriptor::new(
                 "claude.read",
-                "provider.tool.claude",
+                "provider.tool.claude-code",
                 "Read",
                 SideEffectLevel::ReadOnly,
             )
@@ -356,7 +363,7 @@ impl ToolProvider for ClaudeToolProvider {
             .with_output_schema(ToolSchema::json_schema("claude.read.output")),
             ToolDescriptor::new(
                 "claude.write",
-                "provider.tool.claude",
+                "provider.tool.claude-code",
                 "Write",
                 SideEffectLevel::SideEffectful,
             )
@@ -366,7 +373,7 @@ impl ToolProvider for ClaudeToolProvider {
             .with_output_schema(ToolSchema::json_schema("claude.write.output")),
             ToolDescriptor::new(
                 "claude.bash",
-                "provider.tool.claude",
+                "provider.tool.claude-code",
                 "Bash",
                 SideEffectLevel::SideEffectful,
             )
@@ -376,7 +383,7 @@ impl ToolProvider for ClaudeToolProvider {
             .with_output_schema(ToolSchema::json_schema("claude.bash.output")),
             ToolDescriptor::new(
                 "claude.glob",
-                "provider.tool.claude",
+                "provider.tool.claude-code",
                 "Glob",
                 SideEffectLevel::ReadOnly,
             )
@@ -386,7 +393,7 @@ impl ToolProvider for ClaudeToolProvider {
             .with_output_schema(ToolSchema::json_schema("claude.glob.output")),
             ToolDescriptor::new(
                 "claude.grep",
-                "provider.tool.claude",
+                "provider.tool.claude-code",
                 "Grep",
                 SideEffectLevel::ReadOnly,
             )
@@ -396,7 +403,7 @@ impl ToolProvider for ClaudeToolProvider {
             .with_output_schema(ToolSchema::json_schema("claude.grep.output")),
             ToolDescriptor::new(
                 "claude.edit",
-                "provider.tool.claude",
+                "provider.tool.claude-code",
                 "Edit",
                 SideEffectLevel::SideEffectful,
             )
@@ -406,7 +413,7 @@ impl ToolProvider for ClaudeToolProvider {
             .with_output_schema(ToolSchema::json_schema("claude.edit.output")),
             ToolDescriptor::new(
                 "claude.webfetch",
-                "provider.tool.claude",
+                "provider.tool.claude-code",
                 "WebFetch",
                 SideEffectLevel::ExternalSend,
             )
@@ -418,34 +425,22 @@ impl ToolProvider for ClaudeToolProvider {
     }
 
     fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
-        let output = match call.tool_id.as_str() {
-            "claude.read" => {
-                format!("[Claude Read] Mock read: {}", call.arguments)
+        match call.tool_id.as_str() {
+            "claude.read"
+            | "claude.write"
+            | "claude.bash"
+            | "claude.glob"
+            | "claude.grep"
+            | "claude.edit"
+            | "claude.webfetch" => {
+                sdkwork_agent_provider_core::reject_in_process_tool_invoke(
+                    "provider.tool.claude-code",
+                )
             }
-            "claude.write" => {
-                format!("[Claude Write] Mock write: {}", call.arguments)
-            }
-            "claude.bash" => {
-                format!("[Claude Bash] Mock execution: {}", call.arguments)
-            }
-            "claude.glob" => "[Claude Glob] src/main.rs\nsrc/lib.rs\nCargo.toml".to_string(),
-            "claude.grep" => {
-                format!("[Claude Grep] Mock search: {}", call.arguments)
-            }
-            "claude.edit" => {
-                format!("[Claude Edit] Mock edit: {}", call.arguments)
-            }
-            "claude.webfetch" => {
-                format!("[Claude WebFetch] Mock fetch: {}", call.arguments)
-            }
-            _ => {
-                return Err(KernelError::CapabilityMissing {
-                    capability_id: call.tool_id.clone(),
-                });
-            }
-        };
-
-        Ok(ToolResult::succeeded(&call.tool_call_id, output))
+            _ => Err(KernelError::CapabilityMissing {
+                capability_id: call.tool_id.clone(),
+            }),
+        }
     }
 }
 
@@ -458,7 +453,23 @@ sdkwork_agent_provider_core::define_provider_lifecycle_provider!(
     "claude-code"
 );
 
-// ============================================================================`r`n// Tests
+mod agent_definition;
+mod conformance;
+pub mod ids;
+mod manifest;
+mod package;
+pub mod sdk_integration;
+
+pub use agent_definition::{claude_code_agent_definition, claude_code_agent_manifest};
+pub use conformance::claude_code_conformance_profile;
+pub use manifest::{
+    claude_code_kernel_plugin_manifest, claude_code_provider_manifests, ClaudeCodeKernelPlugin,
+};
+pub use package::claude_code_package_manifest;
+pub use sdk_integration::{claude_code_binding_manifest, ClaudeCodeSdkIntegration};
+
+// ============================================================================
+// Tests
 // ============================================================================
 
 #[cfg(test)]
@@ -680,7 +691,7 @@ mod tests {
     fn model_provider_manifest() {
         let provider = ClaudeModelProvider::new();
         let manifest = provider.provider_manifest();
-        assert_eq!(manifest.provider_id, "provider.model.claude");
+        assert_eq!(manifest.provider_id, "provider.model.claude-code");
         assert_eq!(manifest.provider_family, "model");
         assert!(manifest.capabilities.contains(&"model.chat".to_string()));
         assert!(manifest
@@ -743,7 +754,7 @@ mod tests {
     fn tool_provider_manifest() {
         let provider = ClaudeToolProvider::new();
         let manifest = provider.provider_manifest();
-        assert_eq!(manifest.provider_id, "provider.tool.claude");
+        assert_eq!(manifest.provider_id, "provider.tool.claude-code");
         assert_eq!(manifest.provider_family, "tool");
     }
 
@@ -780,30 +791,33 @@ mod tests {
     }
 
     #[test]
-    fn tool_provider_invoke_read() {
+    fn tool_provider_invoke_read_requires_transport_worker() {
         let provider = ClaudeToolProvider::new();
         let call = ToolCall::new("call.1", "claude.read", r#"{"path":"/tmp/test.txt"}"#);
-        let result = provider.invoke_tool(call).unwrap();
-        assert_eq!(result.normalized_status, ToolCallStatus::Succeeded);
-        assert!(result.output.contains("Mock read"));
+        let error = provider
+            .invoke_tool(call)
+            .expect_err("in-process tool invocation is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]
-    fn tool_provider_invoke_bash() {
+    fn tool_provider_invoke_bash_requires_transport_worker() {
         let provider = ClaudeToolProvider::new();
         let call = ToolCall::new("call.2", "claude.bash", r#"{"command":"echo hello"}"#);
-        let result = provider.invoke_tool(call).unwrap();
-        assert_eq!(result.normalized_status, ToolCallStatus::Succeeded);
-        assert!(result.output.contains("Mock execution"));
+        let error = provider
+            .invoke_tool(call)
+            .expect_err("in-process tool invocation is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]
-    fn tool_provider_invoke_glob() {
+    fn tool_provider_invoke_glob_requires_transport_worker() {
         let provider = ClaudeToolProvider::new();
         let call = ToolCall::new("call.3", "claude.glob", r#"{"pattern":"**/*.rs"}"#);
-        let result = provider.invoke_tool(call).unwrap();
-        assert_eq!(result.normalized_status, ToolCallStatus::Succeeded);
-        assert!(result.output.contains("main.rs"));
+        let error = provider
+            .invoke_tool(call)
+            .expect_err("in-process tool invocation is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]
@@ -912,6 +926,3 @@ mod tests {
         assert_eq!(closed.state, SessionState::Closed);
     }
 }
-
-pub mod sdk_integration;
-pub use sdk_integration::{claude_code_binding_manifest, ClaudeCodeSdkIntegration};

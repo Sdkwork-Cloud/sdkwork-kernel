@@ -19,7 +19,7 @@ DDL for both backends lives in a single pair of migration files:
 
 `schema_migrations.rs` applies SQLite statements; `postgres.rs` applies the PostgreSQL batch. Parity is guarded by `schema_migrations` unit tests and backend contract tests under `tests/`.
 
-Session upserts use `ON CONFLICT ... DO UPDATE` on both backends (never SQLite `INSERT OR REPLACE`, which would cascade-delete child rows). Cross-table message append and message purge use `RuntimeSessionWrites` transactions (`append_message_with_event`, `delete_messages_and_reset_count`). Message append is retry-safe: a duplicate `message_id` for the same session returns the current `message_count` without incrementing it again, and a duplicate `message_id` for a different session fails with `ConstraintViolation` before writing an event.
+Session upserts use `ON CONFLICT ... DO UPDATE` on both backends (never SQLite `INSERT OR REPLACE`, which would cascade-delete child rows). Cross-table message append and message purge use `RuntimeSessionWrites` transactions (`append_message_with_event`, `delete_messages_and_reset_count`). Message identity is immutable: `save_message` accepts an exact duplicate row as an idempotent retry, rejects changed payloads or cross-session `message_id` reuse with `ConstraintViolation`, and preserves the original row. Message append is retry-safe: a duplicate `message_id` for the same session returns the current `message_count` without incrementing it again or writing another event, and a duplicate `message_id` for a different session fails with `ConstraintViolation` before writing an event.
 
 ## Pagination
 

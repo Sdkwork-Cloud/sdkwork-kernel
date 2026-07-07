@@ -9,8 +9,6 @@ use sdkwork_agent_provider_core::{
 };
 
 #[cfg(test)]
-use sdkwork_agent_kernel::{ModelStatus, ToolCallStatus};
-#[cfg(test)]
 use sdkwork_agent_provider_core::{
     ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
 };
@@ -379,33 +377,17 @@ impl ToolProvider for OpenClawToolProvider {
     }
 
     fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
-        let output = match call.tool_id.as_str() {
-            "openclaw.message" => {
-                format!("[OpenClaw Message] Mock send: {}", call.arguments)
-            }
-            "openclaw.sessions_spawn" => {
-                format!(
-                    "[OpenClaw SessionsSpawn] Mock subagent spawn: {}",
-                    call.arguments
-                )
-            }
-            "openclaw.web_search" => {
-                format!(
-                    "[OpenClaw WebSearch] Mock search results for: {}",
-                    call.arguments
-                )
-            }
-            "openclaw.cron" => {
-                format!("[OpenClaw Cron] Mock cron operation: {}", call.arguments)
-            }
-            _ => {
-                return Err(KernelError::CapabilityMissing {
-                    capability_id: call.tool_id.clone(),
-                });
-            }
-        };
-
-        Ok(ToolResult::succeeded(&call.tool_call_id, output))
+        match call.tool_id.as_str() {
+            "openclaw.message"
+            | "openclaw.sessions_spawn"
+            | "openclaw.web_search"
+            | "openclaw.cron" => sdkwork_agent_provider_core::reject_in_process_tool_invoke(
+                "provider.tool.openclaw",
+            ),
+            _ => Err(KernelError::CapabilityMissing {
+                capability_id: call.tool_id.clone(),
+            }),
+        }
     }
 }
 
@@ -675,20 +657,23 @@ mod tests {
     }
 
     #[test]
-    fn model_provider_invoke() {
+    fn model_provider_invoke_requires_transport_worker() {
         let provider = OpenClawModelProvider::new();
         let request = ModelRequest::new("req.1", vec!["Hello".to_string()]);
-        let response = provider.invoke(request).unwrap();
-        assert_eq!(response.status, ModelStatus::Succeeded);
-        assert_eq!(response.provider_id, "provider.model.openclaw");
+        let error = provider
+            .invoke(request)
+            .expect_err("in-process model invocation is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]
-    fn model_provider_stream() {
+    fn model_provider_stream_requires_transport_worker() {
         let provider = OpenClawModelProvider::new();
         let request = ModelRequest::new("req.2", vec!["Hello".to_string()]);
-        let chunks = provider.stream(request).unwrap();
-        assert!(!chunks.is_empty());
+        let error = provider
+            .stream(request)
+            .expect_err("in-process model streaming is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     // --- Tool Provider Tests ---
@@ -705,12 +690,13 @@ mod tests {
     }
 
     #[test]
-    fn tool_provider_invoke_spawn() {
+    fn tool_provider_invoke_spawn_requires_transport_worker() {
         let provider = OpenClawToolProvider::new();
         let call = ToolCall::new("c.1", "openclaw.sessions_spawn", r#"{"task":"fix auth"}"#);
-        let result = provider.invoke_tool(call).unwrap();
-        assert_eq!(result.normalized_status, ToolCallStatus::Succeeded);
-        assert!(result.output.contains("Mock subagent spawn"));
+        let error = provider
+            .invoke_tool(call)
+            .expect_err("in-process tool invocation is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]

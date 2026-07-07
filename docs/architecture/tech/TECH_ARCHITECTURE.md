@@ -381,9 +381,11 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
   Mutex, Postgres connection pool). Blocking persistence operations
   are offloaded via `spawn_blocking`. Cross-table message append is
   transactional and idempotent across SQLite/PostgreSQL: retrying the same
-  `message_id` in one session does not double-increment `message_count`, while
-  a duplicate `message_id` targeting another session is rejected before event
-  publication.
+  `message_id` in one session does not double-increment `message_count` or
+  create a second persisted event, while changed duplicate payloads or a
+  duplicate `message_id` targeting another session are rejected before event
+  publication. Standalone `save_message` keeps the same immutable identity
+  rule across SQLite, PostgreSQL, and the typed in-memory test adapter.
 - **Rate limiter**: O(1) LRU eviction via insertion-order queue instead of
   O(n) scan.
 - **SSE events**: Replay events are assigned sequential indices 0..N,

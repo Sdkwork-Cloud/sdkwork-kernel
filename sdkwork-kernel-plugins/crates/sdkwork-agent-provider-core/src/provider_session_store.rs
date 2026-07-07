@@ -251,6 +251,7 @@ mod tests {
             .expect("listed");
         assert_eq!(listed.len(), 2);
         assert_eq!(listed[0].session_id, first.session_id);
+        assert_eq!(listed[1].session_id, second.session_id);
     }
 
     #[test]

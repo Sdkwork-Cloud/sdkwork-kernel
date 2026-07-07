@@ -1,8 +1,9 @@
 //! SQLite contract tests for agent runtime persistence.
 
 use sdkwork_agent_database::{
-    EventQuery, EventRepository, MessageRepository, MessageRow, PermissionRepository,
-    PermissionRow, RuntimeSessionWrites, SessionRepository, SqliteDatabase, TaskRepository,
+    DatabaseError, EventQuery, EventRepository, MessageRepository, MessageRow,
+    PermissionRepository, PermissionRow, RuntimeSessionWrites, SessionRepository, SqliteDatabase,
+    TaskRepository,
 };
 
 fn migrated_sqlite() -> SqliteDatabase {
@@ -427,6 +428,134 @@ fn sqlite_update_session_preserves_messages() {
 }
 
 #[test]
+fn sqlite_save_message_rejects_duplicate_message_id_with_different_content() {
+    let db = migrated_sqlite();
+    let session_id = "session.runtime.sqlite.save-conflict".to_string();
+
+    db.save_session(&sdkwork_agent_database::SessionRow {
+        session_id: session_id.clone(),
+        agent_id: "agent.runtime".to_string(),
+        kind: "main".to_string(),
+        source: "contract-test".to_string(),
+        state: "active".to_string(),
+        title: None,
+        model: None,
+        cwd: None,
+        provider_id: None,
+        bridge_id: None,
+        token_usage_json: None,
+        message_count: 0,
+        owner_tenant_id: None,
+        owner_user_ref: None,
+        created_at: "2026-06-23T00:00:00Z".to_string(),
+        updated_at: None,
+        metadata_json: None,
+    })
+    .expect("save session");
+
+    let message = MessageRow {
+        message_id: "msg.sqlite.save-conflict.1".to_string(),
+        session_id: session_id.clone(),
+        role: "user".to_string(),
+        content: "original payload".to_string(),
+        created_at: "2026-06-23T00:00:01Z".to_string(),
+        metadata_json: None,
+    };
+    db.save_message(&message).expect("first save");
+
+    let conflicting = MessageRow {
+        content: "changed payload".to_string(),
+        ..message.clone()
+    };
+    let error = db
+        .save_message(&conflicting)
+        .expect_err("duplicate message id with changed payload must fail");
+    assert!(matches!(error, DatabaseError::ConstraintViolation(_)));
+
+    let messages = db
+        .load_messages(
+            &session_id,
+            &sdkwork_agent_database::MessageQuery::default(),
+        )
+        .expect("messages");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].content, "original payload");
+
+    db.delete_session_cascade(&session_id).expect("cascade");
+}
+
+#[test]
+fn sqlite_save_message_rejects_duplicate_message_id_for_different_session() {
+    let db = migrated_sqlite();
+    let first_session_id = "session.runtime.sqlite.save-conflict-a".to_string();
+    let second_session_id = "session.runtime.sqlite.save-conflict-b".to_string();
+
+    for session_id in [&first_session_id, &second_session_id] {
+        db.save_session(&sdkwork_agent_database::SessionRow {
+            session_id: session_id.clone(),
+            agent_id: "agent.runtime".to_string(),
+            kind: "main".to_string(),
+            source: "contract-test".to_string(),
+            state: "active".to_string(),
+            title: None,
+            model: None,
+            cwd: None,
+            provider_id: None,
+            bridge_id: None,
+            token_usage_json: None,
+            message_count: 0,
+            owner_tenant_id: None,
+            owner_user_ref: None,
+            created_at: "2026-06-23T00:00:00Z".to_string(),
+            updated_at: None,
+            metadata_json: None,
+        })
+        .expect("save session");
+    }
+
+    let message = MessageRow {
+        message_id: "msg.sqlite.save-cross-session.1".to_string(),
+        session_id: first_session_id.clone(),
+        role: "user".to_string(),
+        content: "original payload".to_string(),
+        created_at: "2026-06-23T00:00:01Z".to_string(),
+        metadata_json: None,
+    };
+    db.save_message(&message).expect("first save");
+
+    let conflicting = MessageRow {
+        session_id: second_session_id.clone(),
+        ..message
+    };
+    let error = db
+        .save_message(&conflicting)
+        .expect_err("duplicate message id must not move across sessions");
+    assert!(matches!(error, DatabaseError::ConstraintViolation(_)));
+
+    assert_eq!(
+        db.load_messages(
+            &first_session_id,
+            &sdkwork_agent_database::MessageQuery::default()
+        )
+        .expect("first messages")
+        .len(),
+        1
+    );
+    assert!(db
+        .load_messages(
+            &second_session_id,
+            &sdkwork_agent_database::MessageQuery::default()
+        )
+        .expect("second messages")
+        .is_empty());
+
+    db.delete_session_cascade(&first_session_id)
+        .expect("cascade");
+    db.delete_session_cascade(&second_session_id)
+        .expect("cascade");
+}
+
+#[test]
 fn sqlite_append_message_with_event_is_idempotent_for_duplicate_message_id() {
     let db = migrated_sqlite();
     let session_id = "session.runtime.sqlite.idempotent-append".to_string();
@@ -493,6 +622,70 @@ fn sqlite_append_message_with_event_is_idempotent_for_duplicate_message_id() {
             .len(),
         1
     );
+
+    db.delete_session_cascade(&session_id).expect("cascade");
+}
+
+#[test]
+fn sqlite_append_message_with_event_does_not_write_event_for_duplicate_message_id() {
+    let db = migrated_sqlite();
+    let session_id = "session.runtime.sqlite.duplicate-event".to_string();
+
+    db.save_session(&sdkwork_agent_database::SessionRow {
+        session_id: session_id.clone(),
+        agent_id: "agent.runtime".to_string(),
+        kind: "main".to_string(),
+        source: "contract-test".to_string(),
+        state: "active".to_string(),
+        title: None,
+        model: None,
+        cwd: None,
+        provider_id: None,
+        bridge_id: None,
+        token_usage_json: None,
+        message_count: 0,
+        owner_tenant_id: None,
+        owner_user_ref: None,
+        created_at: "2026-06-23T00:00:00Z".to_string(),
+        updated_at: None,
+        metadata_json: None,
+    })
+    .expect("save session");
+
+    let message = MessageRow {
+        message_id: "msg.sqlite.duplicate-event.1".to_string(),
+        session_id: session_id.clone(),
+        role: "user".to_string(),
+        content: "retry-safe append".to_string(),
+        created_at: "2026-06-23T00:00:01Z".to_string(),
+        metadata_json: None,
+    };
+    let first_event = sdkwork_agent_database::EventRow {
+        event_id: "evt.sqlite.duplicate-event.1".to_string(),
+        session_id: Some(session_id.clone()),
+        event_type: "message.sent".to_string(),
+        severity: "info".to_string(),
+        payload: None,
+        created_at: "2026-06-23T00:00:01Z".to_string(),
+    };
+    let retry_event = sdkwork_agent_database::EventRow {
+        event_id: "evt.sqlite.duplicate-event.2".to_string(),
+        created_at: "2026-06-23T00:00:02Z".to_string(),
+        ..first_event.clone()
+    };
+
+    db.append_message_with_event(&message, &first_event)
+        .expect("first append");
+    let retry_count = db
+        .append_message_with_event(&message, &retry_event)
+        .expect("retry append");
+
+    let events = db
+        .load_events(&session_id, &EventQuery::default())
+        .expect("events");
+    assert_eq!(retry_count, 1);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_id, "evt.sqlite.duplicate-event.1");
 
     db.delete_session_cascade(&session_id).expect("cascade");
 }

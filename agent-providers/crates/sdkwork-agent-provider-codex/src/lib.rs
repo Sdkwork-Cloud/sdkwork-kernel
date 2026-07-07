@@ -9,7 +9,7 @@ use sdkwork_agent_provider_core::{
 };
 
 #[cfg(test)]
-use sdkwork_agent_kernel::{SessionState, ToolCallStatus};
+use sdkwork_agent_kernel::SessionState;
 #[cfg(test)]
 use sdkwork_agent_provider_core::{
     ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
@@ -421,28 +421,18 @@ impl ToolProvider for CodexToolProvider {
     }
 
     fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
-        let output = match call.tool_id.as_str() {
-            "codex.execute_command" => {
-                format!("[Codex ExecuteCommand] Mock execution: {}", call.arguments)
+        match call.tool_id.as_str() {
+            "codex.execute_command"
+            | "codex.read_file"
+            | "codex.write_file"
+            | "codex.apply_patch"
+            | "codex.run_tests" => {
+                sdkwork_agent_provider_core::reject_in_process_tool_invoke("provider.tool.codex")
             }
-            "codex.read_file" => {
-                format!("[Codex ReadFile] Mock read: {}", call.arguments)
-            }
-            "codex.write_file" => {
-                format!("[Codex WriteFile] Mock write: {}", call.arguments)
-            }
-            "codex.apply_patch" => {
-                format!("[Codex ApplyPatch] Mock patch applied: {}", call.arguments)
-            }
-            "codex.run_tests" => "[Codex RunTests] All 42 tests passed".to_string(),
-            _ => {
-                return Err(KernelError::CapabilityMissing {
-                    capability_id: call.tool_id.clone(),
-                });
-            }
-        };
-
-        Ok(ToolResult::succeeded(&call.tool_call_id, output))
+            _ => Err(KernelError::CapabilityMissing {
+                capability_id: call.tool_id.clone(),
+            }),
+        }
     }
 }
 
@@ -767,34 +757,37 @@ mod tests {
     }
 
     #[test]
-    fn tool_provider_invoke_success() {
+    fn tool_provider_invoke_requires_transport_worker() {
         let provider = CodexToolProvider::new();
         let call = ToolCall::new("call.1", "codex.run_tests", "{}");
-        let result = provider.invoke_tool(call).unwrap();
-        assert_eq!(result.normalized_status, ToolCallStatus::Succeeded);
-        assert!(result.output.contains("42 tests passed"));
+        let error = provider
+            .invoke_tool(call)
+            .expect_err("in-process tool invocation is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]
-    fn tool_provider_invoke_read_file() {
+    fn tool_provider_invoke_read_file_requires_transport_worker() {
         let provider = CodexToolProvider::new();
         let call = ToolCall::new("call.2", "codex.read_file", r#"{"path":"/tmp/test.txt"}"#);
-        let result = provider.invoke_tool(call).unwrap();
-        assert_eq!(result.normalized_status, ToolCallStatus::Succeeded);
-        assert!(result.output.contains("Mock read"));
+        let error = provider
+            .invoke_tool(call)
+            .expect_err("in-process tool invocation is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]
-    fn tool_provider_invoke_apply_patch() {
+    fn tool_provider_invoke_apply_patch_requires_transport_worker() {
         let provider = CodexToolProvider::new();
         let call = ToolCall::new(
             "call.3",
             "codex.apply_patch",
             r#"{"patch":"--- a/foo\n+++ b/foo"}"#,
         );
-        let result = provider.invoke_tool(call).unwrap();
-        assert_eq!(result.normalized_status, ToolCallStatus::Succeeded);
-        assert!(result.output.contains("Mock patch applied"));
+        let error = provider
+            .invoke_tool(call)
+            .expect_err("in-process tool invocation is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]

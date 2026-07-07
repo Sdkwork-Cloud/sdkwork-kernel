@@ -381,9 +381,9 @@ impl ToolProvider for OpenClawToolProvider {
             "openclaw.message"
             | "openclaw.sessions_spawn"
             | "openclaw.web_search"
-            | "openclaw.cron" => sdkwork_agent_provider_core::reject_in_process_tool_invoke(
-                "provider.tool.openclaw",
-            ),
+            | "openclaw.cron" => {
+                sdkwork_agent_provider_core::reject_in_process_tool_invoke("provider.tool.openclaw")
+            }
             _ => Err(KernelError::CapabilityMissing {
                 capability_id: call.tool_id.clone(),
             }),

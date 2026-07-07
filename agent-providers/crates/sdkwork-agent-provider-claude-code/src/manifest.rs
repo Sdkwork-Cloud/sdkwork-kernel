@@ -40,8 +40,7 @@ pub fn claude_code_kernel_plugin_manifest() -> KernelPluginManifest {
 }
 
 pub fn claude_code_provider_manifests() -> Vec<ProviderManifest> {
-    let integration =
-        ClaudeCodeSdkIntegration::bootstrap().expect("claude-code sdk integration");
+    let integration = ClaudeCodeSdkIntegration::bootstrap().expect("claude-code sdk integration");
     vec![
         integration.model.provider_manifest(),
         integration.tools.provider_manifest(),

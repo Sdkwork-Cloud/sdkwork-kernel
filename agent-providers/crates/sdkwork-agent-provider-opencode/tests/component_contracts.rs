@@ -37,7 +37,10 @@ fn tool_provider_manifest_uses_canonical_provider_id() {
 fn kernel_plugin_manifest_declares_runtime_providers() {
     let manifest = opencode_kernel_plugin_manifest();
     assert_eq!(manifest.plugin_id, "plugin.intelligence.opencode");
-    assert_eq!(manifest.agent_id.as_deref(), Some("agent.intelligence.opencode"));
+    assert_eq!(
+        manifest.agent_id.as_deref(),
+        Some("agent.intelligence.opencode")
+    );
     assert!(manifest
         .provider_ids
         .contains(&"provider.model.opencode".to_string()));
@@ -79,5 +82,8 @@ fn kernel_plugin_configures_runtime() {
         plugin.plugin_manifest().plugin_id,
         "plugin.intelligence.opencode"
     );
-    assert_eq!(plugin.agent_manifest().agent_id, "agent.intelligence.opencode");
+    assert_eq!(
+        plugin.agent_manifest().agent_id,
+        "agent.intelligence.opencode"
+    );
 }

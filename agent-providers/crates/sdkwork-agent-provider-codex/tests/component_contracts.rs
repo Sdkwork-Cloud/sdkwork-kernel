@@ -37,7 +37,10 @@ fn tool_provider_manifest_uses_canonical_provider_id() {
 fn kernel_plugin_manifest_declares_runtime_providers() {
     let manifest = codex_kernel_plugin_manifest();
     assert_eq!(manifest.plugin_id, "plugin.intelligence.codex");
-    assert_eq!(manifest.agent_id.as_deref(), Some("agent.intelligence.codex"));
+    assert_eq!(
+        manifest.agent_id.as_deref(),
+        Some("agent.intelligence.codex")
+    );
     assert!(manifest
         .provider_ids
         .contains(&"provider.model.codex".to_string()));
@@ -75,6 +78,9 @@ fn agent_definition_binds_model_tool_and_policy() {
 #[test]
 fn kernel_plugin_configures_runtime() {
     let plugin = CodexKernelPlugin::new();
-    assert_eq!(plugin.plugin_manifest().plugin_id, "plugin.intelligence.codex");
+    assert_eq!(
+        plugin.plugin_manifest().plugin_id,
+        "plugin.intelligence.codex"
+    );
     assert_eq!(plugin.agent_manifest().agent_id, "agent.intelligence.codex");
 }

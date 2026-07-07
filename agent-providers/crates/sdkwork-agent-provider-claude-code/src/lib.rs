@@ -426,13 +426,8 @@ impl ToolProvider for ClaudeToolProvider {
 
     fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
         match call.tool_id.as_str() {
-            "claude.read"
-            | "claude.write"
-            | "claude.bash"
-            | "claude.glob"
-            | "claude.grep"
-            | "claude.edit"
-            | "claude.webfetch" => {
+            "claude.read" | "claude.write" | "claude.bash" | "claude.glob" | "claude.grep"
+            | "claude.edit" | "claude.webfetch" => {
                 sdkwork_agent_provider_core::reject_in_process_tool_invoke(
                     "provider.tool.claude-code",
                 )

@@ -314,9 +314,7 @@ impl ToolProvider for OpenCodeToolProvider {
     fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
         match call.tool_id.as_str() {
             "opencode.code_edit" | "opencode.terminal" | "opencode.search" => {
-                sdkwork_agent_provider_core::reject_in_process_tool_invoke(
-                    "provider.tool.opencode",
-                )
+                sdkwork_agent_provider_core::reject_in_process_tool_invoke("provider.tool.opencode")
             }
             _ => Err(KernelError::CapabilityMissing {
                 capability_id: call.tool_id.clone(),

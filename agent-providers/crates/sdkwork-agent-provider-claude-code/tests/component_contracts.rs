@@ -41,7 +41,10 @@ fn tool_provider_manifest_uses_canonical_provider_id() {
 fn kernel_plugin_manifest_declares_runtime_providers() {
     let manifest = claude_code_kernel_plugin_manifest();
     assert_eq!(manifest.plugin_id, "plugin.intelligence.claude-code");
-    assert_eq!(manifest.agent_id.as_deref(), Some("agent.intelligence.claude-code"));
+    assert_eq!(
+        manifest.agent_id.as_deref(),
+        Some("agent.intelligence.claude-code")
+    );
     assert!(manifest
         .provider_ids
         .contains(&"provider.model.claude-code".to_string()));

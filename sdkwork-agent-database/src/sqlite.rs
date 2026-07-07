@@ -16,14 +16,7 @@ impl SqliteDatabase {
         let conn = Connection::open(path)
             .map_err(|e| DatabaseError::Connection(format!("failed to open database: {}", e)))?;
 
-        // Enable WAL mode for better concurrent access
-        conn.execute_batch("PRAGMA journal_mode=WAL")
-            .map_err(|e| DatabaseError::Connection(format!("failed to set WAL mode: {}", e)))?;
-
-        // Enable foreign keys
-        conn.execute_batch("PRAGMA foreign_keys=ON").map_err(|e| {
-            DatabaseError::Connection(format!("failed to enable foreign keys: {}", e))
-        })?;
+        apply_file_pragmas(&conn)?;
 
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
@@ -36,14 +29,36 @@ impl SqliteDatabase {
             DatabaseError::Connection(format!("failed to open in-memory database: {}", e))
         })?;
 
-        conn.execute_batch("PRAGMA foreign_keys=ON").map_err(|e| {
-            DatabaseError::Connection(format!("failed to enable foreign keys: {}", e))
-        })?;
+        apply_common_pragmas(&conn)?;
 
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
     }
+}
+
+fn apply_file_pragmas(conn: &Connection) -> DatabaseResult<()> {
+    conn.execute_batch(
+        r#"
+        PRAGMA journal_mode=WAL;
+        PRAGMA synchronous=NORMAL;
+        "#,
+    )
+    .map_err(|e| DatabaseError::Connection(format!("failed to apply SQLite WAL pragmas: {e}")))?;
+    apply_common_pragmas(conn)
+}
+
+fn apply_common_pragmas(conn: &Connection) -> DatabaseResult<()> {
+    conn.execute_batch(
+        r#"
+        PRAGMA busy_timeout=5000;
+        PRAGMA foreign_keys=ON;
+        PRAGMA cache_size=-64000;
+        PRAGMA temp_store=MEMORY;
+        PRAGMA mmap_size=268435456;
+        "#,
+    )
+    .map_err(|e| DatabaseError::Connection(format!("failed to apply SQLite pragmas: {e}")))
 }
 
 impl AgentDatabase for SqliteDatabase {
@@ -205,5 +220,40 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].get_string("id").expect("id"), "1");
         assert_eq!(rows[0].get_string("name").expect("name"), "test");
+    }
+
+    #[test]
+    fn sqlite_file_connections_apply_standard_pragmas() {
+        let path = std::env::temp_dir().join(format!(
+            "sdkwork-agent-db-pragmas-{}.sqlite",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let db = SqliteDatabase::new(path.to_str().expect("utf-8 temp path")).expect("created");
+        let conn = db.conn.lock().expect("sqlite lock");
+
+        let busy_timeout: i64 = conn
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .expect("busy_timeout");
+        let synchronous: i64 = conn
+            .query_row("PRAGMA synchronous", [], |row| row.get(0))
+            .expect("synchronous");
+        let cache_size: i64 = conn
+            .query_row("PRAGMA cache_size", [], |row| row.get(0))
+            .expect("cache_size");
+        let temp_store: i64 = conn
+            .query_row("PRAGMA temp_store", [], |row| row.get(0))
+            .expect("temp_store");
+        let mmap_size: i64 = conn
+            .query_row("PRAGMA mmap_size", [], |row| row.get(0))
+            .expect("mmap_size");
+
+        assert_eq!(busy_timeout, 5_000);
+        assert_eq!(synchronous, 1, "SQLite NORMAL synchronous mode is 1");
+        assert_eq!(cache_size, -64_000);
+        assert_eq!(temp_store, 2, "SQLite MEMORY temp_store mode is 2");
+        assert_eq!(mmap_size, 268_435_456);
+        drop(conn);
+        let _ = std::fs::remove_file(path);
     }
 }

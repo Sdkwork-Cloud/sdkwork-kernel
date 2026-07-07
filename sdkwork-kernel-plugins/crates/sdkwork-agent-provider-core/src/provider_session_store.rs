@@ -1,7 +1,14 @@
 use crate::{create_session_from_config, now_iso, uuid_simple, SessionConfig};
 use sdkwork_agent_kernel::{AgentMessage, AgentSession, KernelError, KernelResult, SessionState};
+use sdkwork_utils_rust::DEFAULT_LIST_PAGE_SIZE;
 use std::collections::HashMap;
 use std::sync::Mutex;
+
+/// Maximum provider-local sessions retained in process memory per adapter.
+const MAX_PROVIDER_SESSIONS: usize = 10_000;
+
+/// Maximum conversation messages retained per provider-local session.
+const MAX_PROVIDER_CONVERSATION_MESSAGES: usize = 10_000;
 
 /// Filters for listing persisted provider sessions.
 #[derive(Debug, Clone, Default)]
@@ -60,6 +67,11 @@ impl InMemoryProviderSessionStore {
             .push(("provider_id".to_string(), self.provider_id.clone()));
 
         let mut inner = self.lock_inner()?;
+        if inner.sessions.len() >= MAX_PROVIDER_SESSIONS {
+            return Err(KernelError::validation(format!(
+                "provider session store capacity exceeded ({MAX_PROVIDER_SESSIONS})"
+            )));
+        }
         inner.sessions.insert(session_id, session.clone());
         inner
             .conversations
@@ -118,7 +130,8 @@ impl InMemoryProviderSessionStore {
 
         sort_sessions_by_updated_at(&mut sessions);
 
-        if let Some(limit) = query.limit {
+        let limit = query.limit.unwrap_or(DEFAULT_LIST_PAGE_SIZE as usize);
+        if sessions.len() > limit {
             sessions.truncate(limit);
         }
 
@@ -155,6 +168,14 @@ impl InMemoryProviderSessionStore {
             .entry(session_id.to_string())
             .or_default()
             .push(message);
+        let conversation = inner
+            .conversations
+            .get_mut(session_id)
+            .expect("conversation exists after push");
+        if conversation.len() > MAX_PROVIDER_CONVERSATION_MESSAGES {
+            let overflow = conversation.len() - MAX_PROVIDER_CONVERSATION_MESSAGES;
+            conversation.drain(0..overflow);
+        }
         if let Some(session) = inner.sessions.get_mut(session_id) {
             session.message_count = session.message_count.saturating_add(1);
             touch_session(session);

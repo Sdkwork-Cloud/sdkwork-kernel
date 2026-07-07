@@ -100,7 +100,7 @@ impl Default for ServerConfig {
             ],
             request_timeout_secs: 30,
             max_body_size: 10 * 1024 * 1024, // 10MB
-            health_path: "/health".to_string(),
+            health_path: "/healthz".to_string(),
             database_path: "./data/agent-server.sqlite".to_string(),
             runtime_database_engine: "sqlite".to_string(),
             deployment_profile: None,

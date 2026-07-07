@@ -1,0 +1,59 @@
+name: Kernel staging live SDK
+
+on:
+  workflow_dispatch:
+    inputs:
+      framework:
+        description: Provider framework to exercise against staging credentials.
+        required: true
+        default: codex
+        type: choice
+        options:
+          - codex
+          - claude
+          - gemini
+          - opencode
+          - openclaw
+          - all
+
+permissions:
+  contents: read
+
+jobs:
+  staging-live-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout sdkwork-birdcoder sibling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/sdkwork-birdcoder
+          path: .workspace-deps/sdkwork-birdcoder
+          ref: main
+
+      - name: Link birdcoder workspace for SDK package resolution
+        run: ln -sfn "$GITHUB_WORKSPACE/.workspace-deps/sdkwork-birdcoder" ../sdkwork-birdcoder
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Staging contract (credential-free)
+        run: node scripts/provider-transport-workers/engine-sdk-live-staging.test.mjs
+
+      - name: Opt-in live SDK invoke gate
+        env:
+          SDKWORK_KERNEL_STAGING_LIVE_SDK: '1'
+          SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS: '1'
+          SDKWORK_KERNEL_PROFILE_ID: cloud.split-services.production
+          SDKWORK_KERNEL_ENVIRONMENT: production
+          SDKWORK_AGENT_SDK_WORKSPACE_ROOT: ${{ github.workspace }}/../sdkwork-birdcoder
+          OPENAI_API_KEY: ${{ secrets.STAGING_OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.STAGING_ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.STAGING_GEMINI_API_KEY }}
+          GOOGLE_API_KEY: ${{ secrets.STAGING_GOOGLE_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.STAGING_OPENCODE_API_KEY }}
+          OPENCLAW_GATEWAY_URL: ${{ secrets.STAGING_OPENCLAW_GATEWAY_URL }}
+          OPENCLAW_GATEWAY_TOKEN: ${{ secrets.STAGING_OPENCLAW_GATEWAY_TOKEN }}
+        run: node scripts/provider-transport-workers/engine-sdk-live-staging.mjs --framework ${{ inputs.framework }}

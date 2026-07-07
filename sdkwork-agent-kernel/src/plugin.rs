@@ -334,14 +334,26 @@ impl PluginRegistry {
 
     /// Initialize all plugins
     pub fn initialize_all(&self) -> KernelResult<Vec<String>> {
-        let plugins = handle_lock_error(self.plugins.read())?;
+        let plugin_handles: Vec<(String, Arc<RwLock<Box<dyn Plugin>>>, PluginContext)> = {
+            let plugins = handle_lock_error(self.plugins.read())?;
+            plugins
+                .iter()
+                .map(|(plugin_id, entry)| {
+                    (
+                        plugin_id.clone(),
+                        Arc::clone(&entry.plugin),
+                        entry.context.clone(),
+                    )
+                })
+                .collect()
+        };
         let mut initialized = Vec::new();
         let mut errors = Vec::new();
 
-        for (plugin_id, entry) in plugins.iter() {
-            let mut plugin = handle_lock_error(entry.plugin.write())?;
-            match plugin.initialize(&entry.context) {
-                Ok(()) => initialized.push(plugin_id.clone()),
+        for (plugin_id, plugin_handle, context) in plugin_handles {
+            let mut plugin = handle_lock_error(plugin_handle.write())?;
+            match plugin.initialize(&context) {
+                Ok(()) => initialized.push(plugin_id),
                 Err(e) => errors.push(format!("{}: {}", plugin_id, e)),
             }
         }
@@ -379,14 +391,20 @@ impl PluginRegistry {
 
     /// Activate all initialized plugins
     pub fn activate_all(&self) -> KernelResult<Vec<String>> {
-        let plugins = handle_lock_error(self.plugins.read())?;
+        let plugin_handles: Vec<(String, Arc<RwLock<Box<dyn Plugin>>>)> = {
+            let plugins = handle_lock_error(self.plugins.read())?;
+            plugins
+                .iter()
+                .map(|(plugin_id, entry)| (plugin_id.clone(), Arc::clone(&entry.plugin)))
+                .collect()
+        };
         let mut activated = Vec::new();
 
-        for (plugin_id, entry) in plugins.iter() {
-            let mut plugin = handle_lock_error(entry.plugin.write())?;
+        for (plugin_id, plugin_handle) in plugin_handles {
+            let mut plugin = handle_lock_error(plugin_handle.write())?;
             if plugin.state().can_activate() {
                 plugin.activate()?;
-                activated.push(plugin_id.clone());
+                activated.push(plugin_id);
             }
         }
 
@@ -497,11 +515,17 @@ impl PluginRegistry {
 
     /// Shutdown all plugins
     pub fn shutdown_all(&self) -> KernelResult<()> {
-        let plugins = handle_lock_error(self.plugins.read())?;
+        let plugin_handles: Vec<(String, Arc<RwLock<Box<dyn Plugin>>>)> = {
+            let plugins = handle_lock_error(self.plugins.read())?;
+            plugins
+                .iter()
+                .map(|(plugin_id, entry)| (plugin_id.clone(), Arc::clone(&entry.plugin)))
+                .collect()
+        };
         let mut errors = Vec::new();
 
-        for (plugin_id, entry) in plugins.iter() {
-            let mut plugin = handle_lock_error(entry.plugin.write())?;
+        for (plugin_id, plugin_handle) in plugin_handles {
+            let mut plugin = handle_lock_error(plugin_handle.write())?;
             if let Err(e) = plugin.shutdown() {
                 errors.push(format!("{}: {}", plugin_id, e));
             }

@@ -50,9 +50,7 @@ impl ProblemDetail {
         let trace_id = self
             .trace_id
             .unwrap_or_else(|| "00000000-0000-0000-0000-000000000000".to_string());
-        let detail = self
-            .detail
-            .unwrap_or_else(|| code.title().to_string());
+        let detail = self.detail.unwrap_or_else(|| code.title().to_string());
         let mut problem = SdkWorkProblemDetail::platform(code, detail, trace_id);
         problem.instance = self.instance;
         problem

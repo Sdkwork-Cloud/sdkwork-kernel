@@ -56,17 +56,18 @@ export function runKernelStandardsCheck() {
 
   ensureFile(path.join('scripts', 'check-agent-sdk-workspace.mjs'));
   ensureFile(path.join('scripts', 'check-agent-provider-bindings.mjs'));
-  const agentSdkWorkspaceCheck = spawnSync(
+const agentSdkWorkspaceCheck = spawnSync(
     process.execPath,
     [path.join(kernelRoot, 'scripts', 'check-agent-sdk-workspace.mjs')],
     {
       cwd: kernelRoot,
-      encoding: 'utf8'
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024
     }
   );
   if (agentSdkWorkspaceCheck.status !== 0) {
     errors.push(
-      `agent SDK workspace check failed:\n${agentSdkWorkspaceCheck.stdout}${agentSdkWorkspaceCheck.stderr}`
+      `agent SDK workspace check failed:\n${agentSdkWorkspaceCheck.error?.message ?? ''}\n${agentSdkWorkspaceCheck.stdout}${agentSdkWorkspaceCheck.stderr}`
     );
   }
 
@@ -75,12 +76,13 @@ export function runKernelStandardsCheck() {
     [path.join(kernelRoot, 'scripts', 'check-agent-provider-bindings.mjs')],
     {
       cwd: kernelRoot,
-      encoding: 'utf8'
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024
     }
   );
   if (agentProviderBindingCheck.status !== 0) {
     errors.push(
-      `agent provider binding check failed:\n${agentProviderBindingCheck.stdout}${agentProviderBindingCheck.stderr}`
+      `agent provider binding check failed:\n${agentProviderBindingCheck.error?.message ?? ''}\n${agentProviderBindingCheck.stdout}${agentProviderBindingCheck.stderr}`
     );
   }
 

@@ -1,6 +1,6 @@
 use crate::{
-    AgentArtifact, AgentMessage, AgentTask, EventStreamItem, KernelError, KernelErrorKind,
-    KernelEvent, KernelEventRedaction, KernelResult, ProviderHealth, TraceContext,
+    AgentArtifact, AgentMessage, AgentPart, AgentTask, EventStreamItem, KernelError,
+    KernelErrorKind, KernelEvent, KernelEventRedaction, KernelResult, ProviderHealth, TraceContext,
 };
 
 pub trait ProtocolAdapter {
@@ -441,6 +441,8 @@ impl ProtocolObjectEnvelope {
 pub trait ProtocolObjectMapper {
     fn map_message(&self, message: &AgentMessage) -> KernelResult<ProtocolObjectEnvelope>;
 
+    fn map_part(&self, part: &AgentPart) -> KernelResult<ProtocolObjectEnvelope>;
+
     fn map_artifact(&self, artifact: &AgentArtifact) -> KernelResult<ProtocolObjectEnvelope>;
 
     fn map_event(&self, event: &KernelEvent) -> KernelResult<ProtocolObjectEnvelope>;
@@ -498,6 +500,47 @@ impl ProtocolObjectMapper for StandardProtocolObjectMapper {
 
         if let Some(trace_context) = &message.trace_context {
             envelope = envelope.with_trace_context(trace_context.clone());
+        }
+
+        envelope.validate()?;
+        Ok(envelope)
+    }
+
+    fn map_part(&self, part: &AgentPart) -> KernelResult<ProtocolObjectEnvelope> {
+        if part.part_id.trim().is_empty() {
+            return Err(KernelError::validation("agent parts must have a part_id"));
+        }
+
+        let summary = match (&part.text, &part.json, &part.content_ref, &part.artifact_id) {
+            (Some(text), _, _, _) => format!("kind={};text_len={}", part.kind.as_str(), text.len()),
+            (_, Some(json), _, _) => format!("kind={};json_len={}", part.kind.as_str(), json.len()),
+            (_, _, Some(content_ref), _) => {
+                format!("kind={};content_ref={content_ref}", part.kind.as_str())
+            }
+            (_, _, _, Some(artifact_id)) => {
+                format!("kind={};artifact_id={artifact_id}", part.kind.as_str())
+            }
+            _ => format!("kind={}", part.kind.as_str()),
+        };
+
+        let mut envelope = ProtocolObjectEnvelope::new(
+            self.protocol,
+            ProtocolObjectKind::AgentPart,
+            part.part_id.clone(),
+            summary,
+        )
+        .with_schema("sdkwork.agent.part.v1")
+        .with_metadata("sdkwork.part.kind", part.kind.as_str())
+        .with_redaction(part.redaction_classification);
+
+        if let Some(mime_type) = &part.mime_type {
+            envelope = envelope.with_metadata("sdkwork.part.mime_type", mime_type.clone());
+        }
+        if let Some(content_ref) = &part.content_ref {
+            envelope = envelope.with_metadata("sdkwork.part.content_ref", content_ref.clone());
+        }
+        if let Some(artifact_id) = &part.artifact_id {
+            envelope = envelope.with_metadata("sdkwork.part.artifact_id", artifact_id.clone());
         }
 
         envelope.validate()?;

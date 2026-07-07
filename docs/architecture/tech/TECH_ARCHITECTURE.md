@@ -2,7 +2,7 @@
 
 Status: active
 Owner: SDKWork kernel maintainers
-Updated: 2026-06-27
+Updated: 2026-07-08
 Specs: [ARCHITECTURE_DECISION_SPEC.md](../../../sdkwork-specs/ARCHITECTURE_DECISION_SPEC.md), [DOCUMENTATION_SPEC.md](../../../sdkwork-specs/DOCUMENTATION_SPEC.md), [RUST_CODE_SPEC.md](../../../sdkwork-specs/RUST_CODE_SPEC.md), [INTERNAL_API_SPEC.md](../../../sdkwork-specs/INTERNAL_API_SPEC.md), [SECURITY_SPEC.md](../../../sdkwork-specs/SECURITY_SPEC.md)
 
 ## Document Map
@@ -12,6 +12,8 @@ Specs: [ARCHITECTURE_DECISION_SPEC.md](../../../sdkwork-specs/ARCHITECTURE_DECIS
 | Shard | Topic |
 | --- | --- |
 | [TECH-01-kernel-module-reference.md](TECH-01-kernel-module-reference.md) | Crate reference, entrypoints, env vars, bootstrap sequence |
+| [TECH-02-provider-framework-matrix.md](TECH-02-provider-framework-matrix.md) | Framework capability matrix (Codex, Claude Code, OpenCode, OpenClaw, Hermes, Rig) |
+| [TECH-03-spi-implementation-gap-tracker.md](TECH-03-spi-implementation-gap-tracker.md) | SPI gaps, commercial scorecard, cross-repo alignment |
 | [TECH-2026-06-14-multi-mode-agent-system.md](TECH-2026-06-14-multi-mode-agent-system.md) | Server plugins, client bridge, provider crates |
 | [TECH-2026-06-10-agent-execution-loop.md](TECH-2026-06-10-agent-execution-loop.md) | Turn loop, planning, tool execution |
 | [TECH-2026-06-10-sdkwork-kernel-plugin-system.md](TECH-2026-06-10-sdkwork-kernel-plugin-system.md) | Kernel plugin manifests and contribution |
@@ -189,10 +191,12 @@ TypeScript SDK is regenerated via `node sdks/workspace-agent-sdkgen.mjs --mode a
 | `runtime.sessions.tools.execute` | POST | `/sessions/{sessionId}/tools/{toolName}/execute` | `tool.invoke` |
 | `runtime.sessions.events.stream` | GET (SSE) | `/sessions/{sessionId}/events/stream` | `subscribe_events` |
 
-The `/manifest`, `/health`, and `/diagnostics` endpoints are side-effect-free
-and suitable for UI clients, CI gates, load-balancer probes, and conformance
-runners. `/health` combines runtime state with persistence health and may
-return `503` with `application/problem+json` when degraded.
+The `/manifest`, `/health`, and `/diagnostics` internal runtime endpoints are
+side-effect-free and suitable for UI clients, CI gates, and conformance runners.
+The infrastructure probes used by load balancers and orchestrators are
+`/healthz`, `/readyz`, and `/livez`; they intentionally return minimal probe
+bodies. Internal runtime `/health` combines runtime state with persistence
+health and may return `503` with `application/problem+json` when degraded.
 
 ### SDK families
 
@@ -214,11 +218,12 @@ Provider binding negotiation, bootstrap flow, and transport priority are documen
 
 ### Agent kernel SPI provider families
 
-The `sdkwork-agent-kernel` crate defines 18 standard provider families. Each
-family is registered through `RuntimeBuilder` and resolved at runtime via
-`AgentRuntime` accessor methods. The `RuntimeProviderRegistry` maintains both
-a primary (first-registered) provider and a multi-provider list for each
-family, enabling provider-by-id lookup and multi-provider fan-out.
+The `sdkwork-agent-kernel` crate defines **18 core** and **6 extension** provider
+families (see `AGENT_KERNEL_SPEC.md` §3.4). Each core family is registered through
+`RuntimeBuilder` and resolved at runtime via `AgentRuntime` accessor methods. The
+`RuntimeProviderRegistry` maintains both a primary (first-registered) provider and
+a multi-provider list for each family, enabling provider-by-id lookup and
+multi-provider fan-out.
 
 | Provider family | SPI trait | Capability IDs | Side-effect profile |
 | --- | --- | --- | --- |
@@ -241,6 +246,11 @@ family, enabling provider-by-id lookup and multi-provider fan-out.
 | `agent_installer` | `AgentInstaller` | `agent.install`, `agent.uninstall`, `agent.upgrade` | Side-effectful / Destructive |
 | `agent_configuration` | `AgentConfigurationProvider` | `agent.configure` | Side-effectful |
 
+Extension families (see `AGENT_KERNEL_SPEC.md` §3.4): `sandbox`, `secret`,
+`rate_limit`, `cancellation`, `model_stream`, `backend_health`. Orchestration
+primitives and A2A adapters are specified in `MULTI_AGENT_ORCHESTRATION_SPEC.md`
+and `A2A_PROTOCOL_ADAPTER_SPEC.md`.
+
 Each capability ID maps to `CapabilityMetadata` (operations, `SideEffectLevel`,
 `PolicyCategory`) via the `capability_metadata` function, enabling the policy
 layer to enforce fail-closed security decisions based on the side-effect
@@ -258,9 +268,11 @@ classification of each operation.
   (fail-closed) rather than allowing requests unconditionally.
 - **Tenant token quota**: Uses an atomic **reserve-and-adjust** pattern
   (Redis Lua script) to eliminate the TOCTOU race between quota check and
-  usage recording. When Redis is unavailable and the tenant has a configured
-  quota, requests are rejected with 503 (Service Unavailable) to prevent
-  billing abuse during outages.
+  usage recording. Reservation is capped by the tenant's configured daily
+  limit, and the adjustment phase uses the same reserved amount so small
+  quotas cannot drive Redis counters negative. When Redis is unavailable and
+  the tenant has a configured quota, requests are rejected with 503 (Service
+  Unavailable) to prevent billing abuse during outages.
 - **JWKS URL**: Enforced HTTPS in production at both the preflight check
   and the runtime refresh path to prevent MITM key replacement. JWKS refresh
   (file I/O and HTTP fetch) is offloaded to `spawn_blocking` to avoid
@@ -352,13 +364,26 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
 ### Performance architecture
 
 - **RuntimeState**: Uses `RwLock` instead of `Mutex` to allow concurrent
-  read operations (model invocation, tool listing) while serializing
-  writes (session registration, message sending).
+  local bridge reads (model request preparation, model/tool catalog lookup)
+  while serializing writes (session registration, message state updates). Model
+  invoke, stream, cancel, and message-turn paths clone the model bridge or build
+  the session-scoped request under the bridge lock, then execute provider calls
+  outside the lock so slow provider I/O does not block unrelated bridge
+  mutations. Message turns retain a per-session mutex so concurrent turns in
+  the same session do not interleave user and assistant messages. Session close
+  and delete paths release bridge-owned session/history/event state and the
+  per-session turn lock. Bridge event snapshots are bounded per session and
+  globally, so high-churn short sessions do not leave unbounded transient
+  runtime entries behind.
 - **PersistenceState**: Uses `Arc<UnifiedSessionManager>` instead of
   `Arc<Mutex<...>>` — the session manager methods take `&self`, and
   underlying repositories handle their own concurrency (SQLite internal
   Mutex, Postgres connection pool). Blocking persistence operations
-  are offloaded via `spawn_blocking`.
+  are offloaded via `spawn_blocking`. Cross-table message append is
+  transactional and idempotent across SQLite/PostgreSQL: retrying the same
+  `message_id` in one session does not double-increment `message_count`, while
+  a duplicate `message_id` targeting another session is rejected before event
+  publication.
 - **Rate limiter**: O(1) LRU eviction via insertion-order queue instead of
   O(n) scan.
 - **SSE events**: Replay events are assigned sequential indices 0..N,
@@ -367,9 +392,13 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
 - **SSE connection cap**: `AtomicU32` counter enforces a per-server
   maximum of 256 concurrent streams with RAII decrement via
   `CountedStream`.
+- **Model stream provider state**: In-memory stream provider slots are released
+  by `finalize_stream`, so completed streams do not keep occupying
+  `max_concurrent` capacity in long-running runtimes.
 - **Token quota**: Atomic Lua-script-based reservation eliminates the
   TOCTOU race; pre-reserved tokens are adjusted to actual usage after
-  model invocation completes.
+  model invocation completes using the same bounded reservation amount.
+  Zero-quota tenants fail before invocation and do not accrue adjustment usage.
 - **List pagination**: List endpoints use `page` and `page_size` query parameters
   (default page size 20, max 200) with offset-mode `PageInfo` in
   `SdkWorkApiResponse` envelopes per `PAGINATION_SPEC.md`.
@@ -377,7 +406,25 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
   HMAC, AES-256-GCM, HKDF, and ID generation to reduce cross-crate
   code duplication.
 
-## 8. Architecture Decision Index
+## 8. Ecosystem And Sibling Applications
+
+Kernel is one layer in the SDKWork agent platform. Products **must** consume agent
+runtime through `sdkwork-agents`; BirdCoder additionally owns code-workbench
+product routes and `sdkwork-code-kernel` semantics.
+
+| Repository | Role | Kernel relationship |
+| --- | --- | --- |
+| `sdkwork-agents` | Managed agents, `ai_*` store, open/app/backend APIs, runtime facade | Merges kernel internal router via kernel-bridge |
+| `sdkwork-birdcoder` | Multi engine IDE (Codex, Claude Code, OpenCode, …) | `sdkwork-agents-runtime-facade` only — no `sdkwork-agent-provider-*` |
+| `sdkwork-memory`, `sdkwork-knowledgebase`, … | Capability modules | Referenced by agents composition slots |
+
+Canon: [PRD-04-ecosystem-architecture.md](../../product/prd/PRD-04-ecosystem-architecture.md).
+
+Framework comparison: [TECH-02-provider-framework-matrix.md](TECH-02-provider-framework-matrix.md).
+
+SPI gap and commercial scorecard: [TECH-03-spi-implementation-gap-tracker.md](TECH-03-spi-implementation-gap-tracker.md).
+
+## 9. Architecture Decision Index
 
 | ID | Title | Status |
 | --- | --- | --- |
@@ -387,8 +434,9 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
 | [ADR-20260618](../decisions/ADR-20260618-platform-framework-adoption.md) | Platform framework adoption | Accepted |
 | [ADR-20260612](../decisions/ADR-20260612-agent-implementation-type.md) | Agent implementation type | Accepted |
 | [ADR-20260612](../decisions/ADR-20260612-sdkwork-kernel-root-dictionary.md) | Kernel root dictionary | Accepted |
+| [ADR-20260628](../decisions/ADR-20260628-KERNEL-SPI-COMPREHENSIVE-ASSESSMENT.md) | SPI comprehensive assessment | Accepted |
 
-## 9. Verification
+## 10. Verification
 
 ### Kernel workspace
 

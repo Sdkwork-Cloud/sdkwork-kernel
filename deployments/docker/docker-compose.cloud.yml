@@ -20,10 +20,13 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${SDKWORK_AGENT_RUNTIME_REDIS_PASSWORD:-changeme}
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\""]
     ports:
       - "6380:6379"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -48,9 +51,10 @@ services:
       SDKWORK_KERNEL_METRICS_TOKEN: ${SDKWORK_KERNEL_METRICS_TOKEN:-${SDKWORK_KERNEL_INGRESS_TOKEN}}
       SDKWORK_CORS_ORIGINS: ${SDKWORK_CORS_ORIGINS:-http://127.0.0.1:5179,https://kernel.sdkwork.com,https://app.sdkwork.com}
       SDKWORK_AGENT_RUNTIME_DATABASE_URL: postgresql://sdkwork:${SDKWORK_AGENT_RUNTIME_POSTGRES_PASSWORD:-sdkwork}@postgres:5432/sdkwork_agent_runtime
+      SDKWORK_RATE_LIMIT_REDIS_URL: redis://:${SDKWORK_AGENT_RUNTIME_REDIS_PASSWORD:-changeme}@redis:6379/0
       SDKWORK_OTEL_EXPORTER_OTLP_ENDPOINT: ${SDKWORK_OTEL_EXPORTER_OTLP_ENDPOINT:-}
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:18280/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:18280/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3

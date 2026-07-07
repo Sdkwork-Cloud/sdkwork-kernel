@@ -7,6 +7,34 @@ const AGENTS_MANAGED_STORE_ROOT = path.join(
   'sdkwork-intelligence-agents-service'
 );
 
+/**
+ * Agents managed-store SQL may be a redirect stub pointing at the canonical
+ * baseline DDL under sdkwork-agents/database/ddl/baseline/postgres/.
+ */
+function resolveAgentsManagedStorePostgresSql(kernelRoot, readFileIfExists) {
+  const stubPath = path.join(
+    path.resolve(kernelRoot, AGENTS_MANAGED_STORE_ROOT),
+    'specs',
+    'sql',
+    'agents_managed_store_postgres.sql'
+  );
+  const stub = readFileIfExists(stubPath);
+  if (!stub) {
+    return null;
+  }
+  const baselineRelative = stub.match(
+    /database\/ddl\/baseline\/postgres\/[A-Za-z0-9_.-]+\.sql/
+  )?.[0];
+  if (baselineRelative) {
+    const baselinePath = path.resolve(kernelRoot, '..', 'sdkwork-agents', baselineRelative);
+    const baseline = readFileIfExists(baselinePath);
+    if (baseline) {
+      return baseline;
+    }
+  }
+  return stub;
+}
+
 export function validateAgentKnowledgeMemoryContracts({ kernelRoot, errors, readFileIfExists }) {
   const agentKernelLib = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-kernel', 'src', 'lib.rs'));
   const agentDefinitionRust = readFileIfExists(path.join(kernelRoot, 'sdkwork-agent-kernel', 'src', 'definition.rs'));
@@ -30,8 +58,9 @@ export function validateAgentKnowledgeMemoryContracts({ kernelRoot, errors, read
   );
   const agentsManagedStoreApi = readFileIfExists(path.join(agentsManagedStoreRoot, 'src', 'api.rs'));
   const agentsManagedStoreLib = readFileIfExists(path.join(agentsManagedStoreRoot, 'src', 'lib.rs'));
-  const agentsManagedStorePostgresSql = readFileIfExists(
-    path.join(agentsManagedStoreRoot, 'specs', 'sql', 'agents_managed_store_postgres.sql')
+  const agentsManagedStorePostgresSql = resolveAgentsManagedStorePostgresSql(
+    kernelRoot,
+    readFileIfExists
   );
 
   if (!agentsCompositionDatabaseSpec) {

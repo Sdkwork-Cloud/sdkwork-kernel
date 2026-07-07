@@ -44,10 +44,14 @@ pub async fn dispatch_user_message(
         .register_session(session_id, bridge_config_from_row(row))
         .map_err(|error| ApiError::from_kernel(error, trace_id))?;
 
-    let bridge_response = state
-        .runtime
-        .send_message(session_id, content)
-        .map_err(|error| ApiError::from_kernel(error, trace_id))?;
+    let runtime = state.runtime.clone();
+    let session_key = session_id.to_string();
+    let content_owned = content.to_string();
+    let bridge_response =
+        tokio::task::spawn_blocking(move || runtime.send_message(&session_key, &content_owned))
+            .await
+            .map_err(|error| ApiError::internal(error.to_string(), trace_id))?
+            .map_err(|error| ApiError::from_kernel(error, trace_id))?;
 
     let assistant_content = assistant_content_from_bridge(&bridge_response);
     if !assistant_content.is_empty() {
@@ -88,10 +92,20 @@ pub async fn dispatch_user_message_stream(
         .register_session(session_id, bridge_config_from_row(row))
         .map_err(|error| ApiError::from_kernel(error, trace_id))?;
 
-    let (assistant_message_id, chunks) = state
-        .runtime
-        .stream_message(session_id, content, model_override)
-        .map_err(|error| ApiError::from_kernel(error, trace_id))?;
+    let runtime = state.runtime.clone();
+    let session_key = session_id.to_string();
+    let content_owned = content.to_string();
+    let model_override_owned = model_override.map(str::to_string);
+    let (assistant_message_id, chunks) = tokio::task::spawn_blocking(move || {
+        runtime.stream_message(
+            &session_key,
+            &content_owned,
+            model_override_owned.as_deref(),
+        )
+    })
+    .await
+    .map_err(|error| ApiError::internal(error.to_string(), trace_id))?
+    .map_err(|error| ApiError::from_kernel(error, trace_id))?;
 
     let assistant_content: String = chunks.iter().map(|chunk| chunk.content.as_str()).collect();
     if !assistant_content.is_empty() {

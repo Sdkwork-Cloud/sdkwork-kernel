@@ -1,15 +1,21 @@
 use axum::{
     extract::{Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
-    response::{sse::{Event, KeepAlive, Sse}, Response},
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        Response,
+    },
     Json,
 };
 use futures::stream::{self, Stream, StreamExt};
 use sdkwork_agent_api_bridge::BridgeSessionConfig;
-use sdkwork_agent_database::{EventRow, MessageRow, PermissionRow, SessionRow, TaskRow};
-use sdkwork_agent_kernel::ModelRequest;
+use sdkwork_agent_database::{
+    EventRow, MessageQuery, MessageRow, PermissionRow, SessionRow, TaskQuery, TaskRow,
+};
 use sdkwork_agent_session::{SessionConfig, SessionQuery};
-use sdkwork_utils_rust::validated_offset_list_params;
+use sdkwork_utils_rust::{
+    validated_offset_list_params, DEFAULT_LIST_PAGE_SIZE, MAX_LIST_PAGE_SIZE,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -17,8 +23,8 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::broadcast;
-use uuid::Uuid;
+use tokio::sync::{broadcast, mpsc};
+use tokio_stream::wrappers::ReceiverStream;
 
 type SessionEventStream = Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>>;
 
@@ -28,7 +34,8 @@ use crate::access::{
 use crate::agent_registry::{apply_hosted_agent_defaults, validate_hosted_agent_id};
 use crate::config::ServerConfig;
 use crate::http_response::{
-    api_created, api_item, api_no_content, catalog_list_response, offset_list_response, ApiError,
+    api_created, api_item, api_no_content, catalog_list_response, cursor_list_response,
+    offset_list_response, ApiError,
 };
 use crate::metrics::MetricsRegistry;
 use crate::middleware::RequestContext;
@@ -195,7 +202,7 @@ pub struct ProviderManifestJson {
     pub health_status: Option<String>,
 }
 
-/// Runtime health view returned by `GET /runtime/health`.
+/// Runtime health view returned by `GET /internal/v3/api/intelligence/runtime/health`.
 ///
 /// Lightweight liveness/readiness probe surface combining runtime state and
 /// persistence health. Side-effect-free; safe for load-balancer polls.
@@ -401,30 +408,6 @@ pub struct ModelDescriptorJson {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SessionListResponseJson {
-    pub items: Vec<SessionViewJson>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MessageListResponseJson {
-    pub items: Vec<MessageViewJson>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskListResponseJson {
-    pub items: Vec<TaskViewJson>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelListResponseJson {
-    pub items: Vec<ModelDescriptorJson>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ToolDescriptorJson {
     pub tool_id: String,
     pub provider_id: String,
@@ -516,27 +499,27 @@ pub struct StreamEventJson {
 }
 
 #[derive(Debug, Deserialize, Default)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ListMessagesQuery {
     pub page: Option<i64>,
-    #[serde(alias = "page_size")]
     pub page_size: Option<i64>,
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ListSessionsQuery {
     pub page: Option<i64>,
-    #[serde(alias = "page_size")]
     pub page_size: Option<i64>,
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
-#[serde(rename_all = "camelCase", default)]
+#[serde(default, deny_unknown_fields)]
 pub struct ListTasksQuery {
     pub page: Option<i64>,
-    #[serde(alias = "page_size")]
     pub page_size: Option<i64>,
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -547,16 +530,36 @@ pub struct StreamEventsQuery {
 }
 
 impl InternalRuntimeApiState {
+    pub async fn new_async(
+        persistence: Arc<PersistenceState>,
+        config: Arc<ServerConfig>,
+    ) -> Result<Self, sdkwork_agent_kernel::KernelError> {
+        let tenant_token_quota = TenantTokenQuotaState::try_from_config_async(&config)
+            .await
+            .map_err(|message| sdkwork_agent_kernel::KernelError::Internal { message })?;
+        Self::with_tenant_token_quota(persistence, config, tenant_token_quota)
+    }
+
     pub fn new(
         persistence: Arc<PersistenceState>,
         config: Arc<ServerConfig>,
+    ) -> Result<Self, sdkwork_agent_kernel::KernelError> {
+        let tenant_token_quota = TenantTokenQuotaState::try_from_config(&config)
+            .map_err(|message| sdkwork_agent_kernel::KernelError::Internal { message })?;
+        Self::with_tenant_token_quota(persistence, config, tenant_token_quota)
+    }
+
+    fn with_tenant_token_quota(
+        persistence: Arc<PersistenceState>,
+        config: Arc<ServerConfig>,
+        tenant_token_quota: TenantTokenQuotaState,
     ) -> Result<Self, sdkwork_agent_kernel::KernelError> {
         Ok(Self {
             persistence,
             config: config.clone(),
             access_policy: AccessPolicy::from_config(&config),
             runtime: RuntimeState::try_for_config(&config)?,
-            tenant_token_quota: Arc::new(TenantTokenQuotaState::from_config(&config)),
+            tenant_token_quota: Arc::new(tenant_token_quota),
             sse_event_counter: Arc::new(tokio::sync::Mutex::new(0)),
             sse_connection_count: Arc::new(AtomicU32::new(0)),
         })
@@ -621,6 +624,7 @@ impl InternalRuntimeApiState {
                 persistence.list_recent_events(sdkwork_agent_database::EventQuery {
                     event_type: None,
                     severity: None,
+                    after_event_id: None,
                     limit: Some(100),
                     offset: None,
                 })
@@ -862,6 +866,79 @@ impl Stream for CountedStream {
     }
 }
 
+enum ModelStreamWorkerItem {
+    Chunk(sdkwork_agent_kernel::ModelStreamChunk),
+    Failed(String),
+}
+
+struct MpscModelStreamSink {
+    tx: mpsc::Sender<ModelStreamWorkerItem>,
+}
+
+impl sdkwork_agent_kernel::ModelStreamSink for MpscModelStreamSink {
+    fn push_chunk(
+        &mut self,
+        chunk: sdkwork_agent_kernel::ModelStreamChunk,
+    ) -> sdkwork_agent_kernel::KernelResult<()> {
+        self.tx
+            .blocking_send(ModelStreamWorkerItem::Chunk(chunk))
+            .map_err(|_| sdkwork_agent_kernel::KernelError::Internal {
+                message: "model stream consumer dropped".to_string(),
+            })
+    }
+}
+
+fn model_chunk_to_event(chunk: &sdkwork_agent_kernel::ModelStreamChunk) -> Event {
+    let json = ModelStreamChunkJson {
+        model_request_id: chunk.model_request_id.clone(),
+        sequence: chunk.sequence,
+        content: chunk.content.clone(),
+        finish_reason: None,
+    };
+    Event::default()
+        .event("model.chunk")
+        .data(serde_json::to_string(&json).unwrap_or_default())
+}
+
+fn spawn_model_sse_stream(
+    runtime: RuntimeState,
+    session_id: String,
+    model_id: Option<String>,
+    override_messages: Option<Vec<String>>,
+    connection_count: Arc<AtomicU32>,
+) -> Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>> {
+    let (tx, rx) = mpsc::channel::<ModelStreamWorkerItem>(32);
+    tokio::task::spawn_blocking(move || {
+        let mut sink = MpscModelStreamSink { tx };
+        if let Err(error) = runtime.stream_model_for_session_into(
+            &session_id,
+            model_id,
+            override_messages,
+            &mut sink,
+        ) {
+            let _ = sink
+                .tx
+                .blocking_send(ModelStreamWorkerItem::Failed(error.to_string()));
+        }
+    });
+
+    let inner: Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>> = Box::pin(
+        ReceiverStream::new(rx)
+            .flat_map(|item| match item {
+                ModelStreamWorkerItem::Chunk(chunk) => {
+                    stream::iter(vec![Ok(model_chunk_to_event(&chunk))])
+                }
+                ModelStreamWorkerItem::Failed(message) => stream::iter(vec![Ok(Event::default()
+                    .event("model.error")
+                    .data(serde_json::json!({ "message": message }).to_string()))]),
+            })
+            .chain(stream::once(async {
+                Ok(Event::default().event("model.done").data("{}"))
+            })),
+    );
+    Box::pin(CountedStream::new(inner, connection_count))
+}
+
 fn live_event_stream(
     receiver: broadcast::Receiver<EventRow>,
     session_id: String,
@@ -907,17 +984,6 @@ fn event_row_to_kernel_json(row: &EventRow, sequence: u32) -> KernelEventJson {
             .unwrap_or_else(|| row.event_type.clone()),
         sequence,
         trace_id: None,
-    }
-}
-
-fn events_after_cursor(events: Vec<EventRow>, last_event_id: Option<String>) -> Vec<EventRow> {
-    let Some(last_event_id) = last_event_id.filter(|event_id| !event_id.is_empty()) else {
-        return events;
-    };
-
-    match events.iter().position(|row| row.event_id == last_event_id) {
-        Some(index) => events.into_iter().skip(index + 1).collect(),
-        None => events,
     }
 }
 
@@ -987,6 +1053,16 @@ fn ensure_session_access_api(
         .map_err(|status| ApiError::from_status(status, "session access denied", trace_id))
 }
 
+fn ensure_session_active_api(row: &SessionRow, trace_id: &str) -> Result<(), ApiError> {
+    if row.state.eq_ignore_ascii_case("closed") {
+        return Err(ApiError::conflict(
+            format!("session {} is closed", row.session_id),
+            trace_id,
+        ));
+    }
+    Ok(())
+}
+
 fn assert_permission_access_api(
     policy: AccessPolicy,
     ctx: &RequestContext,
@@ -995,14 +1071,8 @@ fn assert_permission_access_api(
     permission_id: &str,
     trace_id: &str,
 ) -> Result<(), ApiError> {
-    assert_permission_access(
-        policy,
-        ctx,
-        owner_tenant_id,
-        owner_user_ref,
-        permission_id,
-    )
-    .map_err(|status| ApiError::from_status(status, "permission access denied", trace_id))
+    assert_permission_access(policy, ctx, owner_tenant_id, owner_user_ref, permission_id)
+        .map_err(|status| ApiError::from_status(status, "permission access denied", trace_id))
 }
 
 pub fn bridge_config_from_row(row: &SessionRow) -> BridgeSessionConfig {
@@ -1075,7 +1145,7 @@ pub async fn get_runtime_manifest(
     ))
 }
 
-/// `GET /runtime/health` — lightweight liveness/readiness probe.
+/// `GET /internal/v3/api/intelligence/runtime/health` — runtime diagnostics probe.
 ///
 /// Combines runtime state with persistence health. Safe for load-balancer
 /// polls. Aligns with `AGENT_RUNTIME_SPEC` §4 `get_health`.
@@ -1089,9 +1159,8 @@ pub async fn get_runtime_health(
         state.persist(|persistence| persistence.health()).await,
         Ok(true)
     );
-    let allow_mock = state.runtime.allow_mock_fallback();
     let runtime_state = diagnostics.state.clone();
-    let health = if db_healthy && (runtime_state == "ready" || allow_mock) {
+    let health = if db_healthy && runtime_state == "ready" {
         "healthy"
     } else {
         "degraded"
@@ -1100,17 +1169,31 @@ pub async fn get_runtime_health(
     if !db_healthy {
         degraded.push("persistence".to_string());
     }
+    if runtime_state != "ready" {
+        degraded.push(format!("runtime.state.{runtime_state}"));
+    }
 
-    Ok(api_item(
-        RuntimeHealthJson {
-            runtime_id: diagnostics.runtime_id,
-            state: runtime_state,
-            health: health.to_string(),
-            persistence_healthy: db_healthy,
-            degraded_capabilities: degraded,
-        },
-        &trace_id,
-    ))
+    let payload = RuntimeHealthJson {
+        runtime_id: diagnostics.runtime_id,
+        state: runtime_state,
+        health: health.to_string(),
+        persistence_healthy: db_healthy,
+        degraded_capabilities: degraded.clone(),
+    };
+
+    if health == "degraded" {
+        return Err(ApiError::service_unavailable(
+            format!(
+                "runtime health is degraded (state={}, persistence={}, capabilities={})",
+                payload.state,
+                payload.persistence_healthy,
+                payload.degraded_capabilities.join(",")
+            ),
+            trace_id,
+        ));
+    }
+
+    Ok(api_item(payload, &trace_id))
 }
 
 /// `GET /runtime/diagnostics` — machine-readable runtime diagnostic report.
@@ -1302,8 +1385,7 @@ pub async fn list_sessions(
     Query(query): Query<ListSessionsQuery>,
 ) -> Result<Response, ApiError> {
     let trace_id = ctx.problem_trace_id();
-    let params = resolve_list_page_params(query.page, query.page_size)
-        .map_err(|_| ApiError::invalid_parameter("invalid pagination parameters", &trace_id))?;
+    let cursor = reject_page_with_cursor(query.page, query.cursor.as_deref(), &trace_id)?;
 
     let (owner_tenant_id, owner_user_ref) = if state.access_policy.enforce_session_scope {
         (ctx.tenant_id.clone(), ctx.user_id.clone())
@@ -1311,6 +1393,31 @@ pub async fn list_sessions(
         (None, None)
     };
 
+    if let Some(after_session_id) = cursor {
+        let page_size = resolved_list_page_size(query.page_size);
+        let db_query = SessionQuery {
+            owner_tenant_id,
+            owner_user_ref,
+            after_session_id: Some(after_session_id.to_string()),
+            limit: Some(page_size + 1),
+            offset: Some(0),
+            ..SessionQuery::default()
+        };
+        let rows = state
+            .persist(move |persistence| persistence.list_sessions(db_query))
+            .await
+            .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+        let views: Vec<_> = rows.into_iter().map(session_row_to_view).collect();
+        return Ok(cursor_list_response(
+            views,
+            page_size,
+            |view| view.session_id.clone(),
+            &trace_id,
+        ));
+    }
+
+    let params = resolve_list_page_params(query.page, query.page_size)
+        .map_err(|_| ApiError::invalid_parameter("invalid pagination parameters", &trace_id))?;
     let db_query = SessionQuery {
         owner_tenant_id,
         owner_user_ref,
@@ -1323,7 +1430,12 @@ pub async fn list_sessions(
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     let views: Vec<_> = rows.into_iter().map(session_row_to_view).collect();
-    Ok(offset_list_response(views, params.page_size, params, &trace_id))
+    Ok(offset_list_response(
+        views,
+        params.page_size,
+        params,
+        &trace_id,
+    ))
 }
 
 pub async fn close_session(
@@ -1338,11 +1450,20 @@ pub async fn close_session(
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
+    let session_for_close = session_id.clone();
     let view = state
         .persist(move |persistence| persistence.close_session(&session_id))
         .await
         .map(session_row_to_view)
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    state
+        .runtime
+        .register_session(&session_for_close, bridge_config_from_row(&row))
+        .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
+    state
+        .runtime
+        .close_session(&session_for_close)
+        .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
     Ok(api_item(view, &trace_id))
 }
 
@@ -1358,10 +1479,15 @@ pub async fn delete_session(
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
+    let session_for_delete = session_id.clone();
     state
         .persist(move |persistence| persistence.delete_session(&session_id))
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    state
+        .runtime
+        .release_session_state(&session_for_delete)
+        .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
     Ok(api_no_content(&trace_id))
 }
 
@@ -1378,6 +1504,7 @@ pub async fn send_message(
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
+    ensure_session_active_api(&row, &trace_id)?;
     let content = request.content.clone();
     let (row, bridge_response) = crate::message_dispatch::dispatch_user_message(
         &state,
@@ -1405,20 +1532,46 @@ pub async fn get_messages(
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
 
+    let cursor = reject_page_with_cursor(query.page, query.cursor.as_deref(), &trace_id)?;
+
+    if let Some(after_message_id) = cursor {
+        let page_size = resolved_list_page_size(query.page_size);
+        let message_query = MessageQuery {
+            after_message_id: Some(after_message_id.to_string()),
+            limit: Some(page_size + 1),
+            offset: Some(0),
+        };
+        let rows = state
+            .persist(move |persistence| persistence.list_messages(&session_id, message_query))
+            .await
+            .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+        let views: Vec<MessageViewJson> = rows.into_iter().map(message_row_to_view).collect();
+        return Ok(cursor_list_response(
+            views,
+            page_size,
+            |view| view.message_id.clone(),
+            &trace_id,
+        ));
+    }
+
     let params = resolve_list_page_params(query.page, query.page_size)
         .map_err(|_| ApiError::invalid_parameter("invalid pagination parameters", &trace_id))?;
+    let message_query = MessageQuery {
+        limit: Some(params.page_size + 1),
+        offset: Some(params.offset),
+        ..Default::default()
+    };
     let rows = state
-        .persist(move |persistence| {
-            persistence.get_messages(
-                &session_id,
-                Some(params.page_size + 1),
-                Some(params.offset),
-            )
-        })
+        .persist(move |persistence| persistence.list_messages(&session_id, message_query))
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     let views = rows.into_iter().map(message_row_to_view).collect();
-    Ok(offset_list_response(views, params.page_size, params, &trace_id))
+    Ok(offset_list_response(
+        views,
+        params.page_size,
+        params,
+        &trace_id,
+    ))
 }
 
 pub async fn submit_task(
@@ -1434,6 +1587,7 @@ pub async fn submit_task(
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &session, &trace_id)?;
+    ensure_session_active_api(&session, &trace_id)?;
     let instruction = request.instruction.clone();
     let row = state
         .persist(move |persistence| persistence.create_task(&session_id, &instruction))
@@ -1476,18 +1630,46 @@ pub async fn list_tasks(
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &session, &trace_id)?;
 
+    let cursor = reject_page_with_cursor(query.page, query.cursor.as_deref(), &trace_id)?;
+    if let Some(after_task_id) = cursor {
+        let page_size = resolved_list_page_size(query.page_size);
+        let task_query = TaskQuery {
+            after_task_id: Some(after_task_id.to_string()),
+            limit: Some(page_size + 1),
+            offset: Some(0),
+            ..Default::default()
+        };
+        let rows = state
+            .persist(move |persistence| persistence.list_tasks(&session_id, task_query))
+            .await
+            .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+        let views = rows.into_iter().map(task_row_to_view).collect();
+        return Ok(cursor_list_response(
+            views,
+            page_size,
+            |view| view.task_id.clone(),
+            &trace_id,
+        ));
+    }
+
     let params = resolve_list_page_params(query.page, query.page_size)
         .map_err(|_| ApiError::invalid_parameter("invalid pagination parameters", &trace_id))?;
-    let task_query = sdkwork_agent_database::TaskQuery {
+    let task_query = TaskQuery {
         limit: Some(params.page_size + 1),
         offset: Some(params.offset),
+        ..Default::default()
     };
     let rows = state
         .persist(move |persistence| persistence.list_tasks(&session_id, task_query))
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     let views = rows.into_iter().map(task_row_to_view).collect();
-    Ok(offset_list_response(views, params.page_size, params, &trace_id))
+    Ok(offset_list_response(
+        views,
+        params.page_size,
+        params,
+        &trace_id,
+    ))
 }
 
 pub async fn cancel_task(
@@ -1551,6 +1733,7 @@ pub async fn invoke_model(
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
+    ensure_session_active_api(&row, &trace_id)?;
     let _ = state
         .runtime
         .register_session(&session_id, bridge_config_from_row(&row));
@@ -1574,30 +1757,10 @@ pub async fn invoke_model(
         }
     }
 
-    let model_id = request
-        .model_id
-        .unwrap_or_else(|| "model.local.default".to_string());
-    let model_request = ModelRequest {
-        model_request_id: format!("model-req.{}", generate_id()),
-        model_id: Some(model_id),
-        session_id: Some(session_id.clone()),
-        task_id: None,
-        run_id: None,
-        step_id: None,
-        messages: Vec::new(),
-        context_frame_ids: Vec::new(),
-        context_frames: Vec::new(),
-        tool_descriptors: Vec::new(),
-        response_format: None,
-        policy_request_id: None,
-        trace_context: None,
-        timeout_ms: None,
-        metadata: Vec::new(),
-    };
-
+    let model_id = request.model_id.clone();
     let result = state
         .runtime
-        .invoke_model(model_request)
+        .invoke_model_for_session(&session_id, model_id)
         .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
 
     let status_label = format!("{:?}", result.response.status).to_lowercase();
@@ -1697,6 +1860,7 @@ pub async fn execute_tool(
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
+    ensure_session_active_api(&row, &trace_id)?;
     let _ = state
         .runtime
         .register_session(&session_id, bridge_config_from_row(&row));
@@ -1729,10 +1893,22 @@ pub async fn execute_tool(
 pub async fn stream_model(
     State(state): State<Arc<InternalRuntimeApiState>>,
     Extension(ctx): Extension<RequestContext>,
+    Extension(metrics): Extension<Arc<MetricsRegistry>>,
     Path(session_id): Path<String>,
     Json(request): Json<StreamModelRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let trace_id = ctx.problem_trace_id();
+    let session_key = session_id.clone();
+    let row = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
+    ensure_session_active_api(&row, &trace_id)?;
+    let _ = state
+        .runtime
+        .register_session(&session_id, bridge_config_from_row(&row));
+
     let current = state.sse_connection_count.fetch_add(1, Ordering::Relaxed);
     if current >= MAX_CONCURRENT_SSE_STREAMS {
         state.sse_connection_count.fetch_sub(1, Ordering::Relaxed);
@@ -1742,65 +1918,36 @@ pub async fn stream_model(
         ));
     }
 
-    let session_key = session_id.clone();
-    let row = state
-        .persist(move |persistence| persistence.get_session(&session_key))
-        .await
-        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
-    ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
-    let _ = state
-        .runtime
-        .register_session(&session_id, bridge_config_from_row(&row));
+    if let Some(tenant_id) = ctx.tenant_id.as_deref() {
+        if let Err(status) = state.tenant_token_quota.try_consume(tenant_id).await {
+            state.sse_connection_count.fetch_sub(1, Ordering::Relaxed);
+            crate::security_audit::log_auth_failure(
+                "quota.token_rejected",
+                Some(&ctx.request_id),
+                "/internal/v3/api/intelligence/runtime/sessions/{session_id}/model/stream",
+                Some(tenant_id),
+                ctx.user_id.as_deref(),
+                "tenant daily model token quota exhausted",
+            );
+            metrics.record_tenant_token_quota_rejection();
+            return Err(ApiError::from_status(
+                status,
+                "tenant daily model token quota exhausted",
+                &trace_id,
+            ));
+        }
+    }
 
-    let model_id = request
-        .model_id
-        .unwrap_or_else(|| "model.local.default".to_string());
-    let messages = request.messages.unwrap_or_default();
-    let model_request = ModelRequest {
-        model_request_id: format!("model-req.{}", generate_id()),
-        model_id: Some(model_id),
-        session_id: Some(session_id.clone()),
-        task_id: None,
-        run_id: None,
-        step_id: None,
-        messages,
-        context_frame_ids: Vec::new(),
-        context_frames: Vec::new(),
-        tool_descriptors: Vec::new(),
-        response_format: None,
-        policy_request_id: None,
-        trace_context: None,
-        timeout_ms: None,
-        metadata: Vec::new(),
-    };
-
-    let chunks = state
-        .runtime
-        .stream_model(model_request)
-        .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
-
+    let model_id = request.model_id.clone();
+    let override_messages = request.messages;
     let connection_count = state.sse_connection_count.clone();
-    let chunk_events: Vec<Event> = chunks
-        .iter()
-        .map(|chunk| {
-            let json = ModelStreamChunkJson {
-                model_request_id: chunk.model_request_id.clone(),
-                sequence: chunk.sequence,
-                content: chunk.content.clone(),
-                finish_reason: None,
-            };
-            Event::default()
-                .event("model.chunk")
-                .data(serde_json::to_string(&json).unwrap_or_default())
-        })
-        .chain(std::iter::once(
-            Event::default().event("model.done").data("{}"),
-        ))
-        .collect();
-
-    let inner: Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>> =
-        Box::pin(futures::stream::iter(chunk_events.into_iter().map(Ok)));
-    let stream = Box::pin(CountedStream::new(inner, connection_count));
+    let stream = spawn_model_sse_stream(
+        state.runtime.clone(),
+        session_id,
+        model_id,
+        override_messages,
+        connection_count,
+    );
 
     Ok(Sse::new(stream).keep_alive(
         KeepAlive::new()
@@ -1859,15 +2006,6 @@ pub async fn stream_session_events(
     Query(query): Query<StreamEventsQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let trace_id = ctx.problem_trace_id();
-    let current = state.sse_connection_count.fetch_add(1, Ordering::Relaxed);
-    if current >= MAX_CONCURRENT_SSE_STREAMS {
-        state.sse_connection_count.fetch_sub(1, Ordering::Relaxed);
-        return Err(ApiError::service_unavailable(
-            "too many concurrent SSE streams",
-            &trace_id,
-        ));
-    }
-
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
@@ -1878,11 +2016,17 @@ pub async fn stream_session_events(
     let last_event_id = last_event_id_from_request(&headers, &query);
     let live = query.live.unwrap_or(true);
     let session_for_events = session_id.clone();
+    let replay_after_event_id = last_event_id.clone();
     let events = state
-        .persist(move |persistence| persistence.load_session_events(&session_for_events, Some(100)))
+        .persist(move |persistence| {
+            persistence.load_session_events(
+                &session_for_events,
+                Some(i64::from(sdkwork_utils_rust::MAX_LIST_PAGE_SIZE)),
+                replay_after_event_id.as_deref(),
+            )
+        })
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
-    let events = events_after_cursor(events, last_event_id);
     let replay_count = events.len();
     let replay = stream::iter(
         events
@@ -1890,6 +2034,15 @@ pub async fn stream_session_events(
             .enumerate()
             .map(|(index, row)| Ok(event_row_to_sse(&row, index as u32))),
     );
+
+    let current = state.sse_connection_count.fetch_add(1, Ordering::Relaxed);
+    if current >= MAX_CONCURRENT_SSE_STREAMS {
+        state.sse_connection_count.fetch_sub(1, Ordering::Relaxed);
+        return Err(ApiError::service_unavailable(
+            "too many concurrent SSE streams",
+            &trace_id,
+        ));
+    }
 
     let connection_count = state.sse_connection_count.clone();
     let stream: SessionEventStream = if live {
@@ -1921,9 +2074,25 @@ fn resolve_list_page_params(
     validated_offset_list_params(page, page_size)
 }
 
-/// Generate a collision-resistant ID using UUID v7 (time-ordered).
-fn generate_id() -> String {
-    Uuid::now_v7().simple().to_string()
+fn resolved_list_page_size(page_size: Option<i64>) -> i64 {
+    page_size
+        .unwrap_or(i64::from(DEFAULT_LIST_PAGE_SIZE))
+        .clamp(1, i64::from(MAX_LIST_PAGE_SIZE))
+}
+
+fn reject_page_with_cursor<'a>(
+    page: Option<i64>,
+    cursor: Option<&'a str>,
+    trace_id: &str,
+) -> Result<Option<&'a str>, ApiError> {
+    let cursor = cursor.map(str::trim).filter(|value| !value.is_empty());
+    if cursor.is_some() && page.is_some() {
+        return Err(ApiError::invalid_parameter(
+            "page and cursor cannot be combined",
+            trace_id,
+        ));
+    }
+    Ok(cursor)
 }
 
 #[cfg(test)]
@@ -1955,29 +2124,27 @@ mod tests {
         })
     }
 
-    #[test]
-    fn events_after_cursor_skips_prior_events() {
-        let events = vec![
-            EventRow {
-                event_id: "evt.1".to_string(),
-                session_id: Some("session.1".to_string()),
-                event_type: "session.created".to_string(),
-                severity: "info".to_string(),
-                payload: None,
-                created_at: "2026-01-01T00:00:00Z".to_string(),
-            },
-            EventRow {
-                event_id: "evt.2".to_string(),
-                session_id: Some("session.1".to_string()),
-                event_type: "session.closed".to_string(),
-                severity: "info".to_string(),
-                payload: None,
-                created_at: "2026-01-01T00:00:01Z".to_string(),
-            },
-        ];
-        let filtered = events_after_cursor(events, Some("evt.1".to_string()));
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].event_id, "evt.2");
+    #[tokio::test]
+    async fn session_event_stream_releases_connection_slot_when_session_lookup_fails() {
+        let state = test_state();
+        let result = stream_session_events(
+            State(state.clone()),
+            test_context(),
+            HeaderMap::new(),
+            Path("session.missing".to_string()),
+            Query(StreamEventsQuery {
+                last_event_id: None,
+                live: Some(false),
+            }),
+        )
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(
+            state.sse_connection_count.load(Ordering::Relaxed),
+            0,
+            "failed session event stream requests must not consume SSE connection slots"
+        );
     }
 
     #[tokio::test]
@@ -1993,10 +2160,16 @@ mod tests {
             .await
             .expect("snapshot");
         assert_eq!(snapshot_response.status(), StatusCode::OK);
-        let snapshot_body: serde_json::Value =
-            serde_json::from_slice(&axum::body::to_bytes(snapshot_response.into_body(), usize::MAX).await.expect("body"))
-                .expect("json");
-        assert_eq!(snapshot_body["data"]["item"]["runtime"]["health"], "healthy");
+        let snapshot_body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(snapshot_response.into_body(), usize::MAX)
+                .await
+                .expect("body"),
+        )
+        .expect("json");
+        assert_eq!(
+            snapshot_body["data"]["item"]["runtime"]["health"],
+            "healthy"
+        );
 
         let create_response = create_session(
             State(state.clone()),
@@ -2021,9 +2194,12 @@ mod tests {
         .await
         .expect("created");
         assert_eq!(create_response.status(), StatusCode::CREATED);
-        let create_body: serde_json::Value =
-            serde_json::from_slice(&axum::body::to_bytes(create_response.into_body(), usize::MAX).await.expect("body"))
-                .expect("json");
+        let create_body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(create_response.into_body(), usize::MAX)
+                .await
+                .expect("body"),
+        )
+        .expect("json");
         assert_eq!(create_body["data"]["item"]["agentId"], "agent.1");
 
         let session_id = create_body["data"]["item"]["sessionId"]
@@ -2031,16 +2207,15 @@ mod tests {
             .expect("sessionId")
             .to_string();
 
-        let loaded_response = get_session(
-            State(state.clone()),
-            ctx,
-            Path(session_id),
+        let loaded_response = get_session(State(state.clone()), ctx, Path(session_id))
+            .await
+            .expect("loaded");
+        let loaded_body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(loaded_response.into_body(), usize::MAX)
+                .await
+                .expect("body"),
         )
-        .await
-        .expect("loaded");
-        let loaded_body: serde_json::Value =
-            serde_json::from_slice(&axum::body::to_bytes(loaded_response.into_body(), usize::MAX).await.expect("body"))
-                .expect("json");
+        .expect("json");
         assert_eq!(loaded_body["data"]["item"]["tenantId"], "tenant.1");
     }
 }

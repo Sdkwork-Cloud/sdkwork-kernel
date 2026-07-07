@@ -289,11 +289,7 @@ pub struct SecretCreateRequest {
 }
 
 impl SecretCreateRequest {
-    pub fn new(
-        name: impl Into<String>,
-        secret_type: SecretType,
-        value: impl Into<String>,
-    ) -> Self {
+    pub fn new(name: impl Into<String>, secret_type: SecretType, value: impl Into<String>) -> Self {
         Self {
             name: name.into(),
             description: String::new(),
@@ -507,7 +503,8 @@ impl SecretProvider for InMemorySecretProvider {
             .with_description(&request.description);
 
         // In testing, store plaintext
-        self.secrets.insert(secret_id.clone(), (metadata.clone(), request.value));
+        self.secrets
+            .insert(secret_id.clone(), (metadata.clone(), request.value));
 
         Ok(metadata)
     }
@@ -561,7 +558,11 @@ impl SecretProvider for InMemorySecretProvider {
     }
 
     fn list_secrets(&self) -> Result<Vec<SecretMetadata>, SecretError> {
-        Ok(self.secrets.values().map(|(meta, _)| meta.clone()).collect())
+        Ok(self
+            .secrets
+            .values()
+            .map(|(meta, _)| meta.clone())
+            .collect())
     }
 
     fn get_metadata(&self, secret_id: &str) -> Result<SecretMetadata, SecretError> {
@@ -641,7 +642,10 @@ mod tests {
     #[test]
     fn test_encryption_algorithm_as_str() {
         assert_eq!(EncryptionAlgorithm::Aes256Gcm.as_str(), "aes256_gcm");
-        assert_eq!(EncryptionAlgorithm::ChaCha20Poly1305.as_str(), "chacha20_poly1305");
+        assert_eq!(
+            EncryptionAlgorithm::ChaCha20Poly1305.as_str(),
+            "chacha20_poly1305"
+        );
     }
 
     #[test]
@@ -752,8 +756,12 @@ mod tests {
         let mut provider = InMemorySecretProvider::new();
 
         // Create 2 secrets
-        provider.create_secret(SecretCreateRequest::new("S1", SecretType::ApiKey, "v1")).unwrap();
-        provider.create_secret(SecretCreateRequest::new("S2", SecretType::Password, "v2")).unwrap();
+        provider
+            .create_secret(SecretCreateRequest::new("S1", SecretType::ApiKey, "v1"))
+            .unwrap();
+        provider
+            .create_secret(SecretCreateRequest::new("S2", SecretType::Password, "v2"))
+            .unwrap();
 
         // List secrets
         let secrets = provider.list_secrets().unwrap();
@@ -765,7 +773,13 @@ mod tests {
         let mut provider = InMemorySecretProvider::new();
 
         // Create secret
-        provider.create_secret(SecretCreateRequest::new("Test", SecretType::ApiKey, "value")).unwrap();
+        provider
+            .create_secret(SecretCreateRequest::new(
+                "Test",
+                SecretType::ApiKey,
+                "value",
+            ))
+            .unwrap();
 
         // Health check
         let health = provider.health_check().unwrap();

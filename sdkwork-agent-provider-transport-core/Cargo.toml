@@ -5,7 +5,7 @@ edition = "2021"
 description = "Language and transport backend hosts for external agent SDK adaptation"
 
 [dependencies]
-sdkwork-agent-provider-spi = { path = "../sdkwork-agent-provider-spi" }
+sdkwork-agent-provider-spi.workspace = true
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]

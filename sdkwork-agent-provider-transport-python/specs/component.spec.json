@@ -52,7 +52,11 @@
     "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
-    "configKeys": []
+    "configKeys": [
+      "SDKWORK_KERNEL_PROFILE_ID",
+      "SDKWORK_KERNEL_ENVIRONMENT",
+      "SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS"
+    ]
   },
   "verification": {
     "commands": ["cargo test --manifest-path sdkwork-agent-provider-transport-python/Cargo.toml"]

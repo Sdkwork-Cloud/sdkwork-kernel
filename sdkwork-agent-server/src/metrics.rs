@@ -420,7 +420,7 @@ mod tests {
     fn render_includes_core_metric_families() {
         let registry = MetricsRegistry::from_config(&ServerConfig::default());
         let profile = OperationalProfile::from_runtime("sqlite", false);
-        registry.record_request("GET", "/health", 200, None, 0.01);
+        registry.record_request("GET", "/healthz", 200, None, 0.01);
         registry.record_model_invocation("rig", "completed");
         let body = registry.render_prometheus(true, &profile);
         assert!(body.contains("sdkwork_kernel_health_status"));

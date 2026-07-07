@@ -67,10 +67,45 @@ pub fn build_app(
     persistence: Arc<PersistenceState>,
     runtime_state: Arc<internal_runtime::InternalRuntimeApiState>,
 ) -> Router {
+    try_build_app(config, health_state, persistence, runtime_state)
+        .expect("agent-server app should initialize")
+}
+
+pub fn try_build_app(
+    config: Arc<ServerConfig>,
+    health_state: Arc<health::HealthState>,
+    persistence: Arc<PersistenceState>,
+    runtime_state: Arc<internal_runtime::InternalRuntimeApiState>,
+) -> anyhow::Result<Router> {
+    let rate_limit = Arc::new(
+        crate::rate_limit::RateLimitState::try_from_config(config.as_ref())
+            .map_err(|message| anyhow::anyhow!(message))?,
+    );
+    try_build_app_with_rate_limit(config, health_state, persistence, runtime_state, rate_limit)
+}
+
+pub async fn build_app_async(
+    config: Arc<ServerConfig>,
+    health_state: Arc<health::HealthState>,
+    persistence: Arc<PersistenceState>,
+    runtime_state: Arc<internal_runtime::InternalRuntimeApiState>,
+) -> anyhow::Result<Router> {
+    let rate_limit = Arc::new(
+        crate::rate_limit::RateLimitState::try_from_config_async(config.as_ref())
+            .await
+            .map_err(|message| anyhow::anyhow!(message))?,
+    );
+    try_build_app_with_rate_limit(config, health_state, persistence, runtime_state, rate_limit)
+}
+
+fn try_build_app_with_rate_limit(
+    config: Arc<ServerConfig>,
+    health_state: Arc<health::HealthState>,
+    persistence: Arc<PersistenceState>,
+    runtime_state: Arc<internal_runtime::InternalRuntimeApiState>,
+    rate_limit: Arc<crate::rate_limit::RateLimitState>,
+) -> anyhow::Result<Router> {
     let metrics_registry = metrics::MetricsRegistry::from_config(config.as_ref());
-    let rate_limit = Arc::new(crate::rate_limit::RateLimitState::from_config(
-        config.as_ref(),
-    ));
     let operational_profile = metrics::OperationalProfile::from_runtime(
         persistence.persistence_backend_label(),
         rate_limit.uses_redis(),
@@ -82,20 +117,15 @@ pub fn build_app(
         operational_profile,
     };
 
-    // Intentional fail-fast: ingress middleware owns JWT/JWKS validation.
-    // If it cannot initialize (e.g. JWKS URL unreachable, malformed keys),
-    // the server cannot safely authenticate any request. Starting up in a
-    // state where auth is broken would be a critical security regression.
-    // Operators must fix the ingress config before the server can serve.
     let ingress_state = Arc::new(
         crate::ingress_state::IngressMiddlewareState::from_config(config.clone())
-            .expect("ingress middleware state should initialize"),
+            .map_err(|message| anyhow::anyhow!(message))?,
     );
 
     let health_routes = Router::new()
         .route(&config.health_path, get(health::health_check))
-        .route("/ready", get(health::readiness_check))
-        .route("/live", get(health::liveness_check))
+        .route("/readyz", get(health::readiness_check))
+        .route("/livez", get(health::liveness_check))
         .route("/metrics", get(metrics::prometheus_metrics))
         .with_state(operational_state);
 
@@ -110,7 +140,7 @@ pub fn build_app(
 
     let standard_routes = Router::new().merge(health_routes).merge(internal_runtime);
 
-    Router::new()
+    Ok(Router::new()
         .merge(standard_routes)
         .layer(axum::Extension(metrics_registry))
         .layer(RequestBodyLimitLayer::new(config.max_body_size))
@@ -133,7 +163,7 @@ pub fn build_app(
         .layer(axum_middleware::from_fn(
             middleware::request_context_middleware,
         ))
-        .layer(middleware::cors_layer(&config))
+        .layer(middleware::cors_layer(&config)))
 }
 
 /// Build a test router with in-memory persistence and open ingress auth.
@@ -146,7 +176,8 @@ pub fn build_test_app(config: Arc<ServerConfig>) -> Router {
         internal_runtime::InternalRuntimeApiState::new(persistence.clone(), config.clone())
             .expect("runtime state should initialize for tests"),
     );
-    build_app(config, health_state, persistence, runtime_state)
+    try_build_app(config, health_state, persistence, runtime_state)
+        .expect("test app should initialize")
 }
 
 #[cfg(test)]
@@ -156,5 +187,30 @@ mod tests {
     #[test]
     fn build_app_does_not_panic() {
         let _app = build_test_app(Arc::new(ServerConfig::default()));
+    }
+
+    #[tokio::test]
+    async fn build_app_async_returns_error_for_invalid_ingress_jwt_config() {
+        let mut config = ServerConfig::default();
+        config.ingress_auth_mode = "jwt".to_string();
+        let config = Arc::new(config);
+        let health_state = Arc::new(health::HealthState::new());
+        let persistence = Arc::new(PersistenceState::memory().expect("persistence"));
+        let runtime_state = Arc::new(
+            internal_runtime::InternalRuntimeApiState::new(persistence.clone(), config.clone())
+                .expect("runtime state"),
+        );
+
+        let result = build_app_async(config, health_state, persistence, runtime_state).await;
+
+        assert!(
+            result.is_err(),
+            "invalid JWT ingress config must fail startup"
+        );
+        let message = result.err().expect("startup error").to_string();
+        assert!(
+            message.contains("SDKWORK_KERNEL_INGRESS_JWT_SECRET"),
+            "startup error should name the missing JWT secret: {message}"
+        );
     }
 }

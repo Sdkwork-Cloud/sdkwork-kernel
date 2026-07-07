@@ -8,21 +8,9 @@ use std::sync::Arc;
 use crate::config::ServerConfig;
 use crate::event_bus::SessionEventBus;
 
-type AppSessionManagerSqlite = UnifiedSessionManager<
-    SqliteDatabase,
-    SqliteDatabase,
-    SqliteDatabase,
-    SqliteDatabase,
-    SqliteDatabase,
->;
+type AppSessionManagerSqlite = UnifiedSessionManager<SqliteDatabase>;
 
-type AppSessionManagerPostgres = UnifiedSessionManager<
-    PostgresDatabase,
-    PostgresDatabase,
-    PostgresDatabase,
-    PostgresDatabase,
-    PostgresDatabase,
->;
+type AppSessionManagerPostgres = UnifiedSessionManager<PostgresDatabase>;
 
 #[derive(Clone)]
 enum ManagerInner {
@@ -113,6 +101,14 @@ pub enum PersistenceBackend {
 }
 
 impl PersistenceState {
+    pub async fn open_from_config_async(config: &ServerConfig) -> anyhow::Result<Self> {
+        if config.uses_postgres_runtime_database() {
+            Self::open_postgres_with_event_bus_async(SessionEventBus::new()).await
+        } else {
+            Self::open_with_event_bus(&config.database_path, SessionEventBus::new())
+        }
+    }
+
     pub fn open_from_config(config: &ServerConfig) -> anyhow::Result<Self> {
         if config.uses_postgres_runtime_database() {
             Self::open_postgres_with_event_bus(SessionEventBus::new())
@@ -135,6 +131,13 @@ impl PersistenceState {
 
     pub fn open_postgres() -> anyhow::Result<Self> {
         Self::open_postgres_with_event_bus(SessionEventBus::new())
+    }
+
+    pub async fn open_postgres_with_event_bus_async(
+        event_bus: SessionEventBus,
+    ) -> anyhow::Result<Self> {
+        let db = PostgresDatabase::connect_from_sdkwork_env_async("AGENT_RUNTIME").await?;
+        Ok(Self::from_postgres_database(db, event_bus))
     }
 
     pub fn open_postgres_with_event_bus(event_bus: SessionEventBus) -> anyhow::Result<Self> {
@@ -164,8 +167,7 @@ impl PersistenceState {
 
     fn from_sqlite_database(db: SqliteDatabase, event_bus: SessionEventBus) -> Self {
         let permission_db = db.clone();
-        let mut manager =
-            UnifiedSessionManager::new(db.clone(), db.clone(), db.clone(), db.clone(), db);
+        let mut manager = UnifiedSessionManager::new(db.clone());
         let bus = event_bus.clone();
         manager.set_event_listener(Arc::new(move |event| bus.publish(event)));
         Self {
@@ -178,8 +180,7 @@ impl PersistenceState {
 
     fn from_postgres_database(db: PostgresDatabase, event_bus: SessionEventBus) -> Self {
         let permission_db = db.clone();
-        let mut manager =
-            UnifiedSessionManager::new(db.clone(), db.clone(), db.clone(), db.clone(), db);
+        let mut manager = UnifiedSessionManager::new(db.clone());
         let bus = event_bus.clone();
         manager.set_event_listener(Arc::new(move |event| bus.publish(event)));
         Self {
@@ -234,13 +235,22 @@ impl PersistenceState {
         })
     }
 
+    pub fn list_messages(
+        &self,
+        session_id: &str,
+        query: sdkwork_agent_database::MessageQuery,
+    ) -> Result<Vec<MessageRow>, String> {
+        with_manager!(self, |manager| manager.list_messages(session_id, query))
+    }
+
     pub fn get_messages(
         &self,
         session_id: &str,
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> Result<Vec<MessageRow>, String> {
-        with_manager!(self, |manager| manager.get_messages(session_id, limit, offset))
+        with_manager!(self, |manager| manager
+            .get_messages(session_id, limit, offset))
     }
 
     pub fn message_count(&self, session_id: &str) -> Result<i64, String> {
@@ -279,9 +289,11 @@ impl PersistenceState {
         &self,
         session_id: &str,
         limit: Option<i64>,
+        after_event_id: Option<&str>,
     ) -> Result<Vec<EventRow>, String> {
-        with_manager!(self, |manager| manager
-            .load_session_events(session_id, limit))
+        with_manager!(self, |manager| {
+            manager.load_session_events(session_id, limit, after_event_id)
+        })
     }
 
     pub fn list_recent_events(

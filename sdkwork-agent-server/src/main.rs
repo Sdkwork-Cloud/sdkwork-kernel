@@ -36,13 +36,15 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let health_state = Arc::new(health::HealthState::new());
-    let persistence = Arc::new(PersistenceState::open_from_config(config.as_ref())?);
+    let persistence = Arc::new(PersistenceState::open_from_config_async(config.as_ref()).await?);
     let runtime_state = Arc::new(
-        internal_runtime::InternalRuntimeApiState::new(persistence.clone(), config.clone())
+        internal_runtime::InternalRuntimeApiState::new_async(persistence.clone(), config.clone())
+            .await
             .map_err(|error| anyhow::anyhow!("agent runtime bootstrap failed: {error}"))?,
     );
 
-    let app = app::build_app(config.clone(), health_state, persistence, runtime_state);
+    let app =
+        app::build_app_async(config.clone(), health_state, persistence, runtime_state).await?;
 
     let bind_addr = config.bind_addr();
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;

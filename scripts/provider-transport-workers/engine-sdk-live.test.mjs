@@ -6,6 +6,7 @@ import {
   buildStubModelChatResult,
   mockProviderInvocationAllowed,
   probePackage,
+  resolveModelChatPrompt,
   resolvePackageSpecifier,
 } from './engine-sdk-live.mjs';
 
@@ -30,6 +31,12 @@ const stub = buildStubModelChatResult(
   probePackage('@openai/codex-sdk'),
 );
 assert.equal(stub.mode, 'sdk_probe');
+
+const wirePrompt = resolveModelChatPrompt({
+  messages: ['legacy'],
+  wire_messages: [{ role: 'user', content: [{ type: 'text', text: 'structured' }] }],
+});
+assert.equal(wirePrompt, 'structured', 'wire_messages should drive live prompt resolution');
 
 process.env.SDKWORK_KERNEL_PROFILE_ID = 'cloud.split-services.production';
 process.env.SDKWORK_KERNEL_ENVIRONMENT = 'production';

@@ -10,6 +10,18 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// Maximum combined stdout/stderr bytes retained from a sandbox child process.
+const MAX_SANDBOX_OUTPUT_BYTES: usize = 1_048_576;
+
+fn truncate_process_output(bytes: &[u8]) -> String {
+    if bytes.len() <= MAX_SANDBOX_OUTPUT_BYTES {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    let mut text = String::from_utf8_lossy(&bytes[..MAX_SANDBOX_OUTPUT_BYTES]).into_owned();
+    text.push_str("\n...[truncated: sandbox output limit exceeded]");
+    text
+}
+
 /// Sandbox type for different platforms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SandboxType {
@@ -344,6 +356,96 @@ impl std::fmt::Display for SandboxError {
 
 impl std::error::Error for SandboxError {}
 
+/// Platform sandbox provider: validates policy and executes subprocesses with
+/// platform-appropriate sandbox metadata. Full kernel-level isolation (Landlock,
+/// Seatbelt, restricted token) is applied when the platform backend is wired;
+/// until then, policy validation runs before every execution.
+#[derive(Debug, Clone)]
+pub struct PlatformSandboxProvider {
+    sandbox_type: SandboxType,
+}
+
+impl PlatformSandboxProvider {
+    pub fn new(sandbox_type: SandboxType) -> Self {
+        Self { sandbox_type }
+    }
+
+    pub fn detect() -> Option<Self> {
+        SandboxType::is_available().map(Self::new)
+    }
+}
+
+impl SandboxProvider for PlatformSandboxProvider {
+    fn sandbox_type(&self) -> SandboxType {
+        self.sandbox_type
+    }
+
+    fn is_available(&self) -> bool {
+        self.sandbox_type != SandboxType::None
+    }
+
+    fn validate_policy(&self, policy: &SandboxPolicy) -> Result<(), SandboxError> {
+        if policy.sandbox_type == SandboxType::None {
+            return Err(SandboxError::InvalidPolicy(
+                "platform sandbox requires non-none sandbox_type".to_string(),
+            ));
+        }
+
+        if policy.network.permission == NetworkPermission::Full
+            && !policy.file_system.allow_network_fs
+        {
+            return Err(SandboxError::InvalidPolicy(
+                "full network requires explicit allow_network_fs".to_string(),
+            ));
+        }
+
+        if let Some(working_dir) = &policy.working_dir {
+            let root = policy.file_system.root.canonicalize().map_err(|error| {
+                SandboxError::InvalidPolicy(format!("invalid sandbox root: {error}"))
+            })?;
+            let cwd = working_dir.canonicalize().map_err(|error| {
+                SandboxError::InvalidPolicy(format!("invalid working_dir: {error}"))
+            })?;
+            if !cwd.starts_with(&root) {
+                return Err(SandboxError::InvalidPolicy(
+                    "working_dir must stay inside sandbox file_system.root".to_string(),
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn execute(
+        &self,
+        command: SandboxCommand,
+        policy: SandboxPolicy,
+    ) -> Result<SandboxExecutionResult, SandboxError> {
+        self.validate_policy(&policy)?;
+
+        let mut process = std::process::Command::new(&command.program);
+        process
+            .args(&command.args)
+            .current_dir(&command.cwd)
+            .envs(&command.env);
+
+        for (key, value) in &policy.env {
+            process.env(key, value);
+        }
+
+        let output = process
+            .output()
+            .map_err(|error| SandboxError::ExecutionFailed(error.to_string()))?;
+
+        Ok(SandboxExecutionResult {
+            exit_code: output.status.code().unwrap_or(-1),
+            stdout: truncate_process_output(&output.stdout),
+            stderr: truncate_process_output(&output.stderr),
+            killed: false,
+        })
+    }
+}
+
 /// No-op sandbox provider (for testing).
 #[derive(Debug, Clone)]
 pub struct NoOpSandboxProvider;
@@ -372,8 +474,8 @@ impl SandboxProvider for NoOpSandboxProvider {
 
         Ok(SandboxExecutionResult {
             exit_code: output.status.code().unwrap_or(-1),
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            stdout: truncate_process_output(&output.stdout),
+            stderr: truncate_process_output(&output.stderr),
             killed: false,
         })
     }
@@ -402,7 +504,10 @@ mod tests {
     fn test_sandbox_type_as_str() {
         assert_eq!(SandboxType::None.as_str(), "none");
         assert_eq!(SandboxType::LinuxSeccomp.as_str(), "linux_seccomp");
-        assert_eq!(SandboxType::WindowsRestrictedToken.as_str(), "windows_restricted_token");
+        assert_eq!(
+            SandboxType::WindowsRestrictedToken.as_str(),
+            "windows_restricted_token"
+        );
     }
 
     #[test]
@@ -485,9 +590,7 @@ mod tests {
 
     #[test]
     fn test_sandbox_command_with_args() {
-        let cmd = SandboxCommand::new("ls")
-            .with_arg("-l")
-            .with_arg("-a");
+        let cmd = SandboxCommand::new("ls").with_arg("-l").with_arg("-a");
 
         assert_eq!(cmd.args, vec!["-l", "-a"]);
     }

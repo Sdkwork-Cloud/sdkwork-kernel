@@ -7,7 +7,7 @@
 //! - Auto-recovers backends after consecutive successes
 //! - Emits health change events to telemetry
 
-use crate::{KernelEvent, KernelEventSeverity, KernelEventSource};
+use crate::{KernelEvent, KernelEventSeverity, KernelEventSource, ProviderHealth};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -32,6 +32,14 @@ impl SdkDriverHealth {
         Self {
             status: SdkDriverStatus::Healthy,
             message: None,
+        }
+    }
+
+    pub fn from_provider_health(health: &ProviderHealth) -> Self {
+        match health.status.as_str() {
+            "available" | "ready" | "healthy" => Self::healthy(),
+            "degraded" | "starting" => Self::degraded(health.status.clone()),
+            status => Self::unhealthy(status),
         }
     }
 
@@ -183,14 +191,12 @@ impl DriverHealthHistory {
 
     /// Check if the driver should be auto-degraded.
     pub fn should_degrade(&self, threshold: u32) -> bool {
-        self.consecutive_failures >= threshold
-            && self.current_status == SdkDriverStatus::Healthy
+        self.consecutive_failures >= threshold && self.current_status == SdkDriverStatus::Healthy
     }
 
     /// Check if the driver should be auto-recovered.
     pub fn should_recover(&self, threshold: u32) -> bool {
-        self.consecutive_successes >= threshold
-            && self.current_status == SdkDriverStatus::Degraded
+        self.consecutive_successes >= threshold && self.current_status == SdkDriverStatus::Degraded
     }
 
     /// Update driver status.
@@ -251,7 +257,8 @@ impl BackendHealthMonitor {
     pub fn register_driver(&mut self, driver_id: impl Into<String>) {
         let driver_id = driver_id.into();
         if !self.drivers.contains_key(&driver_id) {
-            self.drivers.insert(driver_id.clone(), DriverHealthHistory::new(driver_id));
+            self.drivers
+                .insert(driver_id.clone(), DriverHealthHistory::new(driver_id));
         }
     }
 
@@ -322,7 +329,9 @@ impl BackendHealthMonitor {
 
     /// Get the current status for a driver.
     pub fn driver_status(&self, driver_id: &str) -> Option<SdkDriverStatus> {
-        self.drivers.get(driver_id).map(|history| history.current_status.clone())
+        self.drivers
+            .get(driver_id)
+            .map(|history| history.current_status.clone())
     }
 
     /// Get the health history for a driver.
@@ -424,7 +433,11 @@ impl BackendHealthMonitor {
 
     /// Generate health change event.
     pub fn health_change_event(&self, change: &HealthStatusChange) -> KernelEvent {
-        let event_id = format!("health.change.{}.{}", change.driver_id, Instant::now().elapsed().as_millis());
+        let event_id = format!(
+            "health.change.{}.{}",
+            change.driver_id,
+            Instant::now().elapsed().as_millis()
+        );
         let event_type = match change.new_status {
             SdkDriverStatus::Healthy => "agent.backend.health.recovered",
             SdkDriverStatus::Degraded => "agent.backend.health.degraded",
@@ -616,9 +629,8 @@ mod tests {
 
     #[test]
     fn test_backend_health_monitor_auto_degrade() {
-        let mut monitor = BackendHealthMonitor::new(
-            HealthMonitorConfig::new().with_degradation_threshold(3),
-        );
+        let mut monitor =
+            BackendHealthMonitor::new(HealthMonitorConfig::new().with_degradation_threshold(3));
         monitor.register_driver("driver-1");
 
         // Start with healthy
@@ -730,7 +742,11 @@ mod tests {
         assert!(monitor.is_driver_usable("driver-1"));
 
         // Unhealthy is not usable
-        monitor.drivers.get_mut("driver-1").unwrap().update_status(SdkDriverStatus::Unhealthy);
+        monitor
+            .drivers
+            .get_mut("driver-1")
+            .unwrap()
+            .update_status(SdkDriverStatus::Unhealthy);
         assert!(!monitor.is_driver_usable("driver-1"));
     }
 

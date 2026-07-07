@@ -3,7 +3,7 @@
 Status: active
 Owner: SDKWork kernel maintainers
 Application: sdkwork-kernel
-Updated: 2026-06-26
+Updated: 2026-07-07
 Specs: [REQUIREMENTS_SPEC.md](../../../sdkwork-specs/REQUIREMENTS_SPEC.md), [DOCUMENTATION_SPEC.md](../../../sdkwork-specs/DOCUMENTATION_SPEC.md)
 
 Canon entry and index. Product depth lives in linked shards; normative contracts live in `specs/` and `sdkwork-specs/`.
@@ -15,7 +15,10 @@ Canon entry and index. Product depth lives in linked shards; normative contracts
 | [PRD-01-product-design-and-scope.md](PRD-01-product-design-and-scope.md) | Positioning, users, goals, scope, principles, key objects |
 | [PRD-02-provider-integration-requirements.md](PRD-02-provider-integration-requirements.md) | Provider integration product acceptance |
 | [PRD-03-commercial-readiness-baseline.md](PRD-03-commercial-readiness-baseline.md) | Phases, readiness matrix, deployment checklist |
+| [PRD-04-ecosystem-architecture.md](PRD-04-ecosystem-architecture.md) | Kernel · Agents · BirdCoder ecosystem, dependency rules, API ownership |
 | [TECH_ARCHITECTURE.md](../../architecture/tech/TECH_ARCHITECTURE.md) | Technical architecture canon |
+| [TECH-02-provider-framework-matrix.md](../../architecture/tech/TECH-02-provider-framework-matrix.md) | Codex, Claude Code, OpenCode, OpenClaw, Hermes, Rig capability matrix |
+| [TECH-03-spi-implementation-gap-tracker.md](../../architecture/tech/TECH-03-spi-implementation-gap-tracker.md) | SPI spec/implementation gaps and commercial scorecard |
 | [specs/AGENT_PROVIDER_INTEGRATION_SPEC.md](../../../specs/AGENT_PROVIDER_INTEGRATION_SPEC.md) | Normative provider integration |
 | [specs/AGENT_KERNEL_SPEC.md](../../../specs/AGENT_KERNEL_SPEC.md) | Agent kernel SPI |
 
@@ -69,8 +72,9 @@ Canonical product scenarios. Implementation detail: [TECH_ARCHITECTURE.md](../..
 
 1. Select `cloud.split-services.production` from `configs/topology/`.
 2. Set `SDKWORK_KERNEL_AGENT_PLUGIN` explicitly (default `rig`).
-3. Configure Postgres, Redis, `SDKWORK_KERNEL_INGRESS_AUTH_MODE=token`.
+3. Provision managed HA Postgres and managed HA Redis, then configure `SDKWORK_KERNEL_INGRESS_AUTH_MODE=token`.
 4. Keep `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS` unset in production.
+5. Run `pnpm verify:commercial` with `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` and staging SDK credentials before release promotion.
 
 ## 6. Success Metrics
 
@@ -95,10 +99,24 @@ Detail: [PRD-03 §3](PRD-03-commercial-readiness-baseline.md#3-phase-roadmap) an
 | Agents layer separation | [ADR-20260626-agents-application-layer-separation.md](../../architecture/decisions/ADR-20260626-agents-application-layer-separation.md) |
 | Platform framework adoption | [ADR-20260618-platform-framework-adoption.md](../../architecture/decisions/ADR-20260618-platform-framework-adoption.md) |
 | Internal API surface | [ADR-20260622-sdkwork-internal-api-surface.md](../../architecture/decisions/ADR-20260622-sdkwork-internal-api-surface.md) |
+| Ecosystem architecture | [PRD-04-ecosystem-architecture.md](PRD-04-ecosystem-architecture.md) |
+| Provider framework matrix | [TECH-02-provider-framework-matrix.md](../../architecture/tech/TECH-02-provider-framework-matrix.md) |
+| SPI gap tracker | [TECH-03-spi-implementation-gap-tracker.md](../../architecture/tech/TECH-03-spi-implementation-gap-tracker.md) |
+| SPI comprehensive assessment | [ADR-20260628-KERNEL-SPI-COMPREHENSIVE-ASSESSMENT.md](../../architecture/decisions/ADR-20260628-KERNEL-SPI-COMPREHENSIVE-ASSESSMENT.md) |
 
 Engineering `REQ-*` records: [docs/product/requirements/](../requirements/) per [REQUIREMENTS_SPEC.md](../../../sdkwork-specs/REQUIREMENTS_SPEC.md).
 
-## 9. Open Questions
+## 9. Ecosystem Positioning
+
+SDKWork Kernel is the **mechanism layer** in a three-repository agent platform:
+
+- **sdkwork-kernel** — SPI, provider integration, runtime server, code kernel.
+- **sdkwork-agents** — Managed agents, `ai_*` database, open/app/backend APIs, runtime facade.
+- **sdkwork-birdcoder** — Multi code-engine product; consumes agents facade, never provider crates.
+
+Detail: [PRD-04-ecosystem-architecture.md](PRD-04-ecosystem-architecture.md).
+
+## 10. Open Questions
 
 1. **Default production plugin** — When should Codex/OpenClaw become profile-specific defaults per product?
 2. **Facade versioning** — Should `sdkwork-agents-runtime-facade` semver independently from kernel provider crates?

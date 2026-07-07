@@ -6,8 +6,8 @@ Owner: SDKWork kernel maintainers.
 
 - Topology profile: `cloud.split-services.production` (`configs/topology/cloud.split-services.production.env`)
 - `SDKWORK_KERNEL_INGRESS_TOKEN` provisioned in secret manager (never in git)
-- `SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres` with `SDKWORK_AGENT_RUNTIME_DATABASE_URL` or `SDKWORK_AGENT_RUNTIME_POSTGRES_URI`
-- `SDKWORK_RATE_LIMIT_REDIS_URL` (or `SDKWORK_REDIS_URL`) for distributed rate limiting across replicas
+- Managed HA Postgres (or operator-managed equivalent) with backups, restore testing, failover monitoring, and `SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres` plus `SDKWORK_AGENT_RUNTIME_DATABASE_URL` or `SDKWORK_AGENT_RUNTIME_POSTGRES_URI`
+- Managed HA Redis (or operator-managed equivalent) with authentication, failover monitoring, and `SDKWORK_RATE_LIMIT_REDIS_URL` or `SDKWORK_REDIS_URL` for distributed rate limiting across replicas
 - `SDKWORK_KERNEL_AGENT_PLUGIN=rig` (production default; see `configs/topology/cloud.split-services.production.env`)
 - Optional: `SDKWORK_KERNEL_METRICS_TOKEN` (defaults to ingress token when unset)
 - Optional: `SDKWORK_OTEL_EXPORTER_OTLP_ENDPOINT` for distributed tracing
@@ -16,30 +16,38 @@ Owner: SDKWork kernel maintainers.
 
 ```bash
 pnpm verify
+pnpm verify:commercial
 cargo build -p sdkwork-agent-server --release
 node scripts/release/generate-kernel-sbom.mjs
 node scripts/release/generate-kernel-checksums.mjs
 node scripts/release/validate-release-artifacts.mjs
 ```
 
+`pnpm verify:commercial` is the production promotion gate. It fails closed unless
+`SDKWORK_AGENT_RUNTIME_POSTGRES_URI` points at a live runtime Postgres database
+and staging SDK credentials are available for the opt-in live SDK gate.
+
 ## Container rollout
 
 ```bash
 docker compose -f deployments/docker/docker-compose.cloud.yml up -d --build
-curl -fsS "${SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL}/health"
+curl -fsS "${SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL}/healthz"
 ```
 
 Compose starts PostgreSQL, Redis, and `agent-server` with shared runtime persistence and Redis-backed rate limits.
 
 ## Kubernetes rollout
 
-1. Apply `deployments/kubernetes/postgres-redis.yaml` (or connect to managed Postgres/Redis).
+1. Provision managed HA Postgres and managed HA Redis. `deployments/kubernetes/postgres-redis.yaml` is a single-node local/staging smoke reference only and must not be used as the production data plane.
 2. Create secret `sdkwork-agent-server` with keys:
    - `ingress-token`
    - optional `metrics-token`
    - `runtime-postgres-password` (when using bundled Postgres manifest)
+   - `runtime-database-url` — e.g. `postgresql://sdkwork:<password>@sdkwork-agent-runtime-postgres:5432/sdkwork_agent_runtime`
+   - `runtime-redis-password` (when using bundled Redis manifest)
+   - `runtime-redis-url` — e.g. `redis://:<password>@sdkwork-agent-runtime-redis:6379/0`
 3. Apply manifests in order: `configmap.yaml`, `deployment.yaml`, `service.yaml`, `hpa.yaml`.
-4. Verify probes: `/health`, `/ready`, `/live`.
+4. Verify infrastructure probes: `/healthz`, `/readyz`, `/livez`.
 5. Scrape metrics with bearer token: `GET /metrics` + `Authorization: Bearer <metrics-token>`.
 6. Confirm operational gauges:
    - `sdkwork_kernel_runtime_persistence_backend_info{backend="postgres"} 1`
@@ -70,5 +78,6 @@ Production remains locked to `rig` in all `*.production.env` profiles unless an 
 ## Verification
 
 - `pnpm test:topology-smoke`
+- `pnpm verify:commercial`
 - `cargo test --test http_internal_runtime_contracts --manifest-path sdkwork-agent-server/Cargo.toml`
-- Live Postgres (optional): `SDKWORK_AGENT_RUNTIME_POSTGRES_URI=... cargo test --features postgres-sync --test agent_runtime_postgres_contracts --manifest-path sdkwork-agent-database/Cargo.toml`
+- Live Postgres: `SDKWORK_AGENT_RUNTIME_POSTGRES_URI=... cargo test --features postgres-sync --test agent_runtime_postgres_contracts --manifest-path sdkwork-agent-database/Cargo.toml`

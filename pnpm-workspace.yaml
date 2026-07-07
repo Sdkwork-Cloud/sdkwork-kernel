@@ -1,4 +1,5 @@
 packages:
+  - "."
   - "sdks/sdkwork-agent-internal-sdk/sdkwork-agent-internal-sdk-typescript"
   - "../sdkwork-iam/apps/sdkwork-iam-common/packages/sdkwork-iam-contracts"
   - "../sdkwork-iam/apps/sdkwork-iam-common/packages/sdkwork-iam-runtime"
@@ -20,6 +21,7 @@ packages:
   - "../sdkwork-ui/sdkwork-ui-pc-react"
   - "../sdkwork-sdk-commons/sdkwork-sdk-common-typescript"
   - "../sdkwork-utils/packages/sdkwork-utils-typescript"
+  - "../sdkwork-app-topology"
 
 catalog:
   react: ^19.0.0
@@ -32,3 +34,5 @@ catalog:
   "@types/node": ^22.14.0
   "@vitejs/plugin-react": ^5.0.4
   lucide-react: ^0.546.0
+  qrcode: ^1.5.4
+  vite-plugin-dts: ^4.5.4

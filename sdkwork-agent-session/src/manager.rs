@@ -1,43 +1,40 @@
 use crate::conversation::ConversationManager;
 use crate::types::{MessageConfig, SessionConfig, SessionQuery};
 use sdkwork_agent_database::{
-    AgentDatabase, EventRepository, EventRow, MessageRepository, MessageRow, SessionRepository,
-    SessionRow, TaskRepository, TaskRow,
+    session_owner_fields_from_metadata_json, AgentDatabase, EventRepository, EventRow,
+    MessageRepository, MessageRow, RuntimeSessionWrites, SessionRepository, SessionRow,
+    TaskRepository, TaskRow,
 };
 use std::sync::Arc;
 
-/// Unified session manager that integrates database persistence
-pub struct UnifiedSessionManager<D, S, M, T, E>
+/// Unified session manager backed by one database type implementing all runtime repositories.
+pub struct UnifiedSessionManager<DB>
 where
-    D: AgentDatabase,
-    S: SessionRepository,
-    M: MessageRepository,
-    T: TaskRepository,
-    E: EventRepository,
+    DB: AgentDatabase
+        + SessionRepository
+        + MessageRepository
+        + TaskRepository
+        + EventRepository
+        + RuntimeSessionWrites
+        + Clone,
 {
-    db: D,
-    session_repo: S,
-    message_repo: M,
-    task_repo: T,
-    event_repo: E,
+    db: DB,
     event_listener: Option<Arc<dyn Fn(EventRow) + Send + Sync>>,
 }
 
-impl<D, S, M, T, E> UnifiedSessionManager<D, S, M, T, E>
+impl<DB> UnifiedSessionManager<DB>
 where
-    D: AgentDatabase,
-    S: SessionRepository,
-    M: MessageRepository + Clone,
-    T: TaskRepository,
-    E: EventRepository,
+    DB: AgentDatabase
+        + SessionRepository
+        + MessageRepository
+        + TaskRepository
+        + EventRepository
+        + RuntimeSessionWrites
+        + Clone,
 {
-    pub fn new(db: D, session_repo: S, message_repo: M, task_repo: T, event_repo: E) -> Self {
+    pub fn new(db: DB) -> Self {
         Self {
             db,
-            session_repo,
-            message_repo,
-            task_repo,
-            event_repo,
             event_listener: None,
         }
     }
@@ -52,6 +49,13 @@ where
         let now = chrono::Utc::now().to_rfc3339();
         let session_id = format!("session.{}", generate_id());
 
+        let metadata_json = config
+            .metadata
+            .as_ref()
+            .and_then(|value| serde_json::to_string(value).ok());
+        let (owner_tenant_id, owner_user_ref) =
+            session_owner_fields_from_metadata_json(&metadata_json);
+
         let row = SessionRow {
             session_id: session_id.clone(),
             agent_id: config.agent_id,
@@ -65,19 +69,17 @@ where
             bridge_id: None,
             token_usage_json: None,
             message_count: 0,
+            owner_tenant_id,
+            owner_user_ref,
             created_at: now.clone(),
             updated_at: Some(now),
-            metadata_json: config
-                .metadata
-                .as_ref()
-                .and_then(|value| serde_json::to_string(value).ok()),
+            metadata_json,
         };
 
-        self.session_repo
+        self.db
             .save_session(&row)
             .map_err(|e| format!("failed to save session: {}", e))?;
 
-        // Record session creation event
         self.record_event(&session_id, "session.created", "info", None)?;
 
         Ok(row)
@@ -85,7 +87,7 @@ where
 
     /// Get a session by ID
     pub fn get_session(&self, session_id: &str) -> Result<SessionRow, String> {
-        self.session_repo
+        self.db
             .load_session(session_id)
             .map_err(|e| format!("failed to load session: {}", e))?
             .ok_or_else(|| format!("session not found: {}", session_id))
@@ -101,18 +103,19 @@ where
             bridge_id: query.bridge_id,
             owner_tenant_id: query.owner_tenant_id,
             owner_user_ref: query.owner_user_ref,
+            after_session_id: query.after_session_id,
             limit: query.limit,
             offset: query.offset,
         };
 
-        self.session_repo
+        self.db
             .list_sessions(&db_query)
             .map_err(|e| format!("failed to list sessions: {}", e))
     }
 
     /// Update a session
     pub fn update_session(&self, session: &SessionRow) -> Result<(), String> {
-        self.session_repo
+        self.db
             .update_session(session)
             .map_err(|e| format!("failed to update session: {}", e))
     }
@@ -123,11 +126,10 @@ where
         session.state = "closed".to_string();
         session.updated_at = Some(chrono::Utc::now().to_rfc3339());
 
-        self.session_repo
+        self.db
             .update_session(&session)
             .map_err(|e| format!("failed to close session: {}", e))?;
 
-        // Record session closure event
         self.record_event(session_id, "session.closed", "info", None)?;
 
         Ok(session)
@@ -135,7 +137,7 @@ where
 
     /// Delete a session and all associated data
     pub fn delete_session(&self, session_id: &str) -> Result<(), String> {
-        self.session_repo
+        self.db
             .delete_session_cascade(session_id)
             .map_err(|e| format!("failed to delete session: {}", e))
     }
@@ -146,7 +148,6 @@ where
         session_id: &str,
         config: MessageConfig,
     ) -> Result<MessageRow, String> {
-        // Verify session exists
         let session = self.get_session(session_id)?;
         if session.state == "closed" {
             return Err(format!("session {session_id} is closed"));
@@ -167,38 +168,44 @@ where
                 .and_then(|value| serde_json::to_string(value).ok()),
         };
 
-        self.message_repo
-            .save_message(&row)
-            .map_err(|e| format!("failed to save message: {}", e))?;
+        let event = EventRow {
+            event_id: format!("evt.{}", generate_id()),
+            session_id: Some(session_id.to_string()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: Some(format!("role={}", row.role)),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
 
-        // Update session message count
-        let mut session = self.get_session(session_id)?;
-        session.message_count += 1;
-        session.updated_at = Some(chrono::Utc::now().to_rfc3339());
-        self.update_session(&session)?;
+        self.db
+            .append_message_with_event(&row, &event)
+            .map_err(|e| format!("failed to append message: {}", e))?;
 
-        // Record message event
-        self.record_event(
-            session_id,
-            "message.sent",
-            "info",
-            Some(&format!("role={}", row.role)),
-        )?;
+        if let Some(listener) = &self.event_listener {
+            listener(event);
+        }
 
         Ok(row)
     }
 
     /// Delete all messages in a session and reset the cached message count.
     pub fn delete_messages(&self, session_id: &str) -> Result<(), String> {
-        self.message_repo
-            .delete_messages(session_id)
-            .map_err(|e| format!("failed to delete messages: {}", e))?;
+        self.get_session(session_id)?;
+        let updated_at = chrono::Utc::now().to_rfc3339();
+        self.db
+            .delete_messages_and_reset_count(session_id, &updated_at)
+            .map_err(|e| format!("failed to delete messages: {}", e))
+    }
 
-        let mut session = self.get_session(session_id)?;
-        session.message_count = 0;
-        session.updated_at = Some(chrono::Utc::now().to_rfc3339());
-        self.update_session(&session)
-            .map_err(|e| format!("failed to reset session message count: {}", e))
+    /// List messages with full query parameters (offset or keyset continuation).
+    pub fn list_messages(
+        &self,
+        session_id: &str,
+        query: sdkwork_agent_database::MessageQuery,
+    ) -> Result<Vec<MessageRow>, String> {
+        self.db
+            .load_messages(session_id, &query)
+            .map_err(|e| format!("failed to load messages: {}", e))
     }
 
     /// Get message history for a session
@@ -208,22 +215,26 @@ where
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> Result<Vec<MessageRow>, String> {
-        let query = sdkwork_agent_database::MessageQuery { limit, offset };
-        self.message_repo
+        let query = sdkwork_agent_database::MessageQuery {
+            limit,
+            offset,
+            ..Default::default()
+        };
+        self.db
             .load_messages(session_id, &query)
             .map_err(|e| format!("failed to load messages: {}", e))
     }
 
     /// Get message count for a session
     pub fn message_count(&self, session_id: &str) -> Result<i64, String> {
-        self.message_repo
+        self.db
             .message_count(session_id)
             .map_err(|e| format!("failed to count messages: {}", e))
     }
 
     /// Get a conversation manager for a session
-    pub fn conversation(&self) -> ConversationManager<M> {
-        ConversationManager::new(self.message_repo.clone())
+    pub fn conversation(&self) -> ConversationManager<DB> {
+        ConversationManager::new(self.db.clone())
     }
 
     /// Emit a persisted session event to storage and optional listeners.
@@ -254,7 +265,7 @@ where
             created_at: chrono::Utc::now().to_rfc3339(),
         };
 
-        self.event_repo
+        self.db
             .save_event(&event)
             .map_err(|e| format!("failed to save event: {}", e))?;
 
@@ -277,7 +288,7 @@ where
             created_at: now.clone(),
             updated_at: Some(now),
         };
-        self.task_repo
+        self.db
             .save_task(&task)
             .map_err(|e| format!("failed to save task: {}", e))?;
         self.record_event(session_id, "task.created", "info", Some(&task.task_id))?;
@@ -286,7 +297,7 @@ where
 
     /// Load a task by id.
     pub fn get_task(&self, task_id: &str) -> Result<TaskRow, String> {
-        self.task_repo
+        self.db
             .load_task(task_id)
             .map_err(|e| format!("failed to load task: {}", e))?
             .ok_or_else(|| format!("task not found: {}", task_id))
@@ -299,7 +310,7 @@ where
         query: sdkwork_agent_database::TaskQuery,
     ) -> Result<Vec<TaskRow>, String> {
         self.get_session(session_id)?;
-        self.task_repo
+        self.db
             .load_tasks(session_id, &query)
             .map_err(|e| format!("failed to load tasks: {}", e))
     }
@@ -309,7 +320,7 @@ where
         let mut task = self.get_task(task_id)?;
         task.state = "cancelled".to_string();
         task.updated_at = Some(chrono::Utc::now().to_rfc3339());
-        self.task_repo
+        self.db
             .update_task(&task)
             .map_err(|e| format!("failed to cancel task: {}", e))?;
         self.record_event(
@@ -326,15 +337,17 @@ where
         &self,
         session_id: &str,
         limit: Option<i64>,
+        after_event_id: Option<&str>,
     ) -> Result<Vec<EventRow>, String> {
         self.get_session(session_id)?;
         let query = sdkwork_agent_database::EventQuery {
             event_type: None,
             severity: None,
+            after_event_id: after_event_id.map(str::to_string),
             limit,
             offset: None,
         };
-        self.event_repo
+        self.db
             .load_events(session_id, &query)
             .map_err(|e| format!("failed to load events: {}", e))
     }
@@ -344,7 +357,7 @@ where
         &self,
         query: sdkwork_agent_database::EventQuery,
     ) -> Result<Vec<EventRow>, String> {
-        self.event_repo
+        self.db
             .list_recent_events(&query)
             .map_err(|e| format!("failed to list recent events: {}", e))
     }
@@ -372,15 +385,8 @@ mod tests {
     use super::*;
     use sdkwork_agent_database::InMemoryDatabase;
 
-    fn create_manager() -> UnifiedSessionManager<
-        InMemoryDatabase,
-        InMemoryDatabase,
-        InMemoryDatabase,
-        InMemoryDatabase,
-        InMemoryDatabase,
-    > {
-        let db = InMemoryDatabase::new();
-        UnifiedSessionManager::new(db.clone(), db.clone(), db.clone(), db.clone(), db)
+    fn create_manager() -> UnifiedSessionManager<InMemoryDatabase> {
+        UnifiedSessionManager::new(InMemoryDatabase::new())
     }
 
     #[test]

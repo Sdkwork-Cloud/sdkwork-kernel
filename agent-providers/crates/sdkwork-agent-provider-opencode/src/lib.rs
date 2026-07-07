@@ -1,15 +1,11 @@
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
-    ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
-    SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
-    ToolResult, ToolSchema,
+    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
+    ModelStreamChunk, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
+    SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
-use sdkwork_agent_provider_core::reject_direct_mock_provider_invocation;
 use sdkwork_agent_provider_core::{
-    create_session_from_config, now_iso, uuid_simple, ConversationManager,
-    InMemoryConversationManager, MessageAdapter, SessionAdapter, SessionConfig,
-    SessionLifecycleProvider,
+    create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
 };
 
 // ============================================================================
@@ -233,38 +229,12 @@ impl ModelProvider for OpenCodeModelProvider {
         .with_tool_capability("function_calling")]
     }
 
-    fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
-        reject_direct_mock_provider_invocation("provider.model.opencode.invoke")?;
-
-        let model_id = request.model_id.as_deref().unwrap_or(&self.default_model);
-        let prompt = request.messages.join("\n");
-
-        Ok(ModelResponse::text(
-            &request.model_request_id,
-            "provider.model.opencode",
-            format!("[OpenCode {}] Mock response to: {}", model_id, prompt),
-        )
-        .with_usage(ModelUsage::new(prompt.len() as u32 / 4, 128))
-        .with_finish_reason("stop"))
+    fn invoke(&self, _request: ModelRequest) -> KernelResult<ModelResponse> {
+        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.model.opencode")
     }
 
-    fn stream(&self, request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
-        reject_direct_mock_provider_invocation("provider.model.opencode.stream")?;
-
-        let response_text = format!(
-            "[OpenCode] Streaming mock response to: {}",
-            request.messages.join(" ")
-        );
-        let words: Vec<&str> = response_text.split_whitespace().collect();
-        let chunks = words
-            .into_iter()
-            .enumerate()
-            .map(|(i, word)| {
-                ModelStreamChunk::output(&request.model_request_id, i as u64, format!("{} ", word))
-            })
-            .collect();
-
-        Ok(chunks)
+    fn stream(&self, _request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
+        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.model.opencode")
     }
 }
 

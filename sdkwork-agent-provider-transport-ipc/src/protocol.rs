@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 pub const SDKWORK_PING_METHOD: &str = "sdkwork/ping";
 pub const SDKWORK_CAPABILITY_INVOKE_METHOD: &str = "sdkwork/capability.invoke";
@@ -47,4 +47,32 @@ impl JsonRpcResponse {
         }
         Ok(self.result.unwrap_or(Value::Null))
     }
+}
+
+/// Incremental stream frame emitted by worker processes for `model_chat_stream`.
+pub const SDKWORK_STREAM_EVENT_CHUNK: &str = "stream.chunk";
+pub const SDKWORK_STREAM_EVENT_DONE: &str = "stream.done";
+
+pub fn is_stream_chunk_frame(frame: &Value) -> bool {
+    frame.get("event").and_then(Value::as_str) == Some(SDKWORK_STREAM_EVENT_CHUNK)
+}
+
+pub fn is_stream_terminal_frame(frame: &Value) -> bool {
+    frame.get("event").and_then(Value::as_str) == Some(SDKWORK_STREAM_EVENT_DONE)
+}
+
+pub fn stream_chunk_frame(sequence: u64, content: &str, model_request_id: Option<&str>) -> Value {
+    json!({
+        "event": SDKWORK_STREAM_EVENT_CHUNK,
+        "sequence": sequence,
+        "content": content,
+        "model_request_id": model_request_id,
+    })
+}
+
+pub fn stream_done_frame(finish_reason: &str) -> Value {
+    json!({
+        "event": SDKWORK_STREAM_EVENT_DONE,
+        "finish_reason": finish_reason,
+    })
 }

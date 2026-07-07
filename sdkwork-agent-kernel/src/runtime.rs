@@ -2,11 +2,12 @@ use crate::{
     AgentClassificationProvider, AgentCollaborationProvider, AgentConfigSectionKind,
     AgentConfigurationProvider, AgentInstaller, AgentManifest, AgentPackageManifest,
     AgentRuntimeConformanceProfile, AgentSkillProvider, Capability, CapabilityManifest,
-    CapabilityRequirement, ContextProvider, HostProvider, KernelConformanceCase,
-    KernelConformanceReport, KernelError, KernelEvent, KernelEventSeverity, KernelResult,
-    KnowledgeProvider, McpProvider, MemoryProvider, MessageQueryProvider, ModelProvider,
-    PlanningProvider, PolicyCategory, PolicyProvider, ProtocolAdapter, ProviderHealth,
-    ProviderManifest, SideEffectLevel, TaskSchedulingProvider, TelemetryProvider, ToolProvider,
+    CapabilityRequirement, ContextProvider, EnvFileSecretFallbackHostProvider, HostProvider,
+    KernelConformanceCase, KernelConformanceReport, KernelError, KernelEvent, KernelEventSeverity,
+    KernelResult, KnowledgeProvider, McpProvider, MemoryProvider, MessageQueryProvider,
+    ModelProvider, PlanningProvider, PlatformSandboxProvider, PolicyCategory, PolicyProvider,
+    ProtocolAdapter, ProviderHealth, ProviderManifest, SandboxProvider, SandboxingHostProvider,
+    SideEffectLevel, TaskSchedulingProvider, TelemetryProvider, ToolProvider,
     AGENT_KERNEL_SPEC_VERSION,
 };
 use std::sync::{Arc, Mutex};
@@ -871,7 +872,7 @@ pub struct RuntimeBootstrapReport {
     pub events: Vec<KernelEvent>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct RuntimeBuilder {
     runtime_id: String,
     agent_manifest: AgentManifest,
@@ -881,6 +882,24 @@ pub struct RuntimeBuilder {
     security_profile: String,
     required_security_profile: Option<String>,
     generated_at: String,
+    host_sandbox_provider: Option<Arc<dyn SandboxProvider>>,
+    host_sandbox_enabled: bool,
+}
+
+impl std::fmt::Debug for RuntimeBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RuntimeBuilder")
+            .field("runtime_id", &self.runtime_id)
+            .field("agent_id", &self.agent_manifest.agent_id)
+            .field("provider_count", &self.providers.len())
+            .field("security_profile", &self.security_profile)
+            .field("host_sandbox_enabled", &self.host_sandbox_enabled)
+            .field(
+                "has_host_sandbox_provider",
+                &self.host_sandbox_provider.is_some(),
+            )
+            .finish()
+    }
 }
 
 impl RuntimeBuilder {
@@ -894,6 +913,8 @@ impl RuntimeBuilder {
             security_profile: "fail_closed=true".to_string(),
             required_security_profile: None,
             generated_at: "1970-01-01T00:00:00Z".to_string(),
+            host_sandbox_provider: None,
+            host_sandbox_enabled: false,
         }
     }
 
@@ -1203,8 +1224,9 @@ impl RuntimeBuilder {
             ],
         );
         self.providers.push(provider_manifest);
+        let provider = Arc::new(provider) as Arc<dyn HostProvider + Send + Sync>;
         self.provider_registry
-            .add_host_provider(provider_id, Arc::new(provider));
+            .add_host_provider(provider_id, self.wrap_host_provider(provider));
         self
     }
 
@@ -1596,6 +1618,38 @@ impl RuntimeBuilder {
     pub fn with_generated_at(mut self, generated_at: impl Into<String>) -> Self {
         self.generated_at = generated_at.into();
         self
+    }
+
+    /// Register a sandbox provider used to wrap host `process` execution.
+    pub fn with_host_sandbox_provider(mut self, sandbox: Arc<dyn SandboxProvider>) -> Self {
+        self.host_sandbox_provider = Some(sandbox);
+        self.host_sandbox_enabled = true;
+        self
+    }
+
+    /// Enable platform-native host sandboxing when the current OS supports it.
+    pub fn enable_platform_host_sandbox(mut self) -> Self {
+        if let Some(provider) = PlatformSandboxProvider::detect() {
+            self.host_sandbox_provider = Some(Arc::new(provider));
+            self.host_sandbox_enabled = true;
+        }
+        self
+    }
+
+    fn wrap_host_provider(
+        &self,
+        provider: Arc<dyn HostProvider + Send + Sync>,
+    ) -> Arc<dyn HostProvider + Send + Sync> {
+        let provider = Arc::new(EnvFileSecretFallbackHostProvider::new(provider));
+        if !self.host_sandbox_enabled {
+            return provider;
+        }
+
+        let Some(sandbox) = self.host_sandbox_provider.clone() else {
+            return provider;
+        };
+
+        Arc::new(SandboxingHostProvider::new(provider, sandbox))
     }
 
     pub fn bootstrap(self) -> KernelResult<RuntimeBootstrapReport> {

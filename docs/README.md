@@ -35,7 +35,10 @@ docs/product/prd/PRD.md
 | PRD — product scope | [product/prd/PRD-01-product-design-and-scope.md](product/prd/PRD-01-product-design-and-scope.md) |
 | PRD — provider integration | [product/prd/PRD-02-provider-integration-requirements.md](product/prd/PRD-02-provider-integration-requirements.md) |
 | PRD — commercial readiness | [product/prd/PRD-03-commercial-readiness-baseline.md](product/prd/PRD-03-commercial-readiness-baseline.md) |
+| PRD — ecosystem (kernel · agents · BirdCoder) | [product/prd/PRD-04-ecosystem-architecture.md](product/prd/PRD-04-ecosystem-architecture.md) |
 | Technical architecture | [architecture/tech/TECH_ARCHITECTURE.md](architecture/tech/TECH_ARCHITECTURE.md) |
+| Provider framework matrix | [architecture/tech/TECH-02-provider-framework-matrix.md](architecture/tech/TECH-02-provider-framework-matrix.md) |
+| SPI gap tracker | [architecture/tech/TECH-03-spi-implementation-gap-tracker.md](architecture/tech/TECH-03-spi-implementation-gap-tracker.md) |
 | Module reference | [architecture/tech/TECH-01-kernel-module-reference.md](architecture/tech/TECH-01-kernel-module-reference.md) |
 | Topology standard | [architecture/tech/TECH-topology-standard.md](architecture/tech/TECH-topology-standard.md) |
 | Provider integration spec | [../specs/AGENT_PROVIDER_INTEGRATION_SPEC.md](../specs/AGENT_PROVIDER_INTEGRATION_SPEC.md) |

@@ -193,6 +193,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -339,6 +340,7 @@ paths:
         - $ref: '#/components/parameters/SessionIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -404,6 +406,7 @@ paths:
         - $ref: '#/components/parameters/SessionIdPath'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
+        - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -764,6 +767,11 @@ components:
       in: header
       name: X-API-Key
       description: Application ingress token. Runtime also accepts Authorization Bearer and x-sdkwork-access-token.
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT ingress when SDKWORK_KERNEL_INGRESS_AUTH_MODE=jwt (HS256, RS256, or JWKS-backed keys).
   parameters:
     SessionIdPath:
       name: sessionId
@@ -843,6 +851,13 @@ components:
         minimum: 1
         maximum: 200
         default: 20
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: Opaque keyset cursor for high-volume lists. Mutually exclusive with `page`.
+      schema:
+        type: string
   responses:
     Problem:
       description: RFC 9457 problem detail response
@@ -1643,7 +1658,17 @@ components:
         toolCalls:
           type: array
           items:
-            type: object
+            $ref: '#/components/schemas/ModelToolCall'
+    ModelToolCall:
+      type: object
+      required: [toolCallId, toolId, input]
+      properties:
+        toolCallId:
+          type: string
+        toolId:
+          type: string
+        input:
+          type: string
     ExecuteToolRequest:
       type: object
       required: [input]

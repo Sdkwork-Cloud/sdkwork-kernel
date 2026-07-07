@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import readline from 'node:readline';
 import {
+  buildModelChatStreamResult,
   buildStubModelChatResult,
   invokeModelChatLive,
   mockProviderInvocationAllowed,
@@ -15,6 +16,50 @@ const packageName =
 
 function writeResponse(response) {
   process.stdout.write(`${JSON.stringify(response)}\n`);
+}
+
+function writeStreamResult(requestId, result) {
+  const chunks = Array.isArray(result.chunks) ? result.chunks : [];
+  const modelRequestId = result.model_request_id ?? null;
+  for (const chunk of chunks) {
+    writeResponse({
+      jsonrpc: '2.0',
+      id: requestId,
+      result: {
+        event: 'stream.chunk',
+        sequence: chunk.sequence ?? 0,
+        content: chunk.content ?? chunk.delta ?? '',
+        model_request_id: modelRequestId,
+      },
+    });
+  }
+  writeResponse({
+    jsonrpc: '2.0',
+    id: requestId,
+    result: {
+      event: 'stream.done',
+      finish_reason: result.finish_reason ?? 'stop',
+      model_request_id: modelRequestId,
+    },
+  });
+}
+
+function failClosedSyntheticOperation(operationName, packageProbe, modelRequestId = null) {
+  return {
+    ok: false,
+    mode: 'sdk_live_failed',
+    package: packageName,
+    package_resolved: packageProbe.resolved,
+    operation: operationName,
+    error: packageProbe.resolved
+      ? `${operationName} requires a live provider SDK implementation and mock fallback is disabled`
+      : `official sdk package is not resolved for ${operationName} and mock fallback is disabled: ${packageName}`,
+    model_request_id: modelRequestId,
+  };
+}
+
+function syntheticProviderOperationAllowed() {
+  return mockProviderInvocationAllowed();
 }
 
 async function handleCapabilityInvoke(params) {
@@ -32,19 +77,26 @@ async function handleCapabilityInvoke(params) {
   }
 
   if (op === 'session_create') {
+    if (!syntheticProviderOperationAllowed()) {
+      return failClosedSyntheticOperation(op, packageProbe);
+    }
     return {
       ok: true,
-      mode: packageProbe.resolved ? 'sdk_live' : 'stub',
+      mode: packageProbe.resolved ? 'sdk_probe' : 'stub',
       agent_id: operation.agent_id ?? null,
       user_ref: operation.user_ref ?? null,
       package: packageName,
+      package_resolved: packageProbe.resolved,
     };
   }
 
-  if (op === 'model_chat') {
+  if (op === 'model_chat' || op === 'model_chat_stream') {
+    const handleResult = (result) =>
+      op === 'model_chat_stream' ? buildModelChatStreamResult(result) : result;
+
     if (packageProbe.resolved) {
       try {
-        return await invokeModelChatLive(packageName, operation);
+        return handleResult(await invokeModelChatLive(packageName, operation));
       } catch (error) {
         if (!mockProviderInvocationAllowed()) {
           return {
@@ -70,13 +122,16 @@ async function handleCapabilityInvoke(params) {
       };
     }
 
-    return buildStubModelChatResult(packageName, operation, packageProbe);
+    return handleResult(buildStubModelChatResult(packageName, operation, packageProbe));
   }
 
   if (op === 'tool_invoke') {
+    if (!syntheticProviderOperationAllowed()) {
+      return failClosedSyntheticOperation(op, packageProbe);
+    }
     return {
       ok: true,
-      mode: packageProbe.resolved ? 'sdk_live' : 'stub',
+      mode: packageProbe.resolved ? 'sdk_probe' : 'stub',
       output: JSON.stringify({
         tool_id: operation.tool_id ?? null,
         arguments: operation.arguments ?? null,
@@ -88,6 +143,9 @@ async function handleCapabilityInvoke(params) {
   }
 
   if (op === 'skill_invoke') {
+    if (!syntheticProviderOperationAllowed()) {
+      return failClosedSyntheticOperation(op, packageProbe);
+    }
     return {
       ok: true,
       mode: packageProbe.resolved ? 'sdk_probe' : 'stub',
@@ -98,6 +156,10 @@ async function handleCapabilityInvoke(params) {
       }),
       package: packageName,
     };
+  }
+
+  if (!syntheticProviderOperationAllowed()) {
+    return failClosedSyntheticOperation(op, packageProbe);
   }
 
   return {
@@ -128,6 +190,12 @@ function handleRequest(request) {
     const params = request.params ?? {};
     Promise.resolve(handleCapabilityInvoke(params))
       .then((result) => {
+        const operation = params.operation ?? {};
+        const op = operation.operation ?? operation;
+        if (op === 'model_chat_stream' && result?.ok !== false) {
+          writeStreamResult(request.id, result);
+          return;
+        }
         writeResponse({
           jsonrpc: '2.0',
           id: request.id,

@@ -21,6 +21,12 @@ pub struct ComponentHealth {
     pub message: Option<String>,
 }
 
+/// SDKWork infrastructure probe response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProbeResponse {
+    pub status: String,
+}
+
 /// Health check state
 #[derive(Debug, Clone)]
 pub struct HealthState {
@@ -85,73 +91,46 @@ pub(crate) fn aggregate_component_status(components: &[ComponentHealth]) -> Stri
 
 /// Health check handler
 pub async fn health_check(
-    State((health_state, persistence)): State<(Arc<HealthState>, Arc<PersistenceState>)>,
-) -> (StatusCode, Json<HealthResponse>) {
-    let persistence_health = persistence.run(|state| state.health()).await;
-    let components = vec![
-        ComponentHealth {
-            name: "kernel".to_string(),
-            status: "available".to_string(),
-            message: None,
-        },
-        persistence_component_for_metrics(persistence_health),
-    ];
-    let status = aggregate_component_status(&components);
-    let code = if status == "unhealthy" {
-        StatusCode::SERVICE_UNAVAILABLE
-    } else {
-        StatusCode::OK
-    };
-
-    let response = HealthResponse {
-        status,
-        version: health_state.version.clone(),
-        uptime_secs: health_state.uptime_secs(),
-        components,
-    };
-
-    (code, Json(response))
+    State((_health_state, _persistence)): State<(Arc<HealthState>, Arc<PersistenceState>)>,
+) -> (StatusCode, Json<ProbeResponse>) {
+    (
+        StatusCode::OK,
+        Json(ProbeResponse {
+            status: "ok".to_string(),
+        }),
+    )
 }
 
 /// Readiness check handler
 pub async fn readiness_check(
-    State((health_state, persistence)): State<(Arc<HealthState>, Arc<PersistenceState>)>,
-) -> (StatusCode, Json<HealthResponse>) {
-    let persistence_health = persistence.run(|state| state.health()).await;
-    let components = vec![persistence_component_for_metrics(persistence_health)];
-    let persistence_ready = components
-        .first()
-        .is_some_and(|component| component.status == "available");
-    let response = HealthResponse {
-        status: if persistence_ready {
-            "ready".to_string()
-        } else {
-            "not_ready".to_string()
-        },
-        version: health_state.version.clone(),
-        uptime_secs: health_state.uptime_secs(),
-        components,
-    };
-    let code = if persistence_ready {
-        StatusCode::OK
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
-    };
-    (code, Json(response))
+    State((_health_state, persistence)): State<(Arc<HealthState>, Arc<PersistenceState>)>,
+) -> (StatusCode, Json<ProbeResponse>) {
+    match persistence.run(|state| state.health()).await {
+        Ok(true) => (
+            StatusCode::OK,
+            Json(ProbeResponse {
+                status: "ready".to_string(),
+            }),
+        ),
+        _ => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(ProbeResponse {
+                status: "READINESS_DEPENDENCY_UNAVAILABLE".to_string(),
+            }),
+        ),
+    }
 }
 
 /// Liveness check handler
 pub async fn liveness_check(
-    State((health_state, _persistence)): State<(Arc<HealthState>, Arc<PersistenceState>)>,
-) -> (StatusCode, Json<HealthResponse>) {
-    let response = HealthResponse {
-        status: "alive".to_string(),
-        version: health_state.version.clone(),
-        uptime_secs: health_state.uptime_secs(),
-        components: Vec::new(),
-    };
-
-    (StatusCode::OK, Json(response))
+    State((_health_state, _persistence)): State<(Arc<HealthState>, Arc<PersistenceState>)>,
+) -> (StatusCode, Json<ProbeResponse>) {
+    (
+        StatusCode::OK,
+        Json(ProbeResponse {
+            status: "ok".to_string(),
+        }),
+    )
 }
 
 #[cfg(test)]

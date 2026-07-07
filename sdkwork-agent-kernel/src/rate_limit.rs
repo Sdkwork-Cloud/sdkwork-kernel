@@ -164,8 +164,7 @@ impl RetryStrategy {
 
     /// Calculate delay for retry attempt.
     pub fn calculate_delay(&self, attempt: u32) -> u64 {
-        let delay = self.initial_delay_ms as f64
-            * self.backoff_multiplier.powi(attempt as i32);
+        let delay = self.initial_delay_ms as f64 * self.backoff_multiplier.powi(attempt as i32);
         delay.min(self.max_delay_ms as f64) as u64
     }
 }
@@ -197,10 +196,13 @@ impl RateLimitRequest {
         requested_amount: u64,
     ) -> Self {
         Self {
-            request_id: format!("req-{}", std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()),
+            request_id: format!(
+                "req-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
             policy_id: policy_id.into(),
             resource_id: resource_id.into(),
             requester: requester.into(),
@@ -239,11 +241,7 @@ pub struct RateLimitResult {
 }
 
 impl RateLimitResult {
-    pub fn allowed(
-        request_id: impl Into<String>,
-        current_usage: u64,
-        remaining: u64,
-    ) -> Self {
+    pub fn allowed(request_id: impl Into<String>, current_usage: u64, remaining: u64) -> Self {
         Self {
             request_id: request_id.into(),
             allowed: true,
@@ -298,7 +296,11 @@ pub struct QuotaUsage {
 }
 
 impl QuotaUsage {
-    pub fn new(resource_id: impl Into<String>, policy_id: impl Into<String>, window_ms: u64) -> Self {
+    pub fn new(
+        resource_id: impl Into<String>,
+        policy_id: impl Into<String>,
+        window_ms: u64,
+    ) -> Self {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -523,10 +525,9 @@ impl RateLimitProvider for InMemoryRateLimitProvider {
         let quota_key = Self::get_quota_key(&request.resource_id, &request.policy_id);
 
         // Get or create quota
-        let quota = self
-            .quotas
-            .entry(quota_key.clone())
-            .or_insert_with(|| QuotaUsage::new(&request.resource_id, &request.policy_id, policy.window_ms));
+        let quota = self.quotas.entry(quota_key.clone()).or_insert_with(|| {
+            QuotaUsage::new(&request.resource_id, &request.policy_id, policy.window_ms)
+        });
 
         // Reset if window expired
         if quota.is_window_expired() {
@@ -538,7 +539,11 @@ impl RateLimitProvider for InMemoryRateLimitProvider {
         if policy.is_within_limits(new_usage) {
             quota.increment(request.requested_amount);
             let remaining = policy.max_requests + policy.burst_size - new_usage;
-            Ok(RateLimitResult::allowed(&request.request_id, new_usage, remaining))
+            Ok(RateLimitResult::allowed(
+                &request.request_id,
+                new_usage,
+                remaining,
+            ))
         } else {
             quota.record_violation();
             let wait_time = policy.calculate_wait_time(new_usage);
@@ -638,7 +643,13 @@ mod tests {
 
     #[test]
     fn test_rate_limit_policy_new() {
-        let policy = RateLimitPolicy::new("policy-1", "API Limit", ResourceType::ApiRequest, 100, 60000);
+        let policy = RateLimitPolicy::new(
+            "policy-1",
+            "API Limit",
+            ResourceType::ApiRequest,
+            100,
+            60000,
+        );
         assert_eq!(policy.policy_id, "policy-1");
         assert_eq!(policy.max_requests, 100);
         assert_eq!(policy.window_ms, 60000);
@@ -646,8 +657,8 @@ mod tests {
 
     #[test]
     fn test_rate_limit_policy_with_burst() {
-        let policy = RateLimitPolicy::new("p1", "Test", ResourceType::Generic, 10, 1000)
-            .with_burst(5);
+        let policy =
+            RateLimitPolicy::new("p1", "Test", ResourceType::Generic, 10, 1000).with_burst(5);
 
         assert_eq!(policy.burst_size, 5);
         assert!(policy.is_within_limits(14));
@@ -761,8 +772,8 @@ mod tests {
     #[test]
     fn test_in_memory_rate_limit_provider_with_burst() {
         let mut provider = InMemoryRateLimitProvider::new();
-        let policy = RateLimitPolicy::new("p1", "Test", ResourceType::Generic, 10, 1000)
-            .with_burst(5);
+        let policy =
+            RateLimitPolicy::new("p1", "Test", ResourceType::Generic, 10, 1000).with_burst(5);
         provider.create_policy(policy).unwrap();
 
         // Should allow burst

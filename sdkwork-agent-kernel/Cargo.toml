@@ -6,3 +6,17 @@ edition = "2021"
 [lib]
 name = "sdkwork_agent_kernel"
 path = "src/lib.rs"
+
+[features]
+default = []
+sdkwork-models = ["dep:sdkwork-models"]
+secret-vault = ["dep:ureq"]
+
+[dependencies]
+sdkwork-utils-rust.workspace = true
+sdkwork-models = { workspace = true, optional = true }
+serde_json = "1"
+ureq = { version = "2.12", optional = true, default-features = false, features = ["json"] }
+
+[dev-dependencies]
+sdkwork-agent-provider-core.workspace = true

@@ -33,12 +33,13 @@ impl ContextBridge {
         }
 
         // Add timestamp context
+        let now = chrono::Utc::now().to_rfc3339();
         frames.push(
             ContextFrame::new(
                 format!("ctx.{}.time", session_id),
                 session_id,
                 "system.time",
-                format!("Current time: 2026-01-01T00:00:00Z"),
+                format!("Current time: {now}"),
                 TrustLevel::TrustedSystem,
                 RedactionClassification::Public,
             )

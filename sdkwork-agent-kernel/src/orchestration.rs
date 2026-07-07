@@ -8,6 +8,8 @@
 
 use std::collections::HashMap;
 
+use crate::{Action, ActionKind, KernelError, KernelResult, Plan, SideEffectLevel};
+
 /// Agent task to be executed in a multi-agent orchestration plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrchestrationTask {
@@ -81,7 +83,9 @@ impl OrchestrationTask {
     }
 
     pub fn is_ready(&self, completed_tasks: &[String]) -> bool {
-        self.dependencies.iter().all(|dep| completed_tasks.contains(dep))
+        self.dependencies
+            .iter()
+            .all(|dep| completed_tasks.contains(dep))
     }
 }
 
@@ -109,7 +113,10 @@ impl AgentGraph {
 
     pub fn add_edge(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
         let from = from.into();
-        self.edges.entry(from).or_insert_with(Vec::new).push(to.into());
+        self.edges
+            .entry(from)
+            .or_insert_with(Vec::new)
+            .push(to.into());
         self
     }
 
@@ -264,6 +271,48 @@ impl OrchestrationPlan {
 
     pub fn get_task(&self, task_id: &str) -> Option<&OrchestrationTask> {
         self.tasks.iter().find(|task| task.task_id == task_id)
+    }
+
+    /// Convert this orchestration plan into a kernel [`Plan`] for the planning provider loop.
+    pub fn into_planning_plan(
+        self,
+        task_id: impl Into<String>,
+        run_id: impl Into<String>,
+    ) -> KernelResult<Plan> {
+        if self.tasks.is_empty() {
+            return Err(KernelError::validation(
+                "orchestration plan requires at least one task",
+            ));
+        }
+
+        let task_id = task_id.into();
+        let run_id = run_id.into();
+        let summary = format!(
+            "orchestration {} / {}",
+            self.strategy.as_str(),
+            self.aggregation.as_str()
+        );
+        let mut plan = Plan::new(self.plan_id, task_id, run_id, summary);
+
+        for task in self.tasks {
+            let mut action = Action::new(
+                format!("{}.handoff", task.task_id),
+                ActionKind::Handoff,
+                task.objective,
+            )
+            .with_required_capabilities(vec!["collaboration.delegate".to_string()])
+            .with_side_effect_level(SideEffectLevel::SideEffectful)
+            .with_policy_categories(vec!["orchestration".to_string()]);
+
+            if !task.dependencies.is_empty() {
+                action.depends_on = task.dependencies;
+            }
+
+            plan = plan.add_action(action);
+        }
+
+        plan.validate()?;
+        Ok(plan)
     }
 }
 
@@ -501,8 +550,7 @@ mod tests {
 
     #[test]
     fn test_agent_task_priority() {
-        let task = OrchestrationTask::new("task-1", "agent-1", "Test")
-            .with_priority(150); // Over 100
+        let task = OrchestrationTask::new("task-1", "agent-1", "Test").with_priority(150); // Over 100
 
         assert_eq!(task.priority, 100); // Clamped to max
     }
@@ -516,8 +564,7 @@ mod tests {
 
     #[test]
     fn test_agent_graph_add_agent() {
-        let graph = AgentGraph::new()
-            .add_agent("agent-1", AgentNode::new("agent-1"));
+        let graph = AgentGraph::new().add_agent("agent-1", AgentNode::new("agent-1"));
 
         assert!(graph.get_agent("agent-1").is_some());
     }
@@ -550,8 +597,7 @@ mod tests {
 
     #[test]
     fn test_agent_node_capacity() {
-        let mut node = AgentNode::new("agent-1")
-            .with_max_concurrent(3);
+        let mut node = AgentNode::new("agent-1").with_max_concurrent(3);
 
         assert!(node.can_accept_task());
         node.increment_load();
@@ -572,12 +618,30 @@ mod tests {
     fn test_orchestration_plan_ready_tasks() {
         let plan = OrchestrationPlan::new("plan-1")
             .with_task(OrchestrationTask::new("task-1", "agent-1", "Step 1"))
-            .with_task(OrchestrationTask::new("task-2", "agent-1", "Step 2")
-                .with_dependency("task-1"));
+            .with_task(
+                OrchestrationTask::new("task-2", "agent-1", "Step 2").with_dependency("task-1"),
+            );
 
         let ready = plan.get_ready_tasks(&[]);
         assert_eq!(ready.len(), 1);
         assert_eq!(ready[0].task_id, "task-1");
+    }
+
+    #[test]
+    fn test_orchestration_plan_into_planning_plan() {
+        let orchestration = OrchestrationPlan::new("plan-1")
+            .with_strategy(ExecutionStrategy::Dependency)
+            .with_task(OrchestrationTask::new("task-1", "agent-1", "Analyze"))
+            .with_task(
+                OrchestrationTask::new("task-2", "agent-2", "Implement").with_dependency("task-1"),
+            );
+
+        let plan = orchestration
+            .into_planning_plan("task.root", "run-1")
+            .expect("plan conversion should succeed");
+        assert_eq!(plan.plan_id, "plan-1");
+        assert_eq!(plan.actions.len(), 2);
+        assert_eq!(plan.actions[1].depends_on, vec!["task-1"]);
     }
 
     #[test]
@@ -597,7 +661,10 @@ mod tests {
     #[test]
     fn test_orchestration_result_finalize() {
         let result = OrchestrationResult::new("plan-1")
-            .add_task_result("task-1", TaskResult::success("task-1", "agent-1", "output", 100))
+            .add_task_result(
+                "task-1",
+                TaskResult::success("task-1", "agent-1", "output", 100),
+            )
             .finalize();
 
         assert_eq!(result.status, OrchestrationStatus::Completed);

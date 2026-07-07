@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::thread;
 
 use axum::http::StatusCode;
 use chrono::Utc;
@@ -70,6 +71,10 @@ pub struct TenantTokenQuotaState {
 
 impl TenantTokenQuotaState {
     pub fn from_config(config: &ServerConfig) -> Self {
+        Self::try_from_config(config).unwrap_or_else(|message| panic!("{message}"))
+    }
+
+    pub fn try_from_config(config: &ServerConfig) -> Result<Self, String> {
         let overrides = config
             .tenant_token_quota_overrides
             .iter()
@@ -77,45 +82,79 @@ impl TenantTokenQuotaState {
             .collect();
 
         if let Some(redis_url) = config.effective_rate_limit_redis_url() {
-            match Self::connect_redis(redis_url) {
+            match connect_redis_blocking(redis_url) {
                 Ok(connection) => {
-                    return Self {
+                    return Ok(Self {
                         overrides,
                         backend: QuotaBackend::Redis {
                             connection,
                             reserve_script: redis::Script::new(REDIS_RESERVE_SCRIPT),
                             adjust_script: redis::Script::new(REDIS_ADJUST_SCRIPT),
                         },
-                    };
+                    });
                 }
                 Err(error) => {
                     if config.requires_distributed_rate_limit() {
-                        panic!(
+                        return Err(format!(
                             "failed to connect tenant token quota redis at {redis_url}: {error}; production cloud deployments require redis_cache"
-                        );
+                        ));
                     }
                     warn!(
                         redis_url = redis_url,
-                        error = %error,
+                        error = error.as_str(),
                         "tenant token quota redis unavailable; falling back to in-process counters"
                     );
                 }
             }
         }
 
-        Self {
+        Ok(Self {
             overrides,
             backend: QuotaBackend::Memory {
                 counters: Mutex::new(HashMap::new()),
             },
-        }
+        })
     }
 
-    fn connect_redis(redis_url: &str) -> Result<ConnectionManager, redis::RedisError> {
-        let runtime = tokio::runtime::Handle::current();
-        runtime.block_on(async {
-            let client = redis::Client::open(redis_url)?;
-            ConnectionManager::new(client).await
+    pub async fn try_from_config_async(config: &ServerConfig) -> Result<Self, String> {
+        let overrides = config
+            .tenant_token_quota_overrides
+            .iter()
+            .map(|(tenant_id, override_quota)| (tenant_id.clone(), override_quota.daily_tokens))
+            .collect();
+
+        if let Some(redis_url) = config.effective_rate_limit_redis_url() {
+            match connect_redis_async(redis_url).await {
+                Ok(connection) => {
+                    return Ok(Self {
+                        overrides,
+                        backend: QuotaBackend::Redis {
+                            connection,
+                            reserve_script: redis::Script::new(REDIS_RESERVE_SCRIPT),
+                            adjust_script: redis::Script::new(REDIS_ADJUST_SCRIPT),
+                        },
+                    });
+                }
+                Err(error) => {
+                    if config.requires_distributed_rate_limit() {
+                        return Err(format!(
+                            "failed to connect tenant token quota redis at {redis_url}: {error}; production cloud deployments require redis_cache"
+                        ));
+                    }
+                    warn!(
+                        redis_url = redis_url,
+                        error = error.as_str(),
+                        "tenant token quota redis unavailable; falling back to in-process counters"
+                    );
+                }
+            }
+        }
+
+        Ok(Self {
+            overrides,
+            backend: QuotaBackend::Memory {
+                counters: Mutex::new(HashMap::new()),
+            },
         })
     }
 
@@ -152,7 +191,7 @@ impl TenantTokenQuotaState {
         if limit == 0 {
             return Err(StatusCode::TOO_MANY_REQUESTS);
         }
-        let reserve = DEFAULT_RESERVE_TOKENS.min(limit);
+        let reserve = reserved_tokens_for_limit(limit);
         match &self.backend {
             QuotaBackend::Memory { counters } => {
                 self.try_consume_memory(counters, tenant_id, limit, reserve)
@@ -177,10 +216,13 @@ impl TenantTokenQuotaState {
     /// Adjust the reserved token count to the actual usage after the model
     /// invocation completes.
     pub async fn adjust_usage(&self, tenant_id: &str, actual_tokens: u64) {
-        if !self.overrides.contains_key(tenant_id) {
+        let Some(limit) = self.quota_for_tenant(tenant_id) else {
+            return;
+        };
+        let reserved = reserved_tokens_for_limit(limit);
+        if reserved == 0 {
             return;
         }
-        let reserved = DEFAULT_RESERVE_TOKENS;
         match &self.backend {
             QuotaBackend::Memory { counters } => {
                 self.adjust_usage_memory(counters, tenant_id, reserved, actual_tokens);
@@ -415,6 +457,33 @@ impl TenantTokenQuotaState {
     }
 }
 
+async fn connect_redis_async(redis_url: &str) -> Result<ConnectionManager, String> {
+    let client = redis::Client::open(redis_url).map_err(|error| error.to_string())?;
+    ConnectionManager::new(client)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+fn connect_redis_blocking(redis_url: &str) -> Result<ConnectionManager, String> {
+    let redis_url = redis_url.to_string();
+    if tokio::runtime::Handle::try_current().is_ok() {
+        return thread::spawn(move || connect_redis_on_current_thread(&redis_url))
+            .join()
+            .map_err(|_| "redis connection worker panicked".to_string())?;
+    }
+    connect_redis_on_current_thread(&redis_url)
+}
+
+fn connect_redis_on_current_thread(redis_url: &str) -> Result<ConnectionManager, String> {
+    let runtime =
+        tokio::runtime::Runtime::new().map_err(|error| format!("tokio runtime: {error}"))?;
+    runtime.block_on(connect_redis_async(redis_url))
+}
+
+fn reserved_tokens_for_limit(limit: u64) -> u64 {
+    DEFAULT_RESERVE_TOKENS.min(limit)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,5 +543,39 @@ mod tests {
         state.adjust_usage("100001", 100).await;
         // Verify the counter reflects actual usage, not the reserved estimate.
         assert_eq!(state.current_usage("100001").await.expect("usage"), 100);
+    }
+
+    #[tokio::test]
+    async fn adjust_usage_does_not_record_when_quota_had_no_reservation() {
+        let state = TenantTokenQuotaState::from_config(&quota_config("100001", 0));
+
+        state.adjust_usage("100001", 100).await;
+
+        assert_eq!(state.current_usage("100001").await.expect("usage"), 0);
+    }
+
+    #[test]
+    fn reserved_tokens_for_limit_never_exceeds_tenant_quota() {
+        assert_eq!(reserved_tokens_for_limit(100), 100);
+        assert_eq!(reserved_tokens_for_limit(10_000), DEFAULT_RESERVE_TOKENS);
+    }
+
+    #[tokio::test]
+    async fn redis_configuration_error_inside_runtime_returns_error_without_nested_runtime_panic() {
+        let mut config = quota_config("100001", 10_000);
+        config.environment = "production".to_string();
+        config.deployment_profile = Some("cloud".to_string());
+        config.kernel_runtime_target = Some("server".to_string());
+        config.rate_limit_rps = 1;
+        config.rate_limit_redis_url = Some("not-a-redis-url".to_string());
+
+        let result = TenantTokenQuotaState::try_from_config(&config);
+
+        assert!(result.is_err(), "invalid redis URL should fail closed");
+        let message = result.err().expect("redis error");
+        assert!(
+            !message.contains("Cannot start a runtime from within a runtime"),
+            "tenant token quota startup must not panic with nested Tokio runtime: {message}"
+        );
     }
 }

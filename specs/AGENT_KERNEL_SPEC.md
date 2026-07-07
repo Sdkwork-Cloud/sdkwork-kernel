@@ -145,6 +145,9 @@ agent-kernel -> direct filesystem/process/network/secrets side effects
 | `KernelEvent` | stable | Event stream item for UI, adapters, telemetry, and replay |
 | `AuditRecord` | stable | Security-relevant immutable record |
 | `TraceContext` | stable | Cross-boundary trace and correlation metadata |
+| `ContentBlock` | stable | Industry-aligned multimodal content unit (maps to `AgentPart`) |
+| `AgentInvokeRequest` | stable | Unified invoke surface for chat, execution, and model paths |
+| `AgentInteractionContract` | stable | Accepted input/output modalities and delivery policy |
 
 Rules:
 
@@ -202,6 +205,106 @@ sdkwork.code.workspace
 sdkwork.code.patch
 sdkwork.ops.runbook
 com.example.product.case-intake
+```
+
+### 3.4 Provider Family Catalog
+
+Agent Kernel defines **18 core provider families** required for a complete runtime
+manifest plus **6 extension families** for production hardening and advanced
+orchestration. Each family `MUST` register through `RuntimeBuilder` and resolve
+via `AgentRuntime` accessor methods. `RuntimeProviderRegistry` supports
+primary and multi-provider registration per family.
+
+Core families:
+
+- `model`, `tool`, `policy`, `context`, `memory`, `knowledge`, `planning`,
+  `host`, `protocol_adapter`, `mcp`, `skill`, `collaboration`, `telemetry`,
+  `task_scheduling`, `agent_classification`, `message_query`, `agent_installer`,
+  `agent_configuration`
+
+Extension families (optional per deployment profile; required when declared in
+`security_profile` or capability manifest):
+
+- `sandbox` — [`SANDBOX_PROVIDER_SPEC.md`](./SANDBOX_PROVIDER_SPEC.md)
+- `secret` — [`SECRET_PROVIDER_SPEC.md`](./SECRET_PROVIDER_SPEC.md)
+- `rate_limit` — tenant/user quota enforcement before side-effectful operations
+- `cancellation` — cooperative cancel for model, tool, skill, plan, and task execution
+- `model_stream` — incremental model output chunks mapped to `KernelEvent` stream
+- `backend_health` — continuous SDK transport health per
+  [`BACKEND_HEALTH_MONITOR_SPEC.md`](./BACKEND_HEALTH_MONITOR_SPEC.md)
+
+Orchestration primitives (`AgentTask` graphs, execution strategies) live in
+[`MULTI_AGENT_ORCHESTRATION_SPEC.md`](./MULTI_AGENT_ORCHESTRATION_SPEC.md) and
+compose with `collaboration` and `planning` families. A2A wire mapping is owned
+by [`A2A_PROTOCOL_ADAPTER_SPEC.md`](./A2A_PROTOCOL_ADAPTER_SPEC.md), not by
+core object fields.
+
+Memory tiers and scopes (`Ephemeral`, `ShortTerm`, `LongTerm`, `Permanent`,
+`Growing`; `Session`, `User`, `Tenant`, `Organization`, `Agent`, `Application`)
+are defined in [`AGENT_CONTEXT_MEMORY_SPEC.md`](./AGENT_CONTEXT_MEMORY_SPEC.md).
+Concrete memory backends are owned by `sdkwork-memory` and bound through
+`sdkwork-agents` composition slots — kernel `MUST NOT` persist business memory
+catalog tables.
+
+### 3.5 Developer API (`sdkwork_agent_kernel::api`)
+
+The kernel exposes a **developer-friendly SPI** on top of canonical objects.
+Hosts, providers, and protocol adapters `SHOULD` prefer this module for
+integration code; wire encoding remains the responsibility of
+`ProtocolAdapter` and `ModelProvider` implementations.
+
+Rust entrypoint: `sdkwork_agent_kernel::api` (re-exported at crate root).
+
+| Type | Responsibility | Industry analogue |
+| --- | --- | --- |
+| `ConversationRole` | Wire-friendly roles (`user`, `assistant`, `system`, `tool`) | OpenAI / Anthropic chat roles; Gemini `model`; A2A `agent` |
+| `ContentBlock` | Typed multimodal blocks (`Text`, `Image`, `Audio`, `Video`, `File`, `ToolCall`, `ToolResult`) | OpenAI content parts; Anthropic content blocks; Gemini `parts` |
+| `MessageBuilder` | Fluent single-turn message construction | Chat message builders in OpenAI/Anthropic SDKs |
+| `AgentConversation` | Ordered multi-turn transcript | `messages[]` in chat completion APIs |
+| `InteractionContractBuilder` | Declares accepted modalities and delivery strategy | Agent card `input_modes`; model capability gates |
+| `AgentInvokeRequest` | Single canonical path to `ModelRequest`, `AgentChatRequest`, and `AgentExecutionRequest` | Chat completion / generateContent / A2A task invoke |
+
+Rules:
+
+- Callers `MUST NOT` set legacy `messages` text projection and structured
+  `input_messages` independently — derive both from `AgentInvokeRequest` or
+  `AgentConversation`.
+- `ContentBlock` `MUST` round-trip to exactly one `AgentPart` via `to_part` /
+  `from_part`.
+- `AgentInvokeRequest::to_model_request` `MUST` populate `input_messages`,
+  `input_contract`, and text projection consistently.
+- Vendor-specific JSON shapes `MUST NOT` appear in the `api` module; adapters
+  map `ContentBlock` / `AgentPart` at the provider boundary via
+  `sdkwork-agent-provider-core::model_wire`.
+
+Example:
+
+```rust
+use sdkwork_agent_kernel::{
+    api::{AgentConversation, AgentInvokeRequest, ContentBlock, InteractionContractBuilder,
+          MessageBuilder},
+    ContentReference,
+};
+
+let conversation = AgentConversation::new()
+    .system_text("msg.system", "You are helpful.")?
+    .push_builder(
+        "msg.user",
+        MessageBuilder::user()
+            .text("Describe this image.")
+            .block(ContentBlock::image(
+                ContentReference::host("images/photo.png"),
+                "image/png",
+            )),
+    )?;
+
+let request = AgentInvokeRequest::builder("invoke.1")
+    .conversation(conversation)
+    .interaction(InteractionContractBuilder::multimodal_chat().build()?)
+    .model_id("gpt-4o")
+    .build()?;
+
+let model_request = request.to_model_request("policy.invoke.1")?;
 ```
 
 ## 4. Manifests And Discovery
@@ -523,6 +626,7 @@ Standard `AgentPart` types:
 - `artifact_ref`
 - `image_ref`
 - `audio_ref`
+- `video_ref`
 - `tool_call_ref`
 - `policy_decision_ref`
 - `error`
@@ -535,7 +639,41 @@ Rules:
 - Unknown part types `MUST` be safely ignored or rejected based on capability
   negotiation.
 
-### 6.3 Artifacts
+### 6.3 Content References
+
+Multimodal parts use kernel-neutral `ContentReference` URIs:
+
+- `host://` — host provider filesystem or sandbox path
+- `artifact://` — kernel artifact store
+- `drive://` — sdkwork-drive object reference
+- `https://` / `http://` — external URL (policy-gated fetch)
+- `inline://` — inline base64 payload (discouraged for large media)
+
+Protocol adapters map vendor wire shapes into `AgentPart` + `ContentReference`.
+Model providers map `ContentReference` into vendor model API parts.
+
+### 6.4 Interaction Contract And Input Resolution
+
+`AgentDefinition.interaction_contract` is the canonical I/O contract. Legacy
+`input_policy` is a projection for backward-compatible consumers.
+
+Resolution order in `ModelExecutionService` (when structured input is active):
+
+1. Slot constraints (`max_parts_per_message`, `allowed_mime_types`, `max_bytes`)
+2. Delivery strategy per modality (`native`, `preprocess`, `reject`)
+3. Agent policy acceptance (`accepted_modalities`, `unsupported_action`)
+4. Model capability check (`ModelDescriptor.input_modes`, `model.multimodal_input`)
+
+`ModelRequest` fields:
+
+- `input_messages` — canonical structured input (`Vec<AgentMessage>`)
+- `input_contract` / `input_policy` — activates the resolution pipeline
+- `messages` — legacy text projection for providers not yet consuming structured input
+
+Preprocess delivery invokes `InputModalityPreprocessor` (skill-backed by default)
+to transform parts before model invocation (for example audio → STT → text).
+
+### 6.5 Artifacts
 
 Artifacts are durable outputs produced by tasks.
 
@@ -558,7 +696,7 @@ Rules:
 - Artifact deletion/retention behavior `MUST` be declared when artifacts may
   contain tenant, personal, sensitive, or regulated data.
 
-### 6.4 Rust Baseline
+### 6.6 Rust Baseline
 
 The Rust SPI baseline exposes `AgentMessage`, `AgentPart`, and `AgentArtifact`
 as provider-neutral kernel objects.
@@ -568,8 +706,8 @@ Implemented baseline behavior:
 - `AgentMessageRole` covers `user`, `agent`, `system`, `model`, `tool`,
   `policy`, and `adapter`.
 - `AgentPartKind` covers text, JSON, binary references, file references,
-  artifact references, image references, audio references, tool-call
-  references, policy-decision references, and errors.
+  artifact references, image references, audio references, video references,
+  tool-call references, policy-decision references, and errors.
 - Message objects preserve session/task/run/step context, trace context,
   created-at metadata, namespaced metadata, untrusted-source marking, and
   redaction aggregation across parts.
@@ -584,6 +722,15 @@ Implemented baseline behavior:
   audit observers, and protocol adapters.
 - Artifact objects generate `artifact.read` and `artifact.write` policy
   requests so content access remains authorized by kernel policy.
+
+### 6.7 Chat RPC Structured Ingress
+
+Agent chat RPC payloads `MAY` be plain text or structured JSON
+(`sdkwork.agent.rpc.chat.input.v1`):
+
+- Plain text → single `text` part on a synthesized user message.
+- JSON object with `parts[]` → `AgentMessage` + `AgentPart` + `ContentReference`.
+- Optional metadata `sdkwork.chat.input_contract` supplies the interaction contract.
 
 ## 7. Provider SPI
 

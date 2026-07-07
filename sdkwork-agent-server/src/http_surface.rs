@@ -14,7 +14,7 @@ pub fn classify_api_surface(path: &str) -> Option<&'static str> {
 /// Maps raw request paths to stable route templates for logs and metrics.
 pub fn route_template(path: &str) -> String {
     match path {
-        "/health" | "/ready" | "/live" | "/metrics" => path.to_string(),
+        "/healthz" | "/readyz" | "/livez" | "/metrics" => path.to_string(),
         _ if path.starts_with(INTERNAL_RUNTIME_MOUNT_PREFIX) => {
             internal_runtime_route_template(path).to_string()
         }
@@ -44,6 +44,9 @@ fn internal_runtime_route_template(path: &str) -> &'static str {
         }
         p if p.starts_with("/sessions/") && p.ends_with("/model/invoke") => {
             "/internal/v3/api/intelligence/runtime/sessions/{session_id}/model/invoke"
+        }
+        p if p.starts_with("/sessions/") && p.ends_with("/model/stream") => {
+            "/internal/v3/api/intelligence/runtime/sessions/{session_id}/model/stream"
         }
         p if p.starts_with("/sessions/") && p.ends_with("/tools") => {
             "/internal/v3/api/intelligence/runtime/sessions/{session_id}/tools"
@@ -100,5 +103,6 @@ mod tests {
             "/internal/v3/api/intelligence/runtime/permissions/{permission_request_id}"
         );
         assert_eq!(route_template("/metrics"), "/metrics");
+        assert_eq!(route_template("/healthz"), "/healthz");
     }
 }

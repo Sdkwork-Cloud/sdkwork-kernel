@@ -16,6 +16,7 @@
     "test": "node scripts/sdkwork-command.mjs test",
     "check": "pnpm run check:app-composition && node scripts/sdkwork-command.mjs check",
     "verify": "node scripts/sdkwork-command.mjs verify && pnpm run check:app-composition",
+    "verify:commercial": "node scripts/verify-kernel-audit-remediation.mjs --commercial-release && pnpm run check:app-composition",
     "clean": "node scripts/sdkwork-command.mjs clean",
     "check:pnpm-script-standard": "node scripts/check-pnpm-script-standard.mjs",
     "topology:validate": "node ../sdkwork-app-topology/scripts/sdkwork-topology.mjs validate --root . --spec specs/topology.spec.json",

@@ -5,6 +5,9 @@
 
 #![allow(clippy::should_implement_trait)]
 
+mod a2a_protocol;
+mod a2a_registry;
+pub mod api;
 mod chat;
 mod classification;
 mod collaboration;
@@ -16,6 +19,7 @@ mod error;
 mod event;
 mod execution;
 mod host;
+mod host_sandbox;
 mod installation;
 mod knowledge;
 mod lifecycle;
@@ -23,17 +27,18 @@ mod manifest;
 mod mcp;
 mod message;
 mod message_query;
+pub mod modality;
 mod model;
 mod package;
 mod planning;
 mod policy;
 mod protocol;
-mod a2a_protocol;
 pub use a2a_protocol::{
-    A2AAdapterHealth, A2AAdapterStatus, A2AAuthentication, A2ACapability, A2AEndpoint,
-    A2AError, A2AAgentCard, A2AProtocolAdapter, A2ATaskContext, A2ATaskRequest,
-    A2ATaskResponse, A2ATaskStatus,
+    A2AAdapterHealth, A2AAdapterStatus, A2AAgentCard, A2AAuthentication, A2ACapability,
+    A2AEndpoint, A2AError, A2AProtocolAdapter, A2ATaskContext, A2ATaskRequest, A2ATaskResponse,
+    A2ATaskStatus,
 };
+pub use a2a_registry::{A2AAgentRegistry, A2ATaskHandler, RegistryA2AProtocolAdapter};
 mod backend_health;
 pub use backend_health::{
     AggregateHealthStatus, BackendHealthMonitor, DriverHealthHistory, HealthHistoryEntry,
@@ -48,34 +53,51 @@ pub use cancellation::{
 };
 mod model_stream;
 pub use model_stream::{
-    InMemoryStreamProvider, ModelStreamProvider, StreamChunk, StreamChunkType,
-    StreamConfig, StreamControl, StreamError, StreamProtocol, StreamProviderHealth,
-    StreamProviderManifest, StreamProviderStatus, StreamRequest, StreamResult,
-    StreamStatus, StreamState,
+    InMemoryStreamProvider, ModelStreamProvider, StreamChunk, StreamChunkType, StreamConfig,
+    StreamControl, StreamError, StreamProtocol, StreamProviderHealth, StreamProviderManifest,
+    StreamProviderStatus, StreamRequest, StreamResult, StreamState, StreamStatus,
 };
 mod orchestration;
 pub use orchestration::{
-    AgentGraph, AgentNode, OrchestrationTask, AggregationStrategy, ExecutionStrategy,
-    OrchestrationPlan, OrchestrationResult, OrchestrationStatus, TaskResult,
+    AgentGraph, AgentNode, AggregationStrategy, ExecutionStrategy, OrchestrationPlan,
+    OrchestrationResult, OrchestrationStatus, OrchestrationTask, TaskResult,
 };
 mod rate_limit;
 pub use rate_limit::{
-    InMemoryRateLimitProvider, QuotaUsage, RateLimitError, RateLimitPolicy,
-    RateLimitProvider, RateLimitProviderHealth, RateLimitProviderManifest,
-    RateLimitProviderStatus, RateLimitRequest, RateLimitResult, ResourceType, RetryStrategy,
+    InMemoryRateLimitProvider, QuotaUsage, RateLimitError, RateLimitPolicy, RateLimitProvider,
+    RateLimitProviderHealth, RateLimitProviderManifest, RateLimitProviderStatus, RateLimitRequest,
+    RateLimitResult, ResourceType, RetryStrategy,
 };
+mod ingress_rate_limit;
+pub use ingress_rate_limit::{TokenBucketRateLimitProvider, INGRESS_HTTP_RATE_LIMIT_POLICY_ID};
 mod sandbox;
 pub use sandbox::{
     FileSystemPermission, FileSystemSandboxPolicy, NetworkPermission, NetworkSandboxPolicy,
-    NoOpSandboxProvider, SandboxCommand, SandboxError, SandboxExecutionResult, SandboxPolicy,
-    SandboxProvider, SandboxType,
+    NoOpSandboxProvider, PlatformSandboxProvider, SandboxCommand, SandboxError,
+    SandboxExecutionResult, SandboxPolicy, SandboxProvider, SandboxType,
 };
+mod host_secret_env;
 mod secret;
+mod secret_composite;
+mod secret_env;
+#[cfg(feature = "secret-vault")]
+mod secret_vault;
+pub use host_secret_env::{EnvFileSecretFallbackHostProvider, EnvFileSecretHostProvider};
 pub use secret::{
     EncryptionAlgorithm, InMemorySecretProvider, SecretAccessPurpose, SecretAccessRequest,
     SecretAccessResult, SecretCreateRequest, SecretError, SecretMetadata, SecretProvider,
     SecretProviderHealth, SecretProviderManifest, SecretProviderStatus, SecretRotateRequest,
     SecretType, SecretValue,
+};
+pub use secret_composite::ChainedSecretProvider;
+pub use secret_env::{
+    lookup_env_file_secret, secret_id_to_env_suffix, EnvFileSecretProvider,
+    SDKWORK_SECRETS_DIR_ENV, SDKWORK_SECRET_ENV_PREFIX,
+};
+#[cfg(feature = "secret-vault")]
+pub use secret_vault::{
+    VaultSecretProvider, SDKWORK_VAULT_ADDR_ENV, SDKWORK_VAULT_MOUNT_ENV,
+    SDKWORK_VAULT_NAMESPACE_ENV, SDKWORK_VAULT_TOKEN_ENV,
 };
 mod provider;
 mod runtime;
@@ -86,6 +108,10 @@ mod task_scheduling;
 mod telemetry;
 mod tool;
 
+pub use api::{
+    AgentConversation, AgentInvokeRequest, AgentInvokeRequestBuilder, ContentBlock,
+    ConversationRole, InteractionContractBuilder, MessageBuilder,
+};
 pub use chat::{
     agent_chat_rpc_adapter_manifest, AgentChatCancelResponse, AgentChatKnowledgeQuery,
     AgentChatMemoryQuery, AgentChatRequest, AgentChatResponse, AgentChatRpcAdapter,
@@ -117,8 +143,9 @@ pub use context_memory::{
     MemoryRecord, MemoryScope, MemoryTier, RedactionClassification, TrustLevel,
 };
 pub use definition::{
-    AgentDefinition, AgentProviderBinding, AgentProviderBindingMode, AgentProviderFamily,
-    MemoryStrategy, ModelSelectionPolicy, ToolCallPolicy,
+    parse_agent_input_contract_json, parse_agent_input_policy_json, AgentDefinition,
+    AgentProviderBinding, AgentProviderBindingMode, AgentProviderFamily, MemoryStrategy,
+    ModelSelectionPolicy, ToolCallPolicy,
 };
 pub use error::{KernelError, KernelErrorInfo, KernelErrorKind, KernelErrorSource, KernelResult};
 pub use event::{
@@ -136,6 +163,7 @@ pub use host::{
     HostProvider, NetworkRequest, NetworkResult, ProcessRequest, ProcessResult, SecretRef,
     SecretValue as ProviderSecretValue, StorageRequest, StorageResult, TimeRequest, TimeResult,
 };
+pub use host_sandbox::SandboxingHostProvider;
 pub use installation::{
     AgentInstallPlan, AgentInstallReport, AgentInstallRequest, AgentInstallStatus,
     AgentInstallStep, AgentInstallStepKind, AgentInstaller, AgentPackageSource,
@@ -166,11 +194,28 @@ pub use message_query::{
     MessageQuery, MessageQueryFilter, MessageQueryProvider, MessageQueryResult, MessageSortField,
     MessageSortOrder, SessionSummary,
 };
+#[cfg(feature = "sdkwork-models")]
+pub use modality::catalog;
+pub use modality::{
+    agent_messages_from_text_lines, agent_messages_to_text_lines, analyze_message_input,
+    apply_delivery_transforms, check_message_against_model_descriptor, enforce_slot_constraints,
+    flatten_message_to_text, infer_modality_from_mime_type, parse_chat_rpc_payload,
+    parse_input_modalities, part_kind_to_input_modality, resolve_model_input,
+    resolve_model_input_with_options, validate_message_against_input_policy,
+    validate_structured_model_input, validate_structured_model_input_with_options,
+    AgentInputContract, AgentInputModality, AgentInputPolicy, AgentInteractionContract,
+    AgentOutputContract, ContentReference, ContentReferenceScheme, InputModalityCompatibility,
+    InputModalityPartReport, InputModalityPreprocessor, ModalitySlot, ModelDeliveryStrategy,
+    ModelInputResolution, ModelInputResolveOptions, SkillInputModalityPreprocessor,
+    UnsupportedInputModalityAction, CARD_INPUT_MODES, INPUT_MODALITIES, INPUT_MODALITY_ARTIFACT,
+    INPUT_MODALITY_AUDIO, INPUT_MODALITY_BINARY, INPUT_MODALITY_FILE, INPUT_MODALITY_IMAGE,
+    INPUT_MODALITY_JSON, INPUT_MODALITY_MUSIC, INPUT_MODALITY_TEXT, INPUT_MODALITY_VIDEO,
+};
 pub use model::{
     ModelCancellationRequest, ModelCancellationResponse, ModelDescriptor, ModelExecutionRequest,
     ModelExecutionResponse, ModelExecutionService, ModelProvider, ModelRequest, ModelResponse,
     ModelResponseFormat, ModelStatus, ModelStreamChunk, ModelStreamExecutionResponse,
-    ModelStructuredOutputValidation, ModelUsage,
+    ModelStreamSink, ModelStructuredOutputValidation, ModelUsage,
 };
 pub use package::{
     AgentPackageLifecycle, AgentPackageManifest, AgentPackageProviderBinding,

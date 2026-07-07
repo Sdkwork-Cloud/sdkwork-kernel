@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "kind": "sdkwork.component.spec",
+  "component": {
+    "name": "sdkwork-kernel",
+    "displayName": "SDKWork Kernel",
+    "version": "0.1.0",
+    "type": "web-backend-service",
+    "root": "sdkwork-kernel",
+    "domain": "intelligence",
+    "capability": "agent-runtime",
+    "surface": "internal-api",
+    "languages": ["rust", "javascript"],
+    "generated": false,
+    "manifests": [
+      "sdkwork.app.config.json",
+      "Cargo.toml",
+      "package.json"
+    ]
+  },
+  "canonicalSpecs": [
+    {
+      "file": "CODE_STYLE_SPEC.md",
+      "path": "../sdkwork-specs/CODE_STYLE_SPEC.md",
+      "purpose": "Authored source, build integrity, and generated ownership boundaries."
+    },
+    {
+      "file": "NAMING_SPEC.md",
+      "path": "../sdkwork-specs/NAMING_SPEC.md",
+      "purpose": "Canonical SDKWork naming and package identity."
+    },
+    {
+      "file": "COMPONENT_SPEC.md",
+      "path": "../sdkwork-specs/COMPONENT_SPEC.md",
+      "purpose": "Component manifest shape and integration contracts."
+    },
+    {
+      "file": "INTERNAL_API_SPEC.md",
+      "path": "../sdkwork-specs/INTERNAL_API_SPEC.md",
+      "purpose": "Internal-api surface ownership and ingress rules."
+    },
+    {
+      "file": "API_SPEC.md",
+      "path": "../sdkwork-specs/API_SPEC.md",
+      "purpose": "SDKWork v3 HTTP response envelopes and operation patterns."
+    },
+    {
+      "file": "PAGINATION_SPEC.md",
+      "path": "../sdkwork-specs/PAGINATION_SPEC.md",
+      "purpose": "List/search paging inputs, pageInfo outputs, and store-level pagination."
+    },
+    {
+      "file": "DATABASE_SPEC.md",
+      "path": "../sdkwork-specs/DATABASE_SPEC.md",
+      "purpose": "SQLite/Postgres persistence, migrations, transactions, and query bounds."
+    },
+    {
+      "file": "HEALTH_CHECK_SPEC.md",
+      "path": "../sdkwork-specs/HEALTH_CHECK_SPEC.md",
+      "purpose": "Infrastructure health, readiness, liveness, and metrics probes."
+    },
+    {
+      "file": "SECURITY_SPEC.md",
+      "path": "../sdkwork-specs/SECURITY_SPEC.md",
+      "purpose": "Ingress auth, token handling, identity propagation, and security controls."
+    },
+    {
+      "file": "RUST_CODE_SPEC.md",
+      "path": "../sdkwork-specs/RUST_CODE_SPEC.md",
+      "purpose": "Rust crate boundaries, async runtime, modules, and tests."
+    },
+    {
+      "file": "TYPESCRIPT_CODE_SPEC.md",
+      "path": "../sdkwork-specs/TYPESCRIPT_CODE_SPEC.md",
+      "purpose": "Authored Node script conventions."
+    },
+    {
+      "file": "DEPLOYMENT_SPEC.md",
+      "path": "../sdkwork-specs/DEPLOYMENT_SPEC.md",
+      "purpose": "Production deployment, release, and operational readiness gates."
+    },
+    {
+      "file": "TEST_SPEC.md",
+      "path": "../sdkwork-specs/TEST_SPEC.md",
+      "purpose": "Regression and contract verification requirements."
+    }
+  ],
+  "contracts": {
+    "publicExports": [
+      "sdkwork-agent-kernel",
+      "sdkwork-code-kernel",
+      "sdkwork-agent-server",
+      "@sdkwork/agent-internal-sdk"
+    ],
+    "runtimeEntrypoints": [
+      "sdkwork-agent-server/src/main.rs",
+      "sdkwork-agent-server/src/app.rs#build_app_async",
+      "crates/sdkwork-routes-agent-internal-api/src/lib.rs#build_router",
+      "scripts/kernel-dev.mjs",
+      "deployments/docker/Dockerfile",
+      "deployments/kubernetes/deployment.yaml"
+    ],
+    "routeManifest": "apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml",
+    "sdkClients": [
+      "@sdkwork/agent-internal-sdk"
+    ],
+    "sdkDependencies": [],
+    "permissionComposition": {},
+    "dependencyApiExports": [],
+    "dependencyApiSurfaces": [],
+    "events": [
+      "session.created",
+      "message.sent",
+      "turn.completed",
+      "task.created",
+      "task.cancelled"
+    ],
+    "configKeys": [
+      "SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND",
+      "SDKWORK_KERNEL_INGRESS_AUTH_MODE",
+      "SDKWORK_KERNEL_INGRESS_TOKEN",
+      "SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE",
+      "SDKWORK_AGENT_RUNTIME_DATABASE_URL",
+      "SDKWORK_DATABASE_PATH",
+      "SDKWORK_RATE_LIMIT_REDIS_URL",
+      "SDKWORK_KERNEL_METRICS_AUTH_MODE",
+      "SDKWORK_KERNEL_METRICS_TOKEN"
+    ]
+  },
+  "verification": {
+    "commands": [
+      "node scripts/check-kernel-standards.mjs",
+      "cargo test --manifest-path sdkwork-agent-database/Cargo.toml",
+      "cargo test --manifest-path sdkwork-agent-client/Cargo.toml",
+      "cargo test --manifest-path sdkwork-agent-server/Cargo.toml --test http_internal_runtime_contracts",
+      "node ../sdkwork-specs/tools/check-pagination.mjs --workspace .",
+      "node ../sdkwork-specs/tools/check-api-response-envelope.mjs --workspace .",
+      "node ../sdkwork-specs/tools/check-api-operation-patterns.mjs --workspace .",
+      "node ../sdkwork-specs/tools/check-app-sdk-consumer-imports.mjs --workspace ."
+    ]
+  }
+}

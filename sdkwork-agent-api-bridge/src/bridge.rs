@@ -4,7 +4,8 @@ use crate::{
     SessionBridge, ToolBridge,
 };
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult, ModelRequest, ToolCall,
+    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult, ModelRequest,
+    ModelStreamChunk, ToolCall,
 };
 
 /// Main bridge connecting kernel runtime to business API layer
@@ -89,6 +90,12 @@ impl AgentRuntimeBridge {
         self.session_bridge.close_session(session_id)
     }
 
+    /// Remove a session and its transient bridge-owned state.
+    pub fn remove_session(&mut self, session_id: &str) -> bool {
+        self.event_bridge.clear_events(session_id);
+        self.session_bridge.remove_session(session_id)
+    }
+
     // =========================================================================
     // Message Handling
     // =========================================================================
@@ -99,9 +106,6 @@ impl AgentRuntimeBridge {
         session_id: &str,
         content: &str,
     ) -> KernelResult<BridgeMessageResponse> {
-        let session = self.session_bridge.get_session(session_id)?;
-
-        // Create user message
         let user_message = AgentMessage::new(
             format!("msg.{}", crate::types::generate_id()),
             AgentMessageRole::User,
@@ -110,24 +114,78 @@ impl AgentRuntimeBridge {
                 content,
             )],
         );
+        self.send_user_message(session_id, user_message)
+    }
 
-        // Store user message
+    /// Send a structured user message (multimodal-safe) and return the assistant turn.
+    pub fn send_user_message(
+        &mut self,
+        session_id: &str,
+        user_message: AgentMessage,
+    ) -> KernelResult<BridgeMessageResponse> {
+        let (model_bridge, model_request, provider_id, user_payload_len) =
+            self.prepare_user_message_turn(session_id, user_message)?;
+        let model_result = model_bridge.invoke(&model_request, provider_id.as_deref())?;
+        self.complete_user_message_turn(session_id, user_payload_len, model_result)
+    }
+
+    /// Append a text user message and build the model request for the turn.
+    pub fn prepare_send_message_turn(
+        &mut self,
+        session_id: &str,
+        content: &str,
+    ) -> KernelResult<(ModelBridge, ModelRequest, Option<String>, usize)> {
+        let user_message = AgentMessage::new(
+            format!("msg.{}", crate::types::generate_id()),
+            AgentMessageRole::User,
+            vec![AgentPart::text(
+                format!("part.{}", crate::types::generate_id()),
+                content,
+            )],
+        );
+        self.prepare_user_message_turn(session_id, user_message)
+    }
+
+    /// Append a structured user message and build the model request for the turn.
+    pub fn prepare_user_message_turn(
+        &mut self,
+        session_id: &str,
+        user_message: AgentMessage,
+    ) -> KernelResult<(ModelBridge, ModelRequest, Option<String>, usize)> {
+        user_message.validate()?;
+        let session = self.session_bridge.get_session(session_id)?;
+
         self.session_bridge
             .append_message(session_id, user_message.clone())?;
 
-        // Build model request with context
         let context = self.context_bridge.collect_context(session_id)?;
         let model_request = self.model_bridge.build_request(
             session_id,
             &session,
             &self.session_bridge.get_history(session_id)?,
             &context,
+            None,
         );
 
-        let provider_id = session.metadata_value("modelProvider");
-        let model_result = self.model_bridge.invoke(&model_request, provider_id)?;
+        let provider_id = session
+            .metadata_value("modelProvider")
+            .map(std::string::ToString::to_string);
+        let user_payload_len = sdkwork_agent_kernel::flatten_message_to_text(&user_message).len();
+        Ok((
+            self.model_bridge.clone(),
+            model_request,
+            provider_id,
+            user_payload_len,
+        ))
+    }
 
-        // Create assistant message from model response
+    /// Append the assistant response and record bridge events for a prepared turn.
+    pub fn complete_user_message_turn(
+        &mut self,
+        session_id: &str,
+        user_payload_len: usize,
+        model_result: BridgeModelResult,
+    ) -> KernelResult<BridgeMessageResponse> {
         let assistant_message = AgentMessage::new(
             format!("msg.{}", crate::types::generate_id()),
             AgentMessageRole::Agent,
@@ -142,17 +200,15 @@ impl AgentRuntimeBridge {
             )],
         );
 
-        // Store assistant message
         self.session_bridge
             .append_message(session_id, assistant_message.clone())?;
 
-        // Collect events
         let mut events = model_result.events.clone();
         events.push(BridgeEvent {
             event_type: "agent.message.user".to_string(),
             session_id: Some(session_id.to_string()),
             task_id: None,
-            payload: format!("content_length={}", content.len()),
+            payload: format!("content_length={user_payload_len}"),
             severity: BridgeEventSeverity::Info,
         });
         events.push(BridgeEvent {
@@ -189,6 +245,19 @@ impl AgentRuntimeBridge {
         content: &str,
         model_override: Option<&str>,
     ) -> KernelResult<(String, Vec<sdkwork_agent_kernel::ModelStreamChunk>)> {
+        let (model_bridge, model_request, provider_id, user_payload_len) =
+            self.prepare_stream_message_turn(session_id, content, model_override)?;
+        let chunks = model_bridge.stream(&model_request, provider_id.as_deref())?;
+        self.complete_stream_message_turn(session_id, user_payload_len, chunks)
+    }
+
+    /// Append a user message and build the stream request for the turn.
+    pub fn prepare_stream_message_turn(
+        &mut self,
+        session_id: &str,
+        content: &str,
+        model_override: Option<&str>,
+    ) -> KernelResult<(ModelBridge, ModelRequest, Option<String>, usize)> {
         let mut session = self.session_bridge.get_session(session_id)?;
         if let Some(model_id) = model_override {
             session.model = Some(model_id.to_string());
@@ -212,10 +281,27 @@ impl AgentRuntimeBridge {
             &session,
             &self.session_bridge.get_history(session_id)?,
             &context,
+            None,
         );
 
-        let provider_id = session.metadata_value("modelProvider");
-        let chunks = self.model_bridge.stream(&model_request, provider_id)?;
+        let provider_id = session
+            .metadata_value("modelProvider")
+            .map(std::string::ToString::to_string);
+        Ok((
+            self.model_bridge.clone(),
+            model_request,
+            provider_id,
+            content.len(),
+        ))
+    }
+
+    /// Append the streamed assistant response and record bridge stream events.
+    pub fn complete_stream_message_turn(
+        &mut self,
+        session_id: &str,
+        user_payload_len: usize,
+        chunks: Vec<ModelStreamChunk>,
+    ) -> KernelResult<(String, Vec<ModelStreamChunk>)> {
         let assistant_text: String = chunks.iter().map(|chunk| chunk.content.as_str()).collect();
         let assistant_message_id = format!("msg.{}", crate::types::generate_id());
         let assistant_message = AgentMessage::new(
@@ -235,7 +321,7 @@ impl AgentRuntimeBridge {
                 event_type: "agent.message.user".to_string(),
                 session_id: Some(session_id.to_string()),
                 task_id: None,
-                payload: format!("content_length={}", content.len()),
+                payload: format!("content_length={user_payload_len}"),
                 severity: BridgeEventSeverity::Info,
             },
             BridgeEvent {
@@ -277,12 +363,85 @@ impl AgentRuntimeBridge {
         self.model_bridge.invoke(&request, None)
     }
 
+    /// Invoke the model using persisted session history and context frames.
+    pub fn invoke_model_for_session(
+        &self,
+        session_id: &str,
+        model_id: Option<String>,
+    ) -> KernelResult<BridgeModelResult> {
+        let (request, provider_id) =
+            self.prepare_model_request_for_session(session_id, model_id, None)?;
+        self.model_bridge.invoke(&request, provider_id.as_deref())
+    }
+
     /// Stream model response
     pub fn stream_model(
         &self,
         request: ModelRequest,
     ) -> KernelResult<Vec<sdkwork_agent_kernel::ModelStreamChunk>> {
         self.model_bridge.stream(&request, None)
+    }
+
+    /// Stream model output using session history, with optional message override.
+    pub fn stream_model_for_session(
+        &self,
+        session_id: &str,
+        model_id: Option<String>,
+        override_messages: Option<Vec<String>>,
+    ) -> KernelResult<Vec<sdkwork_agent_kernel::ModelStreamChunk>> {
+        let (request, provider_id) =
+            self.prepare_model_request_for_session(session_id, model_id, override_messages)?;
+        self.model_bridge.stream(&request, provider_id.as_deref())
+    }
+
+    /// Stream model output incrementally using session history.
+    pub fn stream_model_for_session_into(
+        &self,
+        session_id: &str,
+        model_id: Option<String>,
+        override_messages: Option<Vec<String>>,
+        sink: &mut dyn sdkwork_agent_kernel::ModelStreamSink,
+    ) -> KernelResult<()> {
+        let (request, provider_id) =
+            self.prepare_model_request_for_session(session_id, model_id, override_messages)?;
+        self.model_bridge
+            .stream_into(&request, provider_id.as_deref(), sink)
+    }
+
+    /// Build a model request from bridge session state without invoking a provider.
+    ///
+    /// Server runtimes use this to keep the bridge state lock scoped to local
+    /// session/history reads. Provider calls can then run outside the lock.
+    pub fn prepare_model_request_for_session(
+        &self,
+        session_id: &str,
+        model_id: Option<String>,
+        override_messages: Option<Vec<String>>,
+    ) -> KernelResult<(ModelRequest, Option<String>)> {
+        let session = self.get_session(session_id)?;
+        let provider_id = session
+            .metadata_value("modelProvider")
+            .map(std::string::ToString::to_string);
+        let context = self.context_bridge.collect_context(session_id)?;
+        let history = if let Some(messages) = override_messages {
+            if messages.is_empty() {
+                self.get_messages(session_id)?
+            } else {
+                sdkwork_agent_kernel::agent_messages_from_text_lines(
+                    sdkwork_agent_kernel::AgentMessageRole::User,
+                    &messages,
+                )
+            }
+        } else {
+            self.get_messages(session_id)?
+        };
+        let mut request = self
+            .model_bridge
+            .build_request(session_id, &session, &history, &context, None);
+        if let Some(model_id) = model_id {
+            request = request.with_model_id(model_id);
+        }
+        Ok((request, provider_id))
     }
 
     /// Cancel an in-flight model invocation by its model request id.
@@ -445,6 +604,42 @@ mod tests {
 
         assert_eq!(response.session_id, session.session_id);
         assert!(response.model_response.is_some());
+    }
+
+    #[test]
+    fn remove_session_deletes_recorded_bridge_events() {
+        let mut bridge = AgentRuntimeBridge::new_with_mock_fallback();
+        let config = BridgeSessionConfig {
+            agent_id: "agent.test".to_string(),
+            tenant_id: 100_001,
+            user_ref: Some("user.1".to_string()),
+            model: Some("gpt-4".to_string()),
+            instructions: None,
+            cwd: None,
+            metadata: Vec::new(),
+        };
+
+        let session = bridge.create_session(config).expect("session created");
+        bridge
+            .send_message(&session.session_id, "Hello")
+            .expect("message sent");
+        assert!(
+            !bridge
+                .event_bridge()
+                .get_events(&session.session_id)
+                .is_empty(),
+            "message turn should record bridge events for the session"
+        );
+
+        bridge.remove_session(&session.session_id);
+
+        assert!(
+            bridge
+                .event_bridge()
+                .get_events(&session.session_id)
+                .is_empty(),
+            "removing a session must clear per-session bridge events"
+        );
     }
 
     #[test]

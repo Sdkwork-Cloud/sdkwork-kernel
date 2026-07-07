@@ -20,6 +20,8 @@ fn map_session_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<SessionRow> {
         bridge_id: row.try_get("bridge_id").ok(),
         token_usage_json: row.try_get("token_usage_json").ok(),
         message_count: row.try_get("message_count").map_err(map_sqlx_error)?,
+        owner_tenant_id: row.try_get("owner_tenant_id").ok(),
+        owner_user_ref: row.try_get("owner_user_ref").ok(),
         created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
         updated_at: row.try_get("updated_at").ok(),
         metadata_json: row.try_get("metadata_json").ok(),
@@ -72,8 +74,9 @@ impl SessionRepository for PostgresDatabase {
                 "INSERT INTO sessions (
                     session_id, agent_id, kind, source, state, title, model, cwd,
                     provider_id, bridge_id, token_usage_json, message_count,
+                    owner_tenant_id, owner_user_ref,
                     created_at, updated_at, metadata_json
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
                 ON CONFLICT (session_id) DO UPDATE SET
                     agent_id = EXCLUDED.agent_id,
                     kind = EXCLUDED.kind,
@@ -86,6 +89,8 @@ impl SessionRepository for PostgresDatabase {
                     bridge_id = EXCLUDED.bridge_id,
                     token_usage_json = EXCLUDED.token_usage_json,
                     message_count = EXCLUDED.message_count,
+                    owner_tenant_id = EXCLUDED.owner_tenant_id,
+                    owner_user_ref = EXCLUDED.owner_user_ref,
                     created_at = EXCLUDED.created_at,
                     updated_at = EXCLUDED.updated_at,
                     metadata_json = EXCLUDED.metadata_json",
@@ -102,6 +107,8 @@ impl SessionRepository for PostgresDatabase {
             .bind(&session.bridge_id)
             .bind(&session.token_usage_json)
             .bind(session.message_count)
+            .bind(&session.owner_tenant_id)
+            .bind(&session.owner_user_ref)
             .bind(&session.created_at)
             .bind(&session.updated_at)
             .bind(&session.metadata_json)
@@ -118,6 +125,7 @@ impl SessionRepository for PostgresDatabase {
             let row = sqlx::query(
                 "SELECT session_id, agent_id, kind, source, state, title, model, cwd,
                         provider_id, bridge_id, token_usage_json, message_count,
+                        owner_tenant_id, owner_user_ref,
                         created_at, updated_at, metadata_json
                  FROM sessions WHERE session_id = $1",
             )
@@ -135,6 +143,7 @@ impl SessionRepository for PostgresDatabase {
             let mut builder = sqlx::QueryBuilder::new(
                 "SELECT session_id, agent_id, kind, source, state, title, model, cwd,
                         provider_id, bridge_id, token_usage_json, message_count,
+                        owner_tenant_id, owner_user_ref,
                         created_at, updated_at, metadata_json
                  FROM sessions WHERE 1 = 1",
             );
@@ -159,14 +168,38 @@ impl SessionRepository for PostgresDatabase {
                 builder.push_bind(bridge_id);
             }
             if let Some(owner_tenant_id) = query.owner_tenant_id.as_deref() {
-                builder.push(" AND (metadata_json::json)->>'tenantId' = ");
+                builder.push(" AND owner_tenant_id = ");
                 builder.push_bind(owner_tenant_id);
             }
             if let Some(owner_user_ref) = query.owner_user_ref.as_deref() {
-                builder.push(" AND (metadata_json::json)->>'userRef' = ");
+                builder.push(" AND owner_user_ref = ");
                 builder.push_bind(owner_user_ref);
             }
-            builder.push(" ORDER BY COALESCE(updated_at, created_at) DESC");
+            if let Some(after_session_id) = query
+                .after_session_id
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                builder.push(
+                    " AND EXISTS (
+                        SELECT 1 FROM sessions AS session_cursor
+                        WHERE session_cursor.session_id = ",
+                );
+                builder.push_bind(after_session_id);
+                builder.push(
+                    " AND (
+                        COALESCE(sessions.updated_at, sessions.created_at)
+                          < COALESCE(session_cursor.updated_at, session_cursor.created_at)
+                        OR (
+                          COALESCE(sessions.updated_at, sessions.created_at)
+                            = COALESCE(session_cursor.updated_at, session_cursor.created_at)
+                          AND sessions.session_id < session_cursor.session_id
+                        )
+                      )
+                    )",
+                );
+            }
+            builder.push(" ORDER BY COALESCE(updated_at, created_at) DESC, session_id DESC");
             let limit = resolve_list_limit(query.limit);
             let offset = resolve_list_offset(query.offset);
             builder.push(" LIMIT ");
@@ -211,12 +244,33 @@ impl SessionRepository for PostgresDatabase {
                 .bind(&session_id)
                 .execute(&mut *tx)
                 .await?;
+            sqlx::query("DELETE FROM permissions WHERE session_id = $1")
+                .bind(&session_id)
+                .execute(&mut *tx)
+                .await?;
             sqlx::query("DELETE FROM sessions WHERE session_id = $1")
                 .bind(&session_id)
                 .execute(&mut *tx)
                 .await?;
             tx.commit().await.map_err(map_sqlx_error)?;
             Ok(())
+        })
+    }
+
+    fn increment_session_message_count(&self, session_id: &str) -> DatabaseResult<i64> {
+        let pool = self.pool.pool().clone();
+        let session_id = session_id.to_owned();
+        let updated_at = chrono::Utc::now().to_rfc3339();
+        self.pool.run_db(async move {
+            let count = sqlx::query_scalar::<_, i64>(
+                "UPDATE sessions SET message_count = message_count + 1, updated_at = $2 \
+                 WHERE session_id = $1 RETURNING message_count",
+            )
+            .bind(&session_id)
+            .bind(&updated_at)
+            .fetch_optional(&pool)
+            .await?;
+            count.ok_or_else(|| DatabaseError::NotFound(format!("session not found: {session_id}")))
         })
     }
 }
@@ -230,12 +284,7 @@ impl MessageRepository for PostgresDatabase {
                 "INSERT INTO messages (
                     message_id, session_id, role, content, created_at, metadata_json
                 ) VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (message_id) DO UPDATE SET
-                    session_id = EXCLUDED.session_id,
-                    role = EXCLUDED.role,
-                    content = EXCLUDED.content,
-                    created_at = EXCLUDED.created_at,
-                    metadata_json = EXCLUDED.metadata_json",
+                ON CONFLICT (message_id) DO NOTHING",
             )
             .bind(&message.message_id)
             .bind(&message.session_id)
@@ -263,6 +312,29 @@ impl MessageRepository for PostgresDatabase {
                  FROM messages WHERE session_id = ",
             );
             builder.push_bind(&session_id);
+            if let Some(after_message_id) = query
+                .after_message_id
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                builder.push(
+                    " AND EXISTS (
+                        SELECT 1 FROM messages AS message_cursor
+                        WHERE message_cursor.message_id = ",
+                );
+                builder.push_bind(after_message_id);
+                builder.push(
+                    " AND message_cursor.session_id = messages.session_id
+                      AND (
+                        messages.created_at > message_cursor.created_at
+                        OR (
+                          messages.created_at = message_cursor.created_at
+                          AND messages.message_id > message_cursor.message_id
+                        )
+                      )
+                    )",
+                );
+            }
             builder.push(" ORDER BY created_at ASC");
             let limit = resolve_list_limit(query.limit);
             let offset = resolve_list_offset(query.offset);
@@ -346,19 +418,44 @@ impl TaskRepository for PostgresDatabase {
     fn load_tasks(&self, session_id: &str, query: &TaskQuery) -> DatabaseResult<Vec<TaskRow>> {
         let pool = self.pool.pool().clone();
         let session_id = session_id.to_owned();
-        let limit = resolve_list_limit(query.limit);
-        let offset = resolve_list_offset(query.offset);
+        let query = query.clone();
         self.pool.run_db(async move {
-            let rows = sqlx::query(
+            let mut builder = sqlx::QueryBuilder::new(
                 "SELECT task_id, session_id, instruction, state, created_at, updated_at
-                 FROM tasks WHERE session_id = $1 ORDER BY created_at ASC
-                 LIMIT $2 OFFSET $3",
-            )
-            .bind(&session_id)
-            .bind(limit)
-            .bind(offset)
-            .fetch_all(&pool)
-            .await?;
+                 FROM tasks WHERE session_id = ",
+            );
+            builder.push_bind(&session_id);
+            if let Some(after_task_id) = query
+                .after_task_id
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                builder.push(
+                    " AND EXISTS (
+                        SELECT 1 FROM tasks AS task_cursor
+                        WHERE task_cursor.task_id = ",
+                );
+                builder.push_bind(after_task_id);
+                builder.push(
+                    " AND task_cursor.session_id = tasks.session_id
+                      AND (
+                        tasks.created_at > task_cursor.created_at
+                        OR (
+                          tasks.created_at = task_cursor.created_at
+                          AND tasks.task_id > task_cursor.task_id
+                        )
+                      )
+                    )",
+                );
+            }
+            builder.push(" ORDER BY created_at ASC, task_id ASC");
+            let limit = resolve_list_limit(query.limit);
+            let offset = resolve_list_offset(query.offset);
+            builder.push(" LIMIT ");
+            builder.push_bind(limit);
+            builder.push(" OFFSET ");
+            builder.push_bind(offset);
+            let rows = builder.build().fetch_all(&pool).await?;
             rows.iter().map(map_task_row).collect()
         })
     }
@@ -426,7 +523,30 @@ impl EventRepository for PostgresDatabase {
                 builder.push(" AND severity = ");
                 builder.push_bind(severity);
             }
-            builder.push(" ORDER BY created_at ASC");
+            if let Some(after_event_id) = query
+                .after_event_id
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                builder.push(
+                    " AND EXISTS (
+                        SELECT 1 FROM events AS event_cursor
+                        WHERE event_cursor.event_id = ",
+                );
+                builder.push_bind(after_event_id);
+                builder.push(
+                    " AND event_cursor.session_id = events.session_id
+                      AND (
+                        events.created_at > event_cursor.created_at
+                        OR (
+                          events.created_at = event_cursor.created_at
+                          AND events.event_id > event_cursor.event_id
+                        )
+                      )
+                    )",
+                );
+            }
+            builder.push(" ORDER BY created_at ASC, event_id ASC");
             let limit = resolve_list_limit(query.limit);
             let offset = resolve_list_offset(query.offset);
             builder.push(" LIMIT ");
@@ -606,6 +726,123 @@ impl PermissionRepository for PostgresDatabase {
     }
 }
 
+impl RuntimeSessionWrites for PostgresDatabase {
+    fn append_message_with_event(
+        &self,
+        message: &MessageRow,
+        event: &EventRow,
+    ) -> DatabaseResult<i64> {
+        let pool = self.pool.pool().clone();
+        let message = message.clone();
+        let event = event.clone();
+        self.pool.run_db(async move {
+            let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            let insert_result = sqlx::query(
+                "INSERT INTO messages (
+                    message_id, session_id, role, content, created_at, metadata_json
+                ) VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (message_id) DO NOTHING",
+            )
+            .bind(&message.message_id)
+            .bind(&message.session_id)
+            .bind(&message.role)
+            .bind(&message.content)
+            .bind(&message.created_at)
+            .bind(&message.metadata_json)
+            .execute(&mut *tx)
+            .await?;
+            let count = if insert_result.rows_affected() > 0 {
+                let updated_at = chrono::Utc::now().to_rfc3339();
+                let count = sqlx::query_scalar::<_, i64>(
+                    "UPDATE sessions SET message_count = message_count + 1, updated_at = $2 \
+                     WHERE session_id = $1 RETURNING message_count",
+                )
+                .bind(&message.session_id)
+                .bind(&updated_at)
+                .fetch_optional(&mut *tx)
+                .await?;
+                count.ok_or_else(|| {
+                    DatabaseError::NotFound(format!("session not found: {}", message.session_id))
+                })?
+            } else {
+                let existing_session_id = sqlx::query_scalar::<_, String>(
+                    "SELECT session_id FROM messages WHERE message_id = $1",
+                )
+                .bind(&message.message_id)
+                .fetch_one(&mut *tx)
+                .await?;
+                if existing_session_id != message.session_id {
+                    return Err(DatabaseError::ConstraintViolation(format!(
+                        "message {} already belongs to session {}",
+                        message.message_id, existing_session_id
+                    )));
+                }
+                let count = sqlx::query_scalar::<_, i64>(
+                    "SELECT message_count FROM sessions WHERE session_id = $1",
+                )
+                .bind(&message.session_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+                count.ok_or_else(|| {
+                    DatabaseError::NotFound(format!("session not found: {}", message.session_id))
+                })?
+            };
+            sqlx::query(
+                "INSERT INTO events (
+                    event_id, session_id, event_type, severity, payload, created_at
+                ) VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (event_id) DO UPDATE SET
+                    session_id = EXCLUDED.session_id,
+                    event_type = EXCLUDED.event_type,
+                    severity = EXCLUDED.severity,
+                    payload = EXCLUDED.payload,
+                    created_at = EXCLUDED.created_at",
+            )
+            .bind(&event.event_id)
+            .bind(&event.session_id)
+            .bind(&event.event_type)
+            .bind(&event.severity)
+            .bind(&event.payload)
+            .bind(&event.created_at)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            Ok(count)
+        })
+    }
+
+    fn delete_messages_and_reset_count(
+        &self,
+        session_id: &str,
+        updated_at: &str,
+    ) -> DatabaseResult<()> {
+        let pool = self.pool.pool().clone();
+        let session_id = session_id.to_owned();
+        let updated_at = updated_at.to_owned();
+        self.pool.run_db(async move {
+            let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            sqlx::query("DELETE FROM messages WHERE session_id = $1")
+                .bind(&session_id)
+                .execute(&mut *tx)
+                .await?;
+            let result = sqlx::query(
+                "UPDATE sessions SET message_count = 0, updated_at = $2 WHERE session_id = $1",
+            )
+            .bind(&session_id)
+            .bind(&updated_at)
+            .execute(&mut *tx)
+            .await?;
+            if result.rows_affected() == 0 {
+                return Err(DatabaseError::NotFound(format!(
+                    "session not found: {session_id}"
+                )));
+            }
+            tx.commit().await?;
+            Ok(())
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -624,6 +861,8 @@ mod tests {
             bridge_id: Some("bridge.codex".to_string()),
             token_usage_json: None,
             message_count: 0,
+            owner_tenant_id: None,
+            owner_user_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: Some("2026-01-02T00:00:00Z".to_string()),
             metadata_json: None,

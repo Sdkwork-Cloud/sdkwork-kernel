@@ -137,12 +137,34 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
         });
     }
 
+    if config.is_production_kernel_profile() && config.allow_mock_provider_fallback() {
+        checks.push(PreflightCheck {
+            name: "mock_providers".to_string(),
+            status: PreflightStatus::Failed,
+            message: "SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS must be unset in production profiles"
+                .to_string(),
+        });
+    }
+
     if config.requires_distributed_rate_limit() && config.effective_rate_limit_redis_url().is_none()
     {
         checks.push(PreflightCheck {
             name: "rate_limit_redis".to_string(),
             status: PreflightStatus::Failed,
             message: "Production cloud/server deployments require SDKWORK_RATE_LIMIT_REDIS_URL (or SDKWORK_REDIS_URL) for distributed rate limiting"
+                .to_string(),
+        });
+    }
+
+    if config.is_production_kernel_profile()
+        && config.production_scaleout_profile()
+        && !config.tenant_token_quota_overrides.is_empty()
+        && config.effective_rate_limit_redis_url().is_none()
+    {
+        checks.push(PreflightCheck {
+            name: "tenant_token_quota_redis".to_string(),
+            status: PreflightStatus::Failed,
+            message: "Tenant token quota overrides require SDKWORK_RATE_LIMIT_REDIS_URL (or SDKWORK_REDIS_URL) in production scale-out profiles"
                 .to_string(),
         });
     }
@@ -381,6 +403,32 @@ mod tests {
                 .iter()
                 .any(|check| check.name == "runtime_postgres"),
             "expected runtime_postgres failure"
+        );
+    }
+
+    #[test]
+    fn production_rejects_mock_provider_override() {
+        let _lock = crate::testing::env::lock();
+        let _profile = crate::testing::env::VarGuard::set(
+            "SDKWORK_KERNEL_PROFILE_ID",
+            Some("cloud.split-services.production"),
+        );
+        let _mock =
+            crate::testing::env::VarGuard::set("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", Some("1"));
+        let config = ServerConfig {
+            environment: "production".to_string(),
+            ingress_auth_mode: "token".to_string(),
+            ingress_token: Some("secret".to_string()),
+            rate_limit_rps: 100,
+            ..Default::default()
+        };
+        let result = validate(&config);
+        assert!(
+            result
+                .checks
+                .iter()
+                .any(|check| check.name == "mock_providers"),
+            "production must fail when mock override is enabled"
         );
     }
 

@@ -153,6 +153,18 @@ test('component specs declare SDK metadata and authored source standards explici
       true,
       `${relativePath} should declare contracts.dependencyApiSurfaces explicitly`
     );
+    for (const [index, surface] of (contracts.dependencyApiSurfaces ?? []).entries()) {
+      assert.equal(
+        typeof surface,
+        'object',
+        `${relativePath} contracts.dependencyApiSurfaces[${index}] should be an object runtime surface declaration`
+      );
+      assert.notEqual(
+        surface,
+        null,
+        `${relativePath} contracts.dependencyApiSurfaces[${index}] should not be null`
+      );
+    }
 
     if (isSdkArea) {
       assert.equal(
@@ -215,6 +227,31 @@ test('component specs declare SDK metadata and authored source standards explici
           `${relativePath} should cite ${specFile} in canonicalSpecs`
         );
       }
+    }
+  }
+});
+
+test('member Cargo manifests consume SDKWork sibling crates through workspace dependencies', () => {
+  const rootCargoPath = path.join(root, 'Cargo.toml');
+
+  for (const cargoPath of listCargoTomlFiles(root)) {
+    if (path.resolve(cargoPath) === path.resolve(rootCargoPath)) continue;
+
+    const relativePath = path.relative(root, cargoPath);
+    const content = fs.readFileSync(cargoPath, 'utf8');
+    for (const line of content.split(/\r?\n/)) {
+      const match = line
+        .replace(/\s+#.*$/u, '')
+        .match(/^\s*([A-Za-z0-9_-]+)\s*=\s*\{([^}]*\bpath\s*=)[^}]*\}/u);
+      if (!match) continue;
+
+      const dependencyName = match[1].replaceAll('_', '-');
+      if (!dependencyName.startsWith('sdkwork-')) continue;
+      assert.doesNotMatch(
+        line,
+        /\bpath\s*=\s*"\.\.(?:\/|\\)sdkwork-/u,
+        `${relativePath} dependency ${dependencyName} should use workspace = true instead of a sibling path`
+      );
     }
   }
 });
@@ -1230,6 +1267,36 @@ function listComponentSpecFiles(scanPath) {
     }
 
     return entry.name === 'component.spec.json' ? [entryPath] : [];
+  });
+}
+
+function listCargoTomlFiles(scanPath) {
+  if (!fs.existsSync(scanPath)) {
+    return [];
+  }
+
+  const stat = fs.statSync(scanPath);
+  if (stat.isFile()) {
+    return path.basename(scanPath) === 'Cargo.toml' ? [scanPath] : [];
+  }
+
+  return fs.readdirSync(scanPath, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = path.join(scanPath, entry.name);
+    if (entry.isDirectory()) {
+      if (
+        entry.name === '.git' ||
+        entry.name === 'node_modules' ||
+        entry.name === 'dist' ||
+        entry.name === 'build' ||
+        entry.name === 'target' ||
+        entry.name === 'external'
+      ) {
+        return [];
+      }
+      return listCargoTomlFiles(entryPath);
+    }
+
+    return entry.name === 'Cargo.toml' ? [entryPath] : [];
   });
 }
 

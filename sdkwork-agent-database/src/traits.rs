@@ -38,6 +38,8 @@ pub trait SessionRepository: Send + Sync {
     fn delete_session(&self, session_id: &str) -> DatabaseResult<()>;
     /// Atomically delete a session and all dependent rows.
     fn delete_session_cascade(&self, session_id: &str) -> DatabaseResult<()>;
+    /// Atomically increment `message_count` and refresh `updated_at`.
+    fn increment_session_message_count(&self, session_id: &str) -> DatabaseResult<i64>;
 }
 
 /// Message repository trait
@@ -68,6 +70,23 @@ pub trait EventRepository: Send + Sync {
     /// List recent events across all sessions (newest first).
     fn list_recent_events(&self, query: &EventQuery) -> DatabaseResult<Vec<EventRow>>;
     fn delete_events(&self, session_id: &str) -> DatabaseResult<()>;
+}
+
+/// Cross-table atomic writes for session message lifecycle.
+pub trait RuntimeSessionWrites: Send + Sync {
+    /// Atomically persist a message, increment the session message count, and record an event.
+    fn append_message_with_event(
+        &self,
+        message: &MessageRow,
+        event: &EventRow,
+    ) -> DatabaseResult<i64>;
+
+    /// Atomically delete all session messages and reset the cached message count.
+    fn delete_messages_and_reset_count(
+        &self,
+        session_id: &str,
+        updated_at: &str,
+    ) -> DatabaseResult<()>;
 }
 
 /// Permission repository trait for persisting permission request state.

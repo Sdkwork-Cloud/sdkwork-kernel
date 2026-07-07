@@ -118,12 +118,17 @@ Implemented baseline behavior:
   trace context, redaction classification, and documented mapping-loss notes.
 - Envelope validation rejects unnamespaced metadata keys so protocol-specific
   fields remain isolated.
-- `ProtocolObjectMapper` standardizes mapping for `AgentMessage`,
+- `ProtocolObjectMapper` standardizes mapping for `AgentMessage`, `AgentPart`,
   `AgentArtifact`, `KernelEvent`, and `KernelError`.
 - `StandardProtocolObjectMapper` maps message structure without leaking
-  sensitive part payloads, maps artifacts as authorized references, maps kernel
-  events for protocol streams, and maps kernel errors through safe protocol
-  payloads.
+  sensitive inline payloads; multimodal parts map through `map_part` with
+  `content_ref`, `mime_type`, and `artifact_id` metadata.
+- Agent chat RPC ingress (`sdkwork.agent.rpc.chat.input.v1`) parses structured
+  JSON payloads into `AgentMessage` + `AgentPart` + `ContentReference` via
+  `parse_chat_rpc_payload`. Optional metadata `sdkwork.chat.input_contract`
+  activates the interaction-contract resolution pipeline.
+- Other protocol families `MUST` implement equivalent ingress mappers before
+  exposing multimodal operations (A2A: G-02).
 - Standard mappings propagate session/task/run/step metadata, trace context,
   payload schema, and redaction classification where available.
 - Extension objects `MUST` use namespaced metadata such as

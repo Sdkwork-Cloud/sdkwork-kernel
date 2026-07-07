@@ -1,8 +1,8 @@
 # SDKWork A2A Protocol Adapter Specification
 
 - **Version**: 0.1.0
-- **Status**: Core Primitives Implemented
-- **Date**: 2025-06-28
+- **Status**: Core Primitives + Registry Adapter Implemented
+- **Date**: 2026-07-06
 - **Scope**: Agent-to-Agent protocol adapter for external agent communication
 - **Domain**: `integration`
 - **Capability**: `agent-kernel.a2a-protocol-adapter`
@@ -54,7 +54,8 @@ A2ATaskRequest
   ├── task_id: String
   ├── target_agent_id: String
   ├── capability_id: String
-  ├── input: HashMap<String, String>
+  ├── messages: Vec<AgentMessage>   # canonical multimodal input
+  ├── parameters: HashMap<String, String>   # scalar capability params
   ├── context: A2ATaskContext
   └── timeout_ms: Option<u64>
 
@@ -235,8 +236,12 @@ let request = A2ATaskRequest::new(
     "code-generator",
     "generate-code"
 )
-.with_input("spec", "OpenAPI spec content")
-.with_input("language", "python")
+.with_parameter("language", "python")
+.with_message(AgentMessage::new(
+    "msg.user",
+    AgentMessageRole::User,
+    vec![AgentPart::text("part.spec", "OpenAPI spec content")],
+))
 .with_context(
     A2ATaskContext::default()
         .with_session("session-1")
@@ -337,6 +342,23 @@ impl A2AProtocolAdapter for HttpA2AAdapter {
     // ... other methods
 }
 ```
+
+### RegistryA2AProtocolAdapter (in-process)
+
+For kernel-local agent interop and conformance tests, use
+`RegistryA2AProtocolAdapter` (`sdkwork-agent-kernel/src/a2a_registry.rs`):
+
+```rust
+let adapter = RegistryA2AProtocolAdapter::new();
+adapter.register_agent(agent_card, Arc::new(MyHandler))?;
+let response = adapter.execute_task(request)?;
+```
+
+Rules:
+
+- `A2ATaskRequest::validate` runs before dispatch.
+- Structured `messages` are canonical; `parameters` hold scalar capability hints.
+- Remote HTTP adapters remain a separate implementation (`HttpA2AAdapter`).
 
 ## 9. Error Handling
 

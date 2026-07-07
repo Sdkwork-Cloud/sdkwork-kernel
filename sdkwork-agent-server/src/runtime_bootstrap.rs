@@ -80,7 +80,8 @@ fn bootstrap_plugin_runtime(
 
     let builder = RuntimeBuilder::new("runtime.local", manifest)
         .with_agent_package_manifest(plugin.package_manifest())
-        .with_security_profile("fail_closed=true");
+        .with_security_profile("fail_closed=true")
+        .enable_platform_host_sandbox();
     let report = plugin.configure_runtime(builder).bootstrap()?;
     Ok(report.runtime)
 }

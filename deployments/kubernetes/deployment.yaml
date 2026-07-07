@@ -67,6 +67,16 @@ spec:
                   name: sdkwork-agent-server
                   key: metrics-token
                   optional: true
+            - name: SDKWORK_AGENT_RUNTIME_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sdkwork-agent-server
+                  key: runtime-database-url
+            - name: SDKWORK_RATE_LIMIT_REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sdkwork-agent-server
+                  key: runtime-redis-url
             - name: SDKWORK_OTEL_EXPORTER_OTLP_ENDPOINT
               valueFrom:
                 configMapKeyRef:
@@ -75,21 +85,21 @@ spec:
                   optional: true
           startupProbe:
             httpGet:
-              path: /live
+              path: /livez
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
             failureThreshold: 12
           readinessProbe:
             httpGet:
-              path: /ready
+              path: /readyz
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 3
           livenessProbe:
             httpGet:
-              path: /live
+              path: /livez
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20

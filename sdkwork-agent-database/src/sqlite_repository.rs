@@ -32,32 +32,11 @@ impl SqliteDatabase {
 
     /// Run schema migrations on this database.
     pub fn migrate(&self) -> DatabaseResult<()> {
-        let manager =
-            crate::SchemaManager::new(Box::new(SqliteMigrationAdapter { db: self.clone() }));
-        manager.migrate()
-    }
-}
-
-#[derive(Clone)]
-struct SqliteMigrationAdapter {
-    db: SqliteDatabase,
-}
-
-impl AgentDatabase for SqliteMigrationAdapter {
-    fn execute(&self, sql: &str, params: &[&dyn DatabaseParam]) -> DatabaseResult<usize> {
-        self.db.execute(sql, params)
-    }
-
-    fn query_many(
-        &self,
-        sql: &str,
-        params: &[&dyn DatabaseParam],
-    ) -> DatabaseResult<Vec<Box<dyn DatabaseRow>>> {
-        self.db.query_many(sql, params)
-    }
-
-    fn health(&self) -> DatabaseResult<bool> {
-        self.db.health()
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        crate::schema_migrations::apply_sqlite_connection(&conn)
     }
 }
 
@@ -75,6 +54,8 @@ fn map_session_row(row: &Row<'_>) -> rusqlite::Result<SessionRow> {
         bridge_id: row.get("bridge_id")?,
         token_usage_json: row.get("token_usage_json")?,
         message_count: row.get("message_count")?,
+        owner_tenant_id: row.get("owner_tenant_id").ok(),
+        owner_user_ref: row.get("owner_user_ref").ok(),
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
         metadata_json: row.get("metadata_json")?,
@@ -121,11 +102,7 @@ impl SessionRepository for SqliteDatabase {
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.execute(
-            "INSERT OR REPLACE INTO sessions (
-                session_id, agent_id, kind, source, state, title, model, cwd,
-                provider_id, bridge_id, token_usage_json, message_count,
-                created_at, updated_at, metadata_json
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            crate::upsert_sql::sqlite::SAVE_SESSION,
             params![
                 session.session_id,
                 session.agent_id,
@@ -139,6 +116,8 @@ impl SessionRepository for SqliteDatabase {
                 session.bridge_id,
                 session.token_usage_json,
                 session.message_count,
+                session.owner_tenant_id,
+                session.owner_user_ref,
                 session.created_at,
                 session.updated_at,
                 session.metadata_json,
@@ -156,6 +135,7 @@ impl SessionRepository for SqliteDatabase {
         conn.query_row(
             "SELECT session_id, agent_id, kind, source, state, title, model, cwd,
                     provider_id, bridge_id, token_usage_json, message_count,
+                    owner_tenant_id, owner_user_ref,
                     created_at, updated_at, metadata_json
              FROM sessions WHERE session_id = ?1",
             params![session_id],
@@ -173,6 +153,7 @@ impl SessionRepository for SqliteDatabase {
         let mut sql = String::from(
             "SELECT session_id, agent_id, kind, source, state, title, model, cwd,
                     provider_id, bridge_id, token_usage_json, message_count,
+                    owner_tenant_id, owner_user_ref,
                     created_at, updated_at, metadata_json
              FROM sessions WHERE 1 = 1",
         );
@@ -198,14 +179,36 @@ impl SessionRepository for SqliteDatabase {
             values.push(bridge_id.to_string());
         }
         if let Some(owner_tenant_id) = query.owner_tenant_id.as_deref() {
-            sql.push_str(" AND json_extract(metadata_json, '$.tenantId') = ?");
+            sql.push_str(" AND owner_tenant_id = ?");
             values.push(owner_tenant_id.to_string());
         }
         if let Some(owner_user_ref) = query.owner_user_ref.as_deref() {
-            sql.push_str(" AND json_extract(metadata_json, '$.userRef') = ?");
+            sql.push_str(" AND owner_user_ref = ?");
             values.push(owner_user_ref.to_string());
         }
-        sql.push_str(" ORDER BY COALESCE(updated_at, created_at) DESC");
+        if let Some(after_session_id) = query
+            .after_session_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            sql.push_str(
+                " AND EXISTS (
+                    SELECT 1 FROM sessions AS session_cursor
+                    WHERE session_cursor.session_id = ?
+                      AND (
+                        COALESCE(sessions.updated_at, sessions.created_at)
+                          < COALESCE(session_cursor.updated_at, session_cursor.created_at)
+                        OR (
+                          COALESCE(sessions.updated_at, sessions.created_at)
+                            = COALESCE(session_cursor.updated_at, session_cursor.created_at)
+                          AND sessions.session_id < session_cursor.session_id
+                        )
+                      )
+                  )",
+            );
+            values.push(after_session_id.to_string());
+        }
+        sql.push_str(" ORDER BY COALESCE(updated_at, created_at) DESC, session_id DESC");
         let limit = resolve_list_limit(query.limit);
         let offset = resolve_list_offset(query.offset);
         sql.push_str(" LIMIT ? OFFSET ?");
@@ -249,20 +252,62 @@ impl SessionRepository for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn
-            .unchecked_transaction()
-            .map_err(|error| DatabaseError::Transaction(format!("failed to begin transaction: {error}")))?;
-        tx.execute("DELETE FROM events WHERE session_id = ?1", params![session_id])
-            .map_err(|error| DatabaseError::Query(format!("failed to delete events: {error}")))?;
-        tx.execute("DELETE FROM messages WHERE session_id = ?1", params![session_id])
-            .map_err(|error| DatabaseError::Query(format!("failed to delete messages: {error}")))?;
-        tx.execute("DELETE FROM tasks WHERE session_id = ?1", params![session_id])
-            .map_err(|error| DatabaseError::Query(format!("failed to delete tasks: {error}")))?;
-        tx.execute("DELETE FROM sessions WHERE session_id = ?1", params![session_id])
-            .map_err(|error| DatabaseError::Query(format!("failed to delete session: {error}")))?;
-        tx.commit()
-            .map_err(|error| DatabaseError::Transaction(format!("failed to commit cascade delete: {error}")))?;
+        let tx = conn.unchecked_transaction().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+        })?;
+        tx.execute(
+            "DELETE FROM events WHERE session_id = ?1",
+            params![session_id],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to delete events: {error}")))?;
+        tx.execute(
+            "DELETE FROM messages WHERE session_id = ?1",
+            params![session_id],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to delete messages: {error}")))?;
+        tx.execute(
+            "DELETE FROM tasks WHERE session_id = ?1",
+            params![session_id],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to delete tasks: {error}")))?;
+        tx.execute(
+            "DELETE FROM permissions WHERE session_id = ?1",
+            params![session_id],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to delete permissions: {error}")))?;
+        tx.execute(
+            "DELETE FROM sessions WHERE session_id = ?1",
+            params![session_id],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to delete session: {error}")))?;
+        tx.commit().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to commit cascade delete: {error}"))
+        })?;
         Ok(())
+    }
+
+    fn increment_session_message_count(&self, session_id: &str) -> DatabaseResult<i64> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let updated_at = chrono::Utc::now().to_rfc3339();
+        let count: i64 = conn
+            .query_row(
+                "UPDATE sessions SET message_count = message_count + 1, updated_at = ?2 \
+                 WHERE session_id = ?1 RETURNING message_count",
+                params![session_id, updated_at],
+                |row| row.get(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    DatabaseError::NotFound(format!("session not found: {session_id}"))
+                }
+                other => {
+                    DatabaseError::Query(format!("failed to increment message count: {other}"))
+                }
+            })?;
+        Ok(count)
     }
 }
 
@@ -273,9 +318,7 @@ impl MessageRepository for SqliteDatabase {
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.execute(
-            "INSERT OR REPLACE INTO messages (
-                message_id, session_id, role, content, created_at, metadata_json
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            crate::upsert_sql::sqlite::SAVE_MESSAGE,
             params![
                 message.message_id,
                 message.session_id,
@@ -300,16 +343,41 @@ impl MessageRepository for SqliteDatabase {
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         let mut sql = String::from(
             "SELECT message_id, session_id, role, content, created_at, metadata_json
-             FROM messages WHERE session_id = ?1 ORDER BY created_at ASC",
+             FROM messages WHERE session_id = ?1",
         );
+        let mut values = vec![session_id.to_string()];
+        if let Some(after_message_id) = query
+            .after_message_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            sql.push_str(
+                " AND EXISTS (
+                    SELECT 1 FROM messages AS message_cursor
+                    WHERE message_cursor.message_id = ?
+                      AND message_cursor.session_id = messages.session_id
+                      AND (
+                        messages.created_at > message_cursor.created_at
+                        OR (
+                          messages.created_at = message_cursor.created_at
+                          AND messages.message_id > message_cursor.message_id
+                        )
+                      )
+                  )",
+            );
+            values.push(after_message_id.to_string());
+        }
+        sql.push_str(" ORDER BY created_at ASC");
         let limit = resolve_list_limit(query.limit);
         let offset = resolve_list_offset(query.offset);
         sql.push_str(" LIMIT ? OFFSET ?");
+        values.push(limit.to_string());
+        values.push(offset.to_string());
         let mut stmt = conn.prepare(&sql).map_err(|error| {
             DatabaseError::Query(format!("failed to prepare messages: {error}"))
         })?;
         let rows = stmt
-            .query_map(params![session_id, limit, offset], map_message_row)
+            .query_map(rusqlite::params_from_iter(values.iter()), map_message_row)
             .map_err(|error| DatabaseError::Query(format!("failed to load messages: {error}")))?;
         let mut messages = Vec::new();
         for row in rows {
@@ -354,9 +422,7 @@ impl TaskRepository for SqliteDatabase {
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.execute(
-            "INSERT OR REPLACE INTO tasks (
-                task_id, session_id, instruction, state, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            crate::upsert_sql::sqlite::SAVE_TASK,
             params![
                 task.task_id,
                 task.session_id,
@@ -390,17 +456,43 @@ impl TaskRepository for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let mut sql = String::from(
+            "SELECT task_id, session_id, instruction, state, created_at, updated_at
+             FROM tasks WHERE session_id = ?1",
+        );
+        let mut values = vec![session_id.to_string()];
+        if let Some(after_task_id) = query
+            .after_task_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            sql.push_str(
+                " AND EXISTS (
+                    SELECT 1 FROM tasks AS task_cursor
+                    WHERE task_cursor.task_id = ?
+                      AND task_cursor.session_id = tasks.session_id
+                      AND (
+                        tasks.created_at > task_cursor.created_at
+                        OR (
+                          tasks.created_at = task_cursor.created_at
+                          AND tasks.task_id > task_cursor.task_id
+                        )
+                      )
+                  )",
+            );
+            values.push(after_task_id.to_string());
+        }
+        sql.push_str(" ORDER BY created_at ASC, task_id ASC");
         let limit = resolve_list_limit(query.limit);
         let offset = resolve_list_offset(query.offset);
+        sql.push_str(" LIMIT ? OFFSET ?");
+        values.push(limit.to_string());
+        values.push(offset.to_string());
         let mut stmt = conn
-            .prepare(
-                "SELECT task_id, session_id, instruction, state, created_at, updated_at
-                 FROM tasks WHERE session_id = ?1 ORDER BY created_at ASC
-                 LIMIT ?2 OFFSET ?3",
-            )
+            .prepare(&sql)
             .map_err(|error| DatabaseError::Query(format!("failed to prepare tasks: {error}")))?;
         let rows = stmt
-            .query_map(params![session_id, limit, offset], map_task_row)
+            .query_map(rusqlite::params_from_iter(values.iter()), map_task_row)
             .map_err(|error| DatabaseError::Query(format!("failed to load tasks: {error}")))?;
         let mut tasks = Vec::new();
         for row in rows {
@@ -433,9 +525,7 @@ impl EventRepository for SqliteDatabase {
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.execute(
-            "INSERT OR REPLACE INTO events (
-                event_id, session_id, event_type, severity, payload, created_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            crate::upsert_sql::sqlite::SAVE_EVENT,
             params![
                 event.event_id,
                 event.session_id,
@@ -467,7 +557,28 @@ impl EventRepository for SqliteDatabase {
             sql.push_str(" AND severity = ?");
             values.push(severity.to_string());
         }
-        sql.push_str(" ORDER BY created_at ASC");
+        if let Some(after_event_id) = query
+            .after_event_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            sql.push_str(
+                " AND EXISTS (
+                    SELECT 1 FROM events AS event_cursor
+                    WHERE event_cursor.event_id = ?
+                      AND event_cursor.session_id = events.session_id
+                      AND (
+                        events.created_at > event_cursor.created_at
+                        OR (
+                          events.created_at = event_cursor.created_at
+                          AND events.event_id > event_cursor.event_id
+                        )
+                      )
+                  )",
+            );
+            values.push(after_event_id.to_string());
+        }
+        sql.push_str(" ORDER BY created_at ASC, event_id ASC");
         let limit = resolve_list_limit(query.limit);
         let offset = resolve_list_offset(query.offset);
         sql.push_str(" LIMIT ? OFFSET ?");
@@ -517,7 +628,9 @@ impl EventRepository for SqliteDatabase {
             .map_err(|error| DatabaseError::Query(format!("failed to prepare events: {error}")))?;
         let rows = stmt
             .query_map(rusqlite::params_from_iter(values.iter()), map_event_row)
-            .map_err(|error| DatabaseError::Query(format!("failed to list recent events: {error}")))?;
+            .map_err(|error| {
+                DatabaseError::Query(format!("failed to list recent events: {error}"))
+            })?;
         let mut events = Vec::new();
         for row in rows {
             events.push(row.map_err(|error| {
@@ -564,11 +677,7 @@ impl PermissionRepository for SqliteDatabase {
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         conn.execute(
-            "INSERT OR REPLACE INTO permissions (
-                permission_request_id, session_id, category, resource,
-                side_effect_level, reason, status, owner_tenant_id,
-                owner_user_ref, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            crate::upsert_sql::sqlite::SAVE_PERMISSION,
             params![
                 permission.permission_request_id,
                 permission.session_id,
@@ -668,6 +777,134 @@ impl PermissionRepository for SqliteDatabase {
     }
 }
 
+impl RuntimeSessionWrites for SqliteDatabase {
+    fn append_message_with_event(
+        &self,
+        message: &MessageRow,
+        event: &EventRow,
+    ) -> DatabaseResult<i64> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let tx = conn.unchecked_transaction().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+        })?;
+        let inserted_rows = tx
+            .execute(
+                "INSERT INTO messages (
+                    message_id, session_id, role, content, created_at, metadata_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                ON CONFLICT(message_id) DO NOTHING",
+                params![
+                    message.message_id,
+                    message.session_id,
+                    message.role,
+                    message.content,
+                    message.created_at,
+                    message.metadata_json,
+                ],
+            )
+            .map_err(|error| DatabaseError::Query(format!("failed to save message: {error}")))?;
+        let count: i64 = if inserted_rows > 0 {
+            let updated_at = chrono::Utc::now().to_rfc3339();
+            tx.query_row(
+                "UPDATE sessions SET message_count = message_count + 1, updated_at = ?2 \
+                     WHERE session_id = ?1 RETURNING message_count",
+                params![message.session_id, updated_at],
+                |row| row.get(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    DatabaseError::NotFound(format!("session not found: {}", message.session_id))
+                }
+                other => {
+                    DatabaseError::Query(format!("failed to increment message count: {other}"))
+                }
+            })?
+        } else {
+            let existing_session_id: String = tx
+                .query_row(
+                    "SELECT session_id FROM messages WHERE message_id = ?1",
+                    params![message.message_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to load existing message: {error}"))
+                })?;
+            if existing_session_id != message.session_id {
+                return Err(DatabaseError::ConstraintViolation(format!(
+                    "message {} already belongs to session {}",
+                    message.message_id, existing_session_id
+                )));
+            }
+            tx.query_row(
+                "SELECT message_count FROM sessions WHERE session_id = ?1",
+                params![message.session_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    DatabaseError::NotFound(format!("session not found: {}", message.session_id))
+                }
+                other => DatabaseError::Query(format!("failed to load message count: {other}")),
+            })?
+        };
+        tx.execute(
+            crate::upsert_sql::sqlite::SAVE_EVENT,
+            params![
+                event.event_id,
+                event.session_id,
+                event.event_type,
+                event.severity,
+                event.payload,
+                event.created_at,
+            ],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to save event: {error}")))?;
+        tx.commit().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to commit transaction: {error}"))
+        })?;
+        Ok(count)
+    }
+
+    fn delete_messages_and_reset_count(
+        &self,
+        session_id: &str,
+        updated_at: &str,
+    ) -> DatabaseResult<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let tx = conn.unchecked_transaction().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+        })?;
+        tx.execute(
+            "DELETE FROM messages WHERE session_id = ?1",
+            params![session_id],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to delete messages: {error}")))?;
+        let rows = tx
+            .execute(
+                "UPDATE sessions SET message_count = 0, updated_at = ?2 WHERE session_id = ?1",
+                params![session_id, updated_at],
+            )
+            .map_err(|error| {
+                DatabaseError::Query(format!("failed to reset session message count: {error}"))
+            })?;
+        if rows == 0 {
+            return Err(DatabaseError::NotFound(format!(
+                "session not found: {session_id}"
+            )));
+        }
+        tx.commit().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to commit transaction: {error}"))
+        })?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -686,6 +923,8 @@ mod tests {
             bridge_id: Some("bridge.codex".to_string()),
             token_usage_json: None,
             message_count: 0,
+            owner_tenant_id: None,
+            owner_user_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: Some("2026-01-02T00:00:00Z".to_string()),
             metadata_json: None,

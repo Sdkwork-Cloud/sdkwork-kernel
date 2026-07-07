@@ -11,9 +11,17 @@ import {
 } from '../lib/kernel-topology.mjs';
 
 const PROFILE_ID = 'standalone.unified-process.development';
-const HEALTH_PATH = '/health';
+const HEALTH_PATH = '/healthz';
 const INTERNAL_RUNTIME_SNAPSHOT_PATH = '/internal/v3/api/intelligence/runtime/snapshot';
 const STARTUP_TIMEOUT_MS = 120_000;
+
+async function probeHttpHealthy(url, options) {
+  try {
+    return await waitForHttpHealthy(url, options);
+  } catch {
+    return false;
+  }
+}
 
 function cargoCommand() {
   return process.platform === 'win32' ? 'cargo.exe' : 'cargo';
@@ -59,50 +67,53 @@ async function main() {
     exitCode = code;
   });
 
-  const startedAt = Date.now();
-  let ready = false;
-  while (Date.now() - startedAt < STARTUP_TIMEOUT_MS) {
-    if (exitCode != null) {
-      throw new Error(`sdkwork-agent-server exited before health check (code=${exitCode})`);
+  try {
+    const startedAt = Date.now();
+    let ready = false;
+    while (Date.now() - startedAt < STARTUP_TIMEOUT_MS) {
+      if (exitCode != null) {
+        throw new Error(`sdkwork-agent-server exited before health check (code=${exitCode})`);
+      }
+      ready = await probeHttpHealthy(healthUrl, {
+        path: HEALTH_PATH,
+        timeoutMs: 1500,
+        attempts: 1,
+        intervalMs: 250,
+      });
+      if (ready) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
     }
-    ready = await waitForHttpHealthy(healthUrl, {
-      path: HEALTH_PATH,
-      timeoutMs: 1500,
-      attempts: 1,
-      intervalMs: 250,
-    });
-    if (ready) {
-      break;
+
+    if (!ready) {
+      throw new Error(`timed out waiting for ${healthUrl}${HEALTH_PATH}`);
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    async function probeSnapshot(path) {
+      const snapshotUrl = `${healthUrl}${path}`;
+      const snapshotResponse = await fetch(snapshotUrl, {
+        signal: AbortSignal.timeout(1500),
+      });
+      if (!snapshotResponse.ok) {
+        throw new Error(`kernel snapshot probe failed for ${path}: ${snapshotResponse.status}`);
+      }
+      const payload = await snapshotResponse.json();
+      const snapshot = payload?.data?.item ?? payload;
+      if (!snapshot?.runtime?.health) {
+        throw new Error(`kernel snapshot response missing runtime.health for ${path}`);
+      }
+      return snapshot;
+    }
+
+    const snapshot = await probeSnapshot(INTERNAL_RUNTIME_SNAPSHOT_PATH);
+
+    console.log(
+      `[sdkwork-kernel-topology-smoke] ok profile=${PROFILE_ID} url=${healthUrl}${HEALTH_PATH} internal=${INTERNAL_RUNTIME_SNAPSHOT_PATH} snapshot=${snapshot.runtime.health}`,
+    );
+  } finally {
+    terminateProcessTree(child);
   }
-
-  terminateProcessTree(child);
-
-  if (!ready) {
-    throw new Error(`timed out waiting for ${healthUrl}${HEALTH_PATH}`);
-  }
-
-  async function probeSnapshot(path) {
-    const snapshotUrl = `${healthUrl}${path}`;
-    const snapshotResponse = await fetch(snapshotUrl, {
-      signal: AbortSignal.timeout(1500),
-    });
-    if (!snapshotResponse.ok) {
-      throw new Error(`kernel snapshot probe failed for ${path}: ${snapshotResponse.status}`);
-    }
-    const snapshot = await snapshotResponse.json();
-    if (!snapshot?.runtime?.health) {
-      throw new Error(`kernel snapshot response missing runtime.health for ${path}`);
-    }
-    return snapshot;
-  }
-
-  const snapshot = await probeSnapshot(INTERNAL_RUNTIME_SNAPSHOT_PATH);
-
-  console.log(
-    `[sdkwork-kernel-topology-smoke] ok profile=${PROFILE_ID} url=${healthUrl}${HEALTH_PATH} internal=${INTERNAL_RUNTIME_SNAPSHOT_PATH} snapshot=${snapshot.runtime.health}`,
-  );
 }
 
 main().catch((error) => {

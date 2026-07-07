@@ -103,7 +103,9 @@ pub enum StreamControl {
 
 impl StreamControl {
     pub fn cancel(reason: impl Into<String>) -> Self {
-        Self::Cancel { reason: reason.into() }
+        Self::Cancel {
+            reason: reason.into(),
+        }
     }
 }
 
@@ -376,7 +378,11 @@ pub trait ModelStreamProvider: Send + Sync {
     fn receive_chunk(&mut self, stream_id: &str) -> Result<StreamChunk, StreamError>;
 
     /// Send control signal to stream.
-    fn control_stream(&mut self, stream_id: &str, control: StreamControl) -> Result<(), StreamError>;
+    fn control_stream(
+        &mut self,
+        stream_id: &str,
+        control: StreamControl,
+    ) -> Result<(), StreamError>;
 
     /// Get stream status.
     fn get_status(&self, stream_id: &str) -> Result<StreamStatus, StreamError>;
@@ -512,7 +518,9 @@ impl InMemoryStreamProvider {
 impl ModelStreamProvider for InMemoryStreamProvider {
     fn initiate_stream(&mut self, request: StreamRequest) -> Result<StreamStatus, StreamError> {
         if self.streams.len() >= self.max_concurrent {
-            return Err(StreamError::ProviderUnavailable("Max concurrent streams reached".to_string()));
+            return Err(StreamError::ProviderUnavailable(
+                "Max concurrent streams reached".to_string(),
+            ));
         }
 
         if self.streams.contains_key(&request.stream_id) {
@@ -528,7 +536,8 @@ impl ModelStreamProvider for InMemoryStreamProvider {
             throughput_bps: 0,
         };
 
-        self.streams.insert(request.stream_id.clone(), (status.clone(), Vec::new()));
+        self.streams
+            .insert(request.stream_id.clone(), (status.clone(), Vec::new()));
         Ok(status)
     }
 
@@ -550,7 +559,11 @@ impl ModelStreamProvider for InMemoryStreamProvider {
         }
     }
 
-    fn control_stream(&mut self, stream_id: &str, control: StreamControl) -> Result<(), StreamError> {
+    fn control_stream(
+        &mut self,
+        stream_id: &str,
+        control: StreamControl,
+    ) -> Result<(), StreamError> {
         let (status, _) = self
             .streams
             .get_mut(stream_id)
@@ -583,7 +596,7 @@ impl ModelStreamProvider for InMemoryStreamProvider {
     fn finalize_stream(&mut self, stream_id: &str) -> Result<StreamResult, StreamError> {
         let (status, chunks) = self
             .streams
-            .get(stream_id)
+            .remove(stream_id)
             .ok_or_else(|| StreamError::StreamNotFound(stream_id.to_string()))?;
 
         let complete_response = chunks
@@ -678,7 +691,12 @@ mod tests {
     #[test]
     fn test_stream_control_cancel() {
         let control = StreamControl::cancel("User request");
-        assert_eq!(control, StreamControl::Cancel { reason: "User request".to_string() });
+        assert_eq!(
+            control,
+            StreamControl::Cancel {
+                reason: "User request".to_string()
+            }
+        );
     }
 
     #[test]
@@ -774,9 +792,39 @@ mod tests {
         let request = StreamRequest::new("stream-1", "provider-1", "model-1", "Test");
         provider.initiate_stream(request).unwrap();
 
-        provider.control_stream("stream-1", StreamControl::cancel("Test")).unwrap();
+        provider
+            .control_stream("stream-1", StreamControl::cancel("Test"))
+            .unwrap();
         let status = provider.get_status("stream-1").unwrap();
         assert_eq!(status.state, StreamState::Cancelled);
+    }
+
+    #[test]
+    fn test_in_memory_stream_provider_finalize_releases_concurrency_slot() {
+        let mut provider = InMemoryStreamProvider::new().with_max_concurrent(1);
+        provider
+            .initiate_stream(StreamRequest::new(
+                "stream-1",
+                "provider-1",
+                "model-1",
+                "Test",
+            ))
+            .unwrap();
+
+        provider.finalize_stream("stream-1").unwrap();
+
+        provider
+            .initiate_stream(StreamRequest::new(
+                "stream-2",
+                "provider-1",
+                "model-1",
+                "Test",
+            ))
+            .expect("finalized streams must release the concurrency slot");
+        assert!(
+            provider.get_status("stream-1").is_err(),
+            "finalized stream state should not remain active in the in-memory provider"
+        );
     }
 
     #[test]

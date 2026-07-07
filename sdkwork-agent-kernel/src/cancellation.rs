@@ -45,7 +45,11 @@ impl CancellationToken {
     /// Check if cancelled.
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::SeqCst)
-            || self.parent.as_ref().map(|p| p.is_cancelled()).unwrap_or(false)
+            || self
+                .parent
+                .as_ref()
+                .map(|p| p.is_cancelled())
+                .unwrap_or(false)
     }
 
     /// Cancel this token and all children.
@@ -230,10 +234,13 @@ pub struct CancellationRequest {
 impl CancellationRequest {
     pub fn new(token_id: impl Into<String>, source: CancellationSource) -> Self {
         Self {
-            request_id: format!("req-{}", std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()),
+            request_id: format!(
+                "req-{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
             token_id: token_id.into(),
             source,
             propagate: true,
@@ -268,7 +275,11 @@ pub struct CancellationResult {
 }
 
 impl CancellationResult {
-    pub fn success(request_id: impl Into<String>, tokens_cancelled: Vec<String>, cleanup_executed: usize) -> Self {
+    pub fn success(
+        request_id: impl Into<String>,
+        tokens_cancelled: Vec<String>,
+        cleanup_executed: usize,
+    ) -> Self {
         Self {
             request_id: request_id.into(),
             success: true,
@@ -477,7 +488,8 @@ impl CancellationProvider for InMemoryCancellationProvider {
             .clone();
 
         let child = parent.create_child(child_token_id);
-        self.tokens.insert(child_token_id.to_string(), child.clone());
+        self.tokens
+            .insert(child_token_id.to_string(), child.clone());
         Ok(child)
     }
 
@@ -520,14 +532,20 @@ impl CancellationProvider for InMemoryCancellationProvider {
         // Propagate to children if requested
         if request.propagate {
             for (_, child_token) in self.tokens.iter() {
-                if child_token.parent.as_ref().map(|p| p.token_id.as_str()) == Some(request.token_id.as_str()) {
+                if child_token.parent.as_ref().map(|p| p.token_id.as_str())
+                    == Some(request.token_id.as_str())
+                {
                     child_token.cancel();
                     tokens_cancelled.push(child_token.token_id.clone());
                 }
             }
         }
 
-        Ok(CancellationResult::success(request.request_id, tokens_cancelled, cleanup_executed))
+        Ok(CancellationResult::success(
+            request.request_id,
+            tokens_cancelled,
+            cleanup_executed,
+        ))
     }
 
     fn is_cancelled(&self, token_id: &str) -> Result<bool, CancellationError> {
@@ -545,11 +563,7 @@ impl CancellationProvider for InMemoryCancellationProvider {
             .get(token_id)
             .ok_or_else(|| CancellationError::TokenNotFound(token_id.to_string()))?;
 
-        let cleanup_callbacks_count = self
-            .cleanup_callbacks
-            .get(token_id)
-            .copied()
-            .unwrap_or(0);
+        let cleanup_callbacks_count = self.cleanup_callbacks.get(token_id).copied().unwrap_or(0);
 
         Ok(CancellationHandle {
             handle_id: format!("handle-{}", token_id),
@@ -679,8 +693,7 @@ mod tests {
 
     #[test]
     fn test_cancellation_scope_new() {
-        let scope = CancellationScope::new("scope-1", "Test Scope")
-            .with_timeout(60000);
+        let scope = CancellationScope::new("scope-1", "Test Scope").with_timeout(60000);
 
         assert_eq!(scope.scope_id, "scope-1");
         assert_eq!(scope.timeout_ms, Some(60000));

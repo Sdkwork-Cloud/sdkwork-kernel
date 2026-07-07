@@ -34,23 +34,21 @@ impl Default for InMemoryDatabase {
     }
 }
 
-fn metadata_field(metadata_json: Option<&str>, key: &str) -> Option<String> {
-    let raw = metadata_json?;
-    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
-    value.get(key).and_then(|field| field.as_str()).map(str::to_owned)
-}
-
 impl AgentDatabase for InMemoryDatabase {
-    fn execute(&self, _sql: &str, _params: &[&dyn DatabaseParam]) -> DatabaseResult<usize> {
-        Ok(0)
+    fn execute(&self, sql: &str, _params: &[&dyn DatabaseParam]) -> DatabaseResult<usize> {
+        Err(DatabaseError::Query(format!(
+            "InMemoryDatabase supports typed repository tests only; raw SQL execute is unsupported: {sql}"
+        )))
     }
 
     fn query_many(
         &self,
-        _sql: &str,
+        sql: &str,
         _params: &[&dyn DatabaseParam],
     ) -> DatabaseResult<Vec<Box<dyn DatabaseRow>>> {
-        Ok(Vec::new())
+        Err(DatabaseError::Query(format!(
+            "InMemoryDatabase supports typed repository tests only; raw SQL query_many is unsupported: {sql}"
+        )))
     }
 
     fn health(&self) -> DatabaseResult<bool> {
@@ -111,16 +109,12 @@ impl SessionRepository for InMemoryDatabase {
                     }
                 }
                 if let Some(ref owner_tenant_id) = query.owner_tenant_id {
-                    if metadata_field(s.metadata_json.as_deref(), "tenantId").as_ref()
-                        != Some(owner_tenant_id)
-                    {
+                    if s.owner_tenant_id.as_ref() != Some(owner_tenant_id) {
                         return false;
                     }
                 }
                 if let Some(ref owner_user_ref) = query.owner_user_ref {
-                    if metadata_field(s.metadata_json.as_deref(), "userRef").as_ref()
-                        != Some(owner_user_ref)
-                    {
+                    if s.owner_user_ref.as_ref() != Some(owner_user_ref) {
                         return false;
                     }
                 }
@@ -138,8 +132,23 @@ impl SessionRepository for InMemoryDatabase {
                 .updated_at
                 .as_deref()
                 .unwrap_or(right.created_at.as_str());
-            right_ts.cmp(left_ts)
+            right_ts
+                .cmp(left_ts)
+                .then_with(|| right.session_id.cmp(&left.session_id))
         });
+        if let Some(after_session_id) = query
+            .after_session_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            let Some(cursor_index) = results
+                .iter()
+                .position(|row| row.session_id == after_session_id)
+            else {
+                return Ok(Vec::new());
+            };
+            results = results.into_iter().skip(cursor_index + 1).collect();
+        }
 
         let limit = resolve_list_limit(query.limit) as usize;
         let offset = resolve_list_offset(query.offset) as usize;
@@ -172,7 +181,25 @@ impl SessionRepository for InMemoryDatabase {
             .lock()
             .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
         tasks.retain(|_, task| task.session_id != session_id);
+        let mut permissions = self
+            .permissions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
+        permissions.retain(|_, permission| permission.session_id.as_deref() != Some(session_id));
         self.delete_session(session_id)
+    }
+
+    fn increment_session_message_count(&self, session_id: &str) -> DatabaseResult<i64> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or_else(|| DatabaseError::NotFound(format!("session not found: {session_id}")))?;
+        session.message_count += 1;
+        session.updated_at = Some(chrono::Utc::now().to_rfc3339());
+        Ok(session.message_count)
     }
 }
 
@@ -196,12 +223,29 @@ impl MessageRepository for InMemoryDatabase {
             .lock()
             .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
 
-        let results: Vec<MessageRow> = messages
+        let mut results: Vec<MessageRow> = messages
             .iter()
             .filter(|m| m.session_id == session_id)
             .cloned()
             .collect();
-
+        results.sort_by(|left, right| {
+            left.created_at
+                .cmp(&right.created_at)
+                .then_with(|| left.message_id.cmp(&right.message_id))
+        });
+        if let Some(after_message_id) = query
+            .after_message_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            let Some(cursor_index) = results
+                .iter()
+                .position(|row| row.message_id == after_message_id)
+            else {
+                return Ok(Vec::new());
+            };
+            results = results.into_iter().skip(cursor_index + 1).collect();
+        }
         let limit = resolve_list_limit(query.limit) as usize;
         let offset = resolve_list_offset(query.offset) as usize;
         Ok(offset_limit_page_from_iter(results.into_iter(), limit, offset).items)
@@ -256,7 +300,22 @@ impl TaskRepository for InMemoryDatabase {
             .filter(|t| t.session_id == session_id)
             .cloned()
             .collect();
-        results.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        results.sort_by(|left, right| {
+            left.created_at
+                .cmp(&right.created_at)
+                .then_with(|| left.task_id.cmp(&right.task_id))
+        });
+        if let Some(after_task_id) = query
+            .after_task_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            let Some(cursor_index) = results.iter().position(|row| row.task_id == after_task_id)
+            else {
+                return Ok(Vec::new());
+            };
+            results = results.into_iter().skip(cursor_index + 1).collect();
+        }
         let limit = resolve_list_limit(query.limit) as usize;
         let offset = resolve_list_offset(query.offset) as usize;
         Ok(offset_limit_page_from_iter(results.into_iter(), limit, offset).items)
@@ -308,6 +367,19 @@ impl EventRepository for InMemoryDatabase {
             .cloned()
             .collect();
         results.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        if let Some(after_event_id) = query
+            .after_event_id
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            let Some(cursor_index) = results
+                .iter()
+                .position(|row| row.event_id == after_event_id)
+            else {
+                return Ok(Vec::new());
+            };
+            results = results.into_iter().skip(cursor_index + 1).collect();
+        }
         let limit = resolve_list_limit(query.limit) as usize;
         let offset = resolve_list_offset(query.offset) as usize;
         Ok(offset_limit_page_from_iter(results.into_iter(), limit, offset).items)
@@ -404,6 +476,75 @@ impl PermissionRepository for InMemoryDatabase {
     }
 }
 
+impl RuntimeSessionWrites for InMemoryDatabase {
+    fn append_message_with_event(
+        &self,
+        message: &MessageRow,
+        event: &EventRow,
+    ) -> DatabaseResult<i64> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut messages = self
+            .messages
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let session = sessions.get_mut(&message.session_id).ok_or_else(|| {
+            DatabaseError::NotFound(format!("session not found: {}", message.session_id))
+        })?;
+        let existing_session_id = messages
+            .iter()
+            .find(|row| row.message_id == message.message_id)
+            .map(|row| row.session_id.clone());
+        if let Some(existing_session_id) = existing_session_id.as_deref() {
+            if existing_session_id != message.session_id {
+                return Err(DatabaseError::ConstraintViolation(format!(
+                    "message {} already belongs to session {}",
+                    message.message_id, existing_session_id
+                )));
+            }
+        }
+        let message_is_new = existing_session_id.is_none();
+        messages.retain(|row| row.message_id != message.message_id);
+        messages.push(message.clone());
+        if message_is_new {
+            session.message_count += 1;
+            session.updated_at = Some(chrono::Utc::now().to_rfc3339());
+        }
+        let count = session.message_count;
+        events.retain(|row| row.event_id != event.event_id);
+        events.push(event.clone());
+        Ok(count)
+    }
+
+    fn delete_messages_and_reset_count(
+        &self,
+        session_id: &str,
+        updated_at: &str,
+    ) -> DatabaseResult<()> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut messages = self
+            .messages
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or_else(|| DatabaseError::NotFound(format!("session not found: {session_id}")))?;
+        messages.retain(|row| row.session_id != session_id);
+        session.message_count = 0;
+        session.updated_at = Some(updated_at.to_string());
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,6 +565,8 @@ mod tests {
             bridge_id: None,
             token_usage_json: None,
             message_count: 0,
+            owner_tenant_id: None,
+            owner_user_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: None,
             metadata_json: None,
@@ -451,6 +594,8 @@ mod tests {
             bridge_id: None,
             token_usage_json: None,
             message_count: 0,
+            owner_tenant_id: None,
+            owner_user_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: None,
             metadata_json: None,
@@ -489,5 +634,165 @@ mod tests {
     fn health_check() {
         let db = InMemoryDatabase::new();
         assert!(db.health().expect("health"));
+    }
+
+    #[test]
+    fn raw_sql_methods_fail_closed() {
+        let db = InMemoryDatabase::new();
+
+        let execute_error = db
+            .execute("CREATE TABLE sessions (id TEXT)", &[])
+            .expect_err("in-memory typed repository must not fake raw SQL execution");
+        assert!(matches!(execute_error, DatabaseError::Query(_)));
+
+        let query_error = match db.query_many("SELECT * FROM sessions", &[]) {
+            Ok(_) => panic!("in-memory typed repository must not fake raw SQL queries"),
+            Err(error) => error,
+        };
+        assert!(matches!(query_error, DatabaseError::Query(_)));
+    }
+
+    #[test]
+    fn append_message_with_event_is_idempotent_for_duplicate_message_id() {
+        let db = InMemoryDatabase::new();
+        let session_id = "session.memory.idempotent-append";
+        db.save_session(&SessionRow {
+            session_id: session_id.to_string(),
+            agent_id: "agent.1".to_string(),
+            kind: "main".to_string(),
+            source: "test".to_string(),
+            state: "active".to_string(),
+            title: None,
+            model: None,
+            cwd: None,
+            provider_id: None,
+            bridge_id: None,
+            token_usage_json: None,
+            message_count: 0,
+            owner_tenant_id: None,
+            owner_user_ref: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: None,
+            metadata_json: None,
+        })
+        .expect("session saved");
+
+        let message = MessageRow {
+            message_id: "msg.memory.idempotent.1".to_string(),
+            session_id: session_id.to_string(),
+            role: "user".to_string(),
+            content: "retry-safe append".to_string(),
+            created_at: "2026-01-01T00:00:01Z".to_string(),
+            metadata_json: None,
+        };
+        let event = EventRow {
+            event_id: "evt.memory.idempotent.1".to_string(),
+            session_id: Some(session_id.to_string()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: None,
+            created_at: "2026-01-01T00:00:01Z".to_string(),
+        };
+
+        let first_count = db
+            .append_message_with_event(&message, &event)
+            .expect("first append");
+        let retry_count = db
+            .append_message_with_event(&message, &event)
+            .expect("retry append");
+
+        assert_eq!(first_count, 1);
+        assert_eq!(retry_count, 1);
+        assert_eq!(db.message_count(session_id).expect("message count"), 1);
+        assert_eq!(
+            db.load_session(session_id)
+                .expect("load session")
+                .expect("session")
+                .message_count,
+            1
+        );
+        assert_eq!(
+            db.load_events(session_id, &EventQuery::default())
+                .expect("events")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn append_message_with_event_rejects_duplicate_message_id_for_different_session() {
+        let db = InMemoryDatabase::new();
+        let first_session_id = "session.memory.conflict-a";
+        let second_session_id = "session.memory.conflict-b";
+        for session_id in [first_session_id, second_session_id] {
+            db.save_session(&SessionRow {
+                session_id: session_id.to_string(),
+                agent_id: "agent.1".to_string(),
+                kind: "main".to_string(),
+                source: "test".to_string(),
+                state: "active".to_string(),
+                title: None,
+                model: None,
+                cwd: None,
+                provider_id: None,
+                bridge_id: None,
+                token_usage_json: None,
+                message_count: 0,
+                owner_tenant_id: None,
+                owner_user_ref: None,
+                created_at: "2026-01-01T00:00:00Z".to_string(),
+                updated_at: None,
+                metadata_json: None,
+            })
+            .expect("session saved");
+        }
+
+        let message = MessageRow {
+            message_id: "msg.memory.conflict.1".to_string(),
+            session_id: first_session_id.to_string(),
+            role: "user".to_string(),
+            content: "original append".to_string(),
+            created_at: "2026-01-01T00:00:01Z".to_string(),
+            metadata_json: None,
+        };
+        let event = EventRow {
+            event_id: "evt.memory.conflict.1".to_string(),
+            session_id: Some(first_session_id.to_string()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: None,
+            created_at: "2026-01-01T00:00:01Z".to_string(),
+        };
+        db.append_message_with_event(&message, &event)
+            .expect("first append");
+
+        let conflicting_message = MessageRow {
+            session_id: second_session_id.to_string(),
+            content: "conflicting append".to_string(),
+            ..message
+        };
+        let conflicting_event = EventRow {
+            event_id: "evt.memory.conflict.2".to_string(),
+            session_id: Some(second_session_id.to_string()),
+            ..event
+        };
+
+        let error = db
+            .append_message_with_event(&conflicting_message, &conflicting_event)
+            .expect_err("duplicate message id must not move across sessions");
+        assert!(matches!(error, DatabaseError::ConstraintViolation(_)));
+        assert_eq!(db.message_count(first_session_id).expect("first count"), 1);
+        assert_eq!(
+            db.message_count(second_session_id).expect("second count"),
+            0
+        );
+        assert!(db
+            .load_messages(second_session_id, &MessageQuery::default())
+            .expect("second messages")
+            .is_empty());
+        assert!(db
+            .load_events(second_session_id, &EventQuery::default())
+            .expect("second events")
+            .is_empty());
     }
 }

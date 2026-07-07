@@ -1,4 +1,8 @@
-use crate::{AgentManifest, KernelError, KernelResult, MemoryScope};
+use crate::{
+    AgentInputContract, AgentInputModality, AgentInputPolicy, AgentInteractionContract,
+    AgentManifest, AgentOutputContract, KernelError, KernelResult, MemoryScope, ModalitySlot,
+    ModelDeliveryStrategy, UnsupportedInputModalityAction,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentProviderFamily {
@@ -324,6 +328,10 @@ pub struct AgentDefinition {
     pub model_selection: ModelSelectionPolicy,
     pub tool_call_policy: ToolCallPolicy,
     pub memory_strategy: MemoryStrategy,
+    /// Canonical I/O contract — adapters map wire formats here; providers map to vendor APIs.
+    pub interaction_contract: AgentInteractionContract,
+    /// Legacy projection of `interaction_contract.input` — kept for backward-compatible callers.
+    pub input_policy: AgentInputPolicy,
     pub extensions: Vec<(String, String)>,
 }
 
@@ -338,6 +346,8 @@ impl AgentDefinition {
             model_selection: ModelSelectionPolicy::default(),
             tool_call_policy: ToolCallPolicy::default(),
             memory_strategy: MemoryStrategy::default(),
+            interaction_contract: AgentInteractionContract::default(),
+            input_policy: AgentInputPolicy::default(),
             extensions: Vec::new(),
         }
     }
@@ -370,6 +380,16 @@ impl AgentDefinition {
         {
             definition.memory_strategy = parse_memory_strategy(&memory_strategy_body)?;
         }
+        if let Some(interaction_body) = extract_optional_object_body(input, "interaction_contract")?
+        {
+            definition.interaction_contract = parse_interaction_contract(&interaction_body)?;
+            definition.input_policy = definition.interaction_contract.input_policy();
+        } else if let Some(input_policy_body) = extract_optional_object_body(input, "input_policy")?
+        {
+            definition.input_policy = parse_input_policy(&input_policy_body)?;
+            definition.interaction_contract =
+                AgentInteractionContract::from_legacy_input_policy(&definition.input_policy);
+        }
         definition.validate()
     }
 
@@ -393,6 +413,30 @@ impl AgentDefinition {
         self
     }
 
+    pub fn with_input_policy(mut self, input_policy: AgentInputPolicy) -> Self {
+        self.input_policy = input_policy.clone();
+        self.interaction_contract =
+            AgentInteractionContract::from_legacy_input_policy(&input_policy);
+        self
+    }
+
+    pub fn with_interaction_contract(
+        mut self,
+        interaction_contract: AgentInteractionContract,
+    ) -> Self {
+        self.input_policy = interaction_contract.input_policy();
+        self.interaction_contract = interaction_contract;
+        self
+    }
+
+    pub fn accepts_message_input(&self, message: &crate::AgentMessage) -> KernelResult<()> {
+        crate::validate_message_against_input_policy(message, &self.input_policy)
+    }
+
+    pub fn input_contract(&self) -> &AgentInputContract {
+        &self.interaction_contract.input
+    }
+
     pub fn requires_provider_family(&self, family: AgentProviderFamily) -> bool {
         self.provider_bindings
             .iter()
@@ -411,12 +455,15 @@ impl AgentDefinition {
             .find(|binding| binding.provider_id == provider_id)
     }
 
-    pub fn validate(self) -> KernelResult<Self> {
+    pub fn validate(mut self) -> KernelResult<Self> {
         validate_standard_id(&self.definition_id, "definition_id", Some("definition."))?;
 
         for binding in &self.provider_bindings {
             binding.validate()?;
         }
+        self.interaction_contract.validate()?;
+        self.input_policy = self.interaction_contract.input_policy();
+        self.input_policy.validate()?;
 
         for family in [
             AgentProviderFamily::Model,
@@ -555,6 +602,104 @@ fn parse_memory_strategy(input: &str) -> KernelResult<MemoryStrategy> {
         retention_required: extract_optional_bool(input, "retention_required")?.unwrap_or(false),
     };
     Ok(strategy)
+}
+
+fn parse_interaction_contract(input: &str) -> KernelResult<AgentInteractionContract> {
+    let schema_version =
+        extract_optional_string(input, "schema_version")?.unwrap_or_else(|| "1.0.0".to_string());
+    let input_body = extract_object_body(input, "input")?;
+    let output_body = extract_optional_object_body(input, "output")?
+        .unwrap_or_else(|| "{\"modalities\":[\"text\",\"json\"]}".to_string());
+    let contract = AgentInteractionContract {
+        schema_version,
+        input: parse_input_contract(&input_body)?,
+        output: parse_output_contract(&output_body)?,
+    };
+    contract.validate()?;
+    Ok(contract)
+}
+
+/// Parse canonical or legacy-shorthand agent input contract JSON.
+pub fn parse_agent_input_contract_json(input: &str) -> KernelResult<AgentInputContract> {
+    parse_input_contract(input)
+}
+
+pub fn parse_agent_input_policy_json(input: &str) -> KernelResult<AgentInputPolicy> {
+    parse_input_policy(input)
+}
+
+fn parse_input_contract(input: &str) -> KernelResult<AgentInputContract> {
+    if let Some(slots_body) = extract_optional_object_array(input, "slots")? {
+        let mut slots = Vec::new();
+        for body in slots_body {
+            slots.push(parse_modality_slot(&body)?);
+        }
+        let contract = AgentInputContract {
+            slots,
+            require_model_support: extract_optional_bool(input, "require_model_support")?
+                .unwrap_or(true),
+            unsupported_action: match extract_optional_string(input, "unsupported_action")? {
+                Some(action) => UnsupportedInputModalityAction::parse(&action)?,
+                None => UnsupportedInputModalityAction::default(),
+            },
+        };
+        contract.validate()?;
+        return Ok(contract);
+    }
+
+    parse_input_policy(input).map(|policy| AgentInputContract::from_legacy_policy(&policy))
+}
+
+fn parse_output_contract(input: &str) -> KernelResult<AgentOutputContract> {
+    let modalities = extract_optional_string_array(input, "modalities")?
+        .unwrap_or_else(|| vec!["text".to_string(), "json".to_string()]);
+    Ok(AgentOutputContract {
+        modalities: modalities
+            .into_iter()
+            .map(|modality| AgentInputModality::parse(&modality))
+            .collect::<KernelResult<Vec<_>>>()?,
+    })
+}
+
+fn parse_modality_slot(input: &str) -> KernelResult<ModalitySlot> {
+    let modality = AgentInputModality::parse(&extract_string(input, "modality")?)?;
+    let mut slot = ModalitySlot {
+        modality,
+        enabled: extract_optional_bool(input, "enabled")?.unwrap_or(true),
+        max_parts_per_message: extract_optional_u32(input, "max_parts_per_message")?,
+        allowed_mime_types: extract_optional_string_array(input, "allowed_mime_types")?
+            .unwrap_or_default(),
+        max_bytes: extract_optional_u64(input, "max_bytes")?,
+        delivery: ModelDeliveryStrategy::default(),
+    };
+    if let Some(delivery_body) = extract_optional_object_body(input, "delivery")? {
+        let kind = extract_string(&delivery_body, "strategy")?;
+        slot.delivery = ModelDeliveryStrategy::parse(
+            &kind,
+            extract_optional_string(&delivery_body, "processor_id")?.as_deref(),
+            extract_optional_string(&delivery_body, "output_modality")?.as_deref(),
+        )?;
+    }
+    Ok(slot)
+}
+
+fn parse_input_policy(input: &str) -> KernelResult<AgentInputPolicy> {
+    let accepted = extract_optional_string_array(input, "accepted_modalities")?
+        .unwrap_or_else(|| vec!["text".to_string(), "json".to_string()]);
+    let policy = AgentInputPolicy {
+        accepted_modalities: accepted
+            .into_iter()
+            .map(|modality| crate::AgentInputModality::parse(&modality))
+            .collect::<KernelResult<Vec<_>>>()?,
+        require_model_support: extract_optional_bool(input, "require_model_support")?
+            .unwrap_or(true),
+        unsupported_action: match extract_optional_string(input, "unsupported_action")? {
+            Some(action) => crate::UnsupportedInputModalityAction::parse(&action)?,
+            None => crate::UnsupportedInputModalityAction::default(),
+        },
+    };
+    policy.validate()?;
+    Ok(policy)
 }
 
 fn parse_provider_family(input: &str) -> KernelResult<AgentProviderFamily> {
@@ -783,6 +928,25 @@ fn extract_optional_u32(input: &str, key: &str) -> KernelResult<Option<u32>> {
         .parse::<u32>()
         .map(Some)
         .map_err(|_| KernelError::validation(format!("field is not an integer: {key}")))
+}
+
+fn extract_optional_u64(input: &str, key: &str) -> KernelResult<Option<u64>> {
+    let pattern = format!("\"{key}\"");
+    if !input.contains(&pattern) {
+        return Ok(None);
+    }
+    extract_raw_json_value(input, key)?
+        .parse::<u64>()
+        .map(Some)
+        .map_err(|_| KernelError::validation(format!("field is not an integer: {key}")))
+}
+
+fn extract_optional_object_array(input: &str, key: &str) -> KernelResult<Option<Vec<String>>> {
+    let pattern = format!("\"{key}\"");
+    if !input.contains(&pattern) {
+        return Ok(None);
+    }
+    extract_object_array(input, key).map(Some)
 }
 
 fn extract_optional_string_array(input: &str, key: &str) -> KernelResult<Option<Vec<String>>> {

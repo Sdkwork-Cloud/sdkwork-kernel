@@ -45,6 +45,7 @@ impl<M: MessageRepository> ConversationManager<M> {
         let query = MessageQuery {
             limit,
             offset: None,
+            ..Default::default()
         };
         self.message_repo
             .load_messages(session_id, &query)

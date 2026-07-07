@@ -1,14 +1,15 @@
 use crate::{
-    AgentRuntime, AgentTask, ContextFrame, KernelError, KernelErrorSource, KernelEvent,
-    KernelEventRedaction, KernelResult, KnowledgeRetrievalMethod, KnowledgeSearchRequest,
-    KnowledgeSearchResult, MemoryRecord, MemoryScope, ModelCancellationRequest,
-    ModelExecutionRequest, ModelExecutionService, ModelRequest, ModelResponse, ModelStreamChunk,
-    PolicyCategory, PolicyDecision, PolicyDecisionValue, PolicySubject, ProtocolAdapter,
-    ProtocolAdapterAuthMode, ProtocolAdapterManifest, ProtocolAdapterRequest,
-    ProtocolAdapterResponse, ProtocolAdapterStreamingSupport, ProtocolError, ProtocolFamily,
-    ProtocolObjectEnvelope, ProtocolObjectKind, ProtocolObjectMapper, ProtocolStreamUpdate,
-    ProtocolTransport, ProviderHealth, RuntimeState, SideEffectLevel, StandardProtocolObjectMapper,
-    TraceContext,
+    agent_messages_to_text_lines, parse_chat_rpc_payload, AgentInputContract, AgentInputPolicy,
+    AgentMessage, AgentRuntime, AgentTask, ContextFrame, KernelError, KernelErrorSource,
+    KernelEvent, KernelEventRedaction, KernelResult, KnowledgeRetrievalMethod,
+    KnowledgeSearchRequest, KnowledgeSearchResult, MemoryRecord, MemoryScope,
+    ModelCancellationRequest, ModelExecutionRequest, ModelExecutionService, ModelRequest,
+    ModelResponse, ModelStreamChunk, PolicyCategory, PolicyDecision, PolicyDecisionValue,
+    PolicySubject, ProtocolAdapter, ProtocolAdapterAuthMode, ProtocolAdapterManifest,
+    ProtocolAdapterRequest, ProtocolAdapterResponse, ProtocolAdapterStreamingSupport,
+    ProtocolError, ProtocolFamily, ProtocolObjectEnvelope, ProtocolObjectKind,
+    ProtocolObjectMapper, ProtocolStreamUpdate, ProtocolTransport, ProviderHealth, RuntimeState,
+    SideEffectLevel, StandardProtocolObjectMapper, TraceContext,
 };
 
 const AGENT_CHAT_CREATE_OPERATION: &str = "agent.chat.create";
@@ -20,6 +21,9 @@ const CHAT_PROTOCOL_VERSION: &str = "sdkwork.agent.rpc.chat.v1";
 pub struct AgentChatRequest {
     pub chat_request_id: String,
     pub messages: Vec<String>,
+    pub input_messages: Vec<AgentMessage>,
+    pub input_policy: Option<AgentInputPolicy>,
+    pub input_contract: Option<AgentInputContract>,
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
     pub session_id: Option<String>,
@@ -59,6 +63,9 @@ impl AgentChatRequest {
         Self {
             chat_request_id: chat_request_id.into(),
             messages,
+            input_messages: Vec::new(),
+            input_policy: None,
+            input_contract: None,
             provider_id: None,
             model_id: None,
             session_id: None,
@@ -73,6 +80,24 @@ impl AgentChatRequest {
             knowledge_query: None,
             metadata: Vec::new(),
         }
+    }
+
+    pub fn with_input_messages(mut self, input_messages: Vec<AgentMessage>) -> Self {
+        self.input_messages = input_messages;
+        self.messages = agent_messages_to_text_lines(&self.input_messages);
+        self
+    }
+
+    pub fn with_input_policy(mut self, input_policy: AgentInputPolicy) -> Self {
+        self.input_policy = Some(input_policy.clone());
+        self.input_contract = Some(AgentInputContract::from_legacy_policy(&input_policy));
+        self
+    }
+
+    pub fn with_input_contract(mut self, input_contract: AgentInputContract) -> Self {
+        self.input_policy = Some(input_contract.to_legacy_policy());
+        self.input_contract = Some(input_contract);
+        self
     }
 
     pub fn with_provider_id(mut self, provider_id: impl Into<String>) -> Self {
@@ -665,6 +690,10 @@ impl AgentChatRpcHandler {
             );
         }
 
+        let input_messages = parse_chat_rpc_payload(&request.protocol_request_id, message)
+            .map_err(|error| error.from_source(KernelErrorSource::ProtocolAdapter))?;
+        let text_lines = agent_messages_to_text_lines(&input_messages);
+
         let timeout_ms = match request.metadata_value("sdkwork.chat.timeout_ms") {
             Some(value) => Some(value.parse::<u64>().map_err(|_| {
                 KernelError::validation("sdkwork.chat.timeout_ms must be an unsigned integer")
@@ -673,12 +702,23 @@ impl AgentChatRpcHandler {
             None => None,
         };
 
-        let mut chat_request = AgentChatRequest::new(
-            request.protocol_request_id.clone(),
-            vec![message.to_string()],
-        )
-        .with_metadata("sdkwork.protocol.operation", request.operation.clone())
-        .with_metadata("sdkwork.protocol.version", CHAT_PROTOCOL_VERSION);
+        let mut chat_request =
+            AgentChatRequest::new(request.protocol_request_id.clone(), text_lines)
+                .with_input_messages(input_messages)
+                .with_metadata("sdkwork.protocol.operation", request.operation.clone())
+                .with_metadata("sdkwork.protocol.version", CHAT_PROTOCOL_VERSION);
+
+        if let Some(contract_body) = request.metadata_value("sdkwork.chat.input_contract") {
+            chat_request = chat_request.with_input_contract(
+                crate::parse_agent_input_contract_json(contract_body)
+                    .map_err(|error| error.from_source(KernelErrorSource::ProtocolAdapter))?,
+            );
+        } else if let Some(policy_body) = request.metadata_value("sdkwork.chat.input_policy") {
+            chat_request = chat_request.with_input_policy(
+                crate::parse_agent_input_policy_json(policy_body)
+                    .map_err(|error| error.from_source(KernelErrorSource::ProtocolAdapter))?,
+            );
+        }
 
         if let Some(provider_id) = request.metadata_value("sdkwork.chat.provider_id") {
             chat_request = chat_request.with_provider_id(provider_id.to_string());
@@ -1007,20 +1047,25 @@ impl AgentChatRequest {
             return Err(KernelError::validation("chat request id must not be empty"));
         }
 
-        if self.messages.is_empty() {
+        if self.messages.is_empty() && self.input_messages.is_empty() {
             return Err(KernelError::validation(
                 "chat request requires at least one message",
             ));
         }
 
-        if self
-            .messages
-            .iter()
-            .any(|message| message.trim().is_empty())
+        if !self.messages.is_empty()
+            && self
+                .messages
+                .iter()
+                .any(|message| message.trim().is_empty())
         {
             return Err(KernelError::validation(
                 "chat request messages must not be blank",
             ));
+        }
+
+        for message in &self.input_messages {
+            message.validate()?;
         }
 
         if let Some(subject) = &self.subject {
@@ -1049,8 +1094,22 @@ impl AgentChatRequest {
     }
 
     fn to_model_request(&self, policy_request_id: String) -> ModelRequest {
-        let mut request = ModelRequest::new(self.chat_request_id.clone(), self.messages.clone())
+        let messages = if !self.input_messages.is_empty() {
+            agent_messages_to_text_lines(&self.input_messages)
+        } else {
+            self.messages.clone()
+        };
+        let mut request = ModelRequest::new(self.chat_request_id.clone(), messages)
             .with_policy_context(policy_request_id);
+
+        if !self.input_messages.is_empty() {
+            request = request.with_input_messages(self.input_messages.clone());
+        }
+        if let Some(input_contract) = &self.input_contract {
+            request = request.with_input_contract(input_contract.clone());
+        } else if let Some(input_policy) = &self.input_policy {
+            request = request.with_input_policy(input_policy.clone());
+        }
 
         if let Some(model_id) = &self.model_id {
             request = request.with_model_id(model_id.clone());

@@ -6,6 +6,7 @@ use sdkwork_utils_rust::is_blank;
 use sqlx::PgPool;
 use std::future::Future;
 use std::sync::Arc;
+use std::thread;
 use tokio::runtime::Runtime;
 
 use crate::error::{DatabaseError, DatabaseResult};
@@ -45,18 +46,34 @@ impl BlockingPostgresPool {
         })
     }
 
+    pub async fn connect_from_config_async(config: DatabaseConfig) -> DatabaseResult<Self> {
+        let database_pool = create_pool_from_config(config)
+            .await
+            .map_err(map_pool_error)?;
+        let runtime = build_runtime()?;
+        Self::from_database_pool(database_pool, runtime).map_err(map_pool_error)
+    }
+
     pub fn connect_from_config(config: DatabaseConfig) -> DatabaseResult<Self> {
-        let runtime = Arc::new(
-            Runtime::new()
-                .map_err(|error| DatabaseError::Connection(format!("tokio runtime: {error}")))?,
-        );
+        if tokio::runtime::Handle::try_current().is_ok() {
+            return thread::spawn(move || Self::connect_from_config_on_current_thread(config))
+                .join()
+                .map_err(|_| {
+                    DatabaseError::Connection("postgres pool initialization worker panicked".into())
+                })?;
+        }
+        Self::connect_from_config_on_current_thread(config)
+    }
+
+    fn connect_from_config_on_current_thread(config: DatabaseConfig) -> DatabaseResult<Self> {
+        let runtime = build_runtime()?;
         let database_pool = runtime
             .block_on(create_pool_from_config(config))
             .map_err(map_pool_error)?;
         Self::from_database_pool(database_pool, runtime).map_err(map_pool_error)
     }
 
-    pub fn connect(connection_uri: &str) -> DatabaseResult<Self> {
+    fn config_from_connection_uri(connection_uri: &str) -> DatabaseResult<DatabaseConfig> {
         let engine = DatabaseEngine::from_url(connection_uri).ok_or_else(|| {
             DatabaseError::Connection(format!(
                 "unsupported postgres connection url: {connection_uri}"
@@ -67,11 +84,37 @@ impl BlockingPostgresPool {
                 "expected postgres engine for url: {connection_uri}"
             )));
         }
-        Self::connect_from_config(DatabaseConfig {
+        Ok(DatabaseConfig {
             engine,
             url: connection_uri.to_owned(),
             ..DatabaseConfig::default()
         })
+    }
+
+    pub async fn connect_async(connection_uri: &str) -> DatabaseResult<Self> {
+        Self::connect_from_config_async(Self::config_from_connection_uri(connection_uri)?).await
+    }
+
+    pub fn connect(connection_uri: &str) -> DatabaseResult<Self> {
+        Self::connect_from_config(Self::config_from_connection_uri(connection_uri)?)
+    }
+
+    pub async fn connect_from_sdkwork_env_async(service_name: &str) -> DatabaseResult<Self> {
+        let legacy_uri_key = format!("SDKWORK_{}_POSTGRES_URI", service_name.to_uppercase());
+        if let Ok(uri) = std::env::var(&legacy_uri_key) {
+            let trimmed = uri.trim();
+            if !is_blank(Some(trimmed)) {
+                return Self::connect_async(trimmed).await;
+            }
+        }
+
+        let config = DatabaseConfig::from_env(service_name).map_err(map_database_config_error)?;
+        match config.engine {
+            DatabaseEngine::Postgres => Self::connect_from_config_async(config).await,
+            other => Err(DatabaseError::Connection(format!(
+                "service {service_name} resolved database engine {other:?}, expected Postgres"
+            ))),
+        }
     }
 
     pub fn connect_from_sdkwork_env(service_name: &str) -> DatabaseResult<Self> {
@@ -127,5 +170,33 @@ impl BlockingPostgresPool {
         let pool = self.pool.clone();
         let sql = sql.to_owned();
         self.run(async move { sqlx::raw_sql(&sql).execute(&pool).await.map(|_| ()) })
+    }
+}
+
+fn build_runtime() -> DatabaseResult<Arc<Runtime>> {
+    Runtime::new()
+        .map(Arc::new)
+        .map_err(|error| DatabaseError::Connection(format!("tokio runtime: {error}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn connect_inside_existing_tokio_runtime_returns_error_without_nested_runtime_panic() {
+        let result = BlockingPostgresPool::connect(
+            "postgres://sdkwork:sdkwork@127.0.0.1:1/sdkwork_agent_runtime",
+        );
+
+        assert!(
+            result.is_err(),
+            "unreachable local postgres should return a connection error"
+        );
+        let message = result.err().expect("connection error").to_string();
+        assert!(
+            !message.contains("Cannot start a runtime from within a runtime"),
+            "postgres startup must not create a nested Tokio runtime panic: {message}"
+        );
     }
 }

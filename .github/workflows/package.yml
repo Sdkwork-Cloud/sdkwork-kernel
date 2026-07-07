@@ -62,6 +62,34 @@ on:
         required: true
         default: false
         type: boolean
+      sdkwork_app_topology_ref:
+        description: sdkwork-app-topology dependency ref.
+        required: false
+        default: main
+      sdkwork_appbase_ref:
+        description: sdkwork-appbase dependency ref.
+        required: false
+        default: main
+      sdkwork_database_ref:
+        description: sdkwork-database dependency ref.
+        required: false
+        default: main
+      sdkwork_drive_ref:
+        description: sdkwork-drive dependency ref.
+        required: false
+        default: main
+      sdkwork_knowledgebase_ref:
+        description: sdkwork-knowledgebase dependency ref.
+        required: false
+        default: main
+      sdkwork_web_framework_ref:
+        description: sdkwork-web-framework dependency ref.
+        required: false
+        default: main
+      sdkwork_utils_ref:
+        description: sdkwork-utils dependency ref.
+        required: false
+        default: main
 
 permissions:
   contents: write
@@ -72,7 +100,7 @@ permissions:
 
 jobs:
   package:
-    uses: Sdkwork-Cloud/sdkwork-github-workflow/.github/workflows/sdkwork-package.yml@v1
+    uses: Sdkwork-Cloud/sdkwork-github-workflow/.github/workflows/sdkwork-package.yml@dc42f12cbde22c8c714a3b5e381a05d2724aea7d
     with:
       config_path: sdkwork.workflow.json
       tag: ${{ github.event.inputs.tag || github.event.release.tag_name || github.ref_name }}
@@ -86,15 +114,15 @@ jobs:
       upload_artifact: true
       deploy: ${{ github.event.inputs.deploy == 'true' || github.event_name == 'release' }}
       retention_days: 30
-      framework_ref: v1
+      framework_ref: dc42f12cbde22c8c714a3b5e381a05d2724aea7d
       dependency_refs_json: >-
         {
-          "SDKWORK_APP_TOPOLOGY_REF": "${{ vars.SDKWORK_APP_TOPOLOGY_REF }}",
-          "SDKWORK_APPBASE_REF": "${{ vars.SDKWORK_APPBASE_REF }}",
-          "SDKWORK_DATABASE_REF": "${{ vars.SDKWORK_DATABASE_REF }}",
-          "SDKWORK_DRIVE_REF": "${{ vars.SDKWORK_DRIVE_REF }}",
-          "SDKWORK_KNOWLEDGEBASE_REF": "${{ vars.SDKWORK_KNOWLEDGEBASE_REF }}",
-          "SDKWORK_WEB_FRAMEWORK_REF": "${{ vars.SDKWORK_WEB_FRAMEWORK_REF }}",
-          "SDKWORK_UTILS_REF": "${{ vars.SDKWORK_UTILS_REF }}"
+          "SDKWORK_APP_TOPOLOGY_REF": "${{ github.event.inputs.sdkwork_app_topology_ref || vars.SDKWORK_APP_TOPOLOGY_REF }}",
+          "SDKWORK_APPBASE_REF": "${{ github.event.inputs.sdkwork_appbase_ref || vars.SDKWORK_APPBASE_REF }}",
+          "SDKWORK_DATABASE_REF": "${{ github.event.inputs.sdkwork_database_ref || vars.SDKWORK_DATABASE_REF }}",
+          "SDKWORK_DRIVE_REF": "${{ github.event.inputs.sdkwork_drive_ref || vars.SDKWORK_DRIVE_REF }}",
+          "SDKWORK_KNOWLEDGEBASE_REF": "${{ github.event.inputs.sdkwork_knowledgebase_ref || vars.SDKWORK_KNOWLEDGEBASE_REF }}",
+          "SDKWORK_WEB_FRAMEWORK_REF": "${{ github.event.inputs.sdkwork_web_framework_ref || vars.SDKWORK_WEB_FRAMEWORK_REF }}",
+          "SDKWORK_UTILS_REF": "${{ github.event.inputs.sdkwork_utils_ref || vars.SDKWORK_UTILS_REF }}"
         }
     secrets: inherit

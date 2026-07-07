@@ -198,7 +198,9 @@ mod tests {
     fn execute_bash_requires_mock_fallback_when_runtime_missing() {
         let bridge = ToolBridge::new();
         let call = ToolCall::new("call.1", "bash", "echo hello");
-        let error = bridge.execute(&call).expect_err("mock disabled without runtime");
+        let error = bridge
+            .execute(&call)
+            .expect_err("mock disabled without runtime");
         assert!(matches!(
             error,
             sdkwork_agent_kernel::KernelError::ProviderUnavailable { .. }

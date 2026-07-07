@@ -1,7 +1,15 @@
+# Reference-only local/staging data dependencies.
+# Production clusters must use managed HA Postgres and managed HA Redis (or
+# operator-managed equivalents with backup, restore, failover, monitoring, and
+# capacity management). This manifest is intentionally single-node and is not a
+# commercial production data-plane implementation.
 apiVersion: v1
 kind: Service
 metadata:
   name: sdkwork-agent-runtime-postgres
+  annotations:
+    sdkwork.com/production-suitability: "reference-only"
+    sdkwork.com/production-requirement: "managed HA Postgres"
   labels:
     app.kubernetes.io/name: sdkwork-agent-runtime-postgres
     app.kubernetes.io/part-of: sdkwork-kernel
@@ -16,6 +24,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: sdkwork-agent-runtime-postgres
+  annotations:
+    sdkwork.com/production-suitability: "reference-only"
+    sdkwork.com/production-requirement: "managed HA Postgres"
   labels:
     app.kubernetes.io/name: sdkwork-agent-runtime-postgres
     app.kubernetes.io/part-of: sdkwork-kernel
@@ -56,6 +67,9 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: sdkwork-agent-runtime-postgres-data
+  annotations:
+    sdkwork.com/production-suitability: "reference-only"
+    sdkwork.com/production-requirement: "managed HA Postgres"
   labels:
     app.kubernetes.io/name: sdkwork-agent-runtime-postgres
     app.kubernetes.io/part-of: sdkwork-kernel
@@ -70,6 +84,9 @@ apiVersion: v1
 kind: Service
 metadata:
   name: sdkwork-agent-runtime-redis
+  annotations:
+    sdkwork.com/production-suitability: "reference-only"
+    sdkwork.com/production-requirement: "managed HA Redis"
   labels:
     app.kubernetes.io/name: sdkwork-agent-runtime-redis
     app.kubernetes.io/part-of: sdkwork-kernel
@@ -84,6 +101,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: sdkwork-agent-runtime-redis
+  annotations:
+    sdkwork.com/production-suitability: "reference-only"
+    sdkwork.com/production-requirement: "managed HA Redis"
   labels:
     app.kubernetes.io/name: sdkwork-agent-runtime-redis
     app.kubernetes.io/part-of: sdkwork-kernel
@@ -102,3 +122,13 @@ spec:
           image: redis:7-alpine
           ports:
             - containerPort: 6379
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sdkwork-agent-server
+                  key: runtime-redis-password
+          command:
+            - sh
+            - -c
+            - exec redis-server --requirepass "$REDIS_PASSWORD"

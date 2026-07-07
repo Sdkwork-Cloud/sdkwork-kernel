@@ -63,7 +63,8 @@ fn network_secret_storage_time_environment_and_executor_contracts_are_explicit()
     let network = NetworkRequest::get("network.1", "https://example.com")
         .with_policy_categories(vec!["host.network.request".to_string()]);
     let secret_ref = SecretRef::new("secret.openai", "OpenAI API key");
-    let secret_value = ProviderSecretValue::new(secret_ref.secret_ref_id.clone(), "super-secret-value");
+    let secret_value =
+        ProviderSecretValue::new(secret_ref.secret_ref_id.clone(), "super-secret-value");
     let storage = StorageRequest::put("storage.1", "session", "task.summary", "result")
         .with_retention_days(7);
     let time = TimeRequest::now("time.1");

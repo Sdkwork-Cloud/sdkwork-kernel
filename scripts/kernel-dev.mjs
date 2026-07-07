@@ -21,8 +21,16 @@ import {
   waitForHttpHealthy,
 } from './lib/kernel-topology.mjs';
 
-const HEALTH_PATH = '/health';
+const HEALTH_PATH = '/healthz';
 const HEALTH_TIMEOUT_MS = 2000;
+
+async function probeHttpHealthy(url, options) {
+  try {
+    return await waitForHttpHealthy(url, options);
+  } catch {
+    return false;
+  }
+}
 
 function cargoCommand() {
   return process.platform === 'win32' ? 'cargo.exe' : 'cargo';
@@ -197,7 +205,7 @@ async function waitForSurfaceHealth(profileId, env) {
     if (!url) {
       continue;
     }
-    const ready = await waitForHttpHealthy(url, {
+    const ready = await probeHttpHealthy(url, {
       path: HEALTH_PATH,
       timeoutMs: HEALTH_TIMEOUT_MS,
     });

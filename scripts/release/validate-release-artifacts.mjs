@@ -3,39 +3,22 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import {
+  checksumPathFor,
+  payloadFilesFromOutputGlobs,
+  readReleaseContext,
+  sbomPathFor,
+  selectedValidationPackageIds,
+  validateChecksumFile,
+  validateSbomFile,
+} from './kernel-release-targets.mjs';
 
 const kernelRoot = process.cwd();
-const packageId = process.env.SDKWORK_PACKAGE_ID ?? 'sdkwork-agent-server';
-const version =
-  process.env.SDKWORK_RELEASE_VERSION ??
-  JSON.parse(fs.readFileSync(path.join(kernelRoot, 'sdkwork.app.config.json'), 'utf8')).release
-    ?.currentVersion ??
-  '0.0.0';
-const suffix = process.platform === 'win32' ? '.exe' : '';
-const binaryPath = path.join(kernelRoot, 'target', 'release', `${packageId}${suffix}`);
-const releaseDir = path.join(kernelRoot, 'dist', 'release', packageId);
-const sbomPath = path.join(releaseDir, `${packageId}-${version}.cyclonedx.json`);
-const checksumPath = path.join(releaseDir, `${packageId}-${version}.sha256`);
-
 const errors = [];
+const context = readReleaseContext(kernelRoot);
+const { manifest, version } = context;
 
-if (!fs.existsSync(binaryPath)) {
-  errors.push(`missing release binary: ${binaryPath}`);
-}
-if (!fs.existsSync(sbomPath)) {
-  errors.push(`missing SBOM: ${sbomPath}`);
-}
-if (!fs.existsSync(checksumPath)) {
-  errors.push(`missing checksum file: ${checksumPath}`);
-}
-
-const manifest = JSON.parse(fs.readFileSync(path.join(kernelRoot, 'sdkwork.app.config.json'), 'utf8'));
-if (manifest.security?.sbomRequired && !fs.existsSync(sbomPath)) {
-  errors.push('sdkwork.app.config.json requires SBOM evidence');
-}
-if (manifest.security?.checksumRequired && !fs.existsSync(checksumPath)) {
-  errors.push('sdkwork.app.config.json requires checksum evidence');
-}
+errors.push(...context.errors);
 
 const topologySpec = manifest.metadata?.topologySpec;
 if (topologySpec !== 'specs/topology.spec.json') {
@@ -47,6 +30,47 @@ for (const [envName, envConfig] of Object.entries(manifest.environments ?? {})) 
   }
   if (envConfig?.accessUrl) {
     errors.push(`sdkwork.app.config.json environments.${envName} must use accessUrlEnv instead of accessUrl`);
+  }
+}
+
+for (const packageId of selectedValidationPackageIds(context)) {
+  const target = context.targetByPackageId.get(packageId);
+  const packageInfo = context.packageById.get(packageId);
+  if (!target || !packageInfo) {
+    errors.push(`SDKWORK_PACKAGE_ID ${packageId} must be declared in both manifest and workflow targets`);
+    continue;
+  }
+
+  const payloads = payloadFilesFromOutputGlobs(kernelRoot, target.outputGlobs);
+  errors.push(...payloads.errors);
+  if (payloads.files.length === 0) {
+    errors.push(`missing release payload for package ${packageId}`);
+  }
+
+  const expectedExtension = target.formats?.[0];
+  if (expectedExtension) {
+    for (const filePath of payloads.files) {
+      if (!filePath.endsWith(`.${expectedExtension}`)) {
+        errors.push(
+          `release payload ${path.relative(kernelRoot, filePath)} must match package format ${expectedExtension}`,
+        );
+      }
+    }
+  }
+
+  const sbomPath = sbomPathFor(kernelRoot, packageId, version);
+  const checksumPath = checksumPathFor(kernelRoot, packageId, version);
+
+  if (manifest.security?.sbomRequired) {
+    errors.push(...validateSbomFile({ sbomPath, packageId, version }));
+  }
+  if (manifest.security?.checksumRequired) {
+    errors.push(
+      ...(await validateChecksumFile({
+        checksumPath,
+        payloadFiles: payloads.files,
+      })),
+    );
   }
 }
 

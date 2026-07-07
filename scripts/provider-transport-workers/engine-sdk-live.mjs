@@ -168,6 +168,63 @@ function extractTextParts(parts) {
     .trim();
 }
 
+export function resolveModelChatPrompt(operation) {
+  const wire = operation.wire_messages;
+  if (Array.isArray(wire) && wire.length > 0) {
+    const lastUser = [...wire].reverse().find((entry) => entry?.role === 'user') ?? wire.at(-1);
+    const content = lastUser?.content;
+    if (typeof content === 'string') {
+      return content;
+    }
+    if (Array.isArray(content)) {
+      return extractTextParts(content);
+    }
+  }
+  return (operation.messages ?? []).join('\n');
+}
+
+export function resolveOpencodePromptParts(operation) {
+  const wire = operation.wire_messages;
+  if (!Array.isArray(wire) || wire.length === 0) {
+    return [{ type: 'text', text: resolveModelChatPrompt(operation) }];
+  }
+
+  const lastUser = [...wire].reverse().find((entry) => entry?.role === 'user') ?? wire.at(-1);
+  const content = lastUser?.content;
+  if (!Array.isArray(content)) {
+    return [{ type: 'text', text: resolveModelChatPrompt(operation) }];
+  }
+
+  return content
+    .map((part) => {
+      if (!part || typeof part !== 'object') {
+        return null;
+      }
+      if (part.type === 'text' && typeof part.text === 'string') {
+        return { type: 'text', text: part.text };
+      }
+      if (part.type === 'image_url' && part.image_url?.url) {
+        return { type: 'image', url: part.image_url.url };
+      }
+      return { type: 'text', text: JSON.stringify(part) };
+    })
+    .filter(Boolean);
+}
+
+export function resolveOpenClawWireMessages(operation) {
+  const wire = operation.wire_messages;
+  if (Array.isArray(wire) && wire.length > 0) {
+    return wire.map((entry) => ({
+      role: entry?.role ?? 'user',
+      content: entry?.content ?? '',
+    }));
+  }
+  return (operation.messages ?? [resolveModelChatPrompt(operation)]).map((entry) => ({
+    role: 'user',
+    content: String(entry ?? ''),
+  }));
+}
+
 async function invokeCodexModelChat(prompt, operation, packageName) {
   const moduleNamespace = await loadPackage(packageName);
   const Codex = moduleNamespace.Codex;
@@ -262,7 +319,7 @@ async function invokeOpencodeModelChat(prompt, operation, packageName) {
       const response = await client.session.prompt({
         path: { id: sessionId },
         body: {
-          parts: [{ type: 'text', text: prompt }],
+          parts: resolveOpencodePromptParts(operation),
         },
       });
       const text =
@@ -286,7 +343,7 @@ async function invokeOpencodeModelChat(prompt, operation, packageName) {
     const response = await client.session.prompt({
       path: { id: sessionId },
       body: {
-        parts: [{ type: 'text', text: prompt }],
+        parts: resolveOpencodePromptParts(operation),
       },
     });
     const text =
@@ -311,10 +368,7 @@ async function invokeOpenClawModelChat(prompt, operation, packageName) {
       headers.Authorization = `Bearer ${token}`;
     }
 
-    const messages = (operation.messages ?? [prompt]).map((entry) => ({
-      role: 'user',
-      content: String(entry ?? ''),
-    }));
+    const messages = resolveOpenClawWireMessages(operation);
     const response = await fetch(url, {
       method: 'POST',
       headers,
@@ -358,8 +412,18 @@ export async function invokeModelChatLive(packageName, operation) {
     throw new Error(`no live model_chat handler for package ${packageName}`);
   }
 
-  const prompt = (operation.messages ?? []).join('\n');
+  const prompt = resolveModelChatPrompt(operation);
   return handler(prompt, operation, packageName);
+}
+
+export function buildModelChatStreamResult(baseResult) {
+  const text = Array.isArray(baseResult.messages)
+    ? baseResult.messages.map((entry) => String(entry ?? '')).join('\n')
+    : String(baseResult.messages ?? '');
+  return {
+    ...baseResult,
+    chunks: [{ sequence: 0, content: text }],
+  };
 }
 
 export function buildStubModelChatResult(packageName, operation, packageProbe) {

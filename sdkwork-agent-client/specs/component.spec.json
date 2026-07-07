@@ -86,11 +86,27 @@
     "sdkDependencies": [],
     "dependencyApiExports": [],
     "dependencyApiSurfaces": [
-      "sdkwork-agent-internal-api: internal-api"
+      {
+        "workspace": "sdkwork-kernel",
+        "sdkFamily": "@sdkwork/agent-internal-sdk",
+        "apiAuthority": "sdkwork-agent-internal-api",
+        "surface": "internal-api",
+        "apiPrefix": "/internal/v3/api/intelligence/runtime",
+        "runtimeMode": "external-service",
+        "sameOriginAllowed": false,
+        "requiredBaseUrlKey": "SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL",
+        "clientBaseUrlSource": "AgentClientMode::Remote.server_url / SseChatClient::new(base_url)",
+        "coverage": "verified",
+        "evidence": "sdkwork-agent-client/src/sse.rs#SseChatClient::runtime_url"
+      }
     ],
     "sdkClients": [],
     "events": [],
-    "configKeys": []
+    "configKeys": [
+      "SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL",
+      "VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL",
+      "VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_WEBSOCKET_URL"
+    ]
   },
   "verification": {
     "commands": [

@@ -6,16 +6,44 @@ use sdkwork_agent_kernel::{
 use std::collections::HashMap;
 
 mod mock_policy;
+mod model_wire;
 mod provider_session_store;
 
 pub use mock_policy::{
     is_mock_response_text, is_production_kernel_profile, kernel_profile_id,
     mock_provider_invocation_allowed, reject_direct_mock_provider_invocation,
-    validate_runtime_model_payload,
+    reject_in_process_model_invoke, reject_in_process_model_stream, validate_runtime_model_payload,
+};
+pub use model_wire::{
+    build_model_chat_operation, model_request_has_structured_input, resolve_model_wire_messages,
+    wire_messages_summary, wire_messages_to_anthropic_json, wire_messages_to_openai_json,
+    wire_system_text, ModelWireMessage,
 };
 pub use provider_session_store::{
     sort_sessions_by_updated_at, InMemoryProviderSessionStore, SessionListQuery,
 };
+
+/// Joins model request messages for legacy text-only provider adapters.
+///
+/// When structured `input_messages` are present, returns a wire summary that
+/// preserves multimodal part markers instead of lossy flattening.
+pub fn model_request_prompt(request: &ModelRequest) -> String {
+    if model_request_has_structured_input(request) {
+        if let Ok(wire) = resolve_model_wire_messages(request) {
+            return wire_messages_summary(&wire);
+        }
+    }
+    request.effective_prompt_text()
+}
+
+/// Streaming-friendly token split for legacy text-only provider adapters.
+pub fn model_request_prompt_tokens(request: &ModelRequest) -> Vec<String> {
+    request
+        .effective_prompt_text()
+        .split_whitespace()
+        .map(str::to_string)
+        .collect()
+}
 
 // ============================================================================
 // Session Adapter
@@ -48,19 +76,12 @@ pub trait SessionLifecycleProvider {
     fn list_active_sessions(&self) -> KernelResult<Vec<AgentSession>>;
 
     /// List persisted sessions for this provider, sorted by `updated_at` descending.
-    fn list_sessions(&self, query: &SessionListQuery) -> KernelResult<Vec<AgentSession>> {
-        let mut sessions = self.list_active_sessions()?;
-        if query.active_only {
-            sessions.retain(|session| session.state.is_active());
-        }
-        if let Some(agent_id) = query.agent_id.as_deref() {
-            sessions.retain(|session| session.agent_id.as_deref() == Some(agent_id));
-        }
-        sort_sessions_by_updated_at(&mut sessions);
-        if let Some(limit) = query.limit {
-            sessions.truncate(limit);
-        }
-        Ok(sessions)
+    ///
+    /// Implementations must override this method; the default rejects in-process listing.
+    fn list_sessions(&self, _query: &SessionListQuery) -> KernelResult<Vec<AgentSession>> {
+        Err(KernelError::validation(
+            "list_sessions requires a provider session store implementation",
+        ))
     }
 
     /// Load conversation history for a persisted session.

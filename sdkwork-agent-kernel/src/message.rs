@@ -1,3 +1,4 @@
+use crate::modality::ContentReference;
 use crate::{
     KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelEventSource,
     KernelResult, PolicyCategory, PolicyRequest,
@@ -37,6 +38,7 @@ pub enum AgentPartKind {
     ArtifactRef,
     ImageRef,
     AudioRef,
+    VideoRef,
     ToolCallRef,
     PolicyDecisionRef,
     Error,
@@ -52,9 +54,29 @@ impl AgentPartKind {
             Self::ArtifactRef => "artifact_ref",
             Self::ImageRef => "image_ref",
             Self::AudioRef => "audio_ref",
+            Self::VideoRef => "video_ref",
             Self::ToolCallRef => "tool_call_ref",
             Self::PolicyDecisionRef => "policy_decision_ref",
             Self::Error => "error",
+        }
+    }
+
+    pub fn parse(value: &str) -> KernelResult<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "text" => Ok(Self::Text),
+            "json" => Ok(Self::Json),
+            "binary_ref" | "binary" => Ok(Self::BinaryRef),
+            "file_ref" | "file" => Ok(Self::FileRef),
+            "artifact_ref" | "artifact" => Ok(Self::ArtifactRef),
+            "image_ref" | "image" => Ok(Self::ImageRef),
+            "audio_ref" | "audio" => Ok(Self::AudioRef),
+            "video_ref" | "video" => Ok(Self::VideoRef),
+            "tool_call_ref" | "tool_call" => Ok(Self::ToolCallRef),
+            "policy_decision_ref" | "policy_decision" => Ok(Self::PolicyDecisionRef),
+            "error" => Ok(Self::Error),
+            other => Err(KernelError::validation(format!(
+                "unsupported agent part kind: {other}"
+            ))),
         }
     }
 }
@@ -133,6 +155,16 @@ impl AgentPart {
             .with_mime_type(mime_type)
     }
 
+    pub fn video_ref(
+        part_id: impl Into<String>,
+        content_ref: impl Into<String>,
+        mime_type: impl Into<String>,
+    ) -> Self {
+        Self::base(part_id, AgentPartKind::VideoRef)
+            .with_content_ref(content_ref)
+            .with_mime_type(mime_type)
+    }
+
     pub fn tool_call_ref(part_id: impl Into<String>, tool_call_id: impl Into<String>) -> Self {
         let mut part = Self::base(part_id, AgentPartKind::ToolCallRef);
         part.tool_call_id = Some(tool_call_id.into());
@@ -188,6 +220,17 @@ impl AgentPart {
             .iter()
             .find(|(metadata_key, _)| metadata_key == key)
             .map(|(_, value)| value.as_str())
+    }
+
+    /// Parses `content_ref` or `artifact_id` into a typed kernel-neutral reference.
+    pub fn content_reference(&self) -> KernelResult<Option<ContentReference>> {
+        if let Some(uri) = &self.content_ref {
+            return ContentReference::parse(uri).map(Some);
+        }
+        if let Some(artifact_id) = &self.artifact_id {
+            return Ok(Some(ContentReference::artifact(artifact_id.clone())));
+        }
+        Ok(None)
     }
 
     fn base(part_id: impl Into<String>, kind: AgentPartKind) -> Self {

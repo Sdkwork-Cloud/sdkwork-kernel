@@ -8,6 +8,13 @@ Typed HTTP and SSE clients for canonical internal-api runtime, plus local SDK br
 
 **Transport:** production runtime ingress uses `SseChatClient` → `/internal/v3/api/intelligence/runtime/*`. `WebSocketChatClient` remains a fail-closed legacy scaffold (not mounted on internal-api).
 
+`SseChatClient` exposes async methods for native async callers and implements the
+sync `ChatClient` trait for legacy bridge callers. The sync compatibility layer
+detects an existing Tokio runtime and runs the blocking bridge call on a
+dedicated runtime thread instead of nesting `Runtime::block_on` on the executor
+thread. This prevents desktop, Tauri, and server hosts from panicking when a sync
+remote bridge call is made inside an async runtime.
+
 ## Verification
 
 ```bash

@@ -533,10 +533,10 @@ pub async fn force_close_timer() {
       <p>以下 11 个问题对系统稳定性、数据完整性或安全性构成严重威胁，应在 P1 阶段优先修复。</p>
 
       <div class="issue-card high">
-        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H1: Redis 部署无认证</span></div>
-        <div class="issue-meta">文件: deployments/kubernetes/postgres-redis.yaml:100-103, configmap.yaml:17</div>
-        <div class="issue-desc">Redis 使用 <code>redis:7-alpine</code> 镜像，未配置 <code>requirepass</code> 或 ACL。连接 URL <code>redis://redis:6379/0</code> 不含密码。同命名空间内任何 Pod 可直接连接，篡改速率限制和租户配额数据。</div>
-        <div class="issue-fix"><strong>修复：</strong>为 Redis 配置密码认证，密码通过 Secret 注入，连接 URL 改为 <code>redis://:password@redis:6379/0</code>。</div>
+        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H1: Redis 部署无认证（已修复）</span></div>
+        <div class="issue-meta">文件: deployments/kubernetes/postgres-redis.yaml, deployments/docker/docker-compose.cloud.yml</div>
+        <div class="issue-desc">历史项：Redis 无 <code>requirepass</code>。现 bundled Redis 通过 Secret <code>runtime-redis-password</code> 启动 <code>redis-server --requirepass</code>；agent-server 从 Secret <code>runtime-redis-url</code> 注入带凭据的连接 URL。</div>
+        <div class="issue-fix"><strong>修复：</strong>已落地；见 production rollout runbook 密钥清单。</div>
       </div>
 
       <div class="issue-card high">
@@ -554,24 +554,24 @@ pub async fn force_close_timer() {
       </div>
 
       <div class="issue-card high">
-        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H4: delete_session 非事务性，部分失败导致数据不一致</span></div>
-        <div class="issue-meta">文件: sdkwork-agent-session/src/manager.rs:135-162</div>
-        <div class="issue-desc"><code>delete_session</code> 按顺序删除 events → messages → tasks（逐条循环）→ session。任一步骤失败时已删除数据无法回滚，导致数据不一致（如 messages 已删除但 tasks 残留）。</div>
-        <div class="issue-fix"><strong>修复：</strong>提供 <code>delete_session_cascade(session_id)</code> 方法，Postgres 用单条 <code>DELETE</code> 或事务，SQLite 用 <code>BEGIN TRANSACTION</code> 包裹。</div>
+        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H4: delete_session 非事务性（已修复）</span></div>
+        <div class="issue-meta">文件: sdkwork-agent-database/src/*_repository.rs, sdkwork-agent-session/src/manager.rs</div>
+        <div class="issue-desc">历史项：逐表删除无事务。现 <code>delete_session_cascade</code> 在 Postgres/SQLite 事务内级联删除 events/messages/tasks/sessions。</div>
+        <div class="issue-fix"><strong>修复：</strong>已落地；SessionManager 调用 <code>delete_session_cascade</code>。</div>
       </div>
 
       <div class="issue-card high">
-        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H5: send_message 存在 read-modify-write 竞态</span></div>
-        <div class="issue-meta">文件: sdkwork-agent-session/src/manager.rs:165-210</div>
-        <div class="issue-desc"><code>send_message</code> 先读取 <code>message_count</code>，保存消息后再次读取并 <code>+1</code> 写回。两个并发调用可能同时读到相同值，各自 +1 后写回导致计数丢失（lost update）。</div>
-        <div class="issue-fix"><strong>修复：</strong>使用原子 <code>UPDATE sessions SET message_count = message_count + 1 WHERE session_id = ?</code> 替代 read-modify-write。</div>
+        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H5: send_message read-modify-write 竞态（已修复）</span></div>
+        <div class="issue-meta">文件: sdkwork-agent-session/src/manager.rs, sdkwork-agent-database/src/traits.rs</div>
+        <div class="issue-desc">历史项：先读 <code>message_count</code> 再写回。现通过 <code>increment_session_message_count</code> 执行原子 <code>UPDATE sessions SET message_count = message_count + 1</code>。</div>
+        <div class="issue-fix"><strong>修复：</strong>已落地；Postgres/SQLite/Memory 仓储均实现原子递增。</div>
       </div>
 
       <div class="issue-card high">
-        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H6: 硬编码时间戳，所有会话创建时间错误</span></div>
-        <div class="issue-meta">文件: sdkwork-agent-api-bridge/src/session_bridge.rs:170-172, context_bridge.rs:41</div>
-        <div class="issue-desc"><code>chrono_now()</code> 函数返回硬编码的 <code>"2026-01-01T00:00:00Z"</code>，所有通过 SessionBridge 创建的会话 <code>created_at</code> 都是固定值。模型上下文注入的时间也是硬编码的，导致模型无法感知真实当前时间。</div>
-        <div class="issue-fix"><strong>修复：</strong>使用 <code>chrono::Utc::now().to_rfc3339()</code> 获取真实时间。</div>
+        <div class="issue-header"><span class="sev sev-high">High</span><span class="issue-title">H6: 硬编码时间戳（已修复）</span></div>
+        <div class="issue-meta">文件: sdkwork-agent-api-bridge/src/session_bridge.rs, context_bridge.rs</div>
+        <div class="issue-desc">历史项：<code>chrono_now()</code> 返回固定 <code>2026-01-01</code>。现使用 <code>chrono::Utc::now().to_rfc3339()</code> 生成会话时间与上下文时间帧。</div>
+        <div class="issue-fix"><strong>修复：</strong>已落地。</div>
       </div>
 
       <div class="issue-card high">

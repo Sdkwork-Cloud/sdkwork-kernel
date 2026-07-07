@@ -112,7 +112,8 @@ function runCargoTest(crateDir) {
     {
       cwd: root,
       encoding: 'utf8',
-      shell: process.platform === 'win32'
+      shell: process.platform === 'win32',
+      maxBuffer: 64 * 1024 * 1024
     }
   );
   if (result.status === 0) {
@@ -133,7 +134,11 @@ function runCargoTest(crateDir) {
     );
     return { passed: true, skipped: true };
   }
-  return { passed: false, skipped: false, output };
+  return {
+    passed: false,
+    skipped: false,
+    output: `${result.error?.message ?? ''}\n${output}`.trim()
+  };
 }
 
 function isWindowsBuildScriptPanic(output) {

@@ -27,5 +27,5 @@ ENV SDKWORK_KERNEL_ENVIRONMENT=production \
     SDKWORK_RATE_LIMIT_BURST=200
 EXPOSE 18280
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD ["/usr/bin/curl", "-fsS", "http://127.0.0.1:18280/health"]
+    CMD ["/usr/bin/curl", "-fsS", "http://127.0.0.1:18280/healthz"]
 ENTRYPOINT ["/usr/local/bin/sdkwork-agent-server"]

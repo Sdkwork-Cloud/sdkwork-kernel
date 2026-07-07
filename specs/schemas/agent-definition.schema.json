@@ -30,6 +30,8 @@
     "model_selection": { "$ref": "#/$defs/modelSelection" },
     "tool_call_policy": { "$ref": "#/$defs/toolCallPolicy" },
     "memory_strategy": { "$ref": "#/$defs/memoryStrategy" },
+    "interaction_contract": { "$ref": "#/$defs/interactionContract" },
+    "input_policy": { "$ref": "#/$defs/inputPolicy" },
     "extensions": { "$ref": "#/$defs/extensions" }
   },
   "$defs": {
@@ -168,6 +170,110 @@
         "write_policy_required": { "type": "boolean" },
         "read_policy_required_for_sensitive": { "type": "boolean" },
         "retention_required": { "type": "boolean" }
+      }
+    },
+    "inputPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accepted_modalities"],
+      "properties": {
+        "accepted_modalities": {
+          "type": "array",
+          "items": {
+            "enum": ["text", "json", "file", "binary", "artifact", "image", "audio", "video", "music"]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "require_model_support": { "type": "boolean" },
+        "unsupported_action": {
+          "enum": ["reject", "strip_unsupported"]
+        }
+      }
+    },
+    "interactionContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "output"],
+      "properties": {
+        "schema_version": { "$ref": "#/$defs/semver" },
+        "input": { "$ref": "#/$defs/inputContract" },
+        "output": { "$ref": "#/$defs/outputContract" }
+      }
+    },
+    "inputContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "slots": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/modalitySlot" },
+          "minItems": 1
+        },
+        "accepted_modalities": {
+          "type": "array",
+          "items": {
+            "enum": ["text", "json", "file", "binary", "artifact", "image", "audio", "video", "music"]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "require_model_support": { "type": "boolean" },
+        "unsupported_action": {
+          "enum": ["reject", "strip_unsupported"]
+        }
+      },
+      "oneOf": [
+        { "required": ["slots"] },
+        { "required": ["accepted_modalities"] }
+      ]
+    },
+    "outputContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modalities"],
+      "properties": {
+        "modalities": {
+          "type": "array",
+          "items": {
+            "enum": ["text", "json", "file", "binary", "artifact", "image", "audio", "video", "music"]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "modalitySlot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modality"],
+      "properties": {
+        "modality": {
+          "enum": ["text", "json", "file", "binary", "artifact", "image", "audio", "video", "music"]
+        },
+        "enabled": { "type": "boolean" },
+        "max_parts_per_message": { "type": "integer", "minimum": 1 },
+        "allowed_mime_types": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "max_bytes": { "type": "integer", "minimum": 1 },
+        "delivery": { "$ref": "#/$defs/modelDeliveryStrategy" }
+      }
+    },
+    "modelDeliveryStrategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy"],
+      "properties": {
+        "strategy": {
+          "enum": ["native", "preprocess", "reject"]
+        },
+        "processor_id": { "type": "string", "minLength": 1 },
+        "output_modality": {
+          "enum": ["text", "json", "file", "binary", "artifact", "image", "audio", "video", "music"]
+        }
       }
     },
     "extensions": {

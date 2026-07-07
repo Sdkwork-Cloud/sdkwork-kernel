@@ -263,6 +263,8 @@ Required fields:
 | `model_selection` | object | Default LLM provider/model and fallback policy |
 | `tool_call_policy` | object | Default tool provider, policy gate, allow/deny lists, parallelism limits |
 | `memory_strategy` | object | Default memory provider, enabled scopes, read/write policy requirements, retention requirement |
+| `interaction_contract` | object | **Canonical** I/O contract: per-modality slots, delivery strategy (`native` / `preprocess` / `reject`), and output modalities. Protocol adapters map wire formats here; model providers map kernel messages to vendor APIs. |
+| `input_policy` | object | **Legacy** shorthand for `interaction_contract.input` — accepted modalities, model-support requirement, unsupported-modality action |
 | `extensions` | object | Namespaced optional metadata |
 
 Provider binding fields:

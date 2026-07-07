@@ -2,7 +2,7 @@
 
 use sdkwork_agent_kernel::{
     is_production_kernel_profile_from_env, mock_provider_invocation_allowed_from_env, KernelError,
-    KernelResult,
+    KernelResult, ModelResponse, ModelStreamChunk,
 };
 use serde_json::Value;
 
@@ -25,6 +25,22 @@ pub fn reject_direct_mock_provider_invocation(operation: &str) -> KernelResult<(
 
     Err(KernelError::ProviderUnavailable {
         provider_id: operation.to_string(),
+    })
+}
+
+/// Model invoke must run through the provider transport worker, not in-process stubs.
+pub fn reject_in_process_model_invoke(provider_id: &str) -> KernelResult<ModelResponse> {
+    reject_direct_mock_provider_invocation(&format!("{provider_id}.invoke"))?;
+    Err(KernelError::ProviderUnavailable {
+        provider_id: provider_id.to_string(),
+    })
+}
+
+/// Model streaming must run through the provider transport worker, not in-process stubs.
+pub fn reject_in_process_model_stream(provider_id: &str) -> KernelResult<Vec<ModelStreamChunk>> {
+    reject_direct_mock_provider_invocation(&format!("{provider_id}.stream"))?;
+    Err(KernelError::ProviderUnavailable {
+        provider_id: provider_id.to_string(),
     })
 }
 

@@ -1,8 +1,11 @@
 use crate::{
-    AgentRuntime, ContextFrame, KernelError, KernelEvent, KernelEventRedaction,
-    KernelEventSeverity, KernelEventSource, KernelResult, PolicyCategory, PolicyDecision,
-    PolicyDecisionValue, PolicyRequest, PolicySubject, ProviderHealth, ProviderManifest,
-    RedactionClassification, SideEffectLevel, ToolCall, ToolDescriptor, TraceContext,
+    agent_messages_from_text_lines, agent_messages_to_text_lines,
+    validate_structured_model_input_with_options, AgentInputContract, AgentInputPolicy,
+    AgentMessage, AgentMessageRole, AgentRuntime, ContextFrame, InputModalityPreprocessor,
+    KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelEventSource,
+    KernelResult, ModelInputResolveOptions, PolicyCategory, PolicyDecision, PolicyDecisionValue,
+    PolicyRequest, PolicySubject, ProviderHealth, ProviderManifest, RedactionClassification,
+    SideEffectLevel, SkillInputModalityPreprocessor, ToolCall, ToolDescriptor, TraceContext,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -168,6 +171,9 @@ pub struct ModelRequest {
     pub run_id: Option<String>,
     pub step_id: Option<String>,
     pub messages: Vec<String>,
+    pub input_messages: Vec<AgentMessage>,
+    pub input_policy: Option<AgentInputPolicy>,
+    pub input_contract: Option<AgentInputContract>,
     pub context_frame_ids: Vec<String>,
     pub context_frames: Vec<ContextFrame>,
     pub tool_descriptors: Vec<ToolDescriptor>,
@@ -188,6 +194,9 @@ impl ModelRequest {
             run_id: None,
             step_id: None,
             messages,
+            input_messages: Vec::new(),
+            input_policy: None,
+            input_contract: None,
             context_frame_ids: Vec::new(),
             context_frames: Vec::new(),
             tool_descriptors: Vec::new(),
@@ -202,6 +211,62 @@ impl ModelRequest {
     pub fn with_model_id(mut self, model_id: impl Into<String>) -> Self {
         self.model_id = Some(model_id.into());
         self
+    }
+
+    pub fn with_input_messages(mut self, input_messages: Vec<AgentMessage>) -> Self {
+        self.input_messages = input_messages;
+        self
+    }
+
+    pub fn with_input_policy(mut self, input_policy: AgentInputPolicy) -> Self {
+        self.input_policy = Some(input_policy);
+        self
+    }
+
+    pub fn with_input_contract(mut self, input_contract: AgentInputContract) -> Self {
+        self.input_policy = Some(input_contract.to_legacy_policy());
+        self.input_contract = Some(input_contract);
+        self
+    }
+
+    /// Legacy plain-text lines for providers that only accept string prompts.
+    /// Prefers structured `input_messages` when present.
+    pub fn effective_text_lines(&self) -> Vec<String> {
+        if !self.input_messages.is_empty() {
+            crate::agent_messages_to_text_lines(&self.input_messages)
+        } else {
+            self.messages.clone()
+        }
+    }
+
+    /// Single prompt string for simple provider adapters.
+    pub fn effective_prompt_text(&self) -> String {
+        self.effective_text_lines().join("\n")
+    }
+
+    /// Returns true when structured input carries non-text modalities.
+    pub fn has_multimodal_input(&self) -> bool {
+        self.input_messages.iter().any(|message| {
+            message.parts.iter().any(|part| {
+                matches!(
+                    part.kind,
+                    crate::AgentPartKind::ImageRef
+                        | crate::AgentPartKind::AudioRef
+                        | crate::AgentPartKind::VideoRef
+                        | crate::AgentPartKind::FileRef
+                        | crate::AgentPartKind::BinaryRef
+                        | crate::AgentPartKind::ArtifactRef
+                )
+            })
+        })
+    }
+
+    /// Structured conversation turns when present; otherwise synthesized from legacy text lines.
+    pub fn effective_input_messages(&self) -> Vec<AgentMessage> {
+        if !self.input_messages.is_empty() {
+            return self.input_messages.clone();
+        }
+        crate::agent_messages_from_text_lines(crate::AgentMessageRole::User, &self.messages)
     }
 
     pub fn for_session(mut self, session_id: impl Into<String>) -> Self {
@@ -425,6 +490,11 @@ impl ModelStreamChunk {
     }
 }
 
+/// Receives incremental model stream chunks from [`ModelProvider::stream_into`].
+pub trait ModelStreamSink {
+    fn push_chunk(&mut self, chunk: ModelStreamChunk) -> KernelResult<()>;
+}
+
 pub trait ModelProvider {
     fn provider_manifest(&self) -> ProviderManifest;
 
@@ -449,6 +519,18 @@ pub trait ModelProvider {
         Err(KernelError::CapabilityMissing {
             capability_id: "model.streaming".to_string(),
         })
+    }
+
+    /// Streams model output incrementally through `sink` when supported.
+    fn stream_into(
+        &self,
+        request: ModelRequest,
+        sink: &mut dyn ModelStreamSink,
+    ) -> KernelResult<()> {
+        for chunk in self.stream(request)? {
+            sink.push_chunk(chunk)?;
+        }
+        Ok(())
     }
 
     fn cancel(&self, _model_request_id: &str) -> KernelResult<ModelResponse> {
@@ -605,9 +687,18 @@ impl ModelExecutionService {
         let provider_id = provider.provider_manifest().provider_id;
         let model_descriptor =
             self.resolve_model_descriptor(provider, request.model_request.model_id.as_deref())?;
+        let normalized_input = self.normalize_structured_input(
+            runtime,
+            &request.model_request,
+            model_descriptor.as_ref(),
+        )?;
         let (invoke_policy_decision, sensitive_context_policy_decision) = self
             .evaluate_model_policies(runtime, &request, &provider_id, model_descriptor.as_ref())?;
         let mut model_request = request.model_request;
+        if let Some(normalized) = normalized_input {
+            model_request.input_messages = normalized.clone();
+            model_request.messages = agent_messages_to_text_lines(&normalized);
+        }
         model_request = self.with_policy_metadata(
             model_request,
             &provider_id,
@@ -639,10 +730,20 @@ impl ModelExecutionService {
         let provider_id = provider.provider_manifest().provider_id;
         let model_descriptor =
             self.resolve_model_descriptor(provider, request.model_request.model_id.as_deref())?;
+        let normalized_input = self.normalize_structured_input(
+            runtime,
+            &request.model_request,
+            model_descriptor.as_ref(),
+        )?;
         let (invoke_policy_decision, sensitive_context_policy_decision) = self
             .evaluate_model_policies(runtime, &request, &provider_id, model_descriptor.as_ref())?;
+        let mut model_request = request.model_request;
+        if let Some(normalized) = normalized_input {
+            model_request.input_messages = normalized.clone();
+            model_request.messages = agent_messages_to_text_lines(&normalized);
+        }
         let model_request = self.with_policy_metadata(
-            request.model_request,
+            model_request,
             &provider_id,
             &invoke_policy_decision,
             sensitive_context_policy_decision.as_ref(),
@@ -657,6 +758,38 @@ impl ModelExecutionService {
             sensitive_context_policy_decision,
             chunks,
         })
+    }
+
+    pub fn stream_into(
+        &self,
+        runtime: &AgentRuntime,
+        request: ModelExecutionRequest,
+        sink: &mut dyn ModelStreamSink,
+    ) -> KernelResult<()> {
+        let provider = self.select_provider(runtime, request.provider_id.as_deref())?;
+        let provider_id = provider.provider_manifest().provider_id;
+        let model_descriptor =
+            self.resolve_model_descriptor(provider, request.model_request.model_id.as_deref())?;
+        let normalized_input = self.normalize_structured_input(
+            runtime,
+            &request.model_request,
+            model_descriptor.as_ref(),
+        )?;
+        let (invoke_policy_decision, sensitive_context_policy_decision) = self
+            .evaluate_model_policies(runtime, &request, &provider_id, model_descriptor.as_ref())?;
+        let mut model_request = request.model_request;
+        if let Some(normalized) = normalized_input {
+            model_request.input_messages = normalized.clone();
+            model_request.messages = agent_messages_to_text_lines(&normalized);
+        }
+        let model_request = self.with_policy_metadata(
+            model_request,
+            &provider_id,
+            &invoke_policy_decision,
+            sensitive_context_policy_decision.as_ref(),
+        );
+        provider.stream_into(model_request, sink)?;
+        Ok(())
     }
 
     pub fn cancel(
@@ -778,6 +911,63 @@ impl ModelExecutionService {
                 }),
             None => Ok(catalog.into_iter().next()),
         }
+    }
+
+    fn normalize_structured_input(
+        &self,
+        runtime: &AgentRuntime,
+        request: &ModelRequest,
+        model_descriptor: Option<&ModelDescriptor>,
+    ) -> KernelResult<Option<Vec<AgentMessage>>> {
+        let has_structured_pipeline = !request.input_messages.is_empty()
+            || request.input_contract.is_some()
+            || request.input_policy.is_some();
+
+        if !has_structured_pipeline {
+            return Ok(None);
+        }
+
+        let effective_messages = if request.input_messages.is_empty() {
+            agent_messages_from_text_lines(AgentMessageRole::User, &request.messages)
+        } else {
+            request.input_messages.clone()
+        };
+        if effective_messages.is_empty() {
+            return Ok(Some(Vec::new()));
+        }
+
+        let legacy_contract = request
+            .input_policy
+            .as_ref()
+            .map(AgentInputContract::from_legacy_policy);
+        let input_contract = request.input_contract.as_ref().or(legacy_contract.as_ref());
+        let input_policy = request
+            .input_policy
+            .clone()
+            .or_else(|| {
+                input_contract
+                    .as_ref()
+                    .map(|contract| contract.to_legacy_policy())
+            })
+            .unwrap_or_default();
+
+        let preprocessor =
+            runtime
+                .agent_skill_provider()
+                .ok()
+                .map(|provider| SkillInputModalityPreprocessor {
+                    skill_provider: provider,
+                });
+
+        let options = ModelInputResolveOptions {
+            input_policy: &input_policy,
+            input_contract,
+            model_descriptor,
+            preprocessor: preprocessor
+                .as_ref()
+                .map(|value| value as &dyn InputModalityPreprocessor),
+        };
+        validate_structured_model_input_with_options(&effective_messages, &options).map(Some)
     }
 
     fn invoke_policy_request(

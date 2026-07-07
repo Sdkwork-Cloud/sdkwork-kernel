@@ -18,13 +18,13 @@ observability-otel = [
 ]
 
 [dependencies]
-sdkwork-agent-kernel = { path = "../sdkwork-agent-kernel" }
-sdkwork-code-kernel = { path = "../sdkwork-code-kernel" }
-sdkwork-agent-api-bridge = { path = "../sdkwork-agent-api-bridge" }
-sdkwork-agent-streaming = { path = "../sdkwork-agent-streaming" }
-sdkwork-agent-database = { path = "../sdkwork-agent-database", features = ["sqlite", "postgres-sync"] }
+sdkwork-agent-kernel.workspace = true
+sdkwork-code-kernel.workspace = true
+sdkwork-agent-api-bridge.workspace = true
+sdkwork-agent-streaming.workspace = true
+sdkwork-agent-database = { workspace = true, features = ["sqlite", "postgres-sync"] }
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
-sdkwork-agent-session = { path = "../sdkwork-agent-session" }
+sdkwork-agent-session.workspace = true
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 tokio-stream = "0.1"
@@ -45,12 +45,12 @@ subtle = "2"
 jsonwebtoken = "9"
 ureq = { version = "2.12", default-features = false, features = ["tls"] }
 uuid = { version = "1", features = ["v7"] }
-sdkwork-agent-plugin-core = { path = "../sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core" }
+sdkwork-agent-plugin-core.workspace = true
 sdkwork-utils-rust = { workspace = true }
-sdkwork-agent-provider-rig = { path = "../agent-providers/crates/sdkwork-agent-provider-rig" }
-sdkwork-agent-provider-openclaw = { path = "../agent-providers/crates/sdkwork-agent-provider-openclaw" }
-sdkwork-agent-provider-hermes = { path = "../agent-providers/crates/sdkwork-agent-provider-hermes" }
-sdkwork-agent-provider-codex = { path = "../agent-providers/crates/sdkwork-agent-provider-codex" }
+sdkwork-agent-provider-rig.workspace = true
+sdkwork-agent-provider-openclaw.workspace = true
+sdkwork-agent-provider-hermes.workspace = true
+sdkwork-agent-provider-codex.workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

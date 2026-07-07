@@ -60,9 +60,7 @@
     "configKeys": [],
     "sdkDependencies": [],
     "dependencyApiExports": [],
-    "dependencyApiSurfaces": [
-      "sdkwork-agent-internal-api: internal-api"
-    ]
+    "dependencyApiSurfaces": []
   },
   "verification": {
     "commands": ["cargo test -p sdkwork-routes-agent-internal-api"]

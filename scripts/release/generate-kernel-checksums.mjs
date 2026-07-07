@@ -1,25 +1,45 @@
 #!/usr/bin/env node
 
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import path from 'node:path';
 import process from 'node:process';
+import {
+  checksumPathFor,
+  payloadFilesFromOutputGlobs,
+  releaseDirFor,
+  resolveLifecycleTarget,
+  sha256File,
+} from './kernel-release-targets.mjs';
 
 const kernelRoot = process.cwd();
-const packageId = process.env.SDKWORK_PACKAGE_ID ?? 'sdkwork-agent-server';
-const version = process.env.SDKWORK_RELEASE_VERSION ?? '0.1.0';
-const outputDir = path.join(kernelRoot, 'dist', 'release', packageId);
-const suffix = process.platform === 'win32' ? '.exe' : '';
-const binaryPath = path.join(kernelRoot, 'target', 'release', `${packageId}${suffix}`);
+let targetContext;
+try {
+  targetContext = resolveLifecycleTarget({
+    kernelRoot,
+    commandName: 'generate-kernel-checksums.mjs',
+  });
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 
-if (!fs.existsSync(binaryPath)) {
-  console.error(`Missing release binary: ${binaryPath}`);
+const { packageId, target, version } = targetContext;
+const outputDir = releaseDirFor(kernelRoot, packageId);
+const payloads = payloadFilesFromOutputGlobs(kernelRoot, target.outputGlobs);
+if (payloads.errors.length > 0 || payloads.files.length === 0) {
+  for (const error of payloads.errors) {
+    console.error(`CHECKSUM: ${error}`);
+  }
+  if (payloads.files.length === 0) {
+    console.error(`CHECKSUM: no payload files found for ${packageId}`);
+  }
   process.exit(1);
 }
 
 fs.mkdirSync(outputDir, { recursive: true });
-const digest = createHash('sha256').update(fs.readFileSync(binaryPath)).digest('hex');
-const checksumFile = path.join(outputDir, `${packageId}-${version}.sha256`);
-const line = `${digest}  ${path.basename(binaryPath)}\n`;
-fs.writeFileSync(checksumFile, line, 'utf8');
+const checksumFile = checksumPathFor(kernelRoot, packageId, version);
+const lines = [];
+for (const filePath of payloads.files) {
+  lines.push(`${await sha256File(filePath)}  ${filePath.split(/[\\/]/u).at(-1)}`);
+}
+fs.writeFileSync(checksumFile, `${lines.join('\n')}\n`, 'utf8');
 console.log(`Checksum written: ${checksumFile}`);

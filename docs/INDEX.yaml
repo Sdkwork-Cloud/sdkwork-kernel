@@ -20,6 +20,11 @@ entries:
     layer: canon-shard
     audience: [product, engineering, release]
     status: active
+  - id: PRD-04-ecosystem-architecture
+    path: docs/product/prd/PRD-04-ecosystem-architecture.md
+    layer: canon-shard
+    audience: [product, engineering, architecture]
+    status: active
   - id: REQ-2026-0001-commercial-hardening
     path: docs/product/requirements/REQ-2026-0001-commercial-hardening.md
     layer: work
@@ -29,6 +34,16 @@ entries:
     path: docs/architecture/tech/TECH-01-kernel-module-reference.md
     layer: canon-shard
     audience: [engineering]
+    status: active
+  - id: TECH-02-provider-framework-matrix
+    path: docs/architecture/tech/TECH-02-provider-framework-matrix.md
+    layer: canon-shard
+    audience: [engineering, product]
+    status: active
+  - id: TECH-03-spi-implementation-gap-tracker
+    path: docs/architecture/tech/TECH-03-spi-implementation-gap-tracker.md
+    layer: canon-shard
+    audience: [engineering, product, release]
     status: active
   - id: ADR-20260626-agent-provider-integration-naming
     path: docs/architecture/decisions/ADR-20260626-agent-provider-integration-naming.md
@@ -62,6 +77,11 @@ entries:
     status: accepted
   - id: ADR-20260612-sdkwork-kernel-root-dictionary
     path: docs/architecture/decisions/ADR-20260612-sdkwork-kernel-root-dictionary.md
+    layer: work
+    audience: [engineering, architecture]
+    status: accepted
+  - id: ADR-20260628-kernel-spi-comprehensive-assessment
+    path: docs/architecture/decisions/ADR-20260628-KERNEL-SPI-COMPREHENSIVE-ASSESSMENT.md
     layer: work
     audience: [engineering, architecture]
     status: accepted

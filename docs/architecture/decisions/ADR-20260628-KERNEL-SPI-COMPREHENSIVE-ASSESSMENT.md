@@ -1,7 +1,7 @@
 # ADR: SDKWork Agent Kernel SPI Comprehensive Assessment
 
 - **ADR ID**: ADR-20260628-KERNEL-SPI-COMPREHENSIVE-ASSESSMENT
-- **Status**: Proposed
+- **Status**: Accepted (implementation tracking in TECH-03-spi-implementation-gap-tracker.md)
 - **Date**: 2025-06-28
 - **Decision Scope**: Kernel SPI Architecture, Provider Integration, Industry Alignment
 - **Stakeholders**: Kernel Architects, Provider Integrators, Product Teams

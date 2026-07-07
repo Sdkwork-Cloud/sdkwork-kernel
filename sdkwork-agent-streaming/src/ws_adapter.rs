@@ -259,7 +259,8 @@ mod tests {
         let second = adapter.next_message("conn.1").expect("second message");
         assert!(first.is_some());
         assert!(second.is_some());
-        let first_id: serde_json::Value = serde_json::from_str(&first.unwrap()).expect("valid json");
+        let first_id: serde_json::Value =
+            serde_json::from_str(&first.unwrap()).expect("valid json");
         let second_id: serde_json::Value =
             serde_json::from_str(&second.unwrap()).expect("valid json");
         assert_eq!(first_id["event_id"], "evt.1");

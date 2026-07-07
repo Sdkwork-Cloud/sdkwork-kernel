@@ -10,12 +10,12 @@ http = ["dep:reqwest"]
 websocket = ["dep:tokio-tungstenite"]
 
 [dependencies]
-sdkwork-agent-kernel = { path = "../sdkwork-agent-kernel" }
-sdkwork-agent-provider-codex = { path = "../agent-providers/crates/sdkwork-agent-provider-codex" }
-sdkwork-agent-provider-openclaw = { path = "../agent-providers/crates/sdkwork-agent-provider-openclaw" }
-sdkwork-agent-provider-hermes = { path = "../agent-providers/crates/sdkwork-agent-provider-hermes" }
-sdkwork-agent-provider-spi = { path = "../sdkwork-agent-provider-spi" }
-sdkwork-agent-database = { path = "../sdkwork-agent-database", features = ["sqlite"] }
+sdkwork-agent-kernel.workspace = true
+sdkwork-agent-provider-codex.workspace = true
+sdkwork-agent-provider-openclaw.workspace = true
+sdkwork-agent-provider-hermes.workspace = true
+sdkwork-agent-provider-spi.workspace = true
+sdkwork-agent-database = { workspace = true, features = ["sqlite"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 serde = { version = "1.0", features = ["derive"] }

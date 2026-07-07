@@ -4,13 +4,14 @@ use crate::runtime::{
     SdkRuntimeError, SdkRuntimeOperation, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
 };
 use sdkwork_agent_kernel::{
-    KernelResult, ModelProvider, ModelRequest, ModelResponse, ModelStatus, ProviderHealth,
-    ProviderManifest, ToolCall, ToolProvider, ToolResult,
+    KernelResult, ModelProvider, ModelRequest, ModelResponse, ModelStatus, ModelStreamChunk,
+    ModelStreamSink, ProviderHealth, ProviderManifest, ToolCall, ToolProvider, ToolResult,
 };
 use sdkwork_agent_provider_core::validate_runtime_model_payload;
 use sdkwork_agent_provider_core::{
     mock_provider_invocation_allowed, reject_direct_mock_provider_invocation,
 };
+use sdkwork_agent_provider_transport_ipc::is_stream_chunk_frame;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -76,13 +77,48 @@ impl SdkRuntimeBackedModelProvider {
         request: &ModelRequest,
         provider_id: &str,
     ) -> Result<ModelResponse, SdkRuntimeError> {
-        let runtime_request = SdkRuntimeRequest::model_chat(
-            capability_id,
-            &request.model_request_id,
-            request.messages.clone(),
-        );
+        let runtime_request = SdkRuntimeRequest::from_model_request(capability_id, request)?;
         let response = runtime.invoke(&runtime_request)?;
         model_response_from_runtime(response, &request.model_request_id, provider_id)
+    }
+
+    pub fn stream_through_runtime(
+        runtime: &SdkRuntimeRouter,
+        capability_id: &str,
+        request: &ModelRequest,
+        provider_id: &str,
+    ) -> Result<Vec<ModelStreamChunk>, SdkRuntimeError> {
+        let runtime_request = SdkRuntimeRequest::stream_from_model_request(capability_id, request)?;
+        let response = runtime.invoke(&runtime_request)?;
+        stream_chunks_from_runtime(response, &request.model_request_id, provider_id)
+    }
+
+    pub fn stream_through_runtime_into(
+        runtime: &SdkRuntimeRouter,
+        capability_id: &str,
+        request: &ModelRequest,
+        _provider_id: &str,
+        sink: &mut dyn ModelStreamSink,
+    ) -> Result<(), SdkRuntimeError> {
+        let runtime_request = SdkRuntimeRequest::stream_from_model_request(capability_id, request)?;
+        let model_request_id = request.model_request_id.clone();
+        runtime.invoke_streaming(&runtime_request, &mut |frame| {
+            if let Some(chunk) = model_stream_chunk_from_frame(&frame, &model_request_id) {
+                sink.push_chunk(chunk)
+                    .map_err(|error| SdkRuntimeError::new("stream_sink", error.to_string()))?;
+            }
+            Ok(true)
+        })
+    }
+
+    pub fn cancel_through_runtime(
+        runtime: &SdkRuntimeRouter,
+        capability_id: &str,
+        model_request_id: &str,
+        provider_id: &str,
+    ) -> Result<ModelResponse, SdkRuntimeError> {
+        runtime.cancel_inflight(capability_id)?;
+        Ok(ModelResponse::cancelled(model_request_id, provider_id))
     }
 }
 
@@ -119,7 +155,57 @@ impl ModelProvider for SdkRuntimeBackedModelProvider {
         request: ModelRequest,
     ) -> KernelResult<Vec<sdkwork_agent_kernel::ModelStreamChunk>> {
         reject_direct_mock_provider_invocation(&self.provider_id)?;
-        self.fallback.stream(request)
+        match Self::stream_through_runtime(
+            &self.runtime,
+            &self.capability_id,
+            &request,
+            &self.provider_id,
+        ) {
+            Ok(chunks) => Ok(chunks),
+            Err(_) if mock_provider_invocation_allowed() => self.fallback.stream(request),
+            Err(_) => Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: self.provider_id.clone(),
+            }),
+        }
+    }
+
+    fn stream_into(
+        &self,
+        request: ModelRequest,
+        sink: &mut dyn ModelStreamSink,
+    ) -> KernelResult<()> {
+        reject_direct_mock_provider_invocation(&self.provider_id)?;
+        match Self::stream_through_runtime_into(
+            &self.runtime,
+            &self.capability_id,
+            &request,
+            &self.provider_id,
+            sink,
+        ) {
+            Ok(()) => Ok(()),
+            Err(_) if mock_provider_invocation_allowed() => {
+                self.fallback.stream_into(request, sink)
+            }
+            Err(_) => Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: self.provider_id.clone(),
+            }),
+        }
+    }
+
+    fn cancel(&self, model_request_id: &str) -> KernelResult<ModelResponse> {
+        reject_direct_mock_provider_invocation(&self.provider_id)?;
+        match Self::cancel_through_runtime(
+            &self.runtime,
+            &self.capability_id,
+            model_request_id,
+            &self.provider_id,
+        ) {
+            Ok(response) => Ok(response),
+            Err(_) if mock_provider_invocation_allowed() => self.fallback.cancel(model_request_id),
+            Err(_) => Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: self.provider_id.clone(),
+            }),
+        }
     }
 }
 
@@ -241,6 +327,96 @@ pub fn model_response_from_runtime(
     }
 
     Ok(model_response)
+}
+
+pub fn stream_chunks_from_runtime(
+    response: SdkRuntimeResponse,
+    model_request_id: &str,
+    _provider_id: &str,
+) -> Result<Vec<ModelStreamChunk>, SdkRuntimeError> {
+    if !response.success {
+        return Err(SdkRuntimeError::new(
+            "runtime_failure",
+            response
+                .message
+                .unwrap_or_else(|| "runtime stream invoke failed".to_string()),
+        ));
+    }
+
+    let payload = response.payload.ok_or_else(|| {
+        SdkRuntimeError::new("missing_payload", "runtime stream response missing payload")
+    })?;
+
+    if payload.get("ok").and_then(Value::as_bool) == Some(false) {
+        return Err(SdkRuntimeError::new(
+            "sdk_live_failed",
+            payload
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("runtime stream invoke returned ok=false"),
+        ));
+    }
+
+    if let Some(chunks) = payload.get("chunks").and_then(Value::as_array) {
+        return Ok(chunks
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| {
+                let content = entry
+                    .get("content")
+                    .or_else(|| entry.get("delta"))
+                    .and_then(Value::as_str)?;
+                let sequence = entry
+                    .get("sequence")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(index as u64);
+                Some(ModelStreamChunk::output(
+                    model_request_id,
+                    sequence,
+                    content,
+                ))
+            })
+            .collect());
+    }
+
+    let messages = extract_messages(&payload);
+    if messages.is_empty() {
+        return Err(SdkRuntimeError::new(
+            "empty_stream",
+            "runtime stream response did not include chunks or messages",
+        ));
+    }
+
+    Ok(messages
+        .into_iter()
+        .enumerate()
+        .map(|(sequence, content)| {
+            ModelStreamChunk::output(model_request_id, sequence as u64, content)
+        })
+        .collect())
+}
+
+pub fn model_stream_chunk_from_frame(
+    frame: &Value,
+    default_model_request_id: &str,
+) -> Option<ModelStreamChunk> {
+    if !is_stream_chunk_frame(frame) {
+        return None;
+    }
+    let content = frame
+        .get("content")
+        .or_else(|| frame.get("delta"))
+        .and_then(Value::as_str)?;
+    let sequence = frame.get("sequence").and_then(Value::as_u64).unwrap_or(0);
+    let model_request_id = frame
+        .get("model_request_id")
+        .and_then(Value::as_str)
+        .unwrap_or(default_model_request_id);
+    Some(ModelStreamChunk::output(
+        model_request_id,
+        sequence,
+        content.to_string(),
+    ))
 }
 
 pub fn tool_result_from_runtime(
@@ -375,5 +551,47 @@ mod tests {
             .invoke(ModelRequest::new("req-1", vec!["hello".to_string()]))
             .expect("invoke should succeed");
         assert_eq!(response.messages, vec!["runtime-backed".to_string()]);
+    }
+
+    #[test]
+    fn model_stream_chunk_from_frame_maps_delta() {
+        use sdkwork_agent_provider_transport_ipc::stream_chunk_frame;
+
+        let frame = stream_chunk_frame(2, "hello", Some("req-stream-1"));
+        let chunk = model_stream_chunk_from_frame(&frame, "req-default").expect("chunk");
+        assert_eq!(chunk.model_request_id, "req-stream-1");
+        assert_eq!(chunk.sequence, 2);
+        assert_eq!(chunk.content, "hello");
+    }
+
+    #[test]
+    fn model_stream_chunk_from_frame_ignores_non_stream_frames() {
+        let frame = serde_json::json!({ "type": "message", "content": "ignored" });
+        assert!(model_stream_chunk_from_frame(&frame, "req-1").is_none());
+    }
+
+    #[test]
+    fn model_chat_request_includes_wire_messages_for_structured_input() {
+        use sdkwork_agent_kernel::{AgentMessage, AgentMessageRole, AgentPart};
+
+        let mut request = ModelRequest::new("req-wire", vec!["legacy".to_string()]);
+        request.input_messages = vec![AgentMessage::new(
+            "msg.1",
+            AgentMessageRole::User,
+            vec![AgentPart::text("part.text", "structured hello")],
+        )];
+
+        let runtime_request = SdkRuntimeRequest::from_model_request("sdk.model.chat", &request)
+            .expect("wire request");
+        match runtime_request.operation {
+            SdkRuntimeOperation::ModelChat {
+                wire_messages: Some(wire),
+                ..
+            } => {
+                assert!(wire.is_array());
+                assert!(wire.as_array().expect("array").len() >= 1);
+            }
+            other => panic!("expected model_chat with wire, got {other:?}"),
+        }
     }
 }

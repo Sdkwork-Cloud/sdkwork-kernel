@@ -324,23 +324,48 @@ boundaries were materialized, and TypeScript SDK output was regenerated through 
 - All component specs explicitly declare contracts.dependencyApiSurfaces.
 - Components that do not serve, proxy, or require dependency-owned HTTP APIs use an explicit empty
   array (`[]`) instead of relying on a missing field.
+- `contracts.dependencyApiSurfaces` entries are object runtime declarations, not legacy strings.
+  The kernel-owned internal-api route/server components keep `[]` because the internal-api is their
+  own surface, not a dependency-owned surface. `sdkwork-agent-client` records its remote runtime
+  dependency as an `external-service` object with `apiAuthority`, `apiPrefix`, base URL source, and
+  `coverage: "verified"` evidence from `SseChatClient::runtime_url`.
 - `tools/validators/kernel-standards/component-specs.mjs` now rejects every component spec that
   omits `contracts.dependencyApiSurfaces`.
 - RED: `node --test tests\kernel_workspace_structure.test.mjs` -> exit 1; the new dependency API
-  surface assertion failed first on
-  `sdks/sdkwork-agent-app-sdk/sdkwork-agent-app-sdk-typescript/specs/component.spec.json`.
+  surface object assertion failed first on
+  `crates\sdkwork-routes-agent-internal-api\specs\component.spec.json`.
 - GREEN: component dependency API surface gap scan -> exit 0:
 
 ```json
 {
-  "componentSpecCount": 25,
+  "componentSpecCount": 26,
   "gapCount": 0,
   "gaps": []
 }
 ```
 
-- GREEN: `node --test tests\kernel_workspace_structure.test.mjs` -> exit 0; 20 tests pass after
-  explicit empty arrays were added to component specs.
+- GREEN: `node --test tests\kernel_workspace_structure.test.mjs` -> exit 0; 24 tests pass after
+  explicit empty arrays and object runtime surface declarations were aligned.
+
+## Cargo Workspace Dependency Follow-up
+
+- Root `Cargo.toml` owns SDKWork sibling path declarations under `[workspace.dependencies]`.
+- Member `Cargo.toml` files consume SDKWork crates through `workspace = true`; features and optional
+  flags remain on the member dependency entry when needed.
+- This avoids dependency path drift across provider crates, route crates, server/client crates, and
+  plugin crates.
+- RED: `node --test tests\kernel_workspace_structure.test.mjs` -> exit 1; the member Cargo
+  dependency assertion failed first on `sdkwork-agent-api-bridge\Cargo.toml`.
+- GREEN: member Cargo dependency scan -> exit 0:
+
+```text
+no member sdkwork path dependencies
+```
+
+- GREEN: `cargo metadata --format-version 1 --no-deps` -> exit 0.
+- GREEN: `cargo fmt --check` -> exit 0.
+- GREEN: `node ../sdkwork-specs/tools/verify-repo.mjs --root .` -> exit 0.
+- GREEN: `pnpm check` -> exit 0.
 
 ## Component SDK Route Manifest Applicability Follow-up
 
@@ -488,4 +513,3 @@ Verification evidence (current):
 - `node scripts/check-kernel-standards.mjs` -> exit 0
 - `node scripts/verify-kernel-audit-remediation.mjs` -> exit 0
 - `cargo test --manifest-path sdkwork-agent-server/Cargo.toml` -> exit 0
-

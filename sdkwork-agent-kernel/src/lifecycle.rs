@@ -1,3 +1,4 @@
+use crate::{parse_agent_input_contract_json, AgentInputContract};
 use crate::{EventRecorder, KernelError, KernelEvent, KernelEventSeverity, KernelResult};
 
 // ============================================================================
@@ -456,6 +457,13 @@ impl AgentSession {
             .iter()
             .find(|(k, _)| k == key)
             .map(|(_, v)| v.as_str())
+    }
+
+    /// Resolves the session input contract from `interactionContract` metadata or defaults.
+    pub fn resolved_input_contract(&self) -> AgentInputContract {
+        self.metadata_value("interactionContract")
+            .and_then(|body| parse_agent_input_contract_json(body).ok())
+            .unwrap_or_default()
     }
 
     pub fn is_active(&self) -> bool {

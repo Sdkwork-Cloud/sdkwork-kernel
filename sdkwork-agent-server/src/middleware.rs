@@ -47,13 +47,28 @@ impl RequestContext {
 
     pub fn problem_trace_id(&self) -> String {
         if let Some(trace_id) = self.trace_id.as_deref().filter(|value| !value.is_empty()) {
-            return trace_id.to_string();
+            return normalize_trace_uuid(trace_id);
         }
-        self.request_id
-            .chars()
-            .filter(|c| c.is_ascii_hexdigit())
-            .collect()
+        normalize_trace_uuid(&self.request_id)
     }
+}
+
+fn normalize_trace_uuid(raw: &str) -> String {
+    let hex: String = raw
+        .chars()
+        .filter(|character| character.is_ascii_hexdigit())
+        .collect();
+    if hex.len() == 32 {
+        return format!(
+            "{}-{}-{}-{}-{}",
+            &hex[0..8],
+            &hex[8..12],
+            &hex[12..16],
+            &hex[16..20],
+            &hex[20..32]
+        );
+    }
+    uuid::Uuid::now_v7().to_string()
 }
 
 fn extract_header(headers: &axum::http::HeaderMap, key: &str) -> Option<String> {
@@ -77,7 +92,7 @@ pub async fn request_context_middleware(mut request: Request, next: Next) -> Res
 }
 
 fn is_health_probe(path: &str) -> bool {
-    matches!(path, "/health" | "/ready" | "/live")
+    matches!(path, "/healthz" | "/readyz" | "/livez")
 }
 
 fn is_metrics_path(path: &str) -> bool {
@@ -214,7 +229,10 @@ pub async fn ingress_identity_middleware(
             );
             return Err(ProblemDetail::new(status)
                 .with_detail(format!("Ingress identity resolution failed: {status}"))
-                .with_trace_id(ctx.map(|v| v.problem_trace_id()).unwrap_or_else(|| "unknown".to_string())));
+                .with_trace_id(
+                    ctx.map(|v| v.problem_trace_id())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                ));
         }
     };
     request.extensions_mut().insert(resolved);
@@ -286,7 +304,10 @@ pub async fn ingress_auth_middleware(
         );
         return Err(ProblemDetail::new(StatusCode::UNAUTHORIZED)
             .with_detail("Invalid or missing metrics credential")
-            .with_trace_id(ctx.map(|v| v.problem_trace_id()).unwrap_or_else(|| "unknown".to_string())));
+            .with_trace_id(
+                ctx.map(|v| v.problem_trace_id())
+                    .unwrap_or_else(|| "unknown".to_string()),
+            ));
     }
 
     if auth_mode == "jwt" {
@@ -302,7 +323,10 @@ pub async fn ingress_auth_middleware(
             );
             ProblemDetail::new(StatusCode::UNAUTHORIZED)
                 .with_detail("Missing Bearer JWT")
-                .with_trace_id(ctx.map(|v| v.problem_trace_id()).unwrap_or_else(|| "unknown".to_string()))
+                .with_trace_id(
+                    ctx.map(|v| v.problem_trace_id())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                )
         })?;
         let identity = ingress
             .jwt_validator
@@ -324,7 +348,10 @@ pub async fn ingress_auth_middleware(
                 );
                 ProblemDetail::new(status)
                     .with_detail("JWT validation failed")
-                    .with_trace_id(ctx.map(|v| v.problem_trace_id()).unwrap_or_else(|| "unknown".to_string()))
+                    .with_trace_id(
+                        ctx.map(|v| v.problem_trace_id())
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    )
             })?;
         let mut ctx = request
             .extensions()
@@ -363,7 +390,10 @@ pub async fn ingress_auth_middleware(
         );
         Err(ProblemDetail::new(StatusCode::UNAUTHORIZED)
             .with_detail("Invalid or missing ingress credential")
-            .with_trace_id(ctx.map(|v| v.problem_trace_id()).unwrap_or_else(|| "unknown".to_string())))
+            .with_trace_id(
+                ctx.map(|v| v.problem_trace_id())
+                    .unwrap_or_else(|| "unknown".to_string()),
+            ))
     }
 }
 

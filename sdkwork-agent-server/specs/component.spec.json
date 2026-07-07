@@ -84,10 +84,7 @@
     "routeManifest": "specs/AGENT_SERVER_HTTP_SURFACE.md",
     "sdkDependencies": [],
     "dependencyApiExports": [],
-    "dependencyApiSurfaces": [
-      "sdkwork-agent-internal-api: internal-api",
-      "sdkwork-routes-agent-internal-api: internal-api"
-    ],
+    "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
     "configKeys": [

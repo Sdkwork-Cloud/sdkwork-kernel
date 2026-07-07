@@ -79,10 +79,6 @@ pub fn build_internal_runtime_routes(
             post(internal_runtime::invoke_model),
         )
         .route(
-            "/sessions/{session_id}/model/stream",
-            post(internal_runtime::stream_model),
-        )
-        .route(
             "/sessions/{session_id}/model/cancel",
             post(internal_runtime::cancel_model),
         )
@@ -100,13 +96,19 @@ pub fn build_internal_runtime_routes(
         ));
 
     // --- SSE streaming route (long timeout) ---
-    let sse_routes = Router::new().route(
-        "/sessions/{session_id}/events/stream",
-        get(internal_runtime::stream_session_events).layer(TimeoutLayer::with_status_code(
+    let sse_routes = Router::new()
+        .route(
+            "/sessions/{session_id}/model/stream",
+            post(internal_runtime::stream_model),
+        )
+        .route(
+            "/sessions/{session_id}/events/stream",
+            get(internal_runtime::stream_session_events),
+        )
+        .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
             sse_timeout,
-        )),
-    );
+        ));
 
     standard_routes.merge(sse_routes).with_state(state)
 }

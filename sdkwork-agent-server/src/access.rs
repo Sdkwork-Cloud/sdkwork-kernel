@@ -51,8 +51,14 @@ pub fn assert_session_access(
     }
 
     let metadata = parse_metadata(row);
-    let owner_tenant = metadata.get("ownerTenantId");
-    let owner_user = metadata.get("ownerUserRef");
+    let owner_tenant = row
+        .owner_tenant_id
+        .as_deref()
+        .or_else(|| metadata.get("ownerTenantId").map(String::as_str));
+    let owner_user = row
+        .owner_user_ref
+        .as_deref()
+        .or_else(|| metadata.get("ownerUserRef").map(String::as_str));
     if owner_tenant.is_none() || owner_user.is_none() {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -149,6 +155,8 @@ mod tests {
             bridge_id: None,
             token_usage_json: None,
             message_count: 0,
+            owner_tenant_id: Some(tenant.to_string()),
+            owner_user_ref: Some(user.to_string()),
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: None,
             cwd: None,
@@ -194,6 +202,8 @@ mod tests {
             bridge_id: None,
             token_usage_json: None,
             message_count: 0,
+            owner_tenant_id: None,
+            owner_user_ref: None,
             created_at: "2026-01-01T00:00:00Z".to_string(),
             updated_at: None,
             cwd: None,

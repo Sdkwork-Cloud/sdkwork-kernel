@@ -3,18 +3,29 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import path from 'node:path';
 import process from 'node:process';
+import {
+  normalizeSbomMetadata,
+  releaseDirFor,
+  resolveLifecycleTarget,
+  sbomPathFor,
+} from './kernel-release-targets.mjs';
 
 const kernelRoot = process.cwd();
-const packageId = process.env.SDKWORK_PACKAGE_ID ?? 'sdkwork-agent-server';
-const version =
-  process.env.SDKWORK_RELEASE_VERSION ??
-  JSON.parse(fs.readFileSync(path.join(kernelRoot, 'sdkwork.app.config.json'), 'utf8')).release
-    ?.currentVersion ??
-  '0.0.0';
-const outputDir = path.join(kernelRoot, 'dist', 'release', packageId);
-const outputPath = path.join(outputDir, `${packageId}-${version}.cyclonedx.json`);
+let targetContext;
+try {
+  targetContext = resolveLifecycleTarget({
+    kernelRoot,
+    commandName: 'generate-kernel-sbom.mjs',
+  });
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
+
+const { packageId, version } = targetContext;
+const outputDir = releaseDirFor(kernelRoot, packageId);
+const outputPath = sbomPathFor(kernelRoot, packageId, version);
 
 function runCargoCyclonedx() {
   const attempts = [
@@ -84,10 +95,12 @@ function metadataFallback() {
 fs.mkdirSync(outputDir, { recursive: true });
 
 if (runCargoCyclonedx()) {
+  normalizeSbomMetadata({ sbomPath: outputPath, packageId, version });
   console.log(`SBOM written: ${outputPath}`);
 } else {
   console.warn('cargo cyclonedx plugin unavailable; emitting metadata-derived CycloneDX SBOM.');
   metadataFallback();
+  normalizeSbomMetadata({ sbomPath: outputPath, packageId, version });
   console.log(`SBOM written: ${outputPath}`);
 }
 

@@ -2,6 +2,7 @@
 import argparse
 import importlib.util
 import json
+import os
 import sys
 
 
@@ -13,6 +14,54 @@ def write_response(response):
 def probe_module(module_name):
     spec = importlib.util.find_spec(module_name)
     return {"resolved": spec is not None}
+
+
+def matches_truthy(value):
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def matches_falsy(value):
+    return value.strip().lower() in ("0", "false", "no", "off")
+
+
+def production_kernel_profile():
+    environment = os.environ.get("SDKWORK_KERNEL_ENVIRONMENT", "").strip().lower()
+    if environment in ("production", "prod"):
+        return True
+    profile = os.environ.get("SDKWORK_KERNEL_PROFILE_ID", "").strip().lower()
+    return profile.endswith(".production")
+
+
+def mock_provider_invocation_allowed():
+    override = os.environ.get("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "")
+    if production_kernel_profile():
+        return matches_truthy(override) if override else False
+    if override:
+        return not matches_falsy(override) or matches_truthy(override)
+    return True
+
+
+def fail_closed_synthetic_operation(operation_name, package_name, package_probe, model_request_id=None):
+    package_resolved = package_probe["resolved"]
+    if package_resolved:
+        error = (
+            f"{operation_name} requires a live provider SDK implementation "
+            "and mock fallback is disabled"
+        )
+    else:
+        error = (
+            f"official sdk package is not resolved for {operation_name} "
+            f"and mock fallback is disabled: {package_name}"
+        )
+    return {
+        "ok": False,
+        "mode": "sdk_live_failed",
+        "package": package_name,
+        "package_resolved": package_resolved,
+        "operation": operation_name,
+        "error": error,
+        "model_request_id": model_request_id,
+    }
 
 
 def handle_capability_invoke(params, package_name):
@@ -33,6 +82,8 @@ def handle_capability_invoke(params, package_name):
         }
 
     if op == "session_create":
+        if not mock_provider_invocation_allowed():
+            return fail_closed_synthetic_operation(op, package_name, package_probe)
         return {
             "ok": True,
             "mode": "sdk_probe" if package_probe["resolved"] else "stub",
@@ -42,6 +93,13 @@ def handle_capability_invoke(params, package_name):
         }
 
     if op == "model_chat":
+        if not mock_provider_invocation_allowed():
+            return fail_closed_synthetic_operation(
+                op,
+                package_name,
+                package_probe,
+                operation.get("model_request_id"),
+            )
         messages = operation.get("messages") or []
         prompt = "\n".join(messages)
         prefix = f"[{package_name}]" if package_probe["resolved"] else f"[{package_name} stub]"
@@ -55,6 +113,8 @@ def handle_capability_invoke(params, package_name):
         }
 
     if op == "tool_invoke":
+        if not mock_provider_invocation_allowed():
+            return fail_closed_synthetic_operation(op, package_name, package_probe)
         return {
             "ok": True,
             "mode": "sdk_probe" if package_probe["resolved"] else "stub",
@@ -70,6 +130,8 @@ def handle_capability_invoke(params, package_name):
         }
 
     if op == "skill_invoke":
+        if not mock_provider_invocation_allowed():
+            return fail_closed_synthetic_operation(op, package_name, package_probe)
         return {
             "ok": True,
             "mode": "sdk_probe" if package_probe["resolved"] else "stub",
@@ -82,6 +144,9 @@ def handle_capability_invoke(params, package_name):
             ),
             "package": package_name,
         }
+
+    if not mock_provider_invocation_allowed():
+        return fail_closed_synthetic_operation(op, package_name, package_probe)
 
     return {
         "ok": True,

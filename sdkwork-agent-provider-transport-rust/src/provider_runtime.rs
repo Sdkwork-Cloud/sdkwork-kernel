@@ -38,29 +38,20 @@ impl ProviderBackedRustHandler {
             SdkRuntimeOperation::ModelChat {
                 model_request_id,
                 messages,
+                wire_messages,
             } => {
-                let mut model_request =
-                    ModelRequest::new(model_request_id.clone(), messages.clone());
-                if let Some(model_id) = request
-                    .payload
-                    .as_ref()
-                    .and_then(|payload| payload.get("model_id"))
-                    .and_then(Value::as_str)
-                {
-                    model_request = model_request.with_model_id(model_id);
-                }
-                let response = self
-                    .model
-                    .lock()
-                    .map_err(|error| SdkRuntimeError::new("lock_error", error.to_string()))?
-                    .invoke(model_request)
-                    .map_err(map_kernel_error)?;
-                Ok(SdkRuntimeResponse::success(
-                    SdkBackendKind::RustNative,
-                    &request.capability_id,
-                    model_response_json(&response),
-                ))
+                self.invoke_model_chat(model_request_id, messages, wire_messages.as_ref(), request)
             }
+            SdkRuntimeOperation::ModelChatStream {
+                model_request_id,
+                messages,
+                wire_messages,
+            } => self.invoke_model_chat_stream(
+                model_request_id,
+                messages,
+                wire_messages.as_ref(),
+                request,
+            ),
             SdkRuntimeOperation::ToolInvoke {
                 tool_call_id,
                 tool_id,
@@ -83,27 +74,91 @@ impl ProviderBackedRustHandler {
                     }),
                 ))
             }
-            SdkRuntimeOperation::SessionCreate { agent_id, user_ref } => {
-                Ok(SdkRuntimeResponse::success(
-                    SdkBackendKind::RustNative,
-                    &request.capability_id,
-                    json!({
-                        "agent_id": agent_id,
-                        "user_ref": user_ref,
-                        "default_model": self.default_model,
-                    }),
-                ))
-            }
+            SdkRuntimeOperation::SessionCreate { agent_id, user_ref } => Err(SdkRuntimeError::new(
+                "unsupported_operation",
+                format!(
+                    "SessionCreate is not supported on rust_native transport; \
+                     create sessions through the kernel runtime HTTP API \
+                     (agent_id={agent_id}, user_ref={user_ref:?})"
+                ),
+            )),
             SdkRuntimeOperation::SkillInvoke {
                 skill_id,
                 arguments,
             } => Err(SdkRuntimeError::new(
-                "not_implemented",
+                "unsupported_operation",
                 format!(
-                    "SkillInvoke is not implemented for skill_id={skill_id} arguments={arguments:?}"
+                    "SkillInvoke is not supported on rust_native transport; \
+                     route skill execution through the provider worker transport \
+                     (skill_id={skill_id}, arguments={arguments:?})"
                 ),
             )),
         }
+    }
+
+    fn build_model_request(
+        &self,
+        model_request_id: &str,
+        messages: &[String],
+        _wire_messages: Option<&Value>,
+        request: &SdkRuntimeRequest,
+    ) -> ModelRequest {
+        let mut model_request = ModelRequest::new(model_request_id.to_string(), messages.to_vec());
+        if let Some(model_id) = request
+            .payload
+            .as_ref()
+            .and_then(|payload| payload.get("model_id"))
+            .and_then(Value::as_str)
+        {
+            model_request = model_request.with_model_id(model_id);
+        } else {
+            model_request = model_request.with_model_id(&self.default_model);
+        }
+        model_request
+    }
+
+    fn invoke_model_chat(
+        &self,
+        model_request_id: &str,
+        messages: &[String],
+        wire_messages: Option<&Value>,
+        request: &SdkRuntimeRequest,
+    ) -> Result<SdkRuntimeResponse, SdkRuntimeError> {
+        let model_request =
+            self.build_model_request(model_request_id, messages, wire_messages, request);
+        let response = self
+            .model
+            .lock()
+            .map_err(|error| SdkRuntimeError::new("lock_error", error.to_string()))?
+            .invoke(model_request)
+            .map_err(map_kernel_error)?;
+        Ok(SdkRuntimeResponse::success(
+            SdkBackendKind::RustNative,
+            &request.capability_id,
+            model_response_json(&response),
+        ))
+    }
+
+    fn invoke_model_chat_stream(
+        &self,
+        model_request_id: &str,
+        messages: &[String],
+        wire_messages: Option<&Value>,
+        request: &SdkRuntimeRequest,
+    ) -> Result<SdkRuntimeResponse, SdkRuntimeError> {
+        let model_request =
+            self.build_model_request(model_request_id, messages, wire_messages, request);
+        let chunks = self
+            .model
+            .lock()
+            .map_err(|error| SdkRuntimeError::new("lock_error", error.to_string()))?
+            .stream(model_request)
+            .map_err(map_kernel_error)?;
+        Ok(SdkRuntimeResponse::success(
+            SdkBackendKind::RustNative,
+            &request.capability_id,
+            stream_response_json(&chunks),
+        ))
     }
 }
 
@@ -156,10 +211,23 @@ fn model_response_json(response: &ModelResponse) -> Value {
     })
 }
 
+fn stream_response_json(chunks: &[sdkwork_agent_kernel::ModelStreamChunk]) -> Value {
+    json!({
+        "chunks": chunks
+            .iter()
+            .map(|chunk| json!({
+                "sequence": chunk.sequence,
+                "content": chunk.content,
+            }))
+            .collect::<Vec<_>>(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use sdkwork_agent_kernel::{KernelResult, ModelResponse, ProviderHealth, ProviderManifest};
+    use sdkwork_agent_provider_spi::{SdkRuntimeOperation, SdkRuntimeRequest};
 
     struct StubModelProvider;
 
@@ -225,5 +293,47 @@ mod tests {
             .expect("invoke should succeed");
         assert!(response.success);
         assert_eq!(response.backend_kind, SdkBackendKind::RustNative);
+    }
+
+    #[test]
+    fn session_create_is_unsupported_on_rust_native_transport() {
+        let handler = Arc::new(ProviderBackedRustHandler::new(
+            Arc::new(StubModelProvider) as Arc<dyn ModelProvider + Send + Sync>,
+            Arc::new(StubToolProvider) as Arc<dyn ToolProvider + Send + Sync>,
+            "stub-model",
+        ));
+        let runtime = InProcessRustSdkRuntime::new(handler);
+        let error = runtime
+            .invoke(&SdkRuntimeRequest {
+                capability_id: "sdk.session.create".to_string(),
+                operation: SdkRuntimeOperation::SessionCreate {
+                    agent_id: "agent.1".to_string(),
+                    user_ref: Some("user.1".to_string()),
+                },
+                payload: None,
+            })
+            .expect_err("session create must fail closed on rust_native");
+        assert_eq!(error.code, "unsupported_operation");
+    }
+
+    #[test]
+    fn skill_invoke_is_unsupported_on_rust_native_transport() {
+        let handler = Arc::new(ProviderBackedRustHandler::new(
+            Arc::new(StubModelProvider) as Arc<dyn ModelProvider + Send + Sync>,
+            Arc::new(StubToolProvider) as Arc<dyn ToolProvider + Send + Sync>,
+            "stub-model",
+        ));
+        let runtime = InProcessRustSdkRuntime::new(handler);
+        let error = runtime
+            .invoke(&SdkRuntimeRequest {
+                capability_id: "sdk.skill.invoke".to_string(),
+                operation: SdkRuntimeOperation::SkillInvoke {
+                    skill_id: "skill.example".to_string(),
+                    arguments: Some(r#"{"input":"hello"}"#.to_string()),
+                },
+                payload: None,
+            })
+            .expect_err("skill invoke must fail closed on rust_native");
+        assert_eq!(error.code, "unsupported_operation");
     }
 }

@@ -1,12 +1,11 @@
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
     ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
-    ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
-    SessionState, SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
+    ModelStreamChunk, ProviderHealth, ProviderManifest, SessionKind, SessionSource, SessionState,
+    SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
 use sdkwork_agent_provider_core::{
-    create_session_from_config, reject_direct_mock_provider_invocation, uuid_simple,
-    MessageAdapter, SessionAdapter, SessionConfig,
+    create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
 };
 
 #[cfg(test)]
@@ -271,38 +270,12 @@ impl ModelProvider for HermesModelProvider {
         .with_tool_capability("function_calling")]
     }
 
-    fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
-        reject_direct_mock_provider_invocation("provider.model.hermes.invoke")?;
-
-        let model_id = request.model_id.as_deref().unwrap_or(&self.default_model);
-        let prompt = request.messages.join("\n");
-
-        Ok(ModelResponse::text(
-            &request.model_request_id,
-            "provider.model.hermes",
-            format!("[Hermes {}] Mock response to: {}", model_id, prompt),
-        )
-        .with_usage(ModelUsage::new(prompt.len() as u32 / 4, 128))
-        .with_finish_reason("stop"))
+    fn invoke(&self, _request: ModelRequest) -> KernelResult<ModelResponse> {
+        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.model.hermes")
     }
 
-    fn stream(&self, request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
-        reject_direct_mock_provider_invocation("provider.model.hermes.stream")?;
-
-        let response_text = format!(
-            "[Hermes] Streaming mock response to: {}",
-            request.messages.join(" ")
-        );
-        let words: Vec<&str> = response_text.split_whitespace().collect();
-        let chunks = words
-            .into_iter()
-            .enumerate()
-            .map(|(i, word)| {
-                ModelStreamChunk::output(&request.model_request_id, i as u64, format!("{} ", word))
-            })
-            .collect();
-
-        Ok(chunks)
+    fn stream(&self, _request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
+        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.model.hermes")
     }
 }
 
@@ -721,28 +694,24 @@ mod tests {
     }
 
     #[test]
-    fn model_provider_invoke_mock() {
+    fn model_provider_invoke_requires_transport_worker() {
         let provider = HermesModelProvider::new();
         let request = ModelRequest::new("req.1", vec!["What is Rust?".to_string()])
             .with_model_id("hermes-runtime-default");
-
-        let response = provider.invoke(request).unwrap();
-        assert_eq!(response.status, ModelStatus::Succeeded);
-        assert_eq!(response.provider_id, "provider.model.hermes");
-        assert!(!response.messages.is_empty());
-        assert!(response.messages[0].contains("What is Rust?"));
-        assert!(response.usage.is_some());
+        let error = provider
+            .invoke(request)
+            .expect_err("in-process invoke is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]
-    fn model_provider_stream_mock() {
+    fn model_provider_stream_requires_transport_worker() {
         let provider = HermesModelProvider::new();
         let request = ModelRequest::new("req.2", vec!["Hello".to_string()]);
-
-        let chunks = provider.stream(request).unwrap();
-        assert!(!chunks.is_empty());
-        assert_eq!(chunks[0].sequence, 0);
-        assert!(chunks.last().unwrap().sequence > 0);
+        let error = provider
+            .stream(request)
+            .expect_err("in-process stream is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     // --- Tool Provider Tests ---

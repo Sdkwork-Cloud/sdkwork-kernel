@@ -10,6 +10,8 @@
 
 use std::collections::HashMap;
 
+use crate::{agent_messages_to_text_lines, AgentMessage};
+
 /// A2A Agent Card describing agent capabilities and endpoints.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct A2AAgentCard {
@@ -77,7 +79,9 @@ impl A2AAgentCard {
     }
 
     pub fn has_capability(&self, capability_id: &str) -> bool {
-        self.capabilities.iter().any(|cap| cap.capability_id == capability_id)
+        self.capabilities
+            .iter()
+            .any(|cap| cap.capability_id == capability_id)
     }
 }
 
@@ -181,10 +185,7 @@ pub enum A2AAuthentication {
         scopes: Vec<String>,
     },
     /// JWT authentication.
-    Jwt {
-        issuer: String,
-        audience: String,
-    },
+    Jwt { issuer: String, audience: String },
     /// Custom authentication.
     Custom {
         auth_type: String,
@@ -201,8 +202,10 @@ pub struct A2ATaskRequest {
     pub target_agent_id: String,
     /// Capability to invoke.
     pub capability_id: String,
-    /// Task input data.
-    pub input: HashMap<String, String>,
+    /// Structured multimodal conversation input (canonical).
+    pub messages: Vec<AgentMessage>,
+    /// Capability parameters (scalar key-value hints).
+    pub parameters: HashMap<String, String>,
     /// Task context.
     pub context: A2ATaskContext,
     /// Timeout (milliseconds).
@@ -219,15 +222,71 @@ impl A2ATaskRequest {
             task_id: task_id.into(),
             target_agent_id: target_agent_id.into(),
             capability_id: capability_id.into(),
-            input: HashMap::new(),
+            messages: Vec::new(),
+            parameters: HashMap::new(),
             context: A2ATaskContext::default(),
             timeout_ms: None,
         }
     }
 
-    pub fn with_input(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        self.input.insert(key.into(), value.into());
+    pub fn with_parameter(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.parameters.insert(key.into(), value.into());
         self
+    }
+
+    /// Legacy alias for scalar capability parameters.
+    pub fn with_input(self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.with_parameter(key, value)
+    }
+
+    pub fn with_message(mut self, message: AgentMessage) -> Self {
+        self.messages.push(message);
+        self
+    }
+
+    pub fn with_messages(mut self, messages: Vec<AgentMessage>) -> Self {
+        self.messages = messages;
+        self
+    }
+
+    pub fn validate(&self) -> Result<(), A2AError> {
+        if self.task_id.trim().is_empty() {
+            return Err(A2AError::InvalidRequest("task_id is required".to_string()));
+        }
+        if self.target_agent_id.trim().is_empty() {
+            return Err(A2AError::InvalidRequest(
+                "target_agent_id is required".to_string(),
+            ));
+        }
+        if self.capability_id.trim().is_empty() {
+            return Err(A2AError::InvalidRequest(
+                "capability_id is required".to_string(),
+            ));
+        }
+        if self.messages.is_empty() && self.parameters.is_empty() {
+            return Err(A2AError::InvalidRequest(
+                "task requires structured messages or scalar parameters".to_string(),
+            ));
+        }
+        for message in &self.messages {
+            message.validate().map_err(|error| {
+                A2AError::InvalidRequest(format!("invalid task message: {error}"))
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Primary user-visible text extracted from structured messages.
+    pub fn primary_user_text(&self) -> Option<String> {
+        if self.messages.is_empty() {
+            return None;
+        }
+        let lines = agent_messages_to_text_lines(&self.messages);
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join("\n"))
+        }
     }
 
     pub fn with_context(mut self, context: A2ATaskContext) -> Self {
@@ -328,7 +387,11 @@ impl A2ATaskResponse {
         }
     }
 
-    pub fn failure(task_id: impl Into<String>, error: impl Into<String>, execution_time_ms: u64) -> Self {
+    pub fn failure(
+        task_id: impl Into<String>,
+        error: impl Into<String>,
+        execution_time_ms: u64,
+    ) -> Self {
         Self {
             task_id: task_id.into(),
             status: A2ATaskStatus::Failed,
@@ -465,8 +528,9 @@ mod tests {
 
     #[test]
     fn test_a2a_agent_card_with_capability() {
-        let card = A2AAgentCard::new("agent-1", "Test", "Test", "1.0")
-            .with_capability(A2ACapability::new("cap-1", "Capability 1", "Test capability"));
+        let card = A2AAgentCard::new("agent-1", "Test", "Test", "1.0").with_capability(
+            A2ACapability::new("cap-1", "Capability 1", "Test capability"),
+        );
 
         assert_eq!(card.capabilities.len(), 1);
         assert!(card.has_capability("cap-1"));
@@ -513,18 +577,19 @@ mod tests {
 
     #[test]
     fn test_a2a_endpoint_with_protocol() {
-        let endpoint = A2AEndpoint::new("http", "https://api.example.com")
-            .with_protocol("https");
+        let endpoint = A2AEndpoint::new("http", "https://api.example.com").with_protocol("https");
 
         assert_eq!(endpoint.protocols, vec!["https"]);
     }
 
     #[test]
     fn test_a2a_task_request_new() {
-        let request = A2ATaskRequest::new("task-1", "agent-1", "cap-1");
+        let request =
+            A2ATaskRequest::new("task-1", "agent-1", "cap-1").with_parameter("spec", "value");
         assert_eq!(request.task_id, "task-1");
         assert_eq!(request.target_agent_id, "agent-1");
-        assert!(request.input.is_empty());
+        assert!(request.messages.is_empty());
+        assert!(request.validate().is_ok());
     }
 
     #[test]
@@ -533,8 +598,11 @@ mod tests {
             .with_input("param1", "value1")
             .with_input("param2", "value2");
 
-        assert_eq!(request.input.len(), 2);
-        assert_eq!(request.input.get("param1"), Some(&"value1".to_string()));
+        assert_eq!(request.parameters.len(), 2);
+        assert_eq!(
+            request.parameters.get("param1"),
+            Some(&"value1".to_string())
+        );
     }
 
     #[test]
@@ -557,9 +625,7 @@ mod tests {
 
     #[test]
     fn test_a2a_task_response_success() {
-        let output = HashMap::from([
-            ("result".to_string(), "success".to_string()),
-        ]);
+        let output = HashMap::from([("result".to_string(), "success".to_string())]);
         let response = A2ATaskResponse::success("task-1", output, 100);
 
         assert_eq!(response.status, A2ATaskStatus::Completed);

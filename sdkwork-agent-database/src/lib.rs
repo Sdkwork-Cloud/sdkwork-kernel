@@ -1,8 +1,10 @@
 mod error;
 mod pagination;
 mod schema;
+mod schema_migrations;
 mod traits;
 mod types;
+mod upsert_sql;
 
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
@@ -26,11 +28,11 @@ pub use memory::InMemoryDatabase;
 pub use schema::SchemaManager;
 pub use traits::{
     AgentDatabase, DatabaseParam, DatabaseRow, EventRepository, MessageRepository,
-    PermissionRepository, SessionRepository, TaskRepository,
+    PermissionRepository, RuntimeSessionWrites, SessionRepository, TaskRepository,
 };
 pub use types::{
-    AgentRow, EventQuery, EventRow, MessageQuery, MessageRow, PermissionQuery, PermissionRow,
-    SessionQuery, SessionRow, TaskQuery, TaskRow,
+    session_owner_fields_from_metadata_json, EventQuery, EventRow, MessageQuery, MessageRow,
+    PermissionQuery, PermissionRow, SessionQuery, SessionRow, TaskQuery, TaskRow,
 };
 
 #[cfg(feature = "sqlite")]

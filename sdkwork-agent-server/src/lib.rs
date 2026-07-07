@@ -3,6 +3,7 @@ pub mod agent_registry;
 pub mod api;
 pub mod app;
 
+pub mod backend_health_worker;
 pub mod config;
 pub mod event_bus;
 pub mod health;

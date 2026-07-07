@@ -3,7 +3,7 @@
 Status: active
 Owner: SDKWork kernel maintainers
 Application: sdkwork-kernel
-Updated: 2026-06-26
+Updated: 2026-07-06
 Parent: [PRD.md](PRD.md)
 Specs: [REQUIREMENTS_SPEC.md](../../../../sdkwork-specs/REQUIREMENTS_SPEC.md)
 
@@ -31,9 +31,11 @@ catalog schema) are **not** duplicated here. Authority:
 | OpenClaw | `binding.agent-provider.openclaw` | Shipped |
 | Hermes | `binding.agent-provider.hermes` | Shipped |
 | Rig | `binding.agent-provider.rig` | Shipped |
-| Mimo Code | TBD | In progress |
+| Mimo Code | `binding.agent-provider.mimo-code` | In progress — crate shipped; binding manifest pending |
 
 Integration mode matrix and transport contracts: `AGENT_PROVIDER_INTEGRATION_SPEC.md` §3–5.
+
+Framework capability matrix: [TECH-02-provider-framework-matrix.md](../../architecture/tech/TECH-02-provider-framework-matrix.md).
 
 ## 3. Product Acceptance Criteria
 

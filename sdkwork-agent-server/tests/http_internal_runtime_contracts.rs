@@ -95,6 +95,26 @@ fn list_items(payload: &Value) -> &[Value] {
         .expect("list response should expose data.items[]")
 }
 
+fn assert_offset_page_info(payload: &Value, expected_page: i64, expected_page_size: i64) {
+    let page_info = payload
+        .get("data")
+        .and_then(|data| data.get("pageInfo"))
+        .expect("list response should expose data.pageInfo");
+    assert_eq!(
+        page_info.get("mode").and_then(Value::as_str),
+        Some("offset")
+    );
+    assert_eq!(
+        page_info.get("page").and_then(Value::as_i64),
+        Some(expected_page)
+    );
+    assert_eq!(
+        page_info.get("pageSize").and_then(Value::as_i64),
+        Some(expected_page_size)
+    );
+    assert!(page_info.get("hasMore").is_some());
+}
+
 fn item_value(payload: &Value) -> &Value {
     assert_sdkwork_success_envelope(payload);
     payload
@@ -181,26 +201,36 @@ async fn internal_runtime_health_returns_health_status() {
         .await
         .expect("health request should succeed");
 
-    assert_eq!(response.status(), StatusCode::OK);
-    let health = read_json(response).await;
-    let health = item_value(&health);
-    assert!(health["runtimeId"].is_string(), "runtimeId must be present");
-    assert!(health["state"].is_string(), "state must be present");
-    assert!(
-        matches!(
-            health["health"].as_str(),
-            Some("healthy") | Some("degraded")
-        ),
-        "health must be healthy or degraded"
-    );
-    assert!(
-        health["persistenceHealthy"].is_boolean(),
-        "persistenceHealthy must be boolean"
-    );
-    assert!(
-        health["degradedCapabilities"].is_array(),
-        "degradedCapabilities must be an array"
-    );
+    match response.status() {
+        StatusCode::OK => {
+            let health = read_json(response).await;
+            let health = item_value(&health);
+            assert!(health["runtimeId"].is_string(), "runtimeId must be present");
+            assert!(health["state"].is_string(), "state must be present");
+            assert_eq!(health["health"].as_str(), Some("healthy"));
+            assert!(
+                health["persistenceHealthy"].is_boolean(),
+                "persistenceHealthy must be boolean"
+            );
+            assert!(
+                health["degradedCapabilities"].is_array(),
+                "degradedCapabilities must be an array"
+            );
+        }
+        StatusCode::SERVICE_UNAVAILABLE => {
+            let problem = read_json(response).await;
+            assert_eq!(problem.get("status").and_then(Value::as_i64), Some(503));
+            assert!(
+                problem.get("code").and_then(Value::as_i64).is_some(),
+                "degraded health must return ProblemDetail.code"
+            );
+            assert!(
+                problem.get("traceId").and_then(Value::as_str).is_some(),
+                "degraded health must return traceId"
+            );
+        }
+        other => panic!("unexpected runtime health status: {other}"),
+    }
 }
 
 #[tokio::test]
@@ -340,6 +370,7 @@ async fn internal_runtime_session_roundtrip_uses_items_list_envelope() {
     assert_eq!(list.status(), StatusCode::OK);
     let sessions = read_json(list).await;
     let session_items = list_items(&sessions);
+    assert_offset_page_info(&sessions, 1, 20);
     assert!(session_items
         .iter()
         .any(|row| row["sessionId"] == session_id));
@@ -371,9 +402,332 @@ async fn internal_runtime_session_roundtrip_uses_items_list_envelope() {
     assert_eq!(messages.status(), StatusCode::OK);
     let payload = read_json(messages).await;
     let message_items = list_items(&payload);
+    assert_offset_page_info(&payload, 1, 20);
     assert_eq!(message_items.len(), 2);
     assert_eq!(message_items[0]["role"], "user");
     assert_eq!(message_items[1]["role"], "assistant");
+}
+
+#[tokio::test]
+async fn internal_runtime_messages_support_cursor_pagination() {
+    let app = open_test_app();
+    let create = Request::builder()
+        .method("POST")
+        .uri(runtime_path("/sessions"))
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "agentId": "agent.1",
+                "tenantId": "tenant.1",
+                "title": "cursor pagination"
+            })
+            .to_string(),
+        ))
+        .expect("create request should be built");
+    let response = app
+        .clone()
+        .oneshot(create)
+        .await
+        .expect("create request should succeed");
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let session_id = item_value(&read_json(response).await)["sessionId"]
+        .as_str()
+        .expect("sessionId")
+        .to_string();
+
+    for content in ["one", "two", "three"] {
+        let send = Request::builder()
+            .method("POST")
+            .uri(runtime_path(&format!("/sessions/{session_id}/messages")))
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(json!({ "content": content }).to_string()))
+            .expect("send request should be built");
+        let response = app
+            .clone()
+            .oneshot(send)
+            .await
+            .expect("send should succeed");
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    let first_page = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(runtime_path(&format!(
+                    "/sessions/{session_id}/messages?page_size=1"
+                )))
+                .body(Body::empty())
+                .expect("messages request should be built"),
+        )
+        .await
+        .expect("messages request should succeed");
+    assert_eq!(first_page.status(), StatusCode::OK);
+    let first_payload = read_json(first_page).await;
+    let first_items = list_items(&first_payload);
+    assert_offset_page_info(&first_payload, 1, 1);
+    assert_eq!(first_items.len(), 1);
+    let first_message_id = first_items[0]["messageId"]
+        .as_str()
+        .expect("messageId")
+        .to_string();
+
+    let cursor_page = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(runtime_path(&format!(
+                    "/sessions/{session_id}/messages?cursor={first_message_id}&page_size=1"
+                )))
+                .body(Body::empty())
+                .expect("cursor request should be built"),
+        )
+        .await
+        .expect("cursor request should succeed");
+    assert_eq!(cursor_page.status(), StatusCode::OK);
+    let cursor_payload = read_json(cursor_page).await;
+    let cursor_items = list_items(&cursor_payload);
+    let page_info = cursor_payload
+        .get("data")
+        .and_then(|data| data.get("pageInfo"))
+        .expect("pageInfo");
+    assert_eq!(
+        page_info.get("mode").and_then(Value::as_str),
+        Some("cursor")
+    );
+    assert_eq!(cursor_items.len(), 1);
+    assert_ne!(cursor_items[0]["messageId"], first_message_id);
+}
+
+#[tokio::test]
+async fn internal_runtime_sessions_support_cursor_pagination() {
+    let app = open_test_app();
+    let mut session_ids = Vec::new();
+    for title in ["session-alpha", "session-beta", "session-gamma"] {
+        let create = Request::builder()
+            .method("POST")
+            .uri(runtime_path("/sessions"))
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                json!({
+                    "agentId": "agent.1",
+                    "tenantId": "tenant.1",
+                    "title": title
+                })
+                .to_string(),
+            ))
+            .expect("create request should be built");
+        let response = app
+            .clone()
+            .oneshot(create)
+            .await
+            .expect("create should succeed");
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let session_id = item_value(&read_json(response).await)["sessionId"]
+            .as_str()
+            .expect("sessionId")
+            .to_string();
+        session_ids.push(session_id);
+    }
+
+    let first_page = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(runtime_path("/sessions?page_size=1"))
+                .body(Body::empty())
+                .expect("list request should be built"),
+        )
+        .await
+        .expect("list request should succeed");
+    assert_eq!(first_page.status(), StatusCode::OK);
+    let first_payload = read_json(first_page).await;
+    let first_items = list_items(&first_payload);
+    assert_offset_page_info(&first_payload, 1, 1);
+    assert_eq!(first_items.len(), 1);
+    let first_session_id = first_items[0]["sessionId"]
+        .as_str()
+        .expect("sessionId")
+        .to_string();
+
+    let cursor_page = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(runtime_path(&format!(
+                    "/sessions?cursor={first_session_id}&page_size=1"
+                )))
+                .body(Body::empty())
+                .expect("cursor request should be built"),
+        )
+        .await
+        .expect("cursor request should succeed");
+    assert_eq!(cursor_page.status(), StatusCode::OK);
+    let cursor_payload = read_json(cursor_page).await;
+    let cursor_items = list_items(&cursor_payload);
+    let page_info = cursor_payload
+        .get("data")
+        .and_then(|data| data.get("pageInfo"))
+        .expect("pageInfo");
+    assert_eq!(
+        page_info.get("mode").and_then(Value::as_str),
+        Some("cursor")
+    );
+    assert_eq!(cursor_items.len(), 1);
+    assert_ne!(cursor_items[0]["sessionId"], first_session_id);
+    let cursor_session_id = cursor_items[0]["sessionId"]
+        .as_str()
+        .expect("sessionId on cursor page");
+    assert!(session_ids.iter().any(|id| id == cursor_session_id));
+}
+
+#[tokio::test]
+async fn internal_runtime_list_queries_reject_forbidden_pagination_aliases() {
+    let app = open_test_app();
+
+    for query in [
+        "pageSize=1",
+        "limit=1",
+        "page_no=1",
+        "pageNo=1",
+        "per_page=1",
+        "size=1",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(runtime_path(&format!("/sessions?{query}")))
+                    .body(Body::empty())
+                    .expect("list sessions request should be built"),
+            )
+            .await
+            .expect("list sessions request should succeed");
+
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "forbidden pagination alias should be rejected: {query}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn internal_runtime_tasks_support_cursor_pagination() {
+    let app = open_test_app();
+    let create = Request::builder()
+        .method("POST")
+        .uri(runtime_path("/sessions"))
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            json!({
+                "agentId": "agent.1",
+                "tenantId": "tenant.1",
+                "title": "task cursor pagination"
+            })
+            .to_string(),
+        ))
+        .expect("create request should be built");
+    let response = app
+        .clone()
+        .oneshot(create)
+        .await
+        .expect("create request should succeed");
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let session_id = item_value(&read_json(response).await)["sessionId"]
+        .as_str()
+        .expect("sessionId")
+        .to_string();
+
+    for instruction in ["task-one", "task-two", "task-three"] {
+        let submit = Request::builder()
+            .method("POST")
+            .uri(runtime_path(&format!("/sessions/{session_id}/tasks")))
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                json!({ "instruction": instruction }).to_string(),
+            ))
+            .expect("submit request should be built");
+        let response = app
+            .clone()
+            .oneshot(submit)
+            .await
+            .expect("submit should succeed");
+        assert_eq!(response.status(), StatusCode::CREATED);
+    }
+
+    let first_page = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(runtime_path(&format!(
+                    "/sessions/{session_id}/tasks?page_size=1"
+                )))
+                .body(Body::empty())
+                .expect("tasks request should be built"),
+        )
+        .await
+        .expect("tasks request should succeed");
+    assert_eq!(first_page.status(), StatusCode::OK);
+    let first_payload = read_json(first_page).await;
+    let first_items = list_items(&first_payload);
+    assert_offset_page_info(&first_payload, 1, 1);
+    assert_eq!(first_items.len(), 1);
+    let first_task_id = first_items[0]["taskId"]
+        .as_str()
+        .expect("taskId")
+        .to_string();
+
+    let cursor_page = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(runtime_path(&format!(
+                    "/sessions/{session_id}/tasks?cursor={first_task_id}&page_size=1"
+                )))
+                .body(Body::empty())
+                .expect("cursor request should be built"),
+        )
+        .await
+        .expect("cursor request should succeed");
+    assert_eq!(cursor_page.status(), StatusCode::OK);
+    let cursor_payload = read_json(cursor_page).await;
+    let cursor_items = list_items(&cursor_payload);
+    let page_info = cursor_payload
+        .get("data")
+        .and_then(|data| data.get("pageInfo"))
+        .expect("pageInfo");
+    assert_eq!(
+        page_info.get("mode").and_then(Value::as_str),
+        Some("cursor")
+    );
+    assert_eq!(cursor_items.len(), 1);
+    assert_ne!(cursor_items[0]["taskId"], first_task_id);
+}
+
+#[tokio::test]
+async fn internal_runtime_list_rejects_page_and_cursor_together() {
+    let app = open_test_app();
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri(runtime_path("/sessions?page=1&cursor=session.1"))
+                .body(Body::empty())
+                .expect("list request should be built"),
+        )
+        .await
+        .expect("list request should complete");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let payload = read_json(response).await;
+    assert_eq!(payload.get("code").and_then(Value::as_i64), Some(40003));
+    assert!(
+        payload
+            .get("detail")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .contains("page and cursor cannot be combined"),
+        "problem detail should explain pagination conflict"
+    );
 }
 
 #[tokio::test]
@@ -429,7 +783,7 @@ async fn readiness_probe_checks_persistence() {
     let response = app
         .oneshot(
             Request::builder()
-                .uri("/ready")
+                .uri("/readyz")
                 .body(Body::empty())
                 .expect("ready request should be built"),
         )
@@ -480,7 +834,7 @@ async fn ingress_token_auth_accepts_bearer_token() {
 #[tokio::test]
 async fn health_probes_bypass_ingress_token_auth() {
     let app = token_test_app(TEST_INGRESS_TOKEN);
-    for path in ["/health", "/ready", "/live"] {
+    for (path, expected_status) in [("/healthz", "ok"), ("/readyz", "ready"), ("/livez", "ok")] {
         let response = app
             .clone()
             .oneshot(
@@ -495,6 +849,33 @@ async fn health_probes_bypass_ingress_token_auth() {
             response.status(),
             StatusCode::OK,
             "path {path} should bypass auth"
+        );
+        let payload = read_json(response).await;
+        assert_eq!(
+            payload["status"], expected_status,
+            "path {path} should return the canonical infrastructure probe body"
+        );
+    }
+}
+
+#[tokio::test]
+async fn legacy_health_probe_paths_are_not_mounted() {
+    let app = open_test_app();
+    for path in ["/health", "/ready", "/live"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(path)
+                    .body(Body::empty())
+                    .expect("legacy health request should be built"),
+            )
+            .await
+            .expect("legacy health request should succeed");
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "legacy health path {path} must not remain mounted"
         );
     }
 }
@@ -729,6 +1110,38 @@ async fn closed_session_rejects_messages() {
         .oneshot(send)
         .await
         .expect("send request should succeed");
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn closed_session_rejects_model_invoke() {
+    let app = open_test_app();
+    let session_id = create_session_on_open_app(&app, "agent.1").await;
+
+    let close = Request::builder()
+        .method("POST")
+        .uri(runtime_path(&format!("/sessions/{session_id}/close")))
+        .body(Body::empty())
+        .expect("close request should be built");
+    let response = app
+        .clone()
+        .oneshot(close)
+        .await
+        .expect("close request should succeed");
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let invoke = Request::builder()
+        .method("POST")
+        .uri(runtime_path(&format!(
+            "/sessions/{session_id}/model/invoke"
+        )))
+        .header(CONTENT_TYPE, "application/json")
+        .body(Body::from(json!({}).to_string()))
+        .expect("invoke request should be built");
+    let response = app
+        .oneshot(invoke)
+        .await
+        .expect("invoke request should succeed");
     assert_eq!(response.status(), StatusCode::CONFLICT);
 }
 
@@ -1189,7 +1602,7 @@ async fn metrics_endpoint_exposes_prometheus_families_without_auth() {
         .clone()
         .oneshot(
             Request::builder()
-                .uri("/health")
+                .uri("/healthz")
                 .body(Body::empty())
                 .expect("health request should be built"),
         )
@@ -1448,9 +1861,66 @@ async fn internal_runtime_model_stream_returns_sse_chunks() {
         body.contains("event:model.chunk") || body.contains("event: model.chunk"),
         "sse body should contain model.chunk events: {body}"
     );
+    let chunk_count = body
+        .matches("event:model.chunk")
+        .chain(body.matches("event: model.chunk"))
+        .count();
+    assert!(
+        chunk_count >= 2,
+        "mock stream should emit multiple incremental chunks, got {chunk_count}: {body}"
+    );
     assert!(
         body.contains("event:model.done") || body.contains("event: model.done"),
         "sse body should contain model.done terminator: {body}"
+    );
+}
+
+#[tokio::test]
+async fn internal_runtime_model_stream_uses_sse_timeout_not_standard_timeout() {
+    let mut config = ServerConfig::default();
+    config.request_timeout_secs = 0;
+    config.sse_request_timeout_secs = 5;
+    let config = Arc::new(config);
+    let persistence = Arc::new(
+        sdkwork_agent_server::persistence::PersistenceState::memory()
+            .expect("in-memory persistence should initialize for tests"),
+    );
+    let session = persistence
+        .create_session(sdkwork_agent_session::SessionConfig::new("agent.1"))
+        .expect("session should be created");
+    let runtime_state = Arc::new(
+        sdkwork_agent_server::api::internal_runtime::InternalRuntimeApiState::new(
+            persistence.clone(),
+            config.clone(),
+        )
+        .expect("runtime state should initialize for tests"),
+    );
+    let app = app::build_app(
+        config,
+        Arc::new(sdkwork_agent_server::health::HealthState::new()),
+        persistence,
+        runtime_state,
+    );
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(runtime_path(&format!(
+                    "/sessions/{}/model/stream",
+                    session.session_id
+                )))
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(json!({ "messages": ["hello"] }).to_string()))
+                .expect("stream request should be built"),
+        )
+        .await
+        .expect("stream request should succeed");
+
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "model stream must use the long SSE timeout, not the standard JSON timeout"
     );
 }
 

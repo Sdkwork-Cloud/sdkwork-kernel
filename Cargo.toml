@@ -45,6 +45,12 @@ sdkwork-agent-provider-transport-rust = { path = "sdkwork-agent-provider-transpo
 sdkwork-agent-provider-transport-node = { path = "sdkwork-agent-provider-transport-node" }
 sdkwork-agent-provider-transport-python = { path = "sdkwork-agent-provider-transport-python" }
 sdkwork-code-kernel = { path = "sdkwork-code-kernel" }
+sdkwork-agent-api-bridge = { path = "sdkwork-agent-api-bridge" }
+sdkwork-agent-streaming = { path = "sdkwork-agent-streaming" }
+sdkwork-agent-server = { path = "sdkwork-agent-server" }
+sdkwork-agent-database = { path = "sdkwork-agent-database" }
+sdkwork-agent-session = { path = "sdkwork-agent-session" }
+sdkwork-agent-client = { path = "sdkwork-agent-client" }
 sdkwork-agent-plugin-core = { path = "sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core" }
 sdkwork-kernel-plugin-drive = { path = "sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-drive" }
 sdkwork-kernel-plugin-knowledgebase = { path = "sdkwork-kernel-plugins/crates/sdkwork-kernel-plugin-knowledgebase" }
@@ -69,6 +75,7 @@ sdkwork-web-bootstrap = { path = "../sdkwork-web-framework/crates/sdkwork-web-bo
 sdkwork-database-config = { path = "../sdkwork-database/crates/sdkwork-database-config" }
 sdkwork-database-sqlx = { path = "../sdkwork-database/crates/sdkwork-database-sqlx" }
 sdkwork-utils-rust = { path = "../sdkwork-utils/packages/sdkwork-utils-rust" }
+sdkwork-models = { path = "../sdkwork-models/sdks/sdkwork-models-sdk/sdkwork-models-sdk-rust" }
 sdkwork-iam-web-adapter = { path = "../sdkwork-iam/crates/sdkwork-iam-web-adapter" }
 sdkwork-routes-agent-internal-manifest = { path = "crates/sdkwork-routes-agent-internal-manifest" }
 sdkwork-routes-agent-internal-api = { path = "crates/sdkwork-routes-agent-internal-api" }

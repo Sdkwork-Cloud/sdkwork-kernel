@@ -124,7 +124,9 @@ Required fields:
 - `task_id`
 - `run_id`
 - `step_id`
-- `messages`
+- `messages` (legacy plain-text projection)
+- `input_messages` (canonical structured multimodal turns)
+- `input_contract` / `input_policy`
 - `context_frames`
 - `tool_descriptors`
 - `response_format`
@@ -144,6 +146,30 @@ Rules:
 - Sensitive context `MUST` pass policy before leaving the trusted boundary.
 - Provider-specific parameters `MUST` be namespaced in metadata. Generic model
   settings should use the `model.*` namespace.
+- Providers `MUST` consume structured `input_messages` through
+  `sdkwork-agent-provider-core::resolve_model_wire_messages` and vendor JSON
+  helpers (`wire_messages_to_openai_json`, `wire_messages_to_anthropic_json`)
+  instead of lossy `messages` text when `model.multimodal_input` is declared.
+- Legacy `model_request_prompt` remains a text summary fallback only.
+
+### 4.1 Structured wire projection
+
+Implementation: `sdkwork-kernel-plugins/crates/sdkwork-agent-provider-core/src/model_wire.rs`
+
+| Kernel | Wire | OpenAI | Anthropic |
+| --- | --- | --- | --- |
+| `AgentMessage` + `AgentPart` | `ModelWireMessage` + `ContentBlock` | `messages[].content[]` | `messages[].content[]` |
+| `ContentReference` | URI in wire part | `image_url.url` | `image.source.url` |
+
+Rules:
+
+- Wire projection `MUST` round-trip kernel `ContentBlock` ↔ `AgentPart`.
+- Providers `MUST NOT` parse bracketed text markers (`[image:…]`) when structured
+  input is present.
+- Subprocess transports `SHOULD` pass OpenAI/Anthropic JSON blobs from wire
+  helpers on `SdkRuntimeOperation::ModelChat.wire_messages` (built by
+  `build_model_chat_operation` / `SdkRuntimeRequest::from_model_request`)
+  rather than a single flattened prompt string.
 
 ## 5. Model Response
 

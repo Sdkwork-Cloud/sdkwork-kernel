@@ -59,6 +59,11 @@ Ingress auth: `sdkwork-agent-client/src/ingress_auth.rs` (MAC / bearer profiles 
 Shared session store: `sdkwork-agent-client/src/session/` (SQLite via `SDKWORK_CLIENT_DATABASE_PATH`).
 
 Streaming on local SDK bridges is rejected; use **Remote** + `HttpRestSse` for streaming.
+`SseChatClient` async methods are the preferred API for async hosts. Its sync
+`ChatClient` implementation is retained for bridge compatibility and detects an
+existing Tokio runtime before blocking; when one is present, the call is
+offloaded to a dedicated runtime thread to avoid nested-runtime panics and
+executor deadlocks.
 
 ## Security and production posture
 

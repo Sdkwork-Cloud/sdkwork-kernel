@@ -1,10 +1,11 @@
 use crate::{
-    AgentChatKnowledgeQuery, AgentChatMemoryQuery, AgentChatRequest, AgentChatService,
-    AgentRuntime, KernelError, KernelErrorKind, KernelErrorSource, KernelEvent,
-    KernelEventRedaction, KernelEventSeverity, KernelEventSource, KernelResult,
-    KnowledgeRetrievalMethod, McpToolExecutionRequest, McpToolExecutionResponse,
-    McpToolExecutionService, ModelResponse, Plan, PolicySubject, RuntimeState, ToolCall,
-    ToolExecutionRequest, ToolExecutionResponse, ToolExecutionService, TraceContext,
+    agent_messages_to_text_lines, AgentChatKnowledgeQuery, AgentChatMemoryQuery, AgentChatRequest,
+    AgentChatService, AgentInputContract, AgentInputPolicy, AgentMessage, AgentRuntime,
+    KernelError, KernelErrorKind, KernelErrorSource, KernelEvent, KernelEventRedaction,
+    KernelEventSeverity, KernelEventSource, KernelResult, KnowledgeRetrievalMethod,
+    McpToolExecutionRequest, McpToolExecutionResponse, McpToolExecutionService, ModelResponse,
+    Plan, PolicySubject, RuntimeState, ToolCall, ToolExecutionRequest, ToolExecutionResponse,
+    ToolExecutionService, TraceContext,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -223,6 +224,9 @@ impl AgentObservation {
 pub struct AgentExecutionRequest {
     pub execution_id: String,
     pub messages: Vec<String>,
+    pub input_messages: Vec<AgentMessage>,
+    pub input_policy: Option<AgentInputPolicy>,
+    pub input_contract: Option<AgentInputContract>,
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
     pub session_id: Option<String>,
@@ -244,6 +248,9 @@ impl AgentExecutionRequest {
         Self {
             execution_id: execution_id.into(),
             messages,
+            input_messages: Vec::new(),
+            input_policy: None,
+            input_contract: None,
             provider_id: None,
             model_id: None,
             session_id: None,
@@ -263,6 +270,24 @@ impl AgentExecutionRequest {
 
     pub fn with_provider_id(mut self, provider_id: impl Into<String>) -> Self {
         self.provider_id = Some(provider_id.into());
+        self
+    }
+
+    pub fn with_input_messages(mut self, input_messages: Vec<AgentMessage>) -> Self {
+        self.input_messages = input_messages;
+        self.messages = agent_messages_to_text_lines(&self.input_messages);
+        self
+    }
+
+    pub fn with_input_contract(mut self, input_contract: AgentInputContract) -> Self {
+        self.input_policy = Some(input_contract.to_legacy_policy());
+        self.input_contract = Some(input_contract);
+        self
+    }
+
+    pub fn with_input_policy(mut self, input_policy: AgentInputPolicy) -> Self {
+        self.input_policy = Some(input_policy.clone());
+        self.input_contract = Some(AgentInputContract::from_legacy_policy(&input_policy));
         self
     }
 
@@ -429,7 +454,21 @@ impl AgentExecutionRequest {
     }
 
     fn to_chat_request(&self) -> AgentChatRequest {
-        let mut request = AgentChatRequest::new(self.execution_id.clone(), self.messages.clone());
+        let mut request = if self.input_messages.is_empty() {
+            AgentChatRequest::new(self.execution_id.clone(), self.messages.clone())
+        } else {
+            AgentChatRequest::new(
+                self.execution_id.clone(),
+                agent_messages_to_text_lines(&self.input_messages),
+            )
+            .with_input_messages(self.input_messages.clone())
+        };
+
+        if let Some(input_contract) = &self.input_contract {
+            request = request.with_input_contract(input_contract.clone());
+        } else if let Some(input_policy) = &self.input_policy {
+            request = request.with_input_policy(input_policy.clone());
+        }
 
         if let Some(provider_id) = &self.provider_id {
             request = request.with_provider_id(provider_id.clone());

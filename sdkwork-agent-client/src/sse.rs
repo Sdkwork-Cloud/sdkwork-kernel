@@ -4,11 +4,13 @@ use crate::types::*;
 use crate::AgentAuth;
 use reqwest::Client;
 use serde::Deserialize;
+use std::future::Future;
 
 /// Canonical internal-api runtime mount prefix on `application.public-ingress`.
 pub const INTERNAL_RUNTIME_MOUNT_PREFIX: &str = "/internal/v3/api/intelligence/runtime";
 
 /// SSE-based chat client for streaming responses
+#[derive(Clone)]
 pub struct SseChatClient {
     base_url: String,
     client: Client,
@@ -33,6 +35,14 @@ impl SseChatClient {
             "{}{INTERNAL_RUNTIME_MOUNT_PREFIX}{relative}",
             self.base_url.trim_end_matches('/')
         )
+    }
+
+    fn messages_url(&self, session_id: &str, limit: Option<u32>) -> String {
+        let url = self.runtime_url(&format!("/sessions/{session_id}/messages"));
+        match limit {
+            Some(limit) => format!("{url}?page_size={limit}"),
+            None => url,
+        }
     }
 
     fn apply_auth(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
@@ -79,10 +89,7 @@ impl SseChatClient {
         session_id: &str,
         limit: Option<u32>,
     ) -> Result<Vec<ChatMessage>, String> {
-        let mut url = self.runtime_url(&format!("/sessions/{session_id}/messages"));
-        if let Some(limit) = limit {
-            url = format!("{url}?limit={limit}");
-        }
+        let url = self.messages_url(session_id, limit);
 
         let response = self
             .apply_auth(self.client.get(&url))
@@ -95,11 +102,13 @@ impl SseChatClient {
         }
 
         let payload = response
-            .json::<InternalMessageListResponse>()
+            .json::<SdkWorkApiResponse<SdkWorkListData<InternalMessageResponse>>>()
             .await
             .map_err(|e| format!("failed to parse response: {e}"))?;
+        ensure_success_code(payload.code)?;
 
         payload
+            .data
             .items
             .into_iter()
             .map(map_internal_message)
@@ -120,12 +129,13 @@ impl SseChatClient {
             return Err(format!("request failed with status: {}", response.status()));
         }
 
-        let session = response
-            .json::<InternalSessionResponse>()
+        let payload = response
+            .json::<SdkWorkApiResponse<SdkWorkItemData<InternalSessionResponse>>>()
             .await
             .map_err(|e| format!("failed to parse response: {e}"))?;
+        ensure_success_code(payload.code)?;
 
-        Ok(map_internal_session(session))
+        Ok(map_internal_session(payload.data.item))
     }
 
     /// Close session via internal-api runtime HTTP.
@@ -146,7 +156,7 @@ impl SseChatClient {
 
     /// Health check via HTTP
     pub async fn health_async(&self) -> Result<bool, String> {
-        let url = format!("{}/health", self.base_url.trim_end_matches('/'));
+        let url = format!("{}/healthz", self.base_url.trim_end_matches('/'));
         let response = self
             .client
             .get(&url)
@@ -160,8 +170,8 @@ impl SseChatClient {
 
 impl ChatClient for SseChatClient {
     fn send_message(&self, request: ChatRequest) -> Result<ChatResponse, String> {
-        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("runtime error: {e}"))?;
-        rt.block_on(self.send_message_async(request))
+        let client = self.clone();
+        block_on_sync(async move { client.send_message_async(request).await })
     }
 
     fn get_messages(
@@ -169,30 +179,90 @@ impl ChatClient for SseChatClient {
         session_id: &str,
         limit: Option<u32>,
     ) -> Result<Vec<ChatMessage>, String> {
-        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("runtime error: {e}"))?;
-        rt.block_on(self.get_messages_async(session_id, limit))
+        let client = self.clone();
+        let session_id = session_id.to_string();
+        block_on_sync(async move { client.get_messages_async(&session_id, limit).await })
     }
 
     fn create_session(&self, config: SessionConfig) -> Result<SessionInfo, String> {
-        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("runtime error: {e}"))?;
-        rt.block_on(self.create_session_async(config))
+        let client = self.clone();
+        block_on_sync(async move { client.create_session_async(config).await })
     }
 
     fn close_session(&self, session_id: &str) -> Result<(), String> {
-        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("runtime error: {e}"))?;
-        rt.block_on(self.close_session_async(session_id))
+        let client = self.clone();
+        let session_id = session_id.to_string();
+        block_on_sync(async move { client.close_session_async(&session_id).await })
     }
 
     fn health(&self) -> Result<bool, String> {
-        let rt = tokio::runtime::Runtime::new().map_err(|e| format!("runtime error: {e}"))?;
-        rt.block_on(self.health_async())
+        let client = self.clone();
+        block_on_sync(async move { client.health_async().await })
     }
+}
+
+fn block_on_sync<T, F>(future: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: Future<Output = Result<T, String>> + Send + 'static,
+{
+    if tokio::runtime::Handle::try_current().is_ok() {
+        let thread = std::thread::Builder::new()
+            .name("sdkwork-agent-client-sync-runtime".to_string())
+            .spawn(move || block_on_new_runtime(future))
+            .map_err(|error| format!("runtime thread error: {error}"))?;
+        return thread
+            .join()
+            .map_err(|_| "runtime thread panicked".to_string())?;
+    }
+
+    block_on_new_runtime(future)
+}
+
+fn block_on_new_runtime<T, F>(future: F) -> Result<T, String>
+where
+    F: Future<Output = Result<T, String>>,
+{
+    let runtime = tokio::runtime::Runtime::new().map_err(|e| format!("runtime error: {e}"))?;
+    runtime.block_on(future)
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct InternalMessageListResponse {
-    items: Vec<InternalMessageResponse>,
+struct SdkWorkApiResponse<T> {
+    code: i32,
+    data: T,
+    #[allow(dead_code)]
+    trace_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SdkWorkListData<T> {
+    items: Vec<T>,
+    #[allow(dead_code)]
+    page_info: Option<SdkWorkPageInfo>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SdkWorkItemData<T> {
+    item: T,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SdkWorkPageInfo {
+    #[allow(dead_code)]
+    mode: String,
+    #[allow(dead_code)]
+    page: Option<i64>,
+    #[allow(dead_code)]
+    page_size: i64,
+    #[allow(dead_code)]
+    has_more: bool,
+    #[allow(dead_code)]
+    next_cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -258,5 +328,99 @@ fn map_internal_session(session: InternalSessionResponse) -> SessionInfo {
         message_count: session.message_count,
         created_at: session.created_at.unwrap_or_default(),
         updated_at: session.updated_at.unwrap_or_default(),
+    }
+}
+
+fn ensure_success_code(code: i32) -> Result<(), String> {
+    if code == 0 {
+        Ok(())
+    } else {
+        Err(format!("sdkwork response returned non-zero code: {code}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn parses_sdkwork_v3_message_list_envelope() {
+        let payload = json!({
+            "code": 0,
+            "traceId": "018f4f0d-0000-7000-8000-000000000001",
+            "data": {
+                "items": [
+                    {
+                        "messageId": "msg.1",
+                        "role": "assistant",
+                        "parts": [{ "content": "hello" }],
+                        "createdAt": "2026-07-07T00:00:00Z"
+                    }
+                ],
+                "pageInfo": {
+                    "mode": "offset",
+                    "page": 1,
+                    "pageSize": 20,
+                    "hasMore": false
+                }
+            }
+        });
+
+        let envelope: SdkWorkApiResponse<SdkWorkListData<InternalMessageResponse>> =
+            serde_json::from_value(payload).expect("sdkwork v3 list envelope");
+
+        assert_eq!(envelope.code, 0);
+        assert_eq!(envelope.data.items.len(), 1);
+        assert_eq!(envelope.data.items[0].message_id, "msg.1");
+    }
+
+    #[test]
+    fn parses_sdkwork_v3_session_item_envelope() {
+        let payload = json!({
+            "code": 0,
+            "traceId": "018f4f0d-0000-7000-8000-000000000002",
+            "data": {
+                "item": {
+                    "sessionId": "session.1",
+                    "agentId": "agent.1",
+                    "model": null,
+                    "title": "Kernel",
+                    "state": "active",
+                    "messageCount": 0,
+                    "createdAt": "2026-07-07T00:00:00Z",
+                    "updatedAt": "2026-07-07T00:00:00Z"
+                }
+            }
+        });
+
+        let envelope: SdkWorkApiResponse<SdkWorkItemData<InternalSessionResponse>> =
+            serde_json::from_value(payload).expect("sdkwork v3 item envelope");
+
+        assert_eq!(envelope.code, 0);
+        assert_eq!(envelope.data.item.session_id, "session.1");
+        assert_eq!(envelope.data.item.agent_id, "agent.1");
+    }
+
+    #[test]
+    fn message_list_url_uses_canonical_page_size_query() {
+        let client = SseChatClient::new("http://localhost:18280");
+
+        assert_eq!(
+            client.messages_url("session.1", Some(10)),
+            "http://localhost:18280/internal/v3/api/intelligence/runtime/sessions/session.1/messages?page_size=10"
+        );
+    }
+
+    #[tokio::test]
+    async fn sync_health_does_not_panic_inside_existing_tokio_runtime() {
+        let client = SseChatClient::new("http://127.0.0.1:9");
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| client.health()));
+
+        assert!(
+            result.is_ok(),
+            "sync ChatClient methods must not panic when called from an existing Tokio runtime"
+        );
     }
 }

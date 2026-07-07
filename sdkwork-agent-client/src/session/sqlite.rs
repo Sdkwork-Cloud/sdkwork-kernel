@@ -57,6 +57,8 @@ pub fn session_row_from_info(info: &SessionInfo) -> sdkwork_agent_database::Sess
         bridge_id: Some(info.bridge_id.clone()),
         token_usage_json: None,
         message_count: info.message_count as i64,
+        owner_tenant_id: None,
+        owner_user_ref: None,
         created_at: info.created_at.clone(),
         updated_at: Some(info.updated_at.clone()),
         metadata_json: None,
@@ -166,6 +168,7 @@ impl SqliteBridgeSessionStore {
             .load_messages(
                 session_id,
                 &MessageQuery {
+                    after_message_id: None,
                     limit: limit.map(i64::from),
                     offset: None,
                 },
@@ -232,6 +235,7 @@ impl SqliteBridgeSessionStore {
                     .or_else(|| Some(self.bridge_id.clone())),
                 owner_tenant_id: None,
                 owner_user_ref: None,
+                after_session_id: None,
                 limit: query.limit.map(i64::from),
                 offset: None,
             })

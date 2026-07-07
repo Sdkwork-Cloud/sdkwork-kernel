@@ -7,8 +7,9 @@ use axum::{
 };
 use sdkwork_agent_kernel::KernelError;
 use sdkwork_utils_rust::{
-    offset_window_page_info, OffsetListPageParams, SdkWorkApiResponse, SdkWorkPageData,
-    SdkWorkProblemDetail, SdkWorkResourceData, SdkWorkResultCode, SDKWORK_TRACE_ID_HEADER,
+    cursor_list_page_data, offset_paged_list_page_info, OffsetListPageParams, SdkWorkApiResponse,
+    SdkWorkPageData, SdkWorkProblemDetail, SdkWorkResourceData, SdkWorkResultCode,
+    DEFAULT_LIST_PAGE_SIZE, SDKWORK_TRACE_ID_HEADER,
 };
 
 /// Handler error mapped to `application/problem+json` with numeric platform `code`.
@@ -68,7 +69,11 @@ impl ApiError {
         Self::internal(error, trace_id)
     }
 
-    pub fn from_status(status: StatusCode, detail: impl Into<String>, trace_id: impl Into<String>) -> Self {
+    pub fn from_status(
+        status: StatusCode,
+        detail: impl Into<String>,
+        trace_id: impl Into<String>,
+    ) -> Self {
         Self::new(
             crate::problem_details::result_code_for_status(status),
             detail,
@@ -80,14 +85,12 @@ impl ApiError {
         let trace_id = trace_id.into();
         match error {
             KernelError::Validation { message } => Self::invalid_parameter(message, trace_id),
-            KernelError::CapabilityMissing { capability_id } => Self::service_unavailable(
-                format!("missing capability: {capability_id}"),
-                trace_id,
-            ),
-            KernelError::ProviderUnavailable { provider_id } => Self::service_unavailable(
-                format!("provider unavailable: {provider_id}"),
-                trace_id,
-            ),
+            KernelError::CapabilityMissing { capability_id } => {
+                Self::service_unavailable(format!("missing capability: {capability_id}"), trace_id)
+            }
+            KernelError::ProviderUnavailable { provider_id } => {
+                Self::service_unavailable(format!("provider unavailable: {provider_id}"), trace_id)
+            }
             KernelError::PolicyDenied { reason_code } => Self::forbidden(reason_code, trace_id),
             KernelError::Internal { message } => Self::internal(message, trace_id),
             KernelError::Structured { info } => {
@@ -105,7 +108,9 @@ impl ApiError {
                     | sdkwork_agent_kernel::KernelErrorKind::SecurityViolation => {
                         Self::forbidden(detail, trace_id)
                     }
-                    sdkwork_agent_kernel::KernelErrorKind::Conflict => Self::conflict(detail, trace_id),
+                    sdkwork_agent_kernel::KernelErrorKind::Conflict => {
+                        Self::conflict(detail, trace_id)
+                    }
                     sdkwork_agent_kernel::KernelErrorKind::CapabilityMissing
                     | sdkwork_agent_kernel::KernelErrorKind::ProviderUnavailable
                     | sdkwork_agent_kernel::KernelErrorKind::ResourceExhausted
@@ -166,10 +171,17 @@ pub fn api_no_content(trace_id: &str) -> Response {
 
 /// Bounded catalog list (models/tools) using the standard page envelope.
 pub fn catalog_list_response<T: serde::Serialize>(items: Vec<T>, trace_id: &str) -> Response {
-    let count = items.len();
+    let page_size = if items.is_empty() {
+        i64::from(DEFAULT_LIST_PAGE_SIZE)
+    } else {
+        items.len() as i64
+    };
     let page_data = SdkWorkPageData {
         items,
-        page_info: offset_window_page_info(Some(count), None, false),
+        page_info: offset_paged_list_page_info(
+            OffsetListPageParams::parse(Some(1), Some(page_size)),
+            false,
+        ),
     };
     api_success(page_data, trace_id)
 }
@@ -188,11 +200,28 @@ pub fn offset_list_response<T: serde::Serialize>(
     }
     let page_data = SdkWorkPageData {
         items,
-        page_info: offset_window_page_info(
-            Some(page_size),
-            has_more.then(|| (params.offset + page_size as i64).to_string()),
-            has_more,
-        ),
+        page_info: offset_paged_list_page_info(params, has_more),
     };
+    api_success(page_data, trace_id)
+}
+
+/// Build cursor-mode list payload using `limit + 1` fetch semantics.
+pub fn cursor_list_response<T: serde::Serialize>(
+    mut items: Vec<T>,
+    page_size: i64,
+    id_for_cursor: impl Fn(&T) -> String,
+    trace_id: &str,
+) -> Response {
+    let page_size = page_size.max(1) as usize;
+    let has_more = items.len() > page_size;
+    if has_more {
+        items.truncate(page_size);
+    }
+    let next_cursor = if has_more {
+        items.last().map(id_for_cursor)
+    } else {
+        None
+    };
+    let page_data = cursor_list_page_data(items, page_size, next_cursor, has_more);
     api_success(page_data, trace_id)
 }

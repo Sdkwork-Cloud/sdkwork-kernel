@@ -6,7 +6,7 @@
 - **Scope**: Secure secret management and storage
 - **Domain**: `security`
 - **Capability**: `agent-kernel.secret-provider`
-- **Implementation**: `sdkwork-agent-kernel/src/secret.rs`
+- **Implementation**: `sdkwork-agent-kernel/src/secret.rs`, `sdkwork-agent-kernel/src/secret_env.rs`
 - **Test Coverage**: 16/16 tests passing (100%)
 
 ## 1. Overview
@@ -542,11 +542,69 @@ if health.expired_count > 0 {
 }
 ```
 
+### Env/File Provider (Pre-Production)
+
+Read-only backend for operators who inject secrets via environment variables or
+mounted files before enterprise vault integration lands.
+
+Resolution order for `secret_id`:
+
+1. Exact environment variable name matching `secret_id`
+2. `SDKWORK_SECRET_<NORMALIZED>` where normalized uppercases and replaces
+   non-alphanumeric characters with `_`
+3. File `{SDKWORK_SECRETS_DIR}/{secret_id}` when `SDKWORK_SECRETS_DIR` is set
+
+```rust
+use sdkwork_agent_kernel::{EnvFileSecretProvider, SecretAccessRequest, SecretProvider};
+
+let provider = EnvFileSecretProvider::from_process_environment();
+let result = provider.access_secret(SecretAccessRequest::new("secret.openai", "model-provider"))?;
+```
+
+Host integration wraps an existing `HostProvider` and resolves env/file secrets
+before delegating:
+
+```rust
+use sdkwork_agent_kernel::EnvFileSecretFallbackHostProvider;
+```
+
+Mutating operations (`create_secret`, `rotate_secret`, `delete_secret`) fail
+closed with `SecretError::InvalidRequest` on this backend.
+
+### Chained Provider (Production Default)
+
+`ChainedSecretProvider::from_process_environment()` resolves secrets in order:
+
+1. `EnvFileSecretProvider`
+2. `VaultSecretProvider` when compiled with `--features secret-vault` and
+   `SDKWORK_VAULT_ADDR` + `SDKWORK_VAULT_TOKEN` are configured
+
+```rust
+use sdkwork_agent_kernel::ChainedSecretProvider;
+
+let provider = ChainedSecretProvider::from_process_environment();
+```
+
+### Vault Provider (Feature `secret-vault`)
+
+Enable with `cargo build -p sdkwork-agent-kernel --features secret-vault`.
+
+| Environment variable | Purpose |
+| --- | --- |
+| `SDKWORK_VAULT_ADDR` | Vault base URL |
+| `SDKWORK_VAULT_TOKEN` | Vault token |
+| `SDKWORK_VAULT_MOUNT` | KV mount (default `secret`) |
+| `SDKWORK_VAULT_NAMESPACE` | Optional enterprise namespace |
+
+Secret paths map `provider.openai` → `provider/openai` under the configured mount.
+KV v2 payloads must expose a `value` field (or a single string/object entry).
+
 ## 18. Future Extensions
 
-### Planned Extensions (Phase 7)
+### Planned Extensions (Enterprise Phase)
 
-1. **Vault Backend**: HashiCorp Vault integration
+1. **AWS Secrets Manager / Azure Key Vault / GCP Secret Manager** adapters
+2. **Vault write/rotate** operations with policy integration
 2. **AWS Secrets Manager**: AWS integration
 3. **Azure Key Vault**: Azure integration
 4. **GCP Secret Manager**: GCP integration

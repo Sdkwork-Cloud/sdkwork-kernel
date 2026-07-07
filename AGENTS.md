@@ -15,6 +15,8 @@ Canonical SDKWORK specs path from this root:
 - `../sdkwork-specs/AGENTS_SPEC.md`
 - `../sdkwork-specs/CODE_STYLE_SPEC.md`
 - `../sdkwork-specs/NAMING_SPEC.md`
+- `../sdkwork-specs/PNPM_SCRIPT_SPEC.md`
+- `../sdkwork-specs/GITHUB_WORKFLOW_SPEC.md`
 
 Do not copy root standard text into this repository. If these relative paths do not resolve, stop and report the broken workspace layout.
 
@@ -31,6 +33,7 @@ Do not copy root standard text into this repository. If these relative paths do 
 - `sdkwork.app.config.json`: application identity, topology, and workflow metadata for this repository root (`app.key: sdkwork-kernel`).
 - `.sdkwork/`: reserved local dictionary folder; create only for local skills, plugins, manifests, or AI workspace metadata.
 - `specs/`: local application/component contracts and narrowing rules.
+- `specs/kernel-local-conventions.md`: repository-specific structure, ownership boundary, command, testing, and security notes moved out of legacy agent guidance.
 - `sdks/`: SDK families, OpenAPI authorities, route manifests, and generated SDK artifacts.
 - Local directories to inspect first when relevant: `docs/`, `external/`, `scripts/`, `sdks/`, `agent-providers/`, `sdkwork-kernel-plugins/`, `sdkwork-agent-kernel/`, `sdkwork-agent-database/`, `sdkwork-code-kernel/`, `specs/`.
 
@@ -49,10 +52,14 @@ Do not copy root standard text into this repository. If these relative paths do 
 5. Read `../sdkwork-specs/README.md` and the task-specific root specs.
 6. Inspect implementation files only after the relevant dictionary entries are clear.
 
+Use dynamic progressive loading: read the nearest `AGENTS.md`, app identity only when relevant, local specs only when relevant, root `sdkwork-specs/README.md`, task-specific specs, then implementation files. Do not eagerly load all language, runtime, UI, deployment, or SDK specs for unrelated work.
+
 ## Required Specs By Task Type
 
-- Agent/workflow changes: `../sdkwork-specs/SOUL.md`, `../sdkwork-specs/AGENTS_SPEC.md`, `../sdkwork-specs/SDKWORK_WORKSPACE_SPEC.md`.
+- Agent/workflow changes: `../sdkwork-specs/SOUL.md`, `../sdkwork-specs/AGENTS_SPEC.md`, `../sdkwork-specs/SDKWORK_WORKSPACE_SPEC.md`; include `../sdkwork-specs/GITHUB_WORKFLOW_SPEC.md` when GitHub packaging is touched.
 - Any code change: `../sdkwork-specs/CODE_STYLE_SPEC.md`, `../sdkwork-specs/NAMING_SPEC.md`, plus only the touched language/framework spec.
+- Build scripts, dev runners, dependency preparation, and root command changes: `../sdkwork-specs/CODE_STYLE_SPEC.md`, `../sdkwork-specs/TYPESCRIPT_CODE_SPEC.md`, and `../sdkwork-specs/PNPM_SCRIPT_SPEC.md`.
+- Release packaging workflow changes: `../sdkwork-specs/GITHUB_WORKFLOW_SPEC.md`, `../sdkwork-specs/APP_MANIFEST_SPEC.md`, `../sdkwork-specs/RELEASE_SPEC.md`, and `../sdkwork-specs/SUPPLY_CHAIN_SECURITY_SPEC.md`.
 - Rust code: `../sdkwork-specs/RUST_CODE_SPEC.md` and `../sdkwork-specs/RUST_RPC_SPEC.md` when RPC is touched.
 - Java/Spring code: `../sdkwork-specs/JAVA_CODE_SPEC.md` and `../sdkwork-specs/WEB_BACKEND_SPEC.md` when HTTP backend behavior is touched.
 - TypeScript/Node code: `../sdkwork-specs/TYPESCRIPT_CODE_SPEC.md`.
@@ -156,12 +163,11 @@ node <sdkwork-specs>/tools/check-app-sdk-consumer-imports.mjs --workspace <works
 
 Authority: `APP_SDK_INTEGRATION_SPEC.md` section 9, `SDK_SPEC.md` package naming table, `SDK_WORKSPACE_GENERATION_SPEC.md` composed facade rules.
 
-
-
 ## HTTP API Response Envelope
 
-All L2+ `app-api`, `backend-api`, and SDKWork-owned business `open-api` HTTP contracts `MUST` follow `API_SPEC.md` section 4.5, section 14, and section 15:
+All L2+ SDKWork-owned custom HTTP contracts, including `app-api`, `backend-api`, and SDKWork-owned business `open-api`, `MUST` follow `API_SPEC.md` section 4.5, section 14, and section 15:
 
+- **Default classification:** omitted `x-sdkwork-wire-protocol` means SDKWork-owned custom API (`sdkwork-v3`); only operation-level `x-sdkwork-wire-protocol: external` plus `x-sdkwork-external-protocol-id` identifies a third-party compatibility `open-api` operation.
 - **Input:** typed request bodies, section 14.1 list/search/command input, `SdkWorkListQuery`, and `q` for free-text search.
 - **Success output:** `SdkWorkApiResponse` with `{ "code": 0, "data": <payload>, "traceId": "<server-uuid>" }`.
 - **Error output:** HTTP 4xx/5xx `application/problem+json` (`ProblemDetail`) with numeric `code` and `traceId`.
@@ -171,8 +177,9 @@ All L2+ `app-api`, `backend-api`, and SDKWork-owned business `open-api` HTTP con
 - Lists: `data.items` + `data.pageInfo` (`PageInfo.mode` is `offset` or `cursor`)
 - Commands: `data.accepted` plus optional `resourceId` / `status`
 - Async accept (`202`): `data.operationId`, `data.status`, optional `pollUrl`
+- Operation patterns: retrieve/list/search/create/update/delete/command/async/bulk semantics follow `API_SPEC.md` section 15.4; create uses `201`, delete uses `204` with no JSON body, and `PUT`/`PATCH` use SDK action `update`.
 
-Vendor compatibility `open-api` routes that mirror upstream tool or provider wire (for example OpenAI `/v1/*`, Claude Code, Codex) `MAY` opt out only when every exempt operation declares `x-sdkwork-wire-protocol: external` and `x-sdkwork-external-protocol-id` per `API_SPEC.md` section 4.5.2. SDKWork-owned business `open-api` operations `MUST NOT` opt out.
+Vendor compatibility `open-api` routes that mirror upstream tool or provider wire (for example OpenAI `/v1/*`, Anthropic/Claude `/anthropic/v1/*`, Google/Gemini `/google/v1beta/*`, Claude Code, or Codex) `MAY` opt out only when every exempt operation declares operation-level `x-sdkwork-wire-protocol: external` and `x-sdkwork-external-protocol-id` per `API_SPEC.md` section 4.5.2. SDKWork-owned business `open-api` operations `MUST NOT` opt out. Mixed OpenAPI documents are validated per operation; one external operation never exempts SDKWork-owned operations in the same document.
 
 Errors `MUST` use HTTP 4xx/5xx with `application/problem+json` (`ProblemDetail`) including required numeric `code` and `traceId`. Business failures `MUST NOT` use HTTP 2xx with non-zero `code`, string wire codes, `success`, or human `message`.
 
@@ -183,6 +190,7 @@ Handlers `MUST` serialize success and map errors through `sdkwork-web-framework`
 Before completing API contract, SDK generation, or frontend service work, run:
 
 ```bash
+node <sdkwork-specs>/tools/check-api-operation-patterns.mjs --workspace <workspace-root>
 node <sdkwork-specs>/tools/check-api-response-envelope.mjs --workspace <workspace-root>
 ```
 
@@ -209,9 +217,9 @@ Authority: `PAGINATION_SPEC.md`, `API_SPEC.md` §14.1/§16, `DATABASE_SPEC.md` �
 
 Request human review before breaking SDKWORK standards, changing public naming, altering security/auth behavior, changing database migrations or production deployment config, deleting data/files, or changing generated SDK ownership. Surface unresolved spec paths, app identity conflicts, component ownership conflicts, and API authority ambiguity instead of guessing.
 
-## Existing Local Guidance
+## Repository Local Conventions
 
-The repository-specific guidance below was preserved from the previous `AGENTS.md`. If it conflicts with the SDKWORK sections above or with `../sdkwork-specs/`, the SDKWORK standards win.
+Durable repository-specific guidance lives in [`specs/kernel-local-conventions.md`](specs/kernel-local-conventions.md). The remaining notes below are local context only; if they conflict with `../sdkwork-specs/` or machine contracts under `specs/`, the SDKWORK standards and local specs win.
 
 ### Project Structure & Module Organization
 
@@ -248,7 +256,7 @@ The kernel MUST NOT own business persistence (agent config catalog, long-term ar
 - `pnpm install`: install root `@sdkwork/app-topology` workspace dependency.
 - `pnpm topology:validate`: validate `specs/topology.spec.json` against the shared topology schema.
 - `pnpm test:topology` / `pnpm test:topology-baggage`: verify topology adoption contracts and retired vocabulary.
-- `pnpm test:topology-smoke`: start `sdkwork-agent-server` with the standalone unified-process dev profile and wait for `/health`.
+- `pnpm test:topology-smoke`: start `sdkwork-agent-server` with the standalone unified-process dev profile and wait for `/healthz`.
 - `pnpm dev`: start the default standalone unified-process development stack (agent server only).
 - `pnpm verify`: run the merge-ready verification aggregate.
 - `pnpm check`: run kernel standards, SDK workspace, and PNPM script checks.

@@ -5,6 +5,9 @@ use sdkwork_agent_kernel::{
 };
 use std::collections::HashMap;
 
+/// Maximum in-bridge message history entries retained per session.
+const MAX_SESSION_BRIDGE_HISTORY: usize = 512;
+
 /// Manages session lifecycle and message history
 pub struct SessionBridge {
     sessions: HashMap<String, AgentSession>,
@@ -119,6 +122,12 @@ impl SessionBridge {
         Ok(closed)
     }
 
+    /// Remove a session and its in-bridge message history from transient runtime state.
+    pub fn remove_session(&mut self, session_id: &str) -> bool {
+        self.histories.remove(session_id);
+        self.sessions.remove(session_id).is_some()
+    }
+
     /// Append a message to session history
     pub fn append_message(&mut self, session_id: &str, message: AgentMessage) -> KernelResult<()> {
         let history = self
@@ -127,6 +136,10 @@ impl SessionBridge {
             .ok_or_else(|| KernelError::validation(format!("session not found: {}", session_id)))?;
 
         history.push(message);
+        if history.len() > MAX_SESSION_BRIDGE_HISTORY {
+            let overflow = history.len() - MAX_SESSION_BRIDGE_HISTORY;
+            history.drain(0..overflow);
+        }
 
         // Update session message count
         if let Some(session) = self.sessions.get_mut(session_id) {
@@ -167,9 +180,9 @@ impl Default for SessionBridge {
     }
 }
 
-/// Simple chrono-free timestamp generator
+/// RFC3339 UTC timestamp for bridge-owned session metadata.
 fn chrono_now() -> String {
-    "2026-01-01T00:00:00Z".to_string()
+    chrono::Utc::now().to_rfc3339()
 }
 
 #[cfg(test)]
@@ -212,6 +225,36 @@ mod tests {
         let session = bridge.create_session(test_config()).expect("created");
         let closed = bridge.close_session(&session.session_id).expect("closed");
         assert_eq!(closed.state, SessionState::Closed);
+    }
+
+    #[test]
+    fn remove_session_deletes_session_and_history() {
+        let mut bridge = SessionBridge::new();
+        let session = bridge.create_session(test_config()).expect("created");
+        let message = AgentMessage::new(
+            "msg.remove",
+            sdkwork_agent_kernel::AgentMessageRole::User,
+            vec![sdkwork_agent_kernel::AgentPart::text(
+                "part.remove",
+                "remove me",
+            )],
+        );
+        bridge
+            .append_message(&session.session_id, message)
+            .expect("message appended");
+        assert_eq!(bridge.message_count(&session.session_id), 1);
+
+        assert!(
+            bridge.remove_session(&session.session_id),
+            "existing session should be removed"
+        );
+
+        assert!(bridge.get_session(&session.session_id).is_err());
+        assert!(bridge.get_history(&session.session_id).is_err());
+        assert!(
+            !bridge.remove_session(&session.session_id),
+            "removing an absent session should be a no-op"
+        );
     }
 
     #[test]

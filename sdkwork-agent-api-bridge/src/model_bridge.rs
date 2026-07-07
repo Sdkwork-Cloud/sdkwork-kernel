@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use crate::types::{generate_id, BridgeEvent, BridgeEventSeverity, BridgeModelResult};
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentRuntime, AgentSession, ContextFrame, KernelResult, ModelCancellationRequest,
-    ModelDescriptor, ModelExecutionService, ModelRequest, ModelResponse, ModelStreamChunk,
+    agent_messages_to_text_lines, AgentInputContract, AgentMessage, AgentRuntime, AgentSession,
+    ContextFrame, KernelResult, ModelCancellationRequest, ModelDescriptor, ModelExecutionRequest,
+    ModelExecutionService, ModelRequest, ModelResponse, ModelStreamChunk, ModelStreamSink,
     ModelUsage,
 };
 
 /// Handles model invocations and response processing
+#[derive(Clone)]
 pub struct ModelBridge {
     default_model: String,
     agent_runtime: Option<Arc<AgentRuntime>>,
@@ -24,8 +26,9 @@ impl ModelBridge {
     }
 
     pub fn with_agent_runtime(agent_runtime: Arc<AgentRuntime>, allow_mock_fallback: bool) -> Self {
+        let default_model = resolve_default_model_id(&agent_runtime);
         Self {
-            default_model: "gpt-4".to_string(),
+            default_model,
             agent_runtime: Some(agent_runtime),
             allow_mock_fallback,
         }
@@ -47,28 +50,33 @@ impl ModelBridge {
         session: &AgentSession,
         history: &[AgentMessage],
         context: &[ContextFrame],
+        input_contract_override: Option<AgentInputContract>,
     ) -> ModelRequest {
         let model_id = session
             .model
             .clone()
             .unwrap_or_else(|| self.default_model.clone());
 
-        let mut messages = Vec::new();
-        for msg in history {
-            for part in &msg.parts {
-                if let Some(text) = &part.text {
-                    messages.push(text.clone());
-                }
-            }
-        }
-
+        let mut input_messages = history.to_vec();
         for frame in context {
-            messages.push(format!("[context:{}] {}", frame.source, frame.content));
+            input_messages.push(AgentMessage::new(
+                format!("message.context.{}", frame.context_frame_id),
+                sdkwork_agent_kernel::AgentMessageRole::System,
+                vec![sdkwork_agent_kernel::AgentPart::text(
+                    format!("part.context.{}", frame.context_frame_id),
+                    format!("[context:{}] {}", frame.source, frame.content),
+                )],
+            ));
         }
 
+        let messages = agent_messages_to_text_lines(&input_messages);
+        let input_contract =
+            input_contract_override.unwrap_or_else(|| session.resolved_input_contract());
         ModelRequest::new(format!("req.{}", generate_id()), messages)
             .with_model_id(model_id)
             .for_session(session_id)
+            .with_input_messages(input_messages)
+            .with_input_contract(input_contract)
     }
 
     /// Invoke the typed provider when registered, otherwise use the mock bridge path.
@@ -85,17 +93,13 @@ impl ModelBridge {
             }
         } else if !self.allow_mock_fallback {
             return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
-                provider_id: model_provider_id
-                    .unwrap_or("provider.model")
-                    .to_string(),
+                provider_id: model_provider_id.unwrap_or("provider.model").to_string(),
             });
         }
 
         if !self.allow_mock_fallback {
             return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
-                provider_id: model_provider_id
-                    .unwrap_or("provider.model")
-                    .to_string(),
+                provider_id: model_provider_id.unwrap_or("provider.model").to_string(),
             });
         }
 
@@ -120,21 +124,48 @@ impl ModelBridge {
             }
         } else if !self.allow_mock_fallback {
             return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
-                provider_id: model_provider_id
-                    .unwrap_or("provider.model")
-                    .to_string(),
+                provider_id: model_provider_id.unwrap_or("provider.model").to_string(),
             });
         }
 
         if !self.allow_mock_fallback {
             return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
-                provider_id: model_provider_id
-                    .unwrap_or("provider.model")
-                    .to_string(),
+                provider_id: model_provider_id.unwrap_or("provider.model").to_string(),
             });
         }
 
         self.stream_mock(request)
+    }
+
+    /// Stream model output incrementally through `sink`.
+    pub fn stream_into(
+        &self,
+        request: &ModelRequest,
+        model_provider_id: Option<&str>,
+        sink: &mut dyn ModelStreamSink,
+    ) -> KernelResult<()> {
+        if let Some(runtime) = &self.agent_runtime {
+            match self.stream_typed_into(runtime, request, model_provider_id, sink) {
+                Ok(()) => return Ok(()),
+                Err(error) if self.allow_mock_fallback => {}
+                Err(error) => return Err(error),
+            }
+        } else if !self.allow_mock_fallback {
+            return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: model_provider_id.unwrap_or("provider.model").to_string(),
+            });
+        }
+
+        if !self.allow_mock_fallback {
+            return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: model_provider_id.unwrap_or("provider.model").to_string(),
+            });
+        }
+
+        for chunk in self.stream_mock(request)? {
+            sink.push_chunk(chunk)?;
+        }
+        Ok(())
     }
 
     /// Get available model descriptors
@@ -157,8 +188,28 @@ impl ModelBridge {
         request: &ModelRequest,
         model_provider_id: Option<&str>,
     ) -> KernelResult<Vec<ModelStreamChunk>> {
-        let provider = self.resolve_model_provider(runtime, model_provider_id)?;
-        provider.stream(request.clone())
+        let mut execution_request =
+            ModelExecutionRequest::new(request.model_request_id.clone(), request.clone());
+        if let Some(provider_id) = model_provider_id.filter(|value| !value.is_empty()) {
+            execution_request = execution_request.with_provider_id(provider_id.to_string());
+        }
+        let response = ModelExecutionService::new().stream(runtime, execution_request)?;
+        Ok(response.chunks)
+    }
+
+    fn stream_typed_into(
+        &self,
+        runtime: &AgentRuntime,
+        request: &ModelRequest,
+        model_provider_id: Option<&str>,
+        sink: &mut dyn ModelStreamSink,
+    ) -> KernelResult<()> {
+        let mut execution_request =
+            ModelExecutionRequest::new(request.model_request_id.clone(), request.clone());
+        if let Some(provider_id) = model_provider_id.filter(|value| !value.is_empty()) {
+            execution_request = execution_request.with_provider_id(provider_id.to_string());
+        }
+        ModelExecutionService::new().stream_into(runtime, execution_request, sink)
     }
 
     /// Cancel an in-flight model invocation (typed provider when registered,
@@ -217,25 +268,18 @@ impl ModelBridge {
             .collect())
     }
 
-    fn resolve_model_provider<'a>(
-        &self,
-        runtime: &'a AgentRuntime,
-        model_provider_id: Option<&str>,
-    ) -> KernelResult<&'a (dyn sdkwork_agent_kernel::ModelProvider + Send + Sync)> {
-        match model_provider_id.filter(|value| !value.is_empty()) {
-            Some(provider_id) => runtime.model_provider_by_id(provider_id),
-            None => runtime.model_provider(),
-        }
-    }
-
     fn invoke_typed(
         &self,
         runtime: &AgentRuntime,
         request: &ModelRequest,
         model_provider_id: Option<&str>,
     ) -> KernelResult<BridgeModelResult> {
-        let provider = self.resolve_model_provider(runtime, model_provider_id)?;
-        let response = provider.invoke(request.clone())?;
+        let mut execution_request =
+            ModelExecutionRequest::new(request.model_request_id.clone(), request.clone());
+        if let Some(provider_id) = model_provider_id.filter(|value| !value.is_empty()) {
+            execution_request = execution_request.with_provider_id(provider_id.to_string());
+        }
+        let response = ModelExecutionService::new().invoke(runtime, execution_request)?;
         let events = vec![BridgeEvent {
             event_type: "agent.model.invoked".to_string(),
             session_id: request.session_id.clone(),
@@ -249,7 +293,7 @@ impl ModelBridge {
         }];
 
         Ok(BridgeModelResult {
-            response,
+            response: response.model_response,
             tool_calls: Vec::new(),
             events,
         })
@@ -311,6 +355,16 @@ impl Default for ModelBridge {
     }
 }
 
+fn resolve_default_model_id(runtime: &AgentRuntime) -> String {
+    if let Ok(provider) = runtime.model_provider() {
+        let models = provider.list_models();
+        if let Some(model) = models.first() {
+            return model.model_id.clone();
+        }
+    }
+    "gpt-4".to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,7 +380,7 @@ mod tests {
             vec![],
         )];
 
-        let request = bridge.build_request("session.1", &session, &history, &[]);
+        let request = bridge.build_request("session.1", &session, &history, &[], None);
         assert_eq!(request.model_id, Some("gpt-4".to_string()));
     }
 

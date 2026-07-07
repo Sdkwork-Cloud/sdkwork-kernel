@@ -51,9 +51,7 @@
     "configKeys": [],
     "sdkDependencies": [],
     "dependencyApiExports": [],
-    "dependencyApiSurfaces": [
-      "sdkwork-agent-internal-api: internal-api"
-    ]
+    "dependencyApiSurfaces": []
   },
   "verification": {
     "commands": ["cargo build -p sdkwork-routes-agent-internal-manifest"]

@@ -23,6 +23,26 @@ Runtime connectivity profiles for local dev and deployment live in
 Sibling checkout and release refs are declared in `sdkwork.workflow.json`
 (`sdkwork-web-framework`, `sdkwork-database`, `sdkwork-utils`).
 
+## Extension Provider And Orchestration Standard Set
+
+These specs extend the 18 core provider families with production-hardening and
+multi-agent primitives. They are normative for commercial deployment profiles.
+
+| Spec | Responsibility |
+| --- | --- |
+| [`SANDBOX_PROVIDER_SPEC.md`](./SANDBOX_PROVIDER_SPEC.md) | Platform sandbox isolation for host/tool execution (Landlock, seatbelt, restricted token) |
+| [`SECRET_PROVIDER_SPEC.md`](./SECRET_PROVIDER_SPEC.md) | Secret resolve, rotation, audit; complements `HostProvider::resolve_secret` |
+| [`BACKEND_HEALTH_MONITOR_SPEC.md`](./BACKEND_HEALTH_MONITOR_SPEC.md) | Continuous SDK backend health, degradation, and recovery |
+| [`MULTI_AGENT_ORCHESTRATION_SPEC.md`](./MULTI_AGENT_ORCHESTRATION_SPEC.md) | Task graphs, dependency ordering, parallel execution, result aggregation |
+| [`A2A_PROTOCOL_ADAPTER_SPEC.md`](./A2A_PROTOCOL_ADAPTER_SPEC.md) | Agent-to-Agent protocol object mapping (`AgentCard`, task, message) |
+
+Extension traits implemented in `sdkwork-agent-kernel` also include
+`RateLimitProvider`, `CancellationProvider`, and `ModelStreamProvider` — cataloged
+in [`AGENT_KERNEL_SPEC.md`](./AGENT_KERNEL_SPEC.md) §3.4.
+
+Ecosystem and gap tracking (product layer): [`../docs/product/prd/PRD-04-ecosystem-architecture.md`](../docs/product/prd/PRD-04-ecosystem-architecture.md),
+[`../docs/architecture/tech/TECH-03-spi-implementation-gap-tracker.md`](../docs/architecture/tech/TECH-03-spi-implementation-gap-tracker.md).
+
 ## Cross-Cutting Standard Set
 
 | Spec | Responsibility |
@@ -153,3 +173,6 @@ implementations mature.
 - [x] Production deployment reference assets exist under `deployments/` (Docker, Kubernetes, runbook).
 - [x] Release supply-chain evidence includes SBOM and checksum validation scripts.
 - [ ] Every compatibility claim is backed by a conformance profile.
+- [ ] Extension providers (sandbox, secret, backend health) are wired when security profile requires them.
+- [ ] A2A adapter conformance passes when `protocol_adapters` includes `a2a`.
+- [ ] Orchestration primitives are exercised when collaboration capability is declared.

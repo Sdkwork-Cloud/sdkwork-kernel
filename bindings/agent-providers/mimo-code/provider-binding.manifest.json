@@ -1,0 +1,90 @@
+{
+  "schema_version": "0.1.0",
+  "manifest_type": "agent_provider_binding",
+  "binding_id": "binding.agent-provider.mimo-code",
+  "agent_id": "agent.intelligence.mimo-code",
+  "display_name": "MiMo Code",
+  "description": "External agent provider binding for MiMo Code OpenCode-derived Bun/TypeScript server SDK surfaces.",
+  "version": "0.1.0",
+  "sdk_owner": "xiaomi",
+  "status": "experimental",
+  "kernel_compatibility": {
+    "agent_kernel": ">=0.1.0 <0.2.0"
+  },
+  "language_packages": {
+    "typescript": {
+      "package": "@mimo-code/opencode",
+      "optional": false
+    }
+  },
+  "selection_policy": {
+    "default_backend_priority": [
+      "typescript_node",
+      "http_openapi",
+      "ipc_protocol"
+    ]
+  },
+  "capabilities": [
+    {
+      "capability_id": "sdk.session.lifecycle",
+      "required": true,
+      "backends": [
+        {
+          "kind": "typescript_node",
+          "driver_id": "driver.mimo.session.lifecycle.ts",
+          "package": "@mimo-code/opencode"
+        }
+      ]
+    },
+    {
+      "capability_id": "sdk.model.chat",
+      "required": true,
+      "backends": [
+        {
+          "kind": "typescript_node",
+          "driver_id": "driver.mimo.model.chat.ts",
+          "package": "@mimo-code/opencode"
+        },
+        {
+          "kind": "rust_native",
+          "driver_id": "driver.mimo.model.chat.rust",
+          "crate": "sdkwork-agent-provider-mimo-code"
+        }
+      ]
+    },
+    {
+      "capability_id": "sdk.tool.invoke",
+      "required": false,
+      "backends": [
+        {
+          "kind": "typescript_node",
+          "driver_id": "driver.mimo.tool.invoke.ts",
+          "package": "@mimo-code/opencode"
+        },
+        {
+          "kind": "rust_native",
+          "driver_id": "driver.mimo.tool.invoke.rust",
+          "crate": "sdkwork-agent-provider-mimo-code"
+        }
+      ]
+    }
+  ],
+  "integration_sources": [
+    {
+      "mode": "source_tree",
+      "path": "external/mimo-code"
+    },
+    {
+      "mode": "official_sdk",
+      "package": "mimo-code"
+    },
+    {
+      "mode": "http_openapi",
+      "transport": "opencode-gateway-open-api"
+    },
+    {
+      "mode": "ipc_protocol",
+      "transport": "jsonrpc_stdio"
+    }
+  ]
+}

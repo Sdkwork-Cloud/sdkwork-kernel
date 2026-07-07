@@ -3,6 +3,7 @@
 use crate::backend::SdkBackendKind;
 use crate::driver::SdkDriverHealth;
 use crate::negotiation::SdkCapabilityNegotiation;
+use sdkwork_agent_provider_transport_ipc::TransportError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -18,6 +19,14 @@ pub enum SdkRuntimeOperation {
     ModelChat {
         model_request_id: String,
         messages: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wire_messages: Option<Value>,
+    },
+    ModelChatStream {
+        model_request_id: String,
+        messages: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        wire_messages: Option<Value>,
     },
     ToolInvoke {
         tool_call_id: String,
@@ -53,14 +62,73 @@ impl SdkRuntimeRequest {
         model_request_id: impl Into<String>,
         messages: Vec<String>,
     ) -> Self {
+        Self::model_chat_with_wire(capability_id, model_request_id, messages, None)
+    }
+
+    pub fn model_chat_with_wire(
+        capability_id: impl Into<String>,
+        model_request_id: impl Into<String>,
+        messages: Vec<String>,
+        wire_messages: Option<Value>,
+    ) -> Self {
         Self {
             capability_id: capability_id.into(),
             operation: SdkRuntimeOperation::ModelChat {
                 model_request_id: model_request_id.into(),
                 messages,
+                wire_messages,
             },
             payload: None,
         }
+    }
+
+    pub fn model_chat_stream_with_wire(
+        capability_id: impl Into<String>,
+        model_request_id: impl Into<String>,
+        messages: Vec<String>,
+        wire_messages: Option<Value>,
+    ) -> Self {
+        Self {
+            capability_id: capability_id.into(),
+            operation: SdkRuntimeOperation::ModelChatStream {
+                model_request_id: model_request_id.into(),
+                messages,
+                wire_messages,
+            },
+            payload: None,
+        }
+    }
+
+    pub fn from_model_request(
+        capability_id: impl Into<String>,
+        request: &sdkwork_agent_kernel::ModelRequest,
+    ) -> Result<Self, SdkRuntimeError> {
+        let (model_request_id, messages, wire_messages) =
+            sdkwork_agent_provider_core::build_model_chat_operation(request).map_err(|error| {
+                SdkRuntimeError::new("invalid_model_request", error.to_string())
+            })?;
+        Ok(Self::model_chat_with_wire(
+            capability_id,
+            model_request_id,
+            messages,
+            wire_messages,
+        ))
+    }
+
+    pub fn stream_from_model_request(
+        capability_id: impl Into<String>,
+        request: &sdkwork_agent_kernel::ModelRequest,
+    ) -> Result<Self, SdkRuntimeError> {
+        let (model_request_id, messages, wire_messages) =
+            sdkwork_agent_provider_core::build_model_chat_operation(request).map_err(|error| {
+                SdkRuntimeError::new("invalid_model_request", error.to_string())
+            })?;
+        Ok(Self::model_chat_stream_with_wire(
+            capability_id,
+            model_request_id,
+            messages,
+            wire_messages,
+        ))
     }
 }
 
@@ -144,6 +212,32 @@ pub trait SdkBackendRuntime: Send + Sync {
     fn backend_kind(&self) -> SdkBackendKind;
     fn health(&self) -> SdkDriverHealth;
     fn invoke(&self, request: &SdkRuntimeRequest) -> Result<SdkRuntimeResponse, SdkRuntimeError>;
+
+    /// Delivers incremental stream frames for streaming capability operations.
+    fn invoke_streaming(
+        &self,
+        request: &SdkRuntimeRequest,
+        sink: &mut dyn FnMut(serde_json::Value) -> Result<bool, SdkRuntimeError>,
+    ) -> Result<(), SdkRuntimeError> {
+        let response = self.invoke(request)?;
+        if !response.success {
+            return Err(SdkRuntimeError::new(
+                "runtime_failure",
+                response
+                    .message
+                    .unwrap_or_else(|| "runtime stream invoke failed".to_string()),
+            ));
+        }
+        let payload = response.payload.unwrap_or(serde_json::Value::Null);
+        sdkwork_agent_provider_transport_ipc::expand_buffered_stream_payload(payload, |frame| {
+            sink(frame).map_err(|error| TransportError::new(error.message))
+        })
+        .map_err(|error| SdkRuntimeError::new("stream_transport", error.message))
+    }
+
+    fn cancel_inflight(&self) -> Result<(), SdkRuntimeError> {
+        Ok(())
+    }
 }
 
 /// Routes runtime requests to the negotiated backend implementation.
@@ -210,6 +304,36 @@ impl SdkRuntimeRouter {
             .ok_or_else(|| SdkRuntimeError::backend_unavailable(selected.backend_kind))?;
 
         runtime.invoke(request)
+    }
+
+    pub fn invoke_streaming(
+        &self,
+        request: &SdkRuntimeRequest,
+        sink: &mut dyn FnMut(serde_json::Value) -> Result<bool, SdkRuntimeError>,
+    ) -> Result<(), SdkRuntimeError> {
+        let selected = self
+            .negotiation
+            .selected_driver(&request.capability_id)
+            .ok_or_else(|| SdkRuntimeError::capability_not_negotiated(&request.capability_id))?;
+
+        let runtime = self
+            .runtime_for(selected.backend_kind)
+            .ok_or_else(|| SdkRuntimeError::backend_unavailable(selected.backend_kind))?;
+
+        runtime.invoke_streaming(request, sink)
+    }
+
+    pub fn cancel_inflight(&self, capability_id: &str) -> Result<(), SdkRuntimeError> {
+        let selected = self
+            .negotiation
+            .selected_driver(capability_id)
+            .ok_or_else(|| SdkRuntimeError::capability_not_negotiated(capability_id))?;
+
+        let runtime = self
+            .runtime_for(selected.backend_kind)
+            .ok_or_else(|| SdkRuntimeError::backend_unavailable(selected.backend_kind))?;
+
+        runtime.cancel_inflight()
     }
 
     fn runtime_for(&self, kind: SdkBackendKind) -> Option<&std::sync::Arc<dyn SdkBackendRuntime>> {

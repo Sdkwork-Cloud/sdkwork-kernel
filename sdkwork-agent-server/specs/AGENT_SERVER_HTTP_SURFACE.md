@@ -9,7 +9,7 @@ Specs: `AGENT_KERNEL_SPEC.md`, `AGENT_UI_CONTRACT_SPEC.md`, `WEB_FRAMEWORK_SPEC.
 `sdkwork-agent-server` is an internal agent runtime host. It exposes:
 
 1. **Internal-api runtime** (`/internal/v3/api/intelligence/runtime/*`) — SDKWork `internal-api` surface for generated `@sdkwork/agent-internal-sdk`, product shells, and `sdkwork-agent-client` remote mode
-2. **Health probes** (`/health`, `/ready`, `/live`)
+2. **Infrastructure health probes** (`/healthz`, `/readyz`, `/livez`)
 3. **Operational metrics** (`GET /metrics`) — Prometheus text exposition for production monitoring
 
 It is **not** an SDKWork `app-api`, `backend-api`, or `open-api` managed-store surface. Managed agents HTTP APIs are owned by `sdkwork-agents` and mount through `sdkwork-routes-agents-*-api` on the application gateway.
@@ -31,6 +31,7 @@ Retired prefixes (`/api/kernel/*`, `/api/sessions/*`, `/api/chat/*`) are **not**
 | `POST /internal/v3/api/intelligence/runtime/tasks/{id}/cancel` | Task cancel |
 | `GET /internal/v3/api/intelligence/runtime/models` | Model catalog |
 | `POST /internal/v3/api/intelligence/runtime/sessions/{id}/model/invoke` | Model invoke |
+| `POST /internal/v3/api/intelligence/runtime/sessions/{id}/model/stream` | Model invoke SSE |
 | `GET /internal/v3/api/intelligence/runtime/sessions/{id}/tools` | Tool catalog |
 | `POST /internal/v3/api/intelligence/runtime/sessions/{id}/tools/{tool}/execute` | Tool execute |
 | `GET /internal/v3/api/intelligence/runtime/sessions/{id}/events/stream` | Session event SSE |
@@ -40,11 +41,25 @@ SDK family: `sdks/sdkwork-agent-internal-sdk/`
 Route boundary crate: `crates/sdkwork-routes-agent-internal-api` (re-exports `build_internal_runtime_routes` and `internal_route_manifest`)  
 Handler module: `sdkwork-agent-server/src/api/internal_runtime.rs` (`InternalRuntimeApiState`)
 
-List endpoints (`sessions`, `messages`, `tasks`, `models`, `tools`) return `SdkWorkApiResponse` with `data.items` and `data.pageInfo` per `API_SPEC.md` §4.5/§16. Query input uses `page` and `page_size` (default `20`, max `200`).
+List endpoints return `SdkWorkApiResponse` with `data.items` and `data.pageInfo` per `API_SPEC.md` §4.5/§16:
+
+- **Sessions** and **tasks:** offset mode by default, or **cursor mode** when `cursor` is set (mutually exclusive with `page`). Cursor tokens are opaque resource ids (`sessionId`, `taskId`); storage uses keyset `after_session_id` / `after_task_id`. Unknown cursors return an empty page.
+- **Messages:** offset mode by default, or **cursor mode** when `cursor` is set (mutually exclusive with `page`). Cursor tokens are opaque message ids; storage uses keyset `MessageQuery.after_message_id`. Unknown cursors return an empty page.
+
+Bounded catalogs (`models`, `tools`) return the full catalog in one `data.items` page with `pageInfo.page=1` and `pageInfo.pageSize` equal to the catalog size.
+
+SSE session event replay (`GET .../events/stream`) loads up to `200` rows from persistence using `EventQuery.after_event_id` (from `Last-Event-ID` / `lastEventId`). Unknown cursors replay nothing instead of the full window.
+
+`POST .../model/stream` enforces the same per-tenant daily token quota as `POST .../model/invoke`.
 
 Single-resource JSON endpoints (manifest, health, diagnostics, snapshot, session create/read/close, message send, task submit/read/cancel, permission decide, model invoke/cancel, tool execute) return `SdkWorkApiResponse` with `data.item`. `DELETE` session returns `204 No Content` with `X-SdkWork-Trace-Id`. Errors use `application/problem+json` (`ProblemDetail`) with numeric `code` and `traceId`.
 
 `GET /snapshot` loads recent runtime events from persistence (bounded replay window), runtime health from live diagnostics, and workspace fields from runtime state — not hardcoded placeholders.
+
+Closed sessions remain readable for history, tasks, and event replay, but reject new side-effectful
+work (`messages` send, task submit, model invoke/stream, and tool execute) with `409 Conflict`.
+This prevents a closed persisted session from being re-registered as an active transient bridge
+session.
 
 Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork-agent-server/src/http_surface.rs`).
 
@@ -65,7 +80,7 @@ Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork
   - `SDKWORK_KERNEL_INGRESS_JWT_JWKS_URL` fetched once at startup from an OIDC/IdP JWKS endpoint (production requires `https://`; unknown `kid` triggers rate-limited refresh for key rotation)
   Optional `SDKWORK_KERNEL_INGRESS_JWT_ISSUER` and `SDKWORK_KERNEL_INGRESS_JWT_AUDIENCE` tighten validation. Bearer JWT must include `tenant_id` and `user_id` (or `sub`) claims; identity MAC headers are not required.
 - Token auth accepts `Authorization: Bearer <token>`, `X-API-Key`, or `x-sdkwork-access-token` (Bearer prefix is case-insensitive).
-- Health probes (`/health`, `/ready`, `/live`) bypass ingress token auth so orchestrators can scrape without credentials.
+- Infrastructure health probes (`/healthz`, `/readyz`, `/livez`) bypass ingress token auth so orchestrators can scrape without credentials. Legacy root probes (`/health`, `/ready`, `/live`) are not mounted; the internal runtime health API remains under `/internal/v3/api/intelligence/runtime/health`.
 - `GET /metrics` uses `SDKWORK_KERNEL_METRICS_AUTH_MODE` (`open` on loopback dev, `token` in production/non-loopback). Token mode accepts the same credential headers as ingress auth and defaults `SDKWORK_KERNEL_METRICS_TOKEN` to the ingress token when unset.
 - Ingress identity modes (resolved automatically from bind address + env):
   - **OpenLocal** — loopback + open auth; session scope disabled.
@@ -76,10 +91,10 @@ Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork
 - Security audit events (`security_audit` target) record ingress token rejection, identity rejection, and session/permission owner mismatches.
 - Token and JWT modes enforce session ownership via `ownerTenantId` / `ownerUserRef` metadata on internal runtime routes.
 - Secured ingress modes require resolved caller identity on session create; access checks fail closed when caller identity is missing.
-- Rate limits apply on non-loopback binds even outside production (default 50 rps, burst 100). Production defaults to 100 rps / burst 200. Configure with `SDKWORK_RATE_LIMIT_RPS` and `SDKWORK_RATE_LIMIT_BURST`; set RPS to `0` to disable on loopback-only dev profiles.
+- Rate limits apply on non-loopback binds even outside production (default 50 rps, burst 100). Production defaults to 100 rps / burst 200. Configure with `SDKWORK_RATE_LIMIT_RPS` and `SDKWORK_RATE_LIMIT_BURST`; set RPS to `0` to disable on loopback-only dev profiles. In-process and Redis fail-over buckets delegate to kernel `TokenBucketRateLimitProvider` (`sdkwork.ingress.http` policy); distributed Redis enforcement remains server-owned for multi-replica cloud profiles.
 - **Per-tenant rate limits:** optional JSON map `SDKWORK_TENANT_RATE_LIMIT_OVERRIDES` (`{"tenant-id":{"rps":N,"burst":M}}`) applies after ingress identity resolution; keys without overrides use the global bucket.
-- **Per-tenant daily token quotas:** optional JSON map `SDKWORK_TENANT_TOKEN_QUOTA_OVERRIDES` (`{"tenant-id":{"daily_tokens":N}}`) hard-limits model invoke when a tenant's UTC-day token consumption reaches the cap (`429 Too Many Requests`). Usage is recorded after successful model invocation when provider usage facts are present. Redis-backed when `SDKWORK_RATE_LIMIT_REDIS_URL` / `SDKWORK_REDIS_URL` is configured.
-- **Distributed rate limiting (cloud/server):** set `SDKWORK_RATE_LIMIT_REDIS_URL` or `SDKWORK_REDIS_URL`. Production `cloud` deployment profile with `server` runtime target fails preflight when Redis is required but unset. Without Redis, non-production profiles fall back to per-process token buckets.
+- **Per-tenant daily token quotas:** optional JSON map `SDKWORK_TENANT_TOKEN_QUOTA_OVERRIDES` (`{"tenant-id":{"daily_tokens":N}}`) hard-limits model invoke and model stream when a tenant's UTC-day token consumption reaches the cap (`429 Too Many Requests`). The runtime reserves `min(default_reserve_tokens, daily_tokens)` before invoking a model and adjusts that exact reserved amount to provider-reported usage after completion. A `daily_tokens: 0` override blocks invocation and does not create adjustment usage. Redis-backed when `SDKWORK_RATE_LIMIT_REDIS_URL` / `SDKWORK_REDIS_URL` is configured.
+- **Distributed rate limiting (cloud/server):** set `SDKWORK_RATE_LIMIT_REDIS_URL` or `SDKWORK_REDIS_URL`. Production `cloud` deployment profile with `server` runtime target fails preflight when Redis is required but unset. Transient Redis script failures in distributed profiles deny requests (fail-closed); non-distributed profiles fall back to per-process token buckets.
 - **Runtime session persistence:** default SQLite path `SDKWORK_DATABASE_PATH` for loopback dev. Multi-replica cloud/server deployments use `SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres` with `SDKWORK_AGENT_RUNTIME_DATABASE_URL` or legacy `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` (resolved via `sdkwork-database-config` service name `AGENT_RUNTIME`).
 - Responses include baseline security headers (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`).
 - Server-owned `x-request-id` is generated for every request; client-supplied values are not trusted.
@@ -108,17 +123,33 @@ Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork
 - Active kernel plugin is selected with `SDKWORK_KERNEL_AGENT_PLUGIN` (`rig` default; `openclaw` | `hermes` | `codex` aliases documented in `runtime_bootstrap.rs` and `docs/architecture/tech/TECH-2026-06-14-multi-mode-agent-system.md`).
 - Bootstrap rejects plugin `agent_id` mismatches against the selected plugin manifest.
 - `RuntimeState` wires `AgentRuntimeBridge::with_agent_runtime()` for model/tool invocation.
+- Model invoke, model stream, model cancel, `send_message`, and `stream_message` paths keep the
+  runtime bridge lock scoped to local model-bridge cloning or session request/state updates. Slow
+  provider calls run outside the bridge lock so session registration and other unrelated bridge
+  mutations are not blocked by model I/O. Message turns retain a per-session mutex so same-session
+  user/assistant message ordering does not interleave under concurrent sends. Session close and
+  delete release bridge-owned session/history/event state and remove the per-session turn lock after
+  acquiring that lock. Bridge event snapshots are bounded per session and globally, preventing
+  high-churn short sessions from leaving unbounded transient runtime entries behind.
 - Session create/list routes validate `agentId` against `agent_registry::active_hosted_agent()` for the selected plugin (for example `agent.intelligence.rig-general`, `agent.intelligence.openclaw`, `agent.intelligence.hermes`, or `agent.intelligence.codex`; debug builds also accept dev aliases such as `agent.1`).
 - Default `modelProvider` metadata is stamped from the hosted agent binding when omitted.
 - Non-production profiles may set `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1` (debug builds default on) so typed `ProviderUnavailable` / missing streaming capabilities fall back to the bridge mock path.
 - Production profiles (`SDKWORK_KERNEL_ENVIRONMENT=production` or `SDKWORK_KERNEL_PROFILE_ID` ending in `.production`) disable mock fallback unless `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1`; provider failures surface as `503` on invoke/stream routes.
-- `GET /internal/v3/api/intelligence/runtime/snapshot` reports runtime diagnostics from `AgentRuntime::diagnostics()` and `capability_manifest()`; includes the 100 most recent persisted session events and pending permissions from the runtime database.
+- `GET /internal/v3/api/intelligence/runtime/snapshot` reports runtime diagnostics from `AgentRuntime::diagnostics()` and `capability_manifest()`; includes the 100 most recent persisted session events and pending permissions from the runtime database. Code-agent projection fields (`patches`, `verificationReports`, terminal/review collections) are reserved for product shells and return empty arrays until a downstream projection provider is wired.
 
 ## Event streaming
 
 - Persisted session events (`session.created`, `message.sent`, `turn.completed`, `task.*`, etc.) publish through an in-process `SessionEventBus` after durable persistence (SQLite or PostgreSQL).
-- SSE handlers replay up to 100 stored events, honor `Last-Event-ID` / `lastEventId`, then subscribe to live bus updates when `live` is true (default).
+- Message persistence uses a single `RuntimeSessionWrites::append_message_with_event` transaction on SQLite and PostgreSQL. Retried appends with the same `message_id` in the same session do not increment `message_count` twice; a duplicate `message_id` for another session fails before an event is written.
+- SSE handlers replay up to `200` stored events (standard `page_size` maximum), honor `Last-Event-ID` / `lastEventId` with strict cursor semantics (unknown cursors replay nothing), then subscribe to live bus updates when `live` is true (default).
+- Session event streams consume a bounded SSE connection slot only after the session exists, access is authorized, and bounded replay rows are loaded; invalid or unauthorized stream attempts do not reduce available long-lived connection capacity.
 - Use `live=false` for finite replay-only streams (tests and one-shot catch-up).
+
+## Model streaming (`POST .../model/stream`)
+
+- Response is SSE (`model.chunk` events plus terminal `model.done`). Each chunk carries `modelRequestId`, `sequence`, and `content` per the OpenAPI schema.
+- The HTTP layer enforces session access, tenant token quota, and a bounded concurrent SSE connection cap before opening the stream.
+- Provider transport uses incremental NDJSON frames (`stream.chunk` / `stream.done`) on the worker stdio protocol when `model_chat_stream` is invoked; the API bridge drains chunks through `ModelStreamSink` as they arrive and maps each to SSE `model.chunk` events without waiting for the full provider buffer.
 
 ## Web framework policy
 
@@ -130,7 +161,10 @@ Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork
 ## Verification
 
 ```bash
+cargo test --manifest-path sdkwork-agent-database/Cargo.toml --test agent_runtime_sqlite_contracts
 cargo test --manifest-path sdkwork-agent-server/Cargo.toml
 cargo test --test http_internal_runtime_contracts --manifest-path sdkwork-agent-server/Cargo.toml
 pnpm test:topology-smoke  # probes /internal/v3/api/intelligence/runtime/snapshot
+node ../sdkwork-specs/tools/check-pagination.mjs --workspace .
+node ../sdkwork-specs/tools/check-api-response-envelope.mjs --workspace .
 ```

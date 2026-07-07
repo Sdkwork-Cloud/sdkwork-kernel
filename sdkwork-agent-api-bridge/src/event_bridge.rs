@@ -1,6 +1,11 @@
 use crate::types::BridgeEvent;
 use std::collections::HashMap;
 
+/// Maximum in-bridge events retained per session.
+const MAX_SESSION_BRIDGE_EVENTS: usize = 512;
+/// Maximum in-bridge events retained globally for transient snapshots.
+const MAX_GLOBAL_BRIDGE_EVENTS: usize = 4096;
+
 /// Manages event recording and retrieval
 pub struct EventBridge {
     events: HashMap<String, Vec<BridgeEvent>>,
@@ -19,12 +24,12 @@ impl EventBridge {
     pub fn record_events(&mut self, events: &[BridgeEvent]) {
         for event in events {
             if let Some(session_id) = &event.session_id {
-                self.events
-                    .entry(session_id.clone())
-                    .or_default()
-                    .push(event.clone());
+                let session_events = self.events.entry(session_id.clone()).or_default();
+                session_events.push(event.clone());
+                Self::trim_events(session_events, MAX_SESSION_BRIDGE_EVENTS);
             }
             self.global_events.push(event.clone());
+            Self::trim_events(&mut self.global_events, MAX_GLOBAL_BRIDGE_EVENTS);
         }
     }
 
@@ -48,6 +53,13 @@ impl EventBridge {
         self.events.clear();
         self.global_events.clear();
     }
+
+    fn trim_events(events: &mut Vec<BridgeEvent>, max_events: usize) {
+        if events.len() > max_events {
+            let overflow = events.len() - max_events;
+            events.drain(0..overflow);
+        }
+    }
 }
 
 impl Default for EventBridge {
@@ -60,6 +72,16 @@ impl Default for EventBridge {
 mod tests {
     use super::*;
     use crate::types::BridgeEventSeverity;
+
+    fn test_event(session_id: Option<&str>, index: usize) -> BridgeEvent {
+        BridgeEvent {
+            event_type: "test.event".to_string(),
+            session_id: session_id.map(str::to_string),
+            task_id: None,
+            payload: format!("event.{index}"),
+            severity: BridgeEventSeverity::Info,
+        }
+    }
 
     #[test]
     fn record_and_get_events() {
@@ -75,6 +97,49 @@ mod tests {
         bridge.record_events(&events);
         let retrieved = bridge.get_events("session.1");
         assert_eq!(retrieved.len(), 1);
+    }
+
+    #[test]
+    fn record_events_bounds_session_event_history() {
+        let mut bridge = EventBridge::new();
+
+        for index in 0..600 {
+            bridge.record_events(&[test_event(Some("session.1"), index)]);
+        }
+
+        let retrieved = bridge.get_events("session.1");
+        assert_eq!(
+            retrieved.len(),
+            512,
+            "session bridge event history must be bounded"
+        );
+        assert_eq!(
+            retrieved.first().map(|event| event.payload.as_str()),
+            Some("event.88"),
+            "oldest session bridge events should be evicted first"
+        );
+    }
+
+    #[test]
+    fn record_events_bounds_global_event_history() {
+        let mut bridge = EventBridge::new();
+
+        for index in 0..4100 {
+            let session_id = format!("session.{index}");
+            bridge.record_events(&[test_event(Some(&session_id), index)]);
+        }
+
+        let retrieved = bridge.get_global_events();
+        assert_eq!(
+            retrieved.len(),
+            4096,
+            "global bridge event history must be bounded"
+        );
+        assert_eq!(
+            retrieved.first().map(|event| event.payload.as_str()),
+            Some("event.4"),
+            "oldest global bridge events should be evicted first"
+        );
     }
 
     #[test]

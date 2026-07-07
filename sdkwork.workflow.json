@@ -81,16 +81,16 @@
     ],
     "package": [
       {
-        "name": "Build agent server release binary",
+        "name": "Build agent server release package",
         "shell": "pwsh",
-        "run": "cargo build -p sdkwork-agent-server --release"
+        "run": "$ErrorActionPreference = \"Stop\"\n$PSNativeCommandUseErrorActionPreference = $true\ncargo build -p sdkwork-agent-server --release\nnode scripts/release/package-kernel-artifact.mjs"
       }
     ],
     "sign": [
       {
         "name": "Record signing policy for server binaries",
         "shell": "node",
-        "run": "const fs=require('node:fs');const p='dist/release/signing-policy.json';fs.mkdirSync('dist/release',{recursive:true});fs.writeFileSync(p,JSON.stringify({packageId:process.env.SDKWORK_PACKAGE_ID,signingRequired:false,reason:'Kernel server binaries use checksum+SBOM until org signing keys are provisioned',generatedAt:new Date().toISOString()},null,2)+'\\n');console.log('Signing policy recorded:',p);"
+        "run": "const fs=require('node:fs');const path=require('node:path');const packageId=process.env.SDKWORK_PACKAGE_ID;if(!packageId)throw new Error('SDKWORK_PACKAGE_ID is required');const p=path.join('dist','release',packageId,'signing-policy.json');fs.mkdirSync(path.dirname(p),{recursive:true});fs.writeFileSync(p,JSON.stringify({packageId,signingRequired:false,reason:'Kernel server packages use checksum+SBOM until org signing keys are provisioned',generatedAt:new Date().toISOString()},null,2)+'\\n');console.log('Signing policy recorded:',p);"
       }
     ],
     "sbom": [
@@ -102,9 +102,9 @@
     ],
     "validate": [
       {
-        "name": "Validate release binary exists",
+        "name": "Validate release package exists",
         "shell": "pwsh",
-        "run": "$ErrorActionPreference = \"Stop\"\n$suffix = if ($IsWindows) { \".exe\" } else { \"\" }\n$binary = Join-Path (Get-Location) \"target/release/sdkwork-agent-server$suffix\"\nif (-not (Test-Path -LiteralPath $binary)) { throw \"Missing release binary: $binary\" }"
+        "run": "$ErrorActionPreference = \"Stop\"\nif (-not $env:SDKWORK_PACKAGE_ID) { throw \"SDKWORK_PACKAGE_ID is required\" }\n$dir = Join-Path (Get-Location) \"dist/release/$env:SDKWORK_PACKAGE_ID\"\nif (-not (Test-Path -LiteralPath $dir)) { throw \"Missing release package directory: $dir\" }"
       },
       {
         "name": "Generate release checksums",
@@ -131,7 +131,10 @@
       "deploymentProfile": "cloud",
       "runtimeTarget": "server",
       "outputGlobs": [
-        "target/release/sdkwork-agent-server"
+        "dist/release/linux-x64-cloud-server-tar-gz/sdkwork-kernel-linux-x64-cloud-server-tar-gz-*.tar.gz",
+        "dist/release/linux-x64-cloud-server-tar-gz/linux-x64-cloud-server-tar-gz-*.cyclonedx.json",
+        "dist/release/linux-x64-cloud-server-tar-gz/linux-x64-cloud-server-tar-gz-*.sha256",
+        "dist/release/linux-x64-cloud-server-tar-gz/signing-policy.json"
       ]
     },
     {
@@ -146,7 +149,10 @@
       "deploymentProfile": "cloud",
       "runtimeTarget": "server",
       "outputGlobs": [
-        "target/release/sdkwork-agent-server.exe"
+        "dist/release/windows-x64-cloud-server-zip/sdkwork-kernel-windows-x64-cloud-server-zip-*.zip",
+        "dist/release/windows-x64-cloud-server-zip/windows-x64-cloud-server-zip-*.cyclonedx.json",
+        "dist/release/windows-x64-cloud-server-zip/windows-x64-cloud-server-zip-*.sha256",
+        "dist/release/windows-x64-cloud-server-zip/signing-policy.json"
       ]
     }
   ],

@@ -135,7 +135,7 @@ pnpm topology:validate
 pnpm test:topology
 pnpm test:topology-baggage
 
-# Start sdkwork-agent-server with the standalone unified-process dev profile and wait for /health
+# Start sdkwork-agent-server with the standalone unified-process dev profile and wait for /healthz
 pnpm test:topology-smoke
 ```
 

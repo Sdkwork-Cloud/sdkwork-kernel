@@ -1,6 +1,12 @@
 use sdkwork_agent_kernel::{KernelError, KernelResult, ProtocolStreamUpdate};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
+
+/// Maximum buffered stream chunks per connection before backpressure applies.
+const MAX_STREAM_BUFFER_CHUNKS: usize = 1024;
+
+/// Maximum concurrent stream connections per process before new connects are rejected.
+const MAX_STREAM_CONNECTIONS: usize = 4096;
 
 /// Manages streaming connections and event distribution
 pub struct StreamManager {
@@ -14,7 +20,7 @@ pub struct StreamConnection {
     pub connection_type: StreamType,
     pub state: StreamState,
     pub sequence: u64,
-    pub buffer: Vec<ProtocolStreamUpdate>,
+    pub buffer: VecDeque<ProtocolStreamUpdate>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,13 +56,19 @@ impl StreamManager {
             .lock()
             .map_err(|e| KernelError::validation(format!("failed to acquire lock: {}", e)))?;
 
+        if connections.len() >= MAX_STREAM_CONNECTIONS {
+            return Err(KernelError::validation(format!(
+                "stream connection capacity exceeded ({MAX_STREAM_CONNECTIONS})"
+            )));
+        }
+
         let connection = StreamConnection {
             connection_id: connection_id.into(),
             session_id,
             connection_type,
             state: StreamState::Connected,
             sequence: 0,
-            buffer: Vec::new(),
+            buffer: VecDeque::new(),
         };
 
         connections.insert(connection.connection_id.clone(), connection);
@@ -130,8 +142,13 @@ impl StreamManager {
             .map_err(|e| KernelError::validation(format!("failed to acquire lock: {}", e)))?;
 
         if let Some(connection) = connections.get_mut(connection_id) {
+            if connection.buffer.len() >= MAX_STREAM_BUFFER_CHUNKS {
+                return Err(KernelError::validation(format!(
+                    "stream buffer exceeded max chunks ({MAX_STREAM_BUFFER_CHUNKS}) for connection {connection_id}"
+                )));
+            }
             connection.sequence += 1;
-            connection.buffer.push(update);
+            connection.buffer.push_back(update);
             Ok(())
         } else {
             Err(KernelError::validation(format!(
@@ -152,7 +169,9 @@ impl StreamManager {
             if connection.buffer.is_empty() {
                 return Ok(None);
             }
-            Ok(Some(connection.buffer.remove(0)))
+            Ok(Some(
+                connection.buffer.pop_front().expect("buffer non-empty"),
+            ))
         } else {
             Err(KernelError::validation(format!(
                 "connection not found: {}",
@@ -298,5 +317,19 @@ mod tests {
 
         assert_eq!(manager.session_connection_count("session.1"), 2);
         assert_eq!(manager.session_connection_count("session.2"), 1);
+    }
+
+    #[test]
+    fn connect_rejects_when_capacity_exceeded() {
+        let manager = StreamManager::new();
+        for index in 0..MAX_STREAM_CONNECTIONS {
+            manager
+                .connect(format!("conn.{index}"), StreamType::Sse, None)
+                .expect("connected");
+        }
+        let error = manager
+            .connect("conn.overflow", StreamType::Sse, None)
+            .expect_err("capacity should be enforced");
+        assert!(error.to_string().contains("capacity exceeded"));
     }
 }

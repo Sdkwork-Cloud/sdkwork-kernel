@@ -3,13 +3,13 @@
   "kind": "sdkwork.component.spec",
   "component": {
     "name": "sdkwork-agent-provider-openclaw",
-    "displayName": "SDKWork Agent Adapter OpenClaw",
-    "version": "0.1.0",
+    "displayName": "SDKWork Agent Provider OpenClaw",
+    "version": "0.2.0",
     "type": "rust-crate",
     "root": "sdkwork-kernel/agent-providers/crates/sdkwork-agent-provider-openclaw",
     "domain": "intelligence",
-    "capability": "agent-adapter-openclaw",
-    "surfaceNotRequiredReason": "This repository-internal protocol adapter crate maps external agent runtimes to kernel SPI contracts and has no app, open-api, or backend-admin HTTP surface.",
+    "capability": "agent-provider-openclaw",
+    "surfaceNotRequiredReason": "Process-adapter plugin loaded through kernel runtime bootstrap and SDKWORK_KERNEL_AGENT_PLUGIN.",
     "languages": [
       "rust"
     ],
@@ -59,23 +59,31 @@
     "publicExports": [
       "."
     ],
-    "runtimeEntrypoints": [],
+    "runtimeEntrypoints": [
+      "OpenClawKernelPlugin::configure_runtime",
+      "openclaw_agent_definition",
+      "openclaw_agent_manifest",
+      "openclaw_provider_manifests",
+      "openclaw_package_manifest",
+      "openclaw_kernel_plugin_manifest"
+    ],
     "routeManifest": null,
     "sdkDependencies": [],
     "dependencyApiExports": [],
     "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
-    "configKeys": []
+    "configKeys": ["SDKWORK_KERNEL_AGENT_PLUGIN"]
   },
   "verification": {
     "commands": [
-      "cargo test"
+      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-openclaw/Cargo.toml"
     ]
   },
   "plugin": {
+    "pluginId": "plugin.intelligence.openclaw",
     "canonicalName": "plugin",
     "package": "sdkwork-agent-provider-openclaw",
-    "namingPolicy": "Adapter crates expose mapping types and providers through the crate root only."
+    "namingPolicy": "OpenClawKernelPlugin and openclaw_kernel_plugin_manifest are canonical entrypoints."
   }
 }

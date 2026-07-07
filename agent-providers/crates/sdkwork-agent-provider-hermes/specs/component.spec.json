@@ -3,13 +3,13 @@
   "kind": "sdkwork.component.spec",
   "component": {
     "name": "sdkwork-agent-provider-hermes",
-    "displayName": "SDKWork Agent Adapter Hermes",
-    "version": "0.1.0",
+    "displayName": "SDKWork Agent Provider Hermes",
+    "version": "0.2.0",
     "type": "rust-crate",
     "root": "sdkwork-kernel/agent-providers/crates/sdkwork-agent-provider-hermes",
     "domain": "intelligence",
-    "capability": "agent-adapter-hermes",
-    "surfaceNotRequiredReason": "This repository-internal protocol adapter crate maps external agent runtimes to kernel SPI contracts and has no app, open-api, or backend-admin HTTP surface.",
+    "capability": "agent-provider-hermes",
+    "surfaceNotRequiredReason": "Process-adapter plugin loaded through kernel runtime bootstrap and SDKWORK_KERNEL_AGENT_PLUGIN.",
     "languages": [
       "rust"
     ],
@@ -59,23 +59,31 @@
     "publicExports": [
       "."
     ],
-    "runtimeEntrypoints": [],
+    "runtimeEntrypoints": [
+      "HermesKernelPlugin::configure_runtime",
+      "hermes_agent_definition",
+      "hermes_agent_manifest",
+      "hermes_provider_manifests",
+      "hermes_package_manifest",
+      "hermes_kernel_plugin_manifest"
+    ],
     "routeManifest": null,
     "sdkDependencies": [],
     "dependencyApiExports": [],
     "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
-    "configKeys": []
+    "configKeys": ["SDKWORK_KERNEL_AGENT_PLUGIN"]
   },
   "verification": {
     "commands": [
-      "cargo test"
+      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-hermes/Cargo.toml"
     ]
   },
   "plugin": {
+    "pluginId": "plugin.intelligence.hermes",
     "canonicalName": "plugin",
     "package": "sdkwork-agent-provider-hermes",
-    "namingPolicy": "Adapter crates expose mapping types and providers through the crate root only."
+    "namingPolicy": "HermesKernelPlugin and hermes_kernel_plugin_manifest are canonical entrypoints."
   }
 }

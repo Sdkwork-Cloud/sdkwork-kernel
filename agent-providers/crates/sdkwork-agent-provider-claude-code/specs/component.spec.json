@@ -3,13 +3,13 @@
   "kind": "sdkwork.component.spec",
   "component": {
     "name": "sdkwork-agent-provider-claude-code",
-    "displayName": "SDKWork Agent Adapter Claude Code",
-    "version": "0.1.0",
+    "displayName": "SDKWork Agent Provider Claude Code",
+    "version": "0.2.0",
     "type": "rust-crate",
     "root": "sdkwork-kernel/agent-providers/crates/sdkwork-agent-provider-claude-code",
     "domain": "intelligence",
-    "capability": "agent-adapter-claude-code",
-    "surfaceNotRequiredReason": "This repository-internal protocol adapter crate maps external agent runtimes to kernel SPI contracts and has no app, open-api, or backend-admin HTTP surface.",
+    "capability": "agent-provider-claude-code",
+    "surfaceNotRequiredReason": "Process-adapter plugin loaded through kernel runtime bootstrap and SDKWORK_KERNEL_AGENT_PLUGIN.",
     "languages": [
       "rust"
     ],
@@ -59,23 +59,31 @@
     "publicExports": [
       "."
     ],
-    "runtimeEntrypoints": [],
+    "runtimeEntrypoints": [
+      "ClaudeCodeKernelPlugin::configure_runtime",
+      "claude_code_agent_definition",
+      "claude_code_agent_manifest",
+      "claude_code_provider_manifests",
+      "claude_code_package_manifest",
+      "claude_code_kernel_plugin_manifest"
+    ],
     "routeManifest": null,
     "sdkDependencies": [],
     "dependencyApiExports": [],
     "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
-    "configKeys": []
+    "configKeys": ["SDKWORK_KERNEL_AGENT_PLUGIN"]
   },
   "verification": {
     "commands": [
-      "cargo test"
+      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-claude-code/Cargo.toml"
     ]
   },
   "plugin": {
+    "pluginId": "plugin.intelligence.claude-code",
     "canonicalName": "plugin",
     "package": "sdkwork-agent-provider-claude-code",
-    "namingPolicy": "Adapter crates expose mapping types and providers through the crate root only."
+    "namingPolicy": "ClaudeCodeKernelPlugin and claude_code_kernel_plugin_manifest are canonical entrypoints."
   }
 }

@@ -334,11 +334,19 @@ sdkwork_agent_provider_core::define_provider_lifecycle_provider!(
     "opencode"
 );
 
-// ============================================================================
-// SDK Integration
-// ============================================================================
-
+mod agent_definition;
+mod conformance;
+pub mod ids;
+mod manifest;
+mod package;
 pub mod sdk_integration;
+
+pub use agent_definition::{opencode_agent_definition, opencode_agent_manifest};
+pub use conformance::opencode_conformance_profile;
+pub use manifest::{
+    opencode_kernel_plugin_manifest, opencode_provider_manifests, OpenCodeKernelPlugin,
+};
+pub use package::opencode_package_manifest;
 pub use sdk_integration::{opencode_binding_manifest, OpenCodeSdkIntegration};
 
 // ============================================================================

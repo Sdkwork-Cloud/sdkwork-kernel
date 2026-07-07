@@ -65,7 +65,7 @@ fn agent_definition_binds_model_tool_and_policy() {
     let families: Vec<AgentProviderFamily> = definition
         .provider_bindings
         .iter()
-        .map(|binding| binding.provider_family.clone())
+        .map(|binding| binding.family)
         .collect();
     assert!(families.contains(&AgentProviderFamily::Model));
     assert!(families.contains(&AgentProviderFamily::Tool));

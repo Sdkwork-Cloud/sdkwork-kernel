@@ -449,7 +449,10 @@ mod manifest;
 mod package;
 pub mod sdk_integration;
 
-pub use manifest::{codex_kernel_plugin_manifest, CodexKernelPlugin};
+pub use agent_definition::{codex_agent_definition, codex_agent_manifest};
+pub use conformance::codex_conformance_profile;
+pub use manifest::{codex_kernel_plugin_manifest, codex_provider_manifests, CodexKernelPlugin};
+pub use package::codex_package_manifest;
 pub use sdk_integration::{codex_binding_manifest, CodexSdkIntegration};
 
 // ============================================================================

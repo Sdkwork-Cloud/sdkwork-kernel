@@ -2279,6 +2279,7 @@ name = "sdkwork-agent-provider-claude-code"
 version = "0.2.0"
 dependencies = [
  "sdkwork-agent-kernel",
+ "sdkwork-agent-plugin-core",
  "sdkwork-agent-provider-core",
  "sdkwork-agent-provider-spi",
  "sdkwork-agent-provider-transport-core",
@@ -2367,6 +2368,7 @@ name = "sdkwork-agent-provider-opencode"
 version = "0.2.0"
 dependencies = [
  "sdkwork-agent-kernel",
+ "sdkwork-agent-plugin-core",
  "sdkwork-agent-provider-core",
  "sdkwork-agent-provider-spi",
  "sdkwork-agent-provider-transport-core",

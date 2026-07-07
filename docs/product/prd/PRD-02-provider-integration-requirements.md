@@ -31,7 +31,7 @@ catalog schema) are **not** duplicated here. Authority:
 | OpenClaw | `binding.agent-provider.openclaw` | Shipped |
 | Hermes | `binding.agent-provider.hermes` | Shipped |
 | Rig | `binding.agent-provider.rig` | Shipped |
-| Mimo Code | `binding.agent-provider.mimo-code` | In progress — crate shipped; binding manifest pending |
+| Mimo Code | `binding.agent-provider.mimo-code` | In progress — binding manifest and crate shipped; agents facade/live SDK proof pending |
 
 Integration mode matrix and transport contracts: `AGENT_PROVIDER_INTEGRATION_SPEC.md` §3–5.
 

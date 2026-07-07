@@ -4,6 +4,7 @@
 
 - Local path: `external/claude-code`
 - Upstream: `https://github.com/anthropics/claude-code.git`
+- npm SDK package: `@anthropic-ai/claude-agent-sdk`
 
 ## SDKWork Surface
 
@@ -20,8 +21,9 @@ Claude Code maps first to the Code Kernel process-adapter surface:
 
 `process-adapter`
 
-The plugin should treat Claude Code as an external code-agent process
-until a stable typed library API is confirmed.
+`sdkwork-agent-provider-claude-code` treats Claude Code as an external
+code-agent process and routes model/tool execution through the negotiated
+`@anthropic-ai/claude-agent-sdk` transport worker.
 
 ## Capability Mapping
 
@@ -52,10 +54,15 @@ Permission denial maps to `policy_denied`; process failure maps to
 
 ## Conformance
 
-Initial target: process-adapter profile with explicit permission and
-cancellation cases.
+Target: process-adapter profile with explicit permission and cancellation
+cases, provider crate contract tests, and kernel plugin crate registration
+through `SDKWORK_KERNEL_AGENT_PLUGIN`.
 
 ## Status
 
-Reference source is declared at `external/claude-code` but is not required for
-default SDKWork checks. SDKWork adapter code is not implemented.
+- Provider crate: `agent-providers/crates/sdkwork-agent-provider-claude-code`
+- SDK binding: `bindings/agent-providers/claude-code/provider-binding.manifest.json`
+- Server bootstrap: `SDKWORK_KERNEL_AGENT_PLUGIN=claude-code`
+- Runtime worker: `@anthropic-ai/claude-agent-sdk` via `NodeSdkBackendRuntime`
+- SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`, optional `sdk.model.stream`, optional `sdk.tool.invoke`
+- Production safety: SDK backends fail closed when workers cannot spawn unless `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1`

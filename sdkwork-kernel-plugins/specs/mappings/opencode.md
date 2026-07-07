@@ -4,6 +4,8 @@
 
 - Local path: `external/opencode`
 - Upstream: `https://github.com/opencode-ai/opencode.git`
+- npm SDK package: `@opencode-ai/sdk`
+- CLI package: `opencode-ai` (not used as the SDK binding source)
 
 ## SDKWork Surface
 
@@ -20,8 +22,9 @@ OpenCode maps first to the Code Kernel runtime and process-adapter surfaces:
 
 `process-adapter`
 
-OpenCode may later expose typed provider boundaries, but the first SDKWork
-plugin should wrap the runtime through process and protocol contracts.
+`sdkwork-agent-provider-opencode` wraps the OpenCode runtime through process and
+protocol contracts. Direct in-process model/tool calls fail closed; real
+execution routes through the negotiated `@opencode-ai/sdk` transport worker.
 
 ## Capability Mapping
 
@@ -52,10 +55,16 @@ upstream feature maps to `capability_missing`. Process errors map to
 
 ## Conformance
 
-Initial target: process-adapter profile. Typed local provider profile is
-deferred until stable OpenCode provider boundaries are selected.
+Target: manifest profile, adapter crate contract tests, and kernel plugin crate
+registration through `SDKWORK_KERNEL_AGENT_PLUGIN`. Typed local provider
+profile remains deferred until stable OpenCode in-process provider boundaries
+are selected.
 
 ## Status
 
-Reference source is declared at `external/opencode` but is not required for
-default SDKWork checks. SDKWork adapter code is not implemented.
+- Provider crate: `agent-providers/crates/sdkwork-agent-provider-opencode`
+- SDK binding: `bindings/agent-providers/opencode/provider-binding.manifest.json`
+- Server bootstrap: `SDKWORK_KERNEL_AGENT_PLUGIN=opencode`
+- Runtime worker: `@opencode-ai/sdk` via `NodeSdkBackendRuntime`
+- SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`, optional `sdk.tool.invoke`
+- Production safety: SDK backends fail closed when workers cannot spawn unless `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1`

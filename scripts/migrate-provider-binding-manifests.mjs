@@ -19,8 +19,14 @@ const integrationByAgent = {
     { mode: 'ipc_protocol', transport: 'jsonrpc_stdio' },
   ],
   opencode: [
-    { mode: 'official_sdk', package: 'opencode-ai' },
+    { mode: 'official_sdk', package: '@opencode-ai/sdk' },
     { mode: 'http_openapi', transport: 'openclaw-gateway-open-api' },
+    { mode: 'ipc_protocol', transport: 'jsonrpc_stdio' },
+  ],
+  'mimo-code': [
+    { mode: 'source_tree', path: 'external/mimo-code' },
+    { mode: 'official_sdk', package: '@mimo-ai/sdk' },
+    { mode: 'http_openapi', transport: 'opencode-gateway-open-api' },
     { mode: 'ipc_protocol', transport: 'jsonrpc_stdio' },
   ],
   openclaw: [

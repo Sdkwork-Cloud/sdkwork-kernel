@@ -13,7 +13,7 @@
   },
   "language_packages": {
     "typescript": {
-      "package": "@mimo-code/opencode",
+      "package": "@mimo-ai/sdk",
       "optional": false
     }
   },
@@ -32,7 +32,7 @@
         {
           "kind": "typescript_node",
           "driver_id": "driver.mimo.session.lifecycle.ts",
-          "package": "@mimo-code/opencode"
+          "package": "@mimo-ai/sdk"
         }
       ]
     },
@@ -43,7 +43,7 @@
         {
           "kind": "typescript_node",
           "driver_id": "driver.mimo.model.chat.ts",
-          "package": "@mimo-code/opencode"
+          "package": "@mimo-ai/sdk"
         },
         {
           "kind": "rust_native",
@@ -59,7 +59,7 @@
         {
           "kind": "typescript_node",
           "driver_id": "driver.mimo.tool.invoke.ts",
-          "package": "@mimo-code/opencode"
+          "package": "@mimo-ai/sdk"
         },
         {
           "kind": "rust_native",
@@ -76,7 +76,7 @@
     },
     {
       "mode": "official_sdk",
-      "package": "mimo-code"
+      "package": "@mimo-ai/sdk"
     },
     {
       "mode": "http_openapi",

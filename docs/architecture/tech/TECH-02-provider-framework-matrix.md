@@ -22,7 +22,7 @@ Binding manifests are authoritative: `bindings/agent-providers/<framework>/provi
 | Claude Code | Code-agent | `standardizing` | `typescript_node`, `ipc_protocol` | `@anthropic-ai/claude-agent-sdk` |
 | Gemini CLI | Code-agent | `standardizing` | `typescript_node`, `ipc_protocol` | Gemini CLI TypeScript SDK |
 | OpenCode | Code-agent | `experimental` | `typescript_node`, `http_openapi`, `ipc_protocol` | `@opencode-ai/sdk` |
-| Mimo Code | Code-agent | In progress | TBD | OpenCode-family SDK (pending binding) |
+| Mimo Code | Code-agent | `experimental` | `typescript_node`, `http_openapi`, `ipc_protocol` | `@mimo-ai/sdk` |
 | OpenClaw | Autonomous | `experimental` | `typescript_node`, `http_openapi`, `ipc_protocol` | `openclaw` plugin SDK + gateway OpenAPI |
 | Hermes | Autonomous | `experimental` | `python_process`, `ipc_protocol` | Python `run_agent` + TUI gateway JSON-RPC |
 | Rig | Framework-native | `standardizing` | `rust_native` | `rig-core` in-process |
@@ -132,8 +132,8 @@ a binding manifest declares `integration_sources`.
 
 ### Mimo Code
 
-- **Status:** Provider crate exists; binding manifest **pending**.
-- **Action:** Complete `bindings/agent-providers/mimo-code/provider-binding.manifest.json` before product GA.
+- **Status:** Provider crate and `bindings/agent-providers/mimo-code/provider-binding.manifest.json` exist.
+- **Action:** Complete agents facade registration and staging live SDK proof before product GA.
 
 ## 7. Verification
 

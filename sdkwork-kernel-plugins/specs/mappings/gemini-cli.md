@@ -54,5 +54,8 @@ Initial target: process-adapter profile with model/tool policy cases.
 
 ## Status
 
-Reference source is declared at `external/gemini-cli` but is not required for
-default SDKWork checks. SDKWork adapter code is not implemented.
+- Provider crate: `agent-providers/crates/sdkwork-agent-provider-gemini-cli`
+- SDK binding: `bindings/agent-providers/gemini-cli/provider-binding.manifest.json`
+- Runtime worker: Gemini CLI SDK via `NodeSdkBackendRuntime`
+- SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`, optional `sdk.model.stream`, optional `sdk.tool.invoke`
+- Production safety: SDK backends fail closed when workers cannot spawn unless `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1`

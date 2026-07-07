@@ -6,13 +6,13 @@ title: Complete kernel commercial hardening for P4 release
 owner: SDKWork kernel maintainers
 status: in-progress
 source: platform
-problem: Kernel mechanism layer is green for merge verification, but enterprise rollout still lacks artifact publishing, strict commercial release verification, live runtime PostgreSQL evidence, managed HA data-plane requirements, Mimo Code binding, and IM agents-only consumption.
+problem: Kernel mechanism layer is green for merge verification, but enterprise rollout still lacks artifact publishing, strict commercial release verification, live runtime PostgreSQL evidence, managed HA data-plane requirements, Mimo Code facade/live SDK proof, and IM agents-only consumption.
 goals:
   - Publish kernel server binaries to artifact registry with checksum/SBOM evidence
   - Keep the default merge pipeline credential-free while making commercial release verification fail closed on missing live dependencies
   - Require `pnpm verify:commercial` to validate live runtime PostgreSQL and staging SDK credentials before release promotion
   - Require production deployments to use managed HA Postgres and managed HA Redis, not bundled single-node reference manifests
-  - Complete Mimo Code binding and agents facade registration
+  - Complete Mimo Code agents facade registration and staging live SDK proof
   - Route IM PC agent surfaces exclusively through sdkwork-agents SDK
 non_goals:
   - P5 ZeroClaw, gRPC client, dynamic plugins, discovery
@@ -76,6 +76,6 @@ Parent PRD: [PRD.md](../prd/PRD.md) · Readiness shard: [PRD-03-commercial-readi
 3. Commercial release gate via `pnpm verify:commercial`; it requires `SDKWORK_AGENT_RUNTIME_POSTGRES_URI`, `SDKWORK_KERNEL_STAGING_LIVE_SDK=1`, and `SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1`.
 4. Staging-backed live SDK invoke gate via `kernel-staging-live-sdk.yml` (`workflow_dispatch`, credential-gated).
 5. Production data-plane handoff to managed HA Postgres and managed HA Redis; bundled Kubernetes Postgres/Redis remains local/staging only.
-6. Complete Mimo Code binding and facade registration.
+6. Complete Mimo Code agents facade registration and staging live SDK proof.
 7. IM PC agent module exclusively via `sdkwork-agents` SDK.
 8. Multi-region runtime DB failover runbook (product-owned; kernel documents session recovery SPI only).

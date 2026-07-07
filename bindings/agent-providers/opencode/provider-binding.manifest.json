@@ -62,7 +62,7 @@
   "integration_sources": [
     {
       "mode": "official_sdk",
-      "package": "opencode-ai"
+      "package": "@opencode-ai/sdk"
     },
     {
       "mode": "http_openapi",

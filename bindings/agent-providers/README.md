@@ -48,7 +48,7 @@ order per capability:
 | --- | --- | --- |
 | Codex | `binding.agent-provider.codex` | SDK + Rust crate |
 | Claude Code | `binding.agent-provider.claude-code` | TypeScript SDK |
-| Gemini CLI | `binding.agent-provider.gemini-cli` | TypeScript SDK |
+| Gemini CLI | `binding.agent-provider.gemini-cli` | Source-tree TypeScript SDK + CLI npm package |
 | Hermes | `binding.agent-provider.hermes` | Python |
 | OpenClaw | `binding.agent-provider.openclaw` | TypeScript SDK |
 | OpenCode | `binding.agent-provider.opencode` | TypeScript SDK |

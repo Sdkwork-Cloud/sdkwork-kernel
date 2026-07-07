@@ -15,7 +15,8 @@ const integrationByAgent = {
     { mode: 'ipc_protocol', transport: 'jsonrpc_stdio' },
   ],
   'gemini-cli': [
-    { mode: 'official_sdk', package: '@google/gemini-cli' },
+    { mode: 'source_tree', path: 'external/gemini-cli/packages/sdk' },
+    { mode: 'npm_package', package: '@google/gemini-cli' },
     { mode: 'ipc_protocol', transport: 'jsonrpc_stdio' },
   ],
   opencode: [

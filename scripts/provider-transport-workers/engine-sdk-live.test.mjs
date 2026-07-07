@@ -12,6 +12,7 @@ import {
 
 const workerDir = path.dirname(fileURLToPath(import.meta.url));
 const birdcoderRoot = path.resolve(workerDir, '../../../sdkwork-birdcoder');
+const kernelRoot = path.resolve(workerDir, '../..');
 
 process.env.SDKWORK_AGENT_SDK_WORKSPACE_ROOT = birdcoderRoot;
 delete process.env.SDKWORK_KERNEL_PROFILE_ID;
@@ -24,6 +25,10 @@ assert.ok(codexPath, 'codex sdk mirror should resolve from birdcoder workspace')
 
 const opencodePath = resolvePackageSpecifier('@opencode-ai/sdk');
 assert.ok(opencodePath, 'opencode sdk mirror should resolve from birdcoder workspace');
+
+process.env.SDKWORK_AGENT_SDK_WORKSPACE_ROOT = kernelRoot;
+const geminiPath = resolvePackageSpecifier('@google/gemini-cli-sdk');
+assert.ok(geminiPath, 'gemini cli sdk mirror should resolve from kernel external workspace');
 
 const stub = buildStubModelChatResult(
   '@openai/codex-sdk',

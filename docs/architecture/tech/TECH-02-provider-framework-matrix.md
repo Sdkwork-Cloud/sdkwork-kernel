@@ -20,7 +20,7 @@ Binding manifests are authoritative: `bindings/agent-providers/<framework>/provi
 | --- | --- | --- | --- | --- |
 | Codex | Code-agent | `standardizing` | `rust_native`, `typescript_node`, `ipc_protocol` | `@openai/codex-sdk`, `codex-core` |
 | Claude Code | Code-agent | `standardizing` | `typescript_node`, `ipc_protocol` | `@anthropic-ai/claude-agent-sdk` |
-| Gemini CLI | Code-agent | `standardizing` | `typescript_node`, `ipc_protocol` | Gemini CLI TypeScript SDK |
+| Gemini CLI | Code-agent | `standardizing` | `typescript_node`, `ipc_protocol` | Source-tree `@google/gemini-cli-sdk`; CLI npm `@google/gemini-cli` |
 | OpenCode | Code-agent | `experimental` | `typescript_node`, `http_openapi`, `ipc_protocol` | `@opencode-ai/sdk` |
 | Mimo Code | Code-agent | `experimental` | `typescript_node`, `http_openapi`, `ipc_protocol` | `@mimo-ai/sdk` |
 | OpenClaw | Autonomous | `experimental` | `typescript_node`, `http_openapi`, `ipc_protocol` | `openclaw` plugin SDK + gateway OpenAPI |

@@ -4,6 +4,8 @@
 
 - Local path: `external/gemini-cli`
 - Upstream: `https://github.com/google-gemini/gemini-cli.git`
+- Source-tree SDK package: `external/gemini-cli/packages/sdk` (`@google/gemini-cli-sdk`)
+- npm CLI package: `@google/gemini-cli`
 
 ## SDKWork Surface
 
@@ -56,6 +58,6 @@ Initial target: process-adapter profile with model/tool policy cases.
 
 - Provider crate: `agent-providers/crates/sdkwork-agent-provider-gemini-cli`
 - SDK binding: `bindings/agent-providers/gemini-cli/provider-binding.manifest.json`
-- Runtime worker: Gemini CLI SDK via `NodeSdkBackendRuntime`
+- Runtime worker: source-tree `@google/gemini-cli-sdk` via `NodeSdkBackendRuntime`; public npm package `@google/gemini-cli` is a CLI package, not the SDK binding source
 - SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`, optional `sdk.model.stream`, optional `sdk.tool.invoke`
 - Production safety: SDK backends fail closed when workers cannot spawn unless `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1`

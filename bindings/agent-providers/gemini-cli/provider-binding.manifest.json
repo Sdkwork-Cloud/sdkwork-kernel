@@ -71,7 +71,11 @@
   ],
   "integration_sources": [
     {
-      "mode": "official_sdk",
+      "mode": "source_tree",
+      "path": "external/gemini-cli/packages/sdk"
+    },
+    {
+      "mode": "npm_package",
       "package": "@google/gemini-cli"
     },
     {

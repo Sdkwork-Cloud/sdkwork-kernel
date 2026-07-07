@@ -70,7 +70,7 @@ function defaultPackagePaths(root) {
     '@openai/codex-sdk': path.join(root, 'external/codex/sdk/typescript'),
     '@openai/codex': path.join(root, 'external/codex/sdk/typescript'),
     '@opencode-ai/sdk': path.join(root, 'external/opencode/packages/sdk/js'),
-    '@google/gemini-cli-sdk': path.join(root, 'external/gemini/packages/sdk'),
+    '@google/gemini-cli-sdk': path.join(root, 'external/gemini-cli/packages/sdk'),
     '@anthropic-ai/claude-agent-sdk': path.join(root, 'external/claude-code'),
     openclaw: path.join(root, 'external/openclaw'),
   };

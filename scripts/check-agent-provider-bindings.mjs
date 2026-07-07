@@ -2,21 +2,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(import.meta.dirname, '..');
+const scriptPath = fileURLToPath(import.meta.url);
+const root = path.resolve(path.dirname(scriptPath), '..');
 const catalogRoot = path.join(root, 'bindings', 'agent-providers');
 const schemaPath = path.join(root, 'specs', 'schemas', 'agent-sdk-binding.schema.json');
 
-const errors = [];
-
-function ensureDirectory(relativePath) {
+function ensureDirectory(relativePath, errors) {
   const absolutePath = path.join(root, relativePath);
   if (!fs.existsSync(absolutePath) || !fs.statSync(absolutePath).isDirectory()) {
     errors.push(`missing directory: ${relativePath}`);
   }
 }
 
-function readJson(relativePath) {
+function readJson(relativePath, errors) {
   const absolutePath = path.join(root, relativePath);
   try {
     return JSON.parse(fs.readFileSync(absolutePath, 'utf8'));
@@ -34,8 +34,7 @@ function listBindingManifests(directory) {
     .filter((manifestPath) => fs.existsSync(manifestPath));
 }
 
-function validateManifestShape(manifestPath, manifest) {
-  const relativePath = path.relative(root, manifestPath).replaceAll('\\', '/');
+function validateManifestShape(relativePath, manifest, errors) {
   const required = [
     'schema_version',
     'manifest_type',
@@ -88,21 +87,56 @@ function validateManifestShape(manifestPath, manifest) {
   }
 }
 
-ensureDirectory('bindings/agent-providers');
-if (!fs.existsSync(schemaPath)) {
-  errors.push('missing schema: specs/schemas/agent-sdk-binding.schema.json');
-}
+function validateTypeScriptPackageConsistency(relativePath, manifest, errors) {
+  const typeScriptPackage = manifest.language_packages?.typescript?.package;
+  const typeScriptBackends = (manifest.capabilities ?? [])
+    .flatMap((capability) => capability.backends ?? [])
+    .filter((backend) => backend.kind === 'typescript_node');
 
-const manifests = listBindingManifests(catalogRoot);
-if (manifests.length === 0) {
-  errors.push('agent provider binding catalog must contain at least one manifest');
-}
-
-for (const manifestPath of manifests) {
-  const manifest = readJson(path.relative(root, manifestPath));
-  if (manifest) {
-    validateManifestShape(manifestPath, manifest);
+  for (const backend of typeScriptBackends) {
+    if (!backend.package) {
+      errors.push(
+        `${relativePath} typescript_node backend ${backend.driver_id} must declare package`
+      );
+      continue;
+    }
+    if (!typeScriptPackage) {
+      errors.push(
+        `${relativePath} typescript_node backend ${backend.driver_id} declares package ${backend.package} but language_packages.typescript.package is missing`
+      );
+      continue;
+    }
+    if (backend.package !== typeScriptPackage) {
+      errors.push(
+        `${relativePath} typescript_node backend ${backend.driver_id} package ${backend.package} must match language_packages.typescript.package ${typeScriptPackage}`
+      );
+    }
   }
+
+  if (!typeScriptPackage || typeScriptBackends.length === 0) {
+    return;
+  }
+
+  for (const source of manifest.integration_sources ?? []) {
+    if (source.mode !== 'official_sdk' || !source.package) {
+      continue;
+    }
+    if (source.package !== typeScriptPackage) {
+      errors.push(
+        `${relativePath} official_sdk package ${source.package} must match language_packages.typescript.package ${typeScriptPackage}`
+      );
+    }
+  }
+}
+
+export function collectManifestValidationErrors(
+  manifest,
+  relativePath = 'provider-binding.manifest.json'
+) {
+  const errors = [];
+  validateManifestShape(relativePath, manifest, errors);
+  validateTypeScriptPackageConsistency(relativePath, manifest, errors);
+  return errors;
 }
 
 function runCargoTest(crateDir) {
@@ -122,12 +156,8 @@ function runCargoTest(crateDir) {
   const output = `${result.stdout}${result.stderr}`;
   if (isWindowsBuildScriptPanic(output)) {
     // Known Windows toolchain issue: proc-macro2/serde/serde_core/quote build
-    // scripts panic during process spawning on certain Windows configurations
-    // (notably non-English locales). The panic occurs in Rust's standard
-    // library process module (`Result::unwrap()` on `Os { code: 0 }`),
-    // not in kernel code. Linux CI validates these crates without issue.
-    // Skipping here avoids blocking Windows development while keeping CI
-    // authoritative.
+    // scripts panic during process spawning on certain Windows configurations.
+    // Linux CI remains authoritative for these crates.
     console.warn(
       `warning: ${crateDir} cargo tests skipped on Windows due to build-script toolchain panic (proc-macro2/serde/quote). ` +
       'These crates are validated on Linux CI. See AGENTS.md "Build, Test, and Verification" for details.'
@@ -145,11 +175,6 @@ function isWindowsBuildScriptPanic(output) {
   if (process.platform !== 'win32') {
     return false;
   }
-  // Detect the known Windows build-script panic pattern. The build scripts
-  // for proc-macro2, serde, serde_core, and quote panic with an Os error
-  // code 0 ("操作成功完成。" / "The operation completed successfully")
-  // during process spawning. This is a Rust standard library issue on
-  // Windows, not a kernel code defect.
   const buildScriptPanicCrates = [
     'proc-macro2',
     'serde_core',
@@ -163,33 +188,63 @@ function isWindowsBuildScriptPanic(output) {
   return hasBuildScriptFailure && hasProcessPanic;
 }
 
-const rustParseCheck = runCargoTest('sdkwork-agent-provider-spi');
-if (!rustParseCheck.passed) {
-  errors.push(
-    `provider-spi binding parse tests failed:\n${rustParseCheck.output}`
-  );
-}
+export function runAgentProviderBindingCheck() {
+  const errors = [];
 
-const transportCrates = [
-  'sdkwork-agent-provider-transport-ipc',
-  'sdkwork-agent-provider-transport-rust',
-  'sdkwork-agent-provider-transport-node',
-  'sdkwork-agent-provider-transport-python',
-  'sdkwork-agent-provider-transport-core'
-];
+  ensureDirectory('bindings/agent-providers', errors);
+  if (!fs.existsSync(schemaPath)) {
+    errors.push('missing schema: specs/schemas/agent-sdk-binding.schema.json');
+  }
 
-for (const crateDir of transportCrates) {
-  const transportCheck = runCargoTest(crateDir);
-  if (!transportCheck.passed) {
+  const manifests = listBindingManifests(catalogRoot);
+  if (manifests.length === 0) {
+    errors.push('agent provider binding catalog must contain at least one manifest');
+  }
+
+  for (const manifestPath of manifests) {
+    const relativePath = path.relative(root, manifestPath).replaceAll('\\', '/');
+    const manifest = readJson(relativePath, errors);
+    if (manifest) {
+      errors.push(...collectManifestValidationErrors(manifest, relativePath));
+    }
+  }
+
+  const rustParseCheck = runCargoTest('sdkwork-agent-provider-spi');
+  if (!rustParseCheck.passed) {
     errors.push(
-      `${crateDir} tests failed:\n${transportCheck.output}`
+      `provider-spi binding parse tests failed:\n${rustParseCheck.output}`
     );
   }
+
+  const transportCrates = [
+    'sdkwork-agent-provider-transport-ipc',
+    'sdkwork-agent-provider-transport-rust',
+    'sdkwork-agent-provider-transport-node',
+    'sdkwork-agent-provider-transport-python',
+    'sdkwork-agent-provider-transport-core'
+  ];
+
+  for (const crateDir of transportCrates) {
+    const transportCheck = runCargoTest(crateDir);
+    if (!transportCheck.passed) {
+      errors.push(
+        `${crateDir} tests failed:\n${transportCheck.output}`
+      );
+    }
+  }
+
+  if (errors.length > 0) {
+    console.error(errors.map((error) => `- ${error}`).join('\n'));
+    return { passed: false, errors };
+  }
+
+  console.log(`Agent provider binding check passed (${manifests.length} manifests).`);
+  return { passed: true, errors: [] };
 }
 
-if (errors.length > 0) {
-  console.error(errors.map((error) => `- ${error}`).join('\n'));
-  process.exit(1);
+if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
+  const result = runAgentProviderBindingCheck();
+  if (!result.passed) {
+    process.exitCode = 1;
+  }
 }
-
-console.log(`Agent provider binding check passed (${manifests.length} manifests).`);

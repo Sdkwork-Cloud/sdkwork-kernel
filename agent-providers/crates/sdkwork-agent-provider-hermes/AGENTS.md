@@ -1,4 +1,4 @@
-# SDKWork Agent Adapter Hermes
+# SDKWork Agent Provider Hermes
 
 Read `../../../AGENTS.md` and `specs/component.spec.json` before editing this crate.
 

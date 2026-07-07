@@ -3,7 +3,7 @@
 Status: active
 Owner: SDKWork kernel maintainers
 Application: sdkwork-kernel
-Updated: 2026-07-06
+Updated: 2026-07-08
 Parent: [PRD.md](PRD.md)
 Specs: [REQUIREMENTS_SPEC.md](../../../../sdkwork-specs/REQUIREMENTS_SPEC.md)
 
@@ -39,9 +39,14 @@ Framework capability matrix: [TECH-02-provider-framework-matrix.md](../../archit
 
 ## 3. Product Acceptance Criteria
 
-- Every shipped framework has a validated binding manifest and provider crate contract tests.
+- Every shipped framework has a validated binding manifest, provider crate
+  contract tests, process-adapter plugin manifest, agent definition, package
+  manifest, and `SdkworkKernelPlugin::configure_runtime` entrypoint.
 - Hosted runtime can select any shipped framework via `SDKWORK_KERNEL_AGENT_PLUGIN` without code changes in products.
 - Production profiles reject mock model/tool responses when `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS` is unset.
+- Direct in-process model/tool execution for external SDK-backed providers
+  fails closed with `ProviderUnavailable`; real execution routes through the
+  negotiated SDK/runtime transport worker.
 - BirdCoder and other products have **zero** direct Cargo dependency on `sdkwork-agent-provider-*`.
 - New framework onboarding completes with ≤ 3 artifacts: manifest, provider crate, agents facade hook (when product-facing).
 
@@ -57,6 +62,9 @@ Framework capability matrix: [TECH-02-provider-framework-matrix.md](../../archit
 
 - [ ] `bindings/agent-providers/<name>/provider-binding.manifest.json`
 - [ ] `agent-providers/crates/sdkwork-agent-provider-<name>/`
+- [ ] Process-adapter plugin entrypoints (`<Name>KernelPlugin`,
+      `<name>_agent_definition`, `<name>_provider_manifests`,
+      `<name>_package_manifest`, `<name>_kernel_plugin_manifest`)
 - [ ] Negotiation + transport contract tests in provider crate
 - [ ] Mapping note in `sdkwork-kernel-plugins/specs/mappings/<name>.md`
 - [ ] Registration in `sdkwork-agents-runtime-facade` when product-facing

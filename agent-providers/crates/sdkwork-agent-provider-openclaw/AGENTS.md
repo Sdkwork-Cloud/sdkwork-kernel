@@ -1,4 +1,4 @@
-# SDKWork Agent Adapter OpenClaw
+# SDKWork Agent Provider OpenClaw
 
 Read `../../../AGENTS.md` and `specs/component.spec.json` before editing this crate.
 

@@ -1,5 +1,9 @@
-use sdkwork_agent_kernel::ModelProvider;
-use sdkwork_agent_provider_codex::CodexModelProvider;
+use sdkwork_agent_kernel::{AgentProviderFamily, ModelProvider, ToolProvider};
+use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
+use sdkwork_agent_provider_codex::{
+    codex_agent_definition, codex_kernel_plugin_manifest, codex_provider_manifests,
+    CodexKernelPlugin, CodexModelProvider, CodexToolProvider,
+};
 use serde_json::Value;
 
 const COMPONENT_SPEC: &str = include_str!("../specs/component.spec.json");
@@ -18,4 +22,59 @@ fn model_provider_manifest_uses_canonical_provider_id() {
         provider.provider_manifest().provider_id,
         "provider.model.codex"
     );
+}
+
+#[test]
+fn tool_provider_manifest_uses_canonical_provider_id() {
+    let provider = CodexToolProvider::new();
+    assert_eq!(
+        provider.provider_manifest().provider_id,
+        "provider.tool.codex"
+    );
+}
+
+#[test]
+fn kernel_plugin_manifest_declares_runtime_providers() {
+    let manifest = codex_kernel_plugin_manifest();
+    assert_eq!(manifest.plugin_id, "plugin.intelligence.codex");
+    assert_eq!(manifest.agent_id.as_deref(), Some("agent.intelligence.codex"));
+    assert!(manifest
+        .provider_ids
+        .contains(&"provider.model.codex".to_string()));
+    assert!(manifest
+        .provider_ids
+        .contains(&"provider.tool.codex".to_string()));
+    assert!(manifest.supports_profile("provider-model"));
+    assert!(manifest.supports_profile("provider-tool"));
+}
+
+#[test]
+fn provider_manifests_include_model_tool_and_policy() {
+    let provider_ids: Vec<String> = codex_provider_manifests()
+        .into_iter()
+        .map(|manifest| manifest.provider_id)
+        .collect();
+    assert!(provider_ids.contains(&"provider.model.codex".to_string()));
+    assert!(provider_ids.contains(&"provider.tool.codex".to_string()));
+    assert!(provider_ids.contains(&"provider.policy.sdk-standard".to_string()));
+}
+
+#[test]
+fn agent_definition_binds_model_tool_and_policy() {
+    let definition = codex_agent_definition();
+    let families: Vec<AgentProviderFamily> = definition
+        .provider_bindings
+        .iter()
+        .map(|binding| binding.family)
+        .collect();
+    assert!(families.contains(&AgentProviderFamily::Model));
+    assert!(families.contains(&AgentProviderFamily::Tool));
+    assert!(families.contains(&AgentProviderFamily::Policy));
+}
+
+#[test]
+fn kernel_plugin_configures_runtime() {
+    let plugin = CodexKernelPlugin::new();
+    assert_eq!(plugin.plugin_manifest().plugin_id, "plugin.intelligence.codex");
+    assert_eq!(plugin.agent_manifest().agent_id, "agent.intelligence.codex");
 }

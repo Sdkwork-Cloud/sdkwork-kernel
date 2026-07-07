@@ -1,5 +1,5 @@
 > Owner: SDKWork maintainers
-> Updated: 2026-06-24
+> Updated: 2026-07-08
 > Status: **as-built** (replaces the historical implementation plan)
 
 # Multi-Mode Agent Client and Kernel Plugin Integration
@@ -68,6 +68,9 @@ executor deadlocks.
 ## Security and production posture
 
 - SDK workers fail closed when spawn/negotiation fails unless `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1` (development only; topology-controlled).
+- External SDK-backed provider crates also fail closed on direct in-process
+  model/tool invocation. Production execution must route through the selected
+  SDK/runtime transport worker registered by `SdkworkKernelPlugin::configure_runtime`.
 - Production profiles use `SDKWORK_KERNEL_INGRESS_AUTH_MODE=token`, Postgres runtime DB, and Redis rate limits (see topology env files).
 - Client local bridges inherit the same mock policy through adapter-core `mock_provider_invocation_allowed`.
 
@@ -90,6 +93,8 @@ cargo test --manifest-path sdkwork-agent-server/Cargo.toml runtime_bootstrap
 cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-openclaw/Cargo.toml
 cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-hermes/Cargo.toml
 cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-codex/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-claude-code/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-opencode/Cargo.toml
 node --test sdkwork-kernel-plugins/tests/kernel_plugin_structure.test.mjs
 node scripts/check-agent-provider-bindings.mjs
 pnpm test:topology

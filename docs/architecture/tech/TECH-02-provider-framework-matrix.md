@@ -2,7 +2,7 @@
 
 Status: active
 Owner: SDKWork kernel maintainers
-Updated: 2026-07-06
+Updated: 2026-07-08
 Parent: [TECH_ARCHITECTURE.md](TECH_ARCHITECTURE.md)
 Specs: [AGENT_PROVIDER_BINDING_SPEC.md](../../../specs/AGENT_PROVIDER_BINDING_SPEC.md), [AGENT_PROVIDER_INTEGRATION_SPEC.md](../../../specs/AGENT_PROVIDER_INTEGRATION_SPEC.md)
 
@@ -26,6 +26,20 @@ Binding manifests are authoritative: `bindings/agent-providers/<framework>/provi
 | OpenClaw | Autonomous | `experimental` | `typescript_node`, `http_openapi`, `ipc_protocol` | `openclaw` plugin SDK + gateway OpenAPI |
 | Hermes | Autonomous | `experimental` | `python_process`, `ipc_protocol` | Python `run_agent` + TUI gateway JSON-RPC |
 | Rig | Framework-native | `standardizing` | `rust_native` | `rig-core` in-process |
+
+All shipped SDKWork-owned provider crates expose process-adapter plugin
+entrypoints. Direct in-process `ModelProvider::invoke`,
+`ModelProvider::stream`, and `ToolProvider::invoke_tool` for external
+SDK-backed providers fail closed with `ProviderUnavailable`; real execution
+must route through the negotiated SDK/runtime transport worker.
+
+| Provider crate | Plugin id | Agent id | Runtime entrypoint |
+| --- | --- | --- | --- |
+| `sdkwork-agent-provider-codex` | `plugin.intelligence.codex` | `agent.intelligence.codex` | `CodexKernelPlugin::configure_runtime` |
+| `sdkwork-agent-provider-claude-code` | `plugin.intelligence.claude-code` | `agent.intelligence.claude-code` | `ClaudeCodeKernelPlugin::configure_runtime` |
+| `sdkwork-agent-provider-opencode` | `plugin.intelligence.opencode` | `agent.intelligence.opencode` | `OpenCodeKernelPlugin::configure_runtime` |
+| `sdkwork-agent-provider-openclaw` | `plugin.intelligence.openclaw` | `agent.intelligence.openclaw` | `OpenClawKernelPlugin::configure_runtime` |
+| `sdkwork-agent-provider-hermes` | `plugin.intelligence.hermes` | `agent.intelligence.hermes` | `HermesKernelPlugin::configure_runtime` |
 
 ## 3. Binding Capability Coverage
 
@@ -125,14 +139,13 @@ a binding manifest declares `integration_sources`.
 
 ```bash
 node scripts/check-agent-provider-bindings.mjs
-cargo test -p sdkwork-agent-provider-spi
-# Per framework:
-cargo test -p sdkwork-agent-provider-codex
-cargo test -p sdkwork-agent-provider-claude-code
-cargo test -p sdkwork-agent-provider-opencode
-cargo test -p sdkwork-agent-provider-openclaw
-cargo test -p sdkwork-agent-provider-hermes
-cargo test -p sdkwork-agent-provider-rig
+cargo test --manifest-path sdkwork-agent-provider-spi/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-codex/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-claude-code/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-opencode/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-openclaw/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-hermes/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-rig/Cargo.toml
 ```
 
 Optional live proof: `node scripts/provider-transport-workers/engine-sdk-live.test.mjs`

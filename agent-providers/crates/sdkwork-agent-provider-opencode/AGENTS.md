@@ -1,4 +1,4 @@
-# SDKWork Agent Adapter OpenCode
+# SDKWork Agent Provider OpenCode
 
 Read `../../../AGENTS.md` and `specs/component.spec.json` before editing this crate.
 

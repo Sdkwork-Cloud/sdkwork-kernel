@@ -101,7 +101,7 @@ Follow-up validator extraction:
   `tools/validators/agent-sdk-workspace/check-agent-sdk-workspace.mjs`.
 - SDK generator canonical path, deprecated path, SDK_SPEC generator rule, and sdkgen report checks
   now live in `tools/validators/agent-sdk-workspace/sdkgen-standard-checks.mjs`.
-- SDK family README, assembly manifest, SDK manifest, TypeScript package metadata, generated
+- SDK family README, SDK manifest, TypeScript package metadata, generated
   metadata ownership boundary, and component SDK metadata checks now live in
   `tools/validators/agent-sdk-workspace/sdk-family-metadata-checks.mjs`.
 - OpenAPI authority and sdkgen input checks, ownership extension validation, forbidden prefix

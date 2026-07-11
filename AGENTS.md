@@ -256,8 +256,8 @@ The kernel MUST NOT own business persistence (agent config catalog, long-term ar
 - `pnpm install`: install root `@sdkwork/app-topology` workspace dependency.
 - `pnpm topology:validate`: validate `specs/topology.spec.json` against the shared topology schema.
 - `pnpm test:topology` / `pnpm test:topology-baggage`: verify topology adoption contracts and retired vocabulary.
-- `pnpm test:topology-smoke`: start `sdkwork-agent-server` with the standalone unified-process dev profile and wait for `/healthz`.
-- `pnpm dev`: start the default standalone unified-process development stack (agent server only).
+- `pnpm test:topology-smoke`: start `sdkwork-agent-server` with the `standalone.development` profile and wait for `/healthz`.
+- `pnpm dev`: start the default `standalone.development` stack (agent server only).
 - `pnpm verify`: run the merge-ready verification aggregate.
 - `pnpm check`: run kernel standards, SDK workspace, and PNPM script checks.
 

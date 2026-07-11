@@ -34,7 +34,7 @@ This repository defines the SDKWork kernel standard for agent and code-agent sys
   - `sdkwork-agent-provider-gemini-cli` - Gemini CLI
   - `sdkwork-agent-provider-openclaw` - OpenClaw Agent
   - `sdkwork-agent-provider-hermes` - Hermes Agent Runtime
-  - `sdkwork-agent-provider-mimo-code` - Mimo Code
+  - `sdkwork-agent-provider-mimo-code` - MiMo Code
   - `sdkwork-agent-provider-rig` - Rig Agent Framework
 
 ### Operational Layer
@@ -135,14 +135,14 @@ pnpm topology:validate
 pnpm test:topology
 pnpm test:topology-baggage
 
-# Start sdkwork-agent-server with the standalone unified-process dev profile and wait for /healthz
+# Start sdkwork-agent-server with the standalone.development profile and wait for /healthz
 pnpm test:topology-smoke
 ```
 
 ### Development Stack
 
 ```bash
-# Start the default standalone unified-process development stack (agent server only)
+# Start the default standalone.development stack (agent server only)
 pnpm dev
 
 # Run the merge-ready verification aggregate

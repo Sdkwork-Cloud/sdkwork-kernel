@@ -2,7 +2,8 @@
 
 ## Source
 
-- Local path: `external/mimo-code`
+- Local path: `external/mimo-code` (source reference for upstream inspection)
+- Source-tree SDK package: `external/mimo-code/packages/sdk/js` (`@mimo-ai/sdk`)
 - Upstream: `https://github.com/XiaomiMiMo/MiMo-Code.git`
 
 ## SDKWork Surface
@@ -86,5 +87,23 @@ Target: local-runtime profile with full typed provider registration.
 
 ## Status
 
-Active development. MiMo Code is a first-party SDKWork agent that serves as
-a primary validation target for the kernel standard.
+- Provider crate: `agent-providers/crates/sdkwork-agent-provider-mimo-code`
+- SDK binding: `bindings/agent-providers/mimo-code/provider-binding.manifest.json`
+- Runtime worker: `@mimo-ai/sdk` via `NodeSdkBackendRuntime`; resolve it
+  from the installed npm package or inject an importable local package with
+  `SDKWORK_AGENT_SDK_PACKAGE_PATHS`. The broad `external/mimo-code` checkout is
+  a source reference only; the package metadata used for mapping lives at
+  `external/mimo-code/packages/sdk/js`.
+- SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`, optional
+  `sdk.tool.invoke`
+- Binding execution: `sdk.session.lifecycle` uses provider-local lifecycle
+  state through provider-core and declares `execution_scope: provider_local`
+  with `runtime_operations: ["ping"]`. Model and tool capabilities use
+  `execution_scope: transport_runtime`; the runtime router rejects any
+  operation not declared by the selected backend `runtime_operations` allowlist.
+- Merge proof: `node scripts/provider-transport-workers/engine-sdk-live.test.mjs`
+  verifies SDK resolver semantics and production fail-closed behavior for
+  installed or explicitly injected SDK packages.
+- Release proof: staging live SDK proof remains required before product GA.
+Active development. MiMo Code is a first-party SDKWork agent that serves as a
+primary validation target for the kernel standard.

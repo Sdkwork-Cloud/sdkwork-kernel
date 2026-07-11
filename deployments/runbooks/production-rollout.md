@@ -4,11 +4,11 @@ Owner: SDKWork kernel maintainers.
 
 ## Preconditions
 
-- Topology profile: `cloud.split-services.production` (`configs/topology/cloud.split-services.production.env`)
+- Topology profile: `cloud.production` (`configs/topology/cloud.production.env`)
 - `SDKWORK_KERNEL_INGRESS_TOKEN` provisioned in secret manager (never in git)
 - Managed HA Postgres (or operator-managed equivalent) with backups, restore testing, failover monitoring, and `SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres` plus `SDKWORK_AGENT_RUNTIME_DATABASE_URL` or `SDKWORK_AGENT_RUNTIME_POSTGRES_URI`
 - Managed HA Redis (or operator-managed equivalent) with authentication, failover monitoring, and `SDKWORK_RATE_LIMIT_REDIS_URL` or `SDKWORK_REDIS_URL` for distributed rate limiting across replicas
-- `SDKWORK_KERNEL_AGENT_PLUGIN=rig` (production default; see `configs/topology/cloud.split-services.production.env`)
+- `SDKWORK_KERNEL_AGENT_PLUGIN=rig` (production default; see `configs/topology/cloud.production.env`)
 - Optional: `SDKWORK_KERNEL_METRICS_TOKEN` (defaults to ingress token when unset)
 - Optional: `SDKWORK_OTEL_EXPORTER_OTLP_ENDPOINT` for distributed tracing
 

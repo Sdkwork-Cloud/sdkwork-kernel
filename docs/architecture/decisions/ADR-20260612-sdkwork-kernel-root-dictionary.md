@@ -91,9 +91,9 @@ The decision is kept true by:
   command-line and CI use.
 - `node scripts\check-agent-sdk-workspace.mjs`, which validates the agent SDK workspace.
 
-Generated SDK output was not hand-edited. SDK ownership and dependency metadata remain in SDK family
-metadata files such as `.sdkwork-assembly.json`, family/component specs, manifests, or approved
-authored wrappers outside generated transport output.
+Generated SDK output was not hand-edited. SDK ownership and dependency metadata remain in
+family-root `sdk-manifest.json`, component specs, manifests, or approved authored wrappers outside
+generated transport output.
 
 ## Supersedes / Superseded By
 

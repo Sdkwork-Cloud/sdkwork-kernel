@@ -1,4 +1,5 @@
 use crate::backend::SdkBackendKind;
+use crate::runtime::SdkRuntimeOperationKind;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -11,6 +12,7 @@ pub enum ManifestStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RustPackageRef {
     #[serde(rename = "crate")]
     pub crate_name: String,
@@ -21,6 +23,7 @@ pub struct RustPackageRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NpmPackageRef {
     pub package: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -30,6 +33,7 @@ pub struct NpmPackageRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PythonPackageRef {
     pub module: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -39,6 +43,7 @@ pub struct PythonPackageRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LanguagePackages {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rust: Option<RustPackageRef>,
@@ -49,9 +54,12 @@ pub struct LanguagePackages {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BackendCandidate {
     pub kind: SdkBackendKind,
     pub driver_id: String,
+    #[serde(default)]
+    pub runtime_operations: Vec<SdkRuntimeOperationKind>,
     #[serde(default, rename = "crate", skip_serializing_if = "Option::is_none")]
     pub rust_crate: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -65,19 +73,30 @@ pub struct BackendCandidate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CapabilityBinding {
     pub capability_id: String,
     pub required: bool,
+    pub execution_scope: CapabilityExecutionScope,
     pub backends: Vec<BackendCandidate>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilityExecutionScope {
+    TransportRuntime,
+    ProviderLocal,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SelectionPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_backend_priority: Option<Vec<SdkBackendKind>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct IntegrationSource {
     pub mode: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -89,12 +108,17 @@ pub struct IntegrationSource {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub module: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feature: Option<String>,
     #[serde(default)]
     pub optional: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AgentSdkBindingManifest {
     pub schema_version: String,
     pub manifest_type: String,

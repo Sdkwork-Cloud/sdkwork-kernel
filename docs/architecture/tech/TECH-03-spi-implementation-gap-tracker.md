@@ -2,7 +2,7 @@
 
 Status: active
 Owner: SDKWork kernel maintainers
-Updated: 2026-07-07
+Updated: 2026-07-08
 Parent: [TECH_ARCHITECTURE.md](TECH_ARCHITECTURE.md)
 Specs: [AGENT_KERNEL_SPEC.md](../../../specs/AGENT_KERNEL_SPEC.md), [AGENT_CONFORMANCE_SPEC.md](../../../specs/AGENT_CONFORMANCE_SPEC.md)
 
@@ -69,8 +69,8 @@ Priority aligns with [ADR-20260628](../decisions/ADR-20260628-KERNEL-SPI-COMPREH
 | G-09 | Provider fallback chains in binding manifests | P2 | `AGENT_PROVIDER_BINDING_SPEC.md` | Single-backend selection | Resilience | Add `fallback_backends` to manifest schema |
 | G-10 | Context compression provider | P2 | `AGENT_CONTEXT_MEMORY_SPEC.md` | `ContextProvider::trim` only | Long sessions | Add optional `ContextCompressionProvider` or extend context SPI |
 | G-11 | Artifact durable storage provider | P2 | `AGENT_KERNEL_SPEC.md` | `AgentArtifact` object only | Task outputs | Add `ArtifactStorageProvider` or delegate to `sdkwork-drive` via agents |
-| G-12 | Mimo Code binding manifest missing | P1 | `AGENT_PROVIDER_BINDING_SPEC.md` | **Closed** — `bindings/agent-providers/mimo-code/` | BirdCoder engine parity | Add live SDK integration crate + staging gate |
-| G-13 | Live official SDK staging gate | P1 | `AGENT_PROVIDER_INTEGRATION_SPEC.md` | **Closed** — `engine-sdk-live-staging.mjs` + `.github/workflows/kernel-staging-live-sdk.yml` (`workflow_dispatch`, credential-gated) | Commercial confidence | Populate staging repository secrets and schedule release train invokes |
+| G-12 | MiMo Code facade/live SDK proof pending | P1 | `AGENT_PROVIDER_BINDING_SPEC.md` | **Closed** — `bindings/agent-providers/mimo-code/` and `agent-providers/crates/sdkwork-agent-provider-mimo-code/` exist | BirdCoder engine parity | Add agents facade registration and staging live SDK proof |
+| G-13 | Live official SDK staging gate | P1 | `AGENT_PROVIDER_INTEGRATION_SPEC.md` | **Closed** - `engine-sdk-live-staging.mjs` for Codex/Claude/Gemini/OpenCode/OpenClaw, `hermes-gateway-staging.mjs` for Hermes, and `.github/workflows/kernel-staging-live-sdk.yml` (`workflow_dispatch`, credential-gated) | Commercial confidence | Populate staging repository secrets, set `SDKWORK_KERNEL_STAGING_HERMES_GATEWAY=1`, and schedule release train invokes |
 | G-14 | Kernel mock fail-closed in release builds | P0 | `AGENT_RUNTIME_SPEC.md` | **Closed** — `mock_policy` + preflight rejects production mock override + `tests/release_mock_fail_closed.rs` | Production safety | Add release step to CI matrix |
 | G-15 | Multimodal interaction contract runtime wiring | P0 | `AGENT_KERNEL_SPEC.md` §6.4 | **Closed** — `interaction_contract` on `AgentDefinition`; chat/execution/bridge → `ModelExecutionService` | Voice/vision agents | Live SDK multimodal wire in bindings |
 | G-16 | Model providers consume structured `input_messages` | P1 | `AGENT_MODEL_PROVIDER_SPI_SPEC.md` §4.1 | **Closed** — `model_wire.rs`, `SdkRuntimeRequest::from_model_request` + worker `wire_messages` | Native OpenAI/Anthropic multimodal | Per-package live multimodal conformance |
@@ -102,7 +102,7 @@ authority first — see `sdkwork-birdcoder/docs/architecture/tech/TECH-33-agents
 | B-01 | No direct `sdkwork-agent-provider-*` dependency | BirdCoder | Enforced by contract tests |
 | B-02 | Engine turns via `sdkwork-agents-runtime-facade` | BirdCoder | Done |
 | B-03 | Kernel event projection spec | Kernel | `KERNEL_PRODUCT_PROJECTION_SPEC.md` done |
-| B-04 | Live SDK backend (not inner mock) | Kernel | **Closed** — `engine-sdk-live-staging.mjs` + staging workflow; merge pipeline stays credential-free |
+| B-04 | Live SDK backend (not inner mock) | Kernel | **Closed** - `engine-sdk-live-staging.mjs` + Hermes-specific `hermes-gateway-staging.mjs` + staging workflow; merge pipeline stays credential-free |
 | B-05 | Agents API for agent-managed chat vs coding session | BirdCoder + Agents | Verify UX uses agents SDK where product requires managed agents |
 
 ## 5. Commercial Readiness Scorecard
@@ -112,7 +112,7 @@ authority first — see `sdkwork-birdcoder/docs/architecture/tech/TECH-33-agents
 | Architecture / layering | **A** | Dependency rules enforced cross-repo |
 | SPI completeness (spec) | **A-** | Extension specs exist; A2A/orchestration wiring open |
 | SPI completeness (runtime wiring) | **A** | Optional cloud SM secret adapters |
-| Provider catalog | **A-** | Staging secrets population for live SDK workflow |
+| Provider catalog | **A-** | Staging secrets population for live SDK workflow and Hermes-specific staging gateway proof |
 | Agents API + SDK | **A-** | 70 ops; pagination/search conformance ongoing |
 | Security / fail-closed | **A** | Optional cloud SM secret adapters |
 | Operability (HA, observability) | **A-** | TECH_ARCHITECTURE §6–7 |
@@ -120,7 +120,8 @@ authority first — see `sdkwork-birdcoder/docs/architecture/tech/TECH-33-agents
 
 **Commercial landing verdict:** Suitable for **controlled beta** with Rig/Codex/Claude
 paths and agents-managed composition. **Enterprise GA** requires REQ-2026-0001
-artifact publishing evidence and populated staging credentials for live SDK gate.
+artifact publishing evidence, populated staging credentials for live SDK gate,
+and Hermes-specific staging gateway proof.
 
 Improvement plan owner: [REQ-2026-0001](../../product/requirements/REQ-2026-0001-commercial-hardening.md).
 

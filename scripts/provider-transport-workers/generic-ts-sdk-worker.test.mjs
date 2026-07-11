@@ -10,7 +10,7 @@ function invokeWorker(operation, env = {}) {
       {
         env: {
           ...process.env,
-          SDKWORK_KERNEL_PROFILE_ID: 'cloud.split-services.production',
+          SDKWORK_KERNEL_PROFILE_ID: 'cloud.production',
           SDKWORK_KERNEL_ENVIRONMENT: 'production',
           SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS: '',
           ...env,
@@ -65,7 +65,7 @@ for (const operation of [
 const devResponse = await invokeWorker(
   { operation: 'tool_invoke', tool_id: 'tool-1' },
   {
-    SDKWORK_KERNEL_PROFILE_ID: 'standalone.unified-process.development',
+    SDKWORK_KERNEL_PROFILE_ID: 'standalone.development',
     SDKWORK_KERNEL_ENVIRONMENT: 'development',
   },
 );

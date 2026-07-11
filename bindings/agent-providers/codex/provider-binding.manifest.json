@@ -33,15 +33,18 @@
     {
       "capability_id": "sdk.session.lifecycle",
       "required": true,
+      "execution_scope": "provider_local",
       "backends": [
         {
           "kind": "rust_native",
           "driver_id": "driver.codex.session.lifecycle.rust",
+          "runtime_operations": ["ping"],
           "crate": "codex-core"
         },
         {
           "kind": "ipc_protocol",
           "driver_id": "driver.codex.session.lifecycle.ipc",
+          "runtime_operations": ["ping"],
           "transport": "jsonrpc_stdio"
         }
       ]
@@ -49,10 +52,12 @@
     {
       "capability_id": "sdk.session.history",
       "required": true,
+      "execution_scope": "provider_local",
       "backends": [
         {
           "kind": "rust_native",
           "driver_id": "driver.codex.session.history.rust",
+          "runtime_operations": ["ping"],
           "crate": "codex-core"
         }
       ]
@@ -60,20 +65,24 @@
     {
       "capability_id": "sdk.model.chat",
       "required": true,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.codex.model.chat.ts",
+          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
           "package": "@openai/codex-sdk"
         },
         {
           "kind": "rust_native",
           "driver_id": "driver.codex.model.chat.rust",
+          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
           "crate": "codex-core"
         },
         {
           "kind": "ipc_protocol",
           "driver_id": "driver.codex.model.chat.ipc",
+          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
           "transport": "jsonrpc_stdio"
         }
       ]
@@ -81,10 +90,12 @@
     {
       "capability_id": "sdk.model.stream",
       "required": false,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "rust_native",
           "driver_id": "driver.codex.model.stream.rust",
+          "runtime_operations": ["ping", "model_chat_stream"],
           "crate": "codex-core"
         }
       ]
@@ -92,10 +103,12 @@
     {
       "capability_id": "sdk.tool.invoke",
       "required": false,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "rust_native",
           "driver_id": "driver.codex.tool.invoke.rust",
+          "runtime_operations": ["ping", "tool_invoke"],
           "crate": "codex-core"
         }
       ]

@@ -20,12 +20,13 @@ Authoritative source for phases, readiness matrix, success metrics, and deployme
 | Deployment profiles | `standalone`, `cloud` |
 | Artifacts | Linux tar.gz, Windows zip server binaries |
 
-## 2. Readiness Matrix (2026-07-07)
+## 2. Readiness Matrix (2026-07-08)
 
 | Area | Status | Evidence |
 | --- | --- | --- |
 | Workspace compile/test | **Release gate** | `cargo test --workspace` must pass before release promotion; targeted crate commands are listed in section 5 |
 | Provider binding catalog | **Release gate** | `node scripts/check-agent-provider-bindings.mjs` |
+| Provider runtime operation contract | **Green** | Binding manifests declare capability `execution_scope` and backend `runtime_operations`; provider-local lifecycle capabilities expose only `ping` through runtime routing, and router dispatch rejects undeclared operations before invoking SDK workers |
 | Transport bootstrap alignment | **Release gate** | Provider crates must use `ProviderTransportBootstrap`; verified by provider binding checks |
 | Kernel standards gate | **Release gate** | `node scripts/check-kernel-standards.mjs` |
 | Plugin structure contract | **Release gate** | `kernel_plugin_structure.test.mjs` through `pnpm verify` |
@@ -38,22 +39,22 @@ Authoritative source for phases, readiness matrix, success metrics, and deployme
 | Infrastructure probes | **Green** | `/healthz`, `/readyz`, `/livez`; legacy `/health`, `/ready`, `/live` are not mounted |
 | Runtime bridge model-call isolation and cleanup | **Green** | `runtime::tests::{model_invocation,send_message,stream_message}_does_not_hold_bridge_lock_while_provider_runs` verifies slow model provider calls do not hold the bridge lock or block unrelated session registration; `runtime::tests::{close_session,failed_close_session,release_session_state}_*` verifies session close/delete release bridge session/history state and per-session turn locks; `remove_session_deletes_recorded_bridge_events` and `record_events_bounds_{session,global}_event_history` verify bridge event cleanup and bounded buffers; `session_event_stream_releases_connection_slot_when_session_lookup_fails` verifies invalid event-stream attempts do not leak SSE connection capacity; `closed_session_rejects_model_invoke` verifies closed sessions cannot re-enter model execution |
 | Production mock override gate | **Green** | preflight fails when `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS` is set |
-| Provider worker synthetic operation gate | **Green** | `generic-ts-sdk-worker.test.mjs`, `generic-python-sdk-worker.test.mjs`, and Rust transport crate tests for IPC/Node/Python prove synthetic `session_create`, `model_chat`, `tool_invoke`, `skill_invoke`, transport injection, and unknown operations fail closed in production when mock fallback is disabled |
+| Provider worker synthetic operation gate | **Green** | `generic-ts-sdk-worker.test.mjs`, `generic-python-sdk-worker.test.mjs`, and Rust transport crate tests for IPC/Node/Python prove synthetic `session_create`, `model_chat`, `tool_invoke`, `skill_invoke`, transport injection, and unknown operations fail closed in production when mock fallback is disabled; `sdk.session.lifecycle` remains a provider-local lifecycle surface with `execution_scope: provider_local` and `runtime_operations: ["ping"]` |
 | Internal-api pagination envelope | **Green** | Strict `page`, `page_size`, and `cursor` inputs; offset + cursor keyset on sessions/messages/tasks |
 | Distributed rate-limit and quota fail-closed | **Green** | Redis-backed rate limit and tenant token quota constructors return startup errors instead of nested runtime panics; tenant token quota reserve/adjust uses the same bounded reservation and zero-quota tenants do not accrue adjustment usage |
-| Live official SDK invokes | **Optional (merge)** | `engine-sdk-live.test.mjs` is the credential-free merge contract; commercial release uses `pnpm verify:commercial` instead |
-| Staging CI live SDK gate | **Green (opt-in merge, required release input)** | `kernel-staging-live-sdk.yml` + `engine-sdk-live-staging.mjs`; `pnpm verify:commercial` forces `SDKWORK_KERNEL_STAGING_LIVE_SDK=1` and `SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1` |
-| Commercial release verification | **Release gate** | `pnpm verify:commercial`; commercial release verification fails closed unless `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` reaches live runtime PostgreSQL and staging SDK credentials are available |
+| Live official SDK invokes | **Optional (merge)** | `engine-sdk-live.test.mjs` is the credential-free resolver/fail-closed merge contract and does not treat unbuilt `external/` source mirrors as live SDK packages; commercial release uses `pnpm verify:commercial` instead |
+| Staging CI live SDK/gateway gate | **Green (opt-in merge, required release input)** | `kernel-staging-live-sdk.yml` + `engine-sdk-live-staging.mjs` for Codex/Claude/Gemini/OpenCode/OpenClaw plus `hermes-gateway-staging.mjs` for Hermes-specific staging gateway proof. Codex/Claude/Gemini/OpenCode require importable SDK packages and provider credentials; OpenClaw requires `OPENCLAW_GATEWAY_URL` and treats `OPENCLAW_GATEWAY_TOKEN` as optional. `pnpm verify:commercial` forces `SDKWORK_KERNEL_STAGING_LIVE_SDK=1`, `SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1`, and `SDKWORK_KERNEL_STAGING_HERMES_GATEWAY=1` |
+| Commercial release verification | **Release gate** | `pnpm verify:commercial`; commercial release verification fails closed unless `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` reaches live runtime PostgreSQL, staging SDK credentials or gateway endpoints are available for the selected provider proofs, and Hermes-specific staging gateway proof passes |
 | Production data plane HA | **Release gate** | Production must use managed HA Postgres and managed HA Redis; `deployments/kubernetes/postgres-redis.yaml` is a local/staging smoke reference only |
 | Target-scoped release package evidence | **Green** | `sdkwork.workflow.json` package lifecycle builds declared tar.gz/zip package archives; SBOM/checksum/signing-policy evidence lives under `dist/release/<package-id>/`; `validate-release-artifacts.mjs` rejects legacy crate-scoped evidence |
 | Published artifact registry | **Pending** | Target package evidence is local/CI validated; external registry publication and signed checksum records remain in [REQ-2026-0001](../requirements/REQ-2026-0001-commercial-hardening.md) |
-| Mimo Code production path | **Pending** | See REQ-2026-0001 |
+| MiMo Code production path | **Pending** | See REQ-2026-0001 |
 | IM agent surfaces via agents only | **In progress** | See REQ-2026-0001 |
 | Provider subprocess true streaming | **Green** | `ModelStreamSink` + IPC NDJSON + HTTP SSE incremental path; `test_in_memory_stream_provider_finalize_releases_concurrency_slot` verifies finalized in-memory streams release provider capacity |
 | Env/file + Vault secret backends | **Green** | `ChainedSecretProvider`, `EnvFileSecretProvider`, optional `secret-vault` feature |
-| Enterprise GA readiness | **Pending** | REQ-2026-0001 artifact publishing, `pnpm verify:commercial`, managed HA data services, staging credential population, and external sibling-repository gates |
+| Enterprise GA readiness | **Pending** | REQ-2026-0001 artifact publishing, `pnpm verify:commercial`, managed HA data services, staging credential population, Hermes-specific staging gateway proof, and external sibling-repository gates |
 
-Commercial status: the kernel is suitable for pre-production and commercial pilot validation after the normal release gates in section 5 pass in the target environment. Commercial release and general-availability promotion require `pnpm verify:commercial`, live runtime PostgreSQL, managed HA Postgres, managed HA Redis, staging SDK credentials, artifact publishing, and the external sibling-repository gates. The commercial release verification fails closed when those live dependencies are not explicitly configured.
+Commercial status: the kernel is suitable for pre-production and commercial pilot validation after the normal release gates in section 5 pass in the target environment. Commercial release and general-availability promotion require `pnpm verify:commercial`, live runtime PostgreSQL, managed HA Postgres, managed HA Redis, staging SDK credentials or gateway endpoints for provider proofs, Hermes-specific staging gateway proof, artifact publishing, and the external sibling-repository gates. The commercial release verification fails closed when those live dependencies are not explicitly configured.
 
 ## 3. Phase Roadmap
 
@@ -92,7 +93,7 @@ pnpm verify:commercial
 pnpm test:topology
 ```
 
-`pnpm verify:commercial` is a release-promotion gate, not the default developer merge gate. It fails closed unless `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` points at live runtime PostgreSQL and staging SDK credentials are configured for the live SDK check.
+`pnpm verify:commercial` is a release-promotion gate, not the default developer merge gate. It fails closed unless `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` points at live runtime PostgreSQL, staging SDK credentials or gateway endpoints are configured for the live provider check, and `SDKWORK_KERNEL_STAGING_HERMES_GATEWAY=1` enables the Hermes-specific staging gateway proof. For OpenClaw, `OPENCLAW_GATEWAY_URL` is required and `OPENCLAW_GATEWAY_TOKEN` is optional.
 
 ### Cross-repository
 
@@ -104,11 +105,12 @@ node scripts/kernel-birdcoder-alignment-contract.test.mjs
 
 ## 6. Production Deployment Checklist
 
-- [ ] Topology profile `cloud.split-services.production` (or customer equivalent)
+- [ ] Topology profile `cloud.production` (or customer equivalent)
 - [ ] `SDKWORK_KERNEL_AGENT_PLUGIN` set explicitly (default `rig`)
 - [ ] `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS` **unset**
 - [ ] `SDKWORK_KERNEL_INGRESS_AUTH_MODE=token`
 - [ ] `pnpm verify:commercial` passed in the target staging or release environment
+- [ ] Hermes-specific staging gateway proof enabled with `SDKWORK_KERNEL_STAGING_HERMES_GATEWAY=1` and passed through `scripts/provider-transport-workers/hermes-gateway-staging.mjs`
 - [ ] Managed HA Postgres configured, backup/restore tested, failover monitored, and `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` set for release verification
 - [ ] Managed HA Redis configured with auth, failover monitoring, and rate-limit URL (`SDKWORK_RATE_LIMIT_REDIS_URL` or `SDKWORK_REDIS_URL`)
 - [ ] `deployments/kubernetes/postgres-redis.yaml` used only for local/staging smoke validation, not as the production data plane

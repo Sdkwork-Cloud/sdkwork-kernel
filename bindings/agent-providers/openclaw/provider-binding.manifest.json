@@ -29,15 +29,18 @@
     {
       "capability_id": "sdk.session.lifecycle",
       "required": true,
+      "execution_scope": "provider_local",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.openclaw.session.lifecycle.ts",
+          "runtime_operations": ["ping"],
           "package": "openclaw"
         },
         {
           "kind": "http_openapi",
           "driver_id": "driver.openclaw.session.lifecycle.http",
+          "runtime_operations": ["ping"],
           "openapi_authority": "openclaw-gateway-open-api"
         }
       ]
@@ -45,10 +48,12 @@
     {
       "capability_id": "sdk.model.chat",
       "required": true,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.openclaw.model.chat.ts",
+          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
           "package": "openclaw"
         }
       ]
@@ -56,10 +61,12 @@
     {
       "capability_id": "sdk.tool.invoke",
       "required": false,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.openclaw.tool.invoke.ts",
+          "runtime_operations": ["ping", "tool_invoke"],
           "package": "openclaw"
         }
       ]

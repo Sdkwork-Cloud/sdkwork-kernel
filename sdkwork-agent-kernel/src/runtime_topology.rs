@@ -125,7 +125,7 @@ mod tests {
     fn production_profile_id_suffix_is_production() {
         assert!(is_production_kernel_profile(
             "development",
-            Some("cloud.split-services.production")
+            Some("cloud.production")
         ));
     }
 
@@ -138,7 +138,7 @@ mod tests {
     fn development_profile_is_not_production() {
         assert!(!is_production_kernel_profile(
             "development",
-            Some("standalone.split-services.development")
+            Some("standalone.development")
         ));
     }
 
@@ -148,7 +148,7 @@ mod tests {
         let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);
         assert!(!mock_provider_invocation_allowed(
             "production",
-            Some("cloud.split-services.production")
+            Some("cloud.production")
         ));
     }
 
@@ -158,7 +158,7 @@ mod tests {
         let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, Some("1"));
         assert!(mock_provider_invocation_allowed(
             "production",
-            Some("standalone.split-services.production")
+            Some("standalone.production")
         ));
     }
 }

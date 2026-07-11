@@ -544,7 +544,7 @@ pnpm topology:validate
 pnpm test:topology
 pnpm test:topology-baggage
 pnpm dev
-pnpm dev:server:postgres:unified-process:standalone
+pnpm dev:server:postgres:standalone
 
 # Kernel standard conformance
 pnpm check

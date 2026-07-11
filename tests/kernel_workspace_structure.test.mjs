@@ -204,6 +204,26 @@ test('component specs declare SDK metadata and authored source standards explici
     }
 
     if (component.type === 'sdk-family') {
+      assert.equal(
+        (component.manifests ?? []).includes('sdk-manifest.json'),
+        true,
+        `${relativePath} SDK family component.manifests should include sdk-manifest.json`
+      );
+      assert.equal(
+        (component.manifests ?? []).includes('.sdkwork-assembly.json'),
+        false,
+        `${relativePath} SDK family component.manifests must not reference retired .sdkwork-assembly.json`
+      );
+      assert.equal(
+        (contracts.runtimeEntrypoints ?? []).includes('.sdkwork-assembly.json'),
+        false,
+        `${relativePath} SDK family runtimeEntrypoints must not reference retired .sdkwork-assembly.json`
+      );
+      assert.equal(
+        (contracts.configKeys ?? []).includes('.sdkwork-assembly.json'),
+        false,
+        `${relativePath} SDK family configKeys must not reference retired .sdkwork-assembly.json`
+      );
       for (const specFile of [
         'SDK_SPEC.md',
         'SDK_WORKSPACE_GENERATION_SPEC.md',
@@ -1032,6 +1052,11 @@ test('agent SDK workspace validator splits SDK family metadata checks into a foc
   );
   assert.doesNotMatch(
     validator,
+    /\.sdkwork-assembly\.json/,
+    'agent SDK workspace validator should not require retired per-family assembly files'
+  );
+  assert.doesNotMatch(
+    validator,
     /function assertDependencyList/,
     'agent SDK workspace validator should not inline dependency list comparison'
   );
@@ -1042,9 +1067,13 @@ test('agent SDK workspace validator splits SDK family metadata checks into a foc
   );
 
   const sdkFamilyMetadata = fs.readFileSync(sdkFamilyMetadataPath, 'utf8');
+  assert.doesNotMatch(
+    sdkFamilyMetadata,
+    /const assembly = readJsonIfExists|\.sdkwork-assembly\.json/,
+    'SDK family metadata checks should use sdk-manifest.json as the family SSOT, not retired assembly files'
+  );
   for (const requiredText of [
     'export function validateSdkFamilyMetadata',
-    '.sdkwork-assembly.json',
     'sdk-manifest.json',
     'package sdkwork.sdkDependencies',
     'component contracts.sdkDependencies',

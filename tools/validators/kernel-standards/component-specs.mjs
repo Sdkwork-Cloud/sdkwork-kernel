@@ -95,6 +95,18 @@ export function validateComponentSpecMetadata(manifestPath, { kernelRoot, errors
   }
 
   if (component.type === 'sdk-family') {
+    if (!(component.manifests ?? []).includes('sdk-manifest.json')) {
+      errors.push(`${relativePath} SDK family component.manifests must include sdk-manifest.json`);
+    }
+    if ((component.manifests ?? []).includes('.sdkwork-assembly.json')) {
+      errors.push(`${relativePath} SDK family component.manifests must not reference retired .sdkwork-assembly.json`);
+    }
+    if ((contracts.runtimeEntrypoints ?? []).includes('.sdkwork-assembly.json')) {
+      errors.push(`${relativePath} SDK family runtimeEntrypoints must not reference retired .sdkwork-assembly.json`);
+    }
+    if ((contracts.configKeys ?? []).includes('.sdkwork-assembly.json')) {
+      errors.push(`${relativePath} SDK family configKeys must not reference retired .sdkwork-assembly.json`);
+    }
     if (!Object.hasOwn(contracts, 'routeManifest')) {
       errors.push(`${relativePath} must declare contracts.routeManifest explicitly`);
     } else if (contracts.routeManifest !== null && typeof contracts.routeManifest !== 'string') {

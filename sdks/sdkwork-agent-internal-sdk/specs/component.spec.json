@@ -17,7 +17,8 @@
     "generated": true,
     "private": false,
     "manifests": [
-      ".sdkwork-assembly.json"
+      "sdk-manifest.json",
+      "sdkwork-agent-internal-sdk-typescript/package.json"
     ]
   },
   "canonicalSpecs": [
@@ -71,10 +72,10 @@
       ],
       "standard": "../../specs/SDK_SPEC.md"
     },
-    "publicExports": [],
-    "runtimeEntrypoints": [
-      ".sdkwork-assembly.json"
+    "publicExports": [
+      "sdkwork-agent-internal-sdk-typescript/src/index.ts"
     ],
+    "runtimeEntrypoints": [],
     "routeManifest": null,
     "sdkDependencies": [],
     "dependencyApiExports": [],
@@ -83,9 +84,7 @@
       "SdkworkCustomClient"
     ],
     "events": [],
-    "configKeys": [
-      ".sdkwork-assembly.json"
-    ]
+    "configKeys": []
   },
   "verification": {
     "commands": [

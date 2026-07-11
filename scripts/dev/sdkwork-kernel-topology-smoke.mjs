@@ -10,7 +10,7 @@ import {
   waitForHttpHealthy,
 } from '../lib/kernel-topology.mjs';
 
-const PROFILE_ID = 'standalone.unified-process.development';
+const PROFILE_ID = 'standalone.development';
 const HEALTH_PATH = '/healthz';
 const INTERNAL_RUNTIME_SNAPSHOT_PATH = '/internal/v3/api/intelligence/runtime/snapshot';
 const STARTUP_TIMEOUT_MS = 120_000;

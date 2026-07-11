@@ -14,7 +14,7 @@
   "integration_sources": [
     {
       "mode": "source_tree",
-      "path": "external/rig"
+      "path": "external/rig/crates/rig-core"
     },
     {
       "mode": "rust_crate",
@@ -27,10 +27,12 @@
     {
       "capability_id": "sdk.model.chat",
       "required": true,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "rust_native",
           "driver_id": "driver.rig.model.chat.rust",
+          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
           "crate": "rig-core"
         }
       ]
@@ -38,10 +40,12 @@
     {
       "capability_id": "sdk.tool.invoke",
       "required": true,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "rust_native",
           "driver_id": "driver.rig.tool.invoke.rust",
+          "runtime_operations": ["ping", "tool_invoke"],
           "crate": "rig-core"
         }
       ]

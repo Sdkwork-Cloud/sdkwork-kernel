@@ -14,7 +14,7 @@ This repository adopts the shared SDKWork runtime topology framework.
 
 ## Default dev profile
 
-`standalone.unified-process.development`
+`standalone.development`
 
 ## Surfaces
 
@@ -26,10 +26,9 @@ This repository adopts the shared SDKWork runtime topology framework.
 ## Commands
 
 ```bash
-pnpm dev                                              # standalone + unified-process dev default
-pnpm dev:server:postgres:split-services:standalone    # standalone.split-services.development
-pnpm dev:server:postgres:unified-process:standalone   # standalone.unified-process.development
-pnpm dev:server:postgres:split-services:cloud         # cloud.split-services.development
+pnpm dev                                      # standalone.development default
+pnpm dev:server:postgres:standalone           # standalone.development
+pnpm dev:server:postgres:cloud                # cloud.development
 pnpm topology:validate                                # validate specs/topology.spec.json
 ```
 
@@ -68,4 +67,3 @@ Implementation: `sdkwork-agent-server/src/runtime_bootstrap.rs`. As-built archit
 | Application HTTP | `https://kernel.sdkwork.com` |
 | Application WebSocket | `wss://kernel.sdkwork.com` |
 | Platform gateway | `https://api.sdkwork.com` |
-

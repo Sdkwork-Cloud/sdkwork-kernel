@@ -17,7 +17,7 @@ Canon entry and index. Product depth lives in linked shards; normative contracts
 | [PRD-03-commercial-readiness-baseline.md](PRD-03-commercial-readiness-baseline.md) | Phases, readiness matrix, deployment checklist |
 | [PRD-04-ecosystem-architecture.md](PRD-04-ecosystem-architecture.md) | Kernel · Agents · BirdCoder ecosystem, dependency rules, API ownership |
 | [TECH_ARCHITECTURE.md](../../architecture/tech/TECH_ARCHITECTURE.md) | Technical architecture canon |
-| [TECH-02-provider-framework-matrix.md](../../architecture/tech/TECH-02-provider-framework-matrix.md) | Codex, Claude Code, OpenCode, OpenClaw, Hermes, Rig capability matrix |
+| [TECH-02-provider-framework-matrix.md](../../architecture/tech/TECH-02-provider-framework-matrix.md) | Codex, Claude Code, Gemini CLI, OpenCode, MiMo Code, OpenClaw, Hermes, Rig capability matrix |
 | [TECH-03-spi-implementation-gap-tracker.md](../../architecture/tech/TECH-03-spi-implementation-gap-tracker.md) | SPI spec/implementation gaps and commercial scorecard |
 | [specs/AGENT_PROVIDER_INTEGRATION_SPEC.md](../../../specs/AGENT_PROVIDER_INTEGRATION_SPEC.md) | Normative provider integration |
 | [specs/AGENT_KERNEL_SPEC.md](../../../specs/AGENT_KERNEL_SPEC.md) | Agent kernel SPI |
@@ -70,11 +70,11 @@ Canonical product scenarios. Implementation detail: [TECH_ARCHITECTURE.md](../..
 
 ### US-4: Operator deploys kernel server (cloud profile)
 
-1. Select `cloud.split-services.production` from `configs/topology/`.
+1. Select `cloud.production` from `configs/topology/`.
 2. Set `SDKWORK_KERNEL_AGENT_PLUGIN` explicitly (default `rig`).
 3. Provision managed HA Postgres and managed HA Redis, then configure `SDKWORK_KERNEL_INGRESS_AUTH_MODE=token`.
 4. Keep `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS` unset in production.
-5. Run `pnpm verify:commercial` with `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` and staging SDK credentials before release promotion.
+5. Run `pnpm verify:commercial` with `SDKWORK_AGENT_RUNTIME_POSTGRES_URI`, staging SDK credentials, and `SDKWORK_KERNEL_STAGING_HERMES_GATEWAY=1` before release promotion.
 
 ## 6. Success Metrics
 

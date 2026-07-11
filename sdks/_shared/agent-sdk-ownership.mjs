@@ -91,54 +91,6 @@ export function countAgentOpenApiOperations(openapi) {
     .length;
 }
 
-export function buildAgentSdkAssembly(family, operationCount) {
-  const input = `openapi/${family.authority}.sdkgen.yaml`;
-  const authoritySpec = `openapi/${family.authority}.openapi.yaml`;
-  return {
-    workspace: family.familyDir,
-    title: family.title,
-    apiVersion: '0.1.0',
-    openapiVersion: '3.1.2',
-    authoritySpec,
-    generationInputSpec: input,
-    derivedSpecs: {
-      default: input
-    },
-    apiAuthority: family.authority,
-    discoverySurface: {
-      sdkTarget: family.sdkSurface,
-      apiPrefix: family.apiPrefix,
-      schemaUrl: schemaUrlFor(family),
-      generatedProtocols: ['http-openapi'],
-      manualTransports: []
-    },
-    languages: [
-      {
-        language: 'typescript',
-        workspace: family.languagePackageDir,
-        generationState: family.key === 'open' ? 'derived' : 'materialized',
-        releaseState: 'not_published',
-        generatedPath: `${family.languagePackageDir}/${SDKWORK_SDKGEN_STANDARD.generatedOutput}`,
-        manifestPath: `${family.languagePackageDir}/${SDKWORK_SDKGEN_STANDARD.generatedOutput}/package.json`,
-        name: family.packageName,
-        version: '0.1.0',
-        description: `Generator-owned TypeScript transport SDK for ${family.title}.`,
-        consumerSurface: {
-          primaryClient: primaryClientFor(family),
-          apiPrefix: family.apiPrefix
-        }
-      }
-    ],
-    sdkOwner: AGENT_SDK_OWNER,
-    sdkDependencies: cloneDependencies(family),
-    metadata: {
-      managedBy: 'sdks/_shared/agent-sdk-ownership.mjs',
-      standardVersion: AGENT_SDK_OWNERSHIP_STANDARD_VERSION,
-      ownerOnlyOperationCount: operationCount
-    }
-  };
-}
-
 export function buildAgentComponentSpec(family) {
   return {
     schemaVersion: 1,
@@ -156,7 +108,10 @@ export function buildAgentComponentSpec(family) {
       languages: ['typescript'],
       generated: true,
       private: false,
-      manifests: ['.sdkwork-assembly.json']
+      manifests: [
+        'sdk-manifest.json',
+        `${family.languagePackageDir}/package.json`
+      ]
     },
     canonicalSpecs: SDK_FAMILY_CANONICAL_SPECS,
     sdk: {
@@ -182,15 +137,15 @@ export function buildAgentComponentSpec(family) {
         derivedOpenApi: [`openapi/${family.authority}.sdkgen.yaml`],
         standard: '../../specs/SDK_SPEC.md'
       },
-      publicExports: [],
-      runtimeEntrypoints: ['.sdkwork-assembly.json'],
+      publicExports: [`${family.languagePackageDir}/src/index.ts`],
+      runtimeEntrypoints: [],
       routeManifest: null,
       sdkDependencies: cloneDependencies(family),
       dependencyApiExports: [],
       dependencyApiSurfaces: [],
       sdkClients: [primaryClientFor(family)],
       events: [],
-      configKeys: ['.sdkwork-assembly.json']
+      configKeys: []
     },
     verification: {
       commands: [
@@ -228,6 +183,9 @@ export function decoratePackageMetadata(packageJson, family) {
 }
 
 export function buildAgentSdkManifest(family, operationCount) {
+  const input = `openapi/${family.authority}.sdkgen.yaml`;
+  const authoritySpec = `openapi/${family.authority}.openapi.yaml`;
+  const generatedOutput = `${family.languagePackageDir}/${SDKWORK_SDKGEN_STANDARD.generatedOutput}`;
   return {
     schemaVersion: 1,
     sdkName: family.sdkName,
@@ -239,13 +197,58 @@ export function buildAgentSdkManifest(family, operationCount) {
     sdkSurface: family.sdkSurface,
     language: 'typescript',
     apiPrefix: family.apiPrefix,
-    generationInputSpec: `openapi/${family.authority}.sdkgen.yaml`,
-    generatedOutput: `${family.languagePackageDir}/${SDKWORK_SDKGEN_STANDARD.generatedOutput}`,
+    generationInputSpec: input,
+    generatedOutput,
     standardProfile: SDKWORK_SDKGEN_STANDARD.standardProfile,
     sdkDependencies: cloneDependencies(family),
     ownerOnlyOperationCount: operationCount,
     standardVersion: AGENT_SDK_OWNERSHIP_STANDARD_VERSION,
-    managedBy: 'sdks/_shared/agent-sdk-ownership.mjs'
+    managedBy: 'sdks/_shared/agent-sdk-ownership.mjs',
+    transportPackageName: `${family.familyDir}-generated-typescript`,
+    typescript: {
+      composedRoot: family.languagePackageDir,
+      composedEntry: `${family.languagePackageDir}/src/index.ts`,
+      transportRoot: generatedOutput,
+      transportEntry: `${generatedOutput}/src/index.ts`
+    },
+    workspace: family.familyDir,
+    title: family.title,
+    apiVersion: '0.1.0',
+    openapiVersion: '3.1.2',
+    authoritySpec,
+    derivedSpecs: {
+      default: input
+    },
+    discoverySurface: {
+      sdkTarget: family.sdkSurface,
+      apiPrefix: family.apiPrefix,
+      schemaUrl: schemaUrlFor(family),
+      generatedProtocols: ['http-openapi'],
+      manualTransports: []
+    },
+    metadata: {
+      managedBy: 'sdks/_shared/agent-sdk-ownership.mjs',
+      standardVersion: AGENT_SDK_OWNERSHIP_STANDARD_VERSION,
+      ownerOnlyOperationCount: operationCount
+    },
+    languages: [
+      {
+        language: 'typescript',
+        workspace: family.languagePackageDir,
+        generationState: family.key === 'open' ? 'derived' : 'materialized',
+        releaseState: 'not_published',
+        generatedPath: generatedOutput,
+        manifestPath: `${generatedOutput}/package.json`,
+        version: '0.1.0',
+        description: `Generator-owned TypeScript transport SDK for ${family.title}.`,
+        consumerSurface: {
+          primaryClient: primaryClientFor(family),
+          apiPrefix: family.apiPrefix
+        },
+        consumerPackageName: family.packageName,
+        transportPackageName: `${family.familyDir}-generated-typescript`
+      }
+    ]
   };
 }
 
@@ -255,10 +258,7 @@ export function syncAgentSdkOwnershipFamily(root, family) {
   const sdkgen = fs.existsSync(sdkgenPath) ? fs.readFileSync(sdkgenPath, 'utf8') : '';
   const operationCount = sdkgen ? countAgentOpenApiOperations(sdkgen) : 0;
 
-  writeJsonIfChanged(
-    path.join(familyRoot, '.sdkwork-assembly.json'),
-    buildAgentSdkAssembly(family, operationCount)
-  );
+  removeFileIfExists(path.join(familyRoot, '.sdkwork-assembly.json'));
   writeJsonIfChanged(
     path.join(familyRoot, 'specs', 'component.spec.json'),
     buildAgentComponentSpec(family)
@@ -298,6 +298,12 @@ function writeJsonIfChanged(filePath, value) {
     return;
   }
   fs.writeFileSync(filePath, content, 'utf8');
+}
+
+function removeFileIfExists(filePath) {
+  if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+    fs.rmSync(filePath);
+  }
 }
 
 function schemaUrlFor(family) {

@@ -16,7 +16,7 @@ fn release_profile_rejects_direct_mock_provider_invocation() {
     let previous_environment = std::env::var(KERNEL_ENVIRONMENT_ENV).ok();
     let previous_allow = std::env::var(ALLOW_MOCK_PROVIDERS_ENV).ok();
 
-    std::env::set_var(KERNEL_PROFILE_ID_ENV, "cloud.split-services.production");
+    std::env::set_var(KERNEL_PROFILE_ID_ENV, "cloud.production");
     std::env::set_var(KERNEL_ENVIRONMENT_ENV, "production");
     std::env::remove_var(ALLOW_MOCK_PROVIDERS_ENV);
 

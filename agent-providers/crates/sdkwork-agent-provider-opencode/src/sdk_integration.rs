@@ -9,8 +9,8 @@ use sdkwork_agent_provider_spi::{
     OPENCODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_TOOL_INVOKE,
 };
 use sdkwork_agent_provider_transport_core::{
-    HttpOpenApiTransportHost, IpcProtocolTransportHost, ProviderTransportBootstrap,
-    ProviderTransportRegistry, TypeScriptNodeTransportHost,
+    IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
+    TypeScriptNodeTransportHost,
 };
 use sdkwork_agent_provider_transport_node::NodeSdkBackendRuntime;
 use std::sync::Arc;
@@ -45,7 +45,6 @@ impl OpenCodeSdkIntegration {
         bootstrap.register_host(Arc::new(TypeScriptNodeTransportHost::new(
             "@opencode-ai/sdk",
         )));
-        bootstrap.register_host(Arc::new(HttpOpenApiTransportHost::new("opencode-open-api")));
         bootstrap.register_host(Arc::new(IpcProtocolTransportHost::new("jsonrpc_stdio")));
         bootstrap.with_typescript_runtime(Arc::new(NodeSdkBackendRuntime::bootstrap(
             "@opencode-ai/sdk",

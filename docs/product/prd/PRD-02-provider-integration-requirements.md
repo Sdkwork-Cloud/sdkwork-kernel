@@ -31,7 +31,7 @@ catalog schema) are **not** duplicated here. Authority:
 | OpenClaw | `binding.agent-provider.openclaw` | Shipped |
 | Hermes | `binding.agent-provider.hermes` | Shipped |
 | Rig | `binding.agent-provider.rig` | Shipped |
-| Mimo Code | `binding.agent-provider.mimo-code` | In progress — binding manifest and crate shipped; agents facade/live SDK proof pending |
+| MiMo Code | `binding.agent-provider.mimo-code` | In progress — binding manifest and crate shipped; agents facade/live SDK proof pending |
 
 Integration mode matrix and transport contracts: `AGENT_PROVIDER_INTEGRATION_SPEC.md` §3–5.
 
@@ -42,11 +42,20 @@ Framework capability matrix: [TECH-02-provider-framework-matrix.md](../../archit
 - Every shipped framework has a validated binding manifest, provider crate
   contract tests, process-adapter plugin manifest, agent definition, package
   manifest, and `SdkworkKernelPlugin::configure_runtime` entrypoint.
+- Every shipped binding declares capability `execution_scope` and backend
+  `runtime_operations`; runtime routing must reject undeclared operations before
+  invoking an external SDK or subprocess.
+- Session lifecycle and history capabilities are provider-local lifecycle
+  surfaces. They use provider-core/local SPI state with
+  `execution_scope: provider_local` and expose only `runtime_operations: ["ping"]`
+  through runtime routing; create/resume/close/list must not be faked in SDK
+  workers.
 - Hosted runtime can select any shipped framework via `SDKWORK_KERNEL_AGENT_PLUGIN` without code changes in products.
 - Production profiles reject mock model/tool responses when `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS` is unset.
 - Direct in-process model/tool execution for external SDK-backed providers
   fails closed with `ProviderUnavailable`; real execution routes through the
-  negotiated SDK/runtime transport worker.
+  negotiated SDK/runtime transport worker only when the selected backend is
+  healthy and the requested operation is present in `runtime_operations`.
 - BirdCoder and other products have **zero** direct Cargo dependency on `sdkwork-agent-provider-*`.
 - New framework onboarding completes with ≤ 3 artifacts: manifest, provider crate, agents facade hook (when product-facing).
 
@@ -79,4 +88,21 @@ cargo test -p sdkwork-agent-provider-transport-core
 cargo test -p sdkwork-agent-provider-<framework>
 ```
 
-Optional live SDK proof (staging credentials): `node scripts/provider-transport-workers/engine-sdk-live.test.mjs`
+Credential-free SDK resolver and fail-closed contract. This proves that only
+installed or explicitly injected SDK packages with importable entry files are
+treated as resolved, and that production profiles fail closed when live SDK
+execution is unavailable or when the requested operation is absent from
+`runtime_operations`:
+`node scripts/provider-transport-workers/engine-sdk-live.test.mjs`
+
+Hermes Python worker fail-closed contract:
+`node scripts/provider-transport-workers/generic-python-sdk-worker.test.mjs`
+
+Staging live SDK proof with real credentials:
+`SDKWORK_KERNEL_STAGING_LIVE_SDK=1 SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1 node scripts/provider-transport-workers/engine-sdk-live-staging.mjs --framework all`
+
+The staging live gate covers Codex, Claude Code, Gemini CLI, OpenCode, and
+OpenClaw. Codex, Claude Code, Gemini CLI, and OpenCode require importable SDK
+packages; OpenClaw proves the gateway HTTP authority through
+`OPENCLAW_GATEWAY_URL`. Hermes uses the Python/TUI gateway binding path and
+requires a separate Hermes-specific staging gateway proof before GA.

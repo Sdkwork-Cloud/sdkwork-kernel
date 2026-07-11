@@ -564,7 +564,7 @@ mod tests {
         let _lock = crate::testing::env::lock();
         let _profile = crate::testing::env::VarGuard::set(
             "SDKWORK_KERNEL_PROFILE_ID",
-            Some("cloud.split-services.production"),
+            Some("cloud.production"),
         );
         let _allow =
             crate::testing::env::VarGuard::set("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", None);
@@ -580,7 +580,7 @@ mod tests {
         let _lock = crate::testing::env::lock();
         let _profile = crate::testing::env::VarGuard::set(
             "SDKWORK_KERNEL_PROFILE_ID",
-            Some("cloud.split-services.production"),
+            Some("cloud.production"),
         );
         let _allow =
             crate::testing::env::VarGuard::set("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", Some("1"));

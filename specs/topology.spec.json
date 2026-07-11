@@ -1,17 +1,11 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 4,
   "kind": "sdkwork.app.topology",
   "appId": "sdkwork-kernel",
   "archetype": "realtime-application-platform",
   "profileRoot": "configs/topology",
-  "profilePattern": "{deploymentProfile}.{serviceLayout}.{environment}.env",
+  "profilePattern": "{deploymentProfile}.{environment}.env",
   "vocabulary": {
-    "serviceLayout": {
-      "allowed": [
-        "unified-process",
-        "split-services"
-      ]
-    },
     "environment": {
       "allowed": [
         "development",
@@ -33,19 +27,17 @@
     }
   },
   "defaults": {
-    "developmentProfileId": "standalone.unified-process.development",
-    "productionProfileId": "cloud.split-services.production"
+    "developmentProfileId": "standalone.development",
+    "productionProfileId": "cloud.production",
+    "desktopBuildProfileId": "standalone.production"
   },
   "profileFiles": {
-    "standalone.split-services.development": "configs/topology/standalone.split-services.development.env",
-    "standalone.unified-process.development": "configs/topology/standalone.unified-process.development.env",
-    "standalone.split-services.production": "configs/topology/standalone.split-services.production.env",
-    "cloud.split-services.development": "configs/topology/cloud.split-services.development.env",
-    "cloud.split-services.production": "configs/topology/cloud.split-services.production.env",
-    "standalone.unified-process.production": "configs/topology/standalone.unified-process.production.env"
+    "standalone.development": "configs/topology/standalone.development.env",
+    "standalone.production": "configs/topology/standalone.production.env",
+    "cloud.development": "configs/topology/cloud.development.env",
+    "cloud.production": "configs/topology/cloud.production.env"
   },
   "envKeys": {
-    "serviceLayout": "SDKWORK_KERNEL_SERVICE_LAYOUT",
     "environment": "SDKWORK_KERNEL_ENVIRONMENT",
     "profileId": "SDKWORK_KERNEL_PROFILE_ID",
     "gatewayAutostart": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_AUTOSTART",
@@ -107,20 +99,7 @@
   },
   "orchestration": {
     "profiles": {
-      "standalone.split-services.development": {
-        "processes": [
-          {
-            "id": "application.public-ingress",
-            "crate": "sdkwork-agent-server",
-            "binary": "sdkwork-agent-server",
-            "required": true
-          }
-        ],
-        "healthSurfaces": [
-          "application.public-ingress"
-        ]
-      },
-      "standalone.unified-process.development": {
+      "standalone.development": {
         "processes": [
           {
             "id": "application.public-ingress",
@@ -137,7 +116,7 @@
           "application.public-ingress"
         ]
       },
-      "standalone.split-services.production": {
+      "standalone.production": {
         "processes": [
           {
             "id": "application.public-ingress",
@@ -150,7 +129,7 @@
           "application.public-ingress"
         ]
       },
-      "cloud.split-services.development": {
+      "cloud.development": {
         "processes": [
           {
             "id": "application.public-ingress",
@@ -164,7 +143,7 @@
           "platform.api-gateway"
         ]
       },
-      "cloud.split-services.production": {
+      "cloud.production": {
         "processes": [
           {
             "id": "application.public-ingress",

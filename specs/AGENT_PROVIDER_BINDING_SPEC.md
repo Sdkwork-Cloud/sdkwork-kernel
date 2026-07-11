@@ -57,17 +57,39 @@ Rust parsing type: `AgentSdkBindingManifest` in `sdkwork-agent-provider-spi`.
 
 ## 4. Integration Sources
 
-Each `integration_sources[]` entry `MUST` include `mode`:
+Each `integration_sources[]` entry `MUST` include `mode` and the locator
+required by that mode:
 
-| Mode | Meaning |
-| --- | --- |
-| `official_sdk` | Published npm/PyPI SDK |
-| `rust_crate` | Cargo crate |
-| `source_tree` | Vendored or submodule source |
-| `npm_package` | npm package without official SDK branding |
-| `python_module` | Importable Python module |
-| `http_openapi` | HTTP/OpenAPI authority |
-| `ipc_protocol` | stdio/socket IPC transport |
+| Mode | Required locator | Meaning |
+| --- | --- | --- |
+| `official_sdk` | `package` | Published npm/PyPI SDK |
+| `rust_crate` | `crate` | Cargo crate |
+| `source_tree` | `path` | Vendored or submodule source under `external/` |
+| `npm_package` | `package` | npm package without official SDK branding |
+| `python_module` | `module` | Importable Python module |
+| `http_openapi` | `transport` | HTTP/OpenAPI authority |
+| `ipc_protocol` | `transport` | stdio/socket IPC transport |
+
+Optional source fields:
+
+- `repository` documents the upstream source repository when the binding needs
+  explicit provenance.
+- `feature` documents an optional Cargo or SDK feature flag for the source.
+- `optional` marks a source as non-required for capability negotiation.
+
+Rules:
+
+- Source entries are closed contracts. Unknown fields are invalid.
+- `source_tree.path` is a reference input for inspection and mapping only; kernel
+  crates must not depend on `external/` paths directly.
+- When a checked-out upstream source tree contains a narrower package or crate
+  directory that matches `language_packages`, `rust_crate`, or backend package
+  metadata, `source_tree.path` `MUST` point to that package/crate directory, and
+  the provider mapping document `MUST` record the same path. Broad upstream
+  roots may still be documented as source references, but they must not be
+  treated as runtime SDK package roots.
+- `http_openapi.transport` must match at least one capability backend
+  `openapi_authority`.
 
 ## 5. Capability Entries
 
@@ -75,12 +97,33 @@ Each capability entry `MUST` include:
 
 - `capability_id`
 - `required`
+- `execution_scope`
 - `backends[]`
+
+`execution_scope` declares where the capability is allowed to execute:
+
+| Scope | Meaning |
+| --- | --- |
+| `transport_runtime` | The selected backend may execute runtime operations through the provider transport router. |
+| `provider_local` | The capability is metadata, local lifecycle bookkeeping, or negotiation-only support and may only expose the `ping` probe through runtime routing. |
 
 Each backend candidate `MUST` include:
 
 - `kind`
 - `driver_id`
+- `runtime_operations[]`
+
+`runtime_operations[]` is the explicit allow-list enforced after negotiation
+and before provider runtime dispatch. Supported operations:
+
+| Operation | Meaning |
+| --- | --- |
+| `ping` | Health/probe operation for a selected backend. |
+| `session_create` | Runtime session creation for transports that support it. |
+| `model_chat` | Non-streaming model chat invocation. |
+| `model_chat_stream` | Streaming model chat invocation. |
+| `tool_invoke` | Tool invocation through the provider backend. |
+| `skill_invoke` | Skill invocation through the provider backend. |
 
 Optional backend fields:
 
@@ -95,6 +138,13 @@ Rules:
 - Backend arrays are priority-ordered unless `selection_policy` overrides them.
 - Every `driver_id` `MUST` match a contributed driver at runtime.
 - Required capabilities `MUST` declare at least one backend candidate.
+- Runtime dispatch is fail-closed: if a request operation is absent from the
+  negotiated backend `runtime_operations[]`, the router returns
+  `operation_not_supported`.
+- `provider_local` capabilities `MUST` declare only `ping` as a runtime
+  operation.
+- `rust_native` backend candidates `MUST NOT` declare `session_create` or
+  `skill_invoke` until the Rust runtime bridge implements those operations.
 
 ## 6. Language Packages
 

@@ -137,7 +137,7 @@ kernel SDK authority.
 
 - Server bootstrap: `SDKWORK_KERNEL_AGENT_PLUGIN=openclaw`
 
-- Upstream pin (2026-06-24): `external/openclaw` @ `7c56877eb1` (`openclaw` npm `2026.6.10`)
+- Local source pin (2026-06-24, not a latest-registry claim): `external/openclaw` @ `7c56877eb1` with source `package.json` version `2026.6.10`
 
 - Runtime worker: `scripts/provider-transport-workers/generic-ts-sdk-worker.mjs` via `NodeSdkBackendRuntime`
 
@@ -145,5 +145,28 @@ kernel SDK authority.
 
 - SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`, optional `sdk.tool.invoke`
 
-- Production safety: Node/Python SDK backends fail closed when workers cannot spawn unless `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1`
+- Binding execution: `sdk.session.lifecycle` uses provider-local lifecycle
+  state through provider-core and declares `execution_scope: provider_local`
+  with `runtime_operations: ["ping"]`. Model and tool capabilities use
+  `execution_scope: transport_runtime`; the runtime router rejects any
+  operation not declared by the selected backend `runtime_operations` allowlist.
 
+- Merge proof: `node scripts/provider-transport-workers/engine-sdk-live.test.mjs`
+  verifies SDK resolver semantics and production fail-closed behavior:
+  installed or explicitly injected SDK packages must expose an importable entry
+  file, and unbuilt source mirrors do not count as live SDK packages. It is not
+  a staging live invoke proof.
+
+- Release proof: `SDKWORK_KERNEL_STAGING_LIVE_SDK=1 SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1 node scripts/provider-transport-workers/engine-sdk-live-staging.mjs --framework openclaw`
+  is the OpenClaw staging live gateway gate. OpenClaw proves the remote
+  `openclaw-gateway-open-api` compatible path through `OPENCLAW_GATEWAY_URL`;
+  it does not require a local `openclaw` npm package import. This gateway proof
+  does not satisfy local Node runtime SDK package health for the
+  `typescript_node` backend; local runtime health still requires an importable
+  SDK package when that backend is selected.
+
+- Production safety: Node/Python SDK backends fail closed when workers cannot
+  spawn, SDK packages or Python modules cannot be resolved to an importable
+  entry, selected runtime health is unhealthy, or a requested runtime operation
+  is absent from `runtime_operations`, unless non-production mock fallback is
+  explicitly enabled.

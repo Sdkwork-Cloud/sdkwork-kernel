@@ -66,11 +66,11 @@
   },
   "environments": {
     "development": {
-      "topologyProfileId": "standalone.unified-process.development",
+      "topologyProfileId": "standalone.development",
       "accessUrlEnv": "SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL"
     },
     "production": {
-      "topologyProfileId": "cloud.split-services.production",
+      "topologyProfileId": "cloud.production",
       "accessUrlEnv": "SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL"
     }
   },

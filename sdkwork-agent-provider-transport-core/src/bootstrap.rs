@@ -71,6 +71,7 @@ impl ProviderTransportBootstrap {
                 vec![format!("transport.prepare: {error}")],
             )
         })?;
+        validate_selected_runtime_health(&negotiation, &self.runtimes)?;
         let router = Arc::new(
             self.registry
                 .attach_runtimes(SdkRuntimeRouter::new(negotiation), &self.runtimes),
@@ -81,6 +82,44 @@ impl ProviderTransportBootstrap {
     pub fn into_registry(self) -> ProviderTransportRegistry {
         self.registry
     }
+}
+
+fn validate_selected_runtime_health(
+    negotiation: &SdkCapabilityNegotiation,
+    runtimes: &HashMap<ProviderTransportKind, Arc<dyn SdkBackendRuntime>>,
+) -> Result<(), SdkNegotiationError> {
+    let mut unavailable = Vec::new();
+    for selected in &negotiation.selected {
+        let Some(runtime) = runtimes.get(&selected.backend_kind) else {
+            unavailable.push(format!(
+                "{}: {} runtime not registered",
+                selected.capability_id,
+                selected.backend_kind.as_str()
+            ));
+            continue;
+        };
+        let health = runtime.health();
+        if !health.is_usable() {
+            let message = health
+                .message
+                .unwrap_or_else(|| "runtime unhealthy".to_string());
+            unavailable.push(format!(
+                "{}: {} runtime unhealthy: {}",
+                selected.capability_id,
+                selected.backend_kind.as_str(),
+                message
+            ));
+        }
+    }
+
+    if unavailable.is_empty() {
+        return Ok(());
+    }
+
+    Err(SdkNegotiationError::missing_required_capabilities(
+        negotiation.agent_id.clone(),
+        unavailable,
+    ))
 }
 
 impl ProviderTransportError {

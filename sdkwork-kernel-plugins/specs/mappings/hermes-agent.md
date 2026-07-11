@@ -144,7 +144,7 @@ requires a live Hermes Agent install or TUI gateway JSON-RPC process.
 
 - Server bootstrap: `SDKWORK_KERNEL_AGENT_PLUGIN=hermes`
 
-- Upstream pin (2026-06-24): `external/hermes-agent` @ `a4a74ca9e` (`hermes-agent` PyPI `0.17.0`)
+- Local source pin (2026-06-24, not a latest-registry claim): `external/hermes-agent` @ `a4a74ca9e` with source `pyproject.toml` version `0.17.0`
 
 - Runtime worker: `scripts/provider-transport-workers/generic_python_sdk_worker.py` via `PythonSdkBackendRuntime` (`run_agent` module probe)
 
@@ -152,5 +152,20 @@ requires a live Hermes Agent install or TUI gateway JSON-RPC process.
 
 - SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`, optional `sdk.tool.invoke`, optional `sdk.skill.invoke`
 
-- Production safety: Python SDK backend fail-closed when workers cannot spawn unless `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1`
+- Binding execution: `sdk.session.lifecycle` uses provider-local lifecycle
+  state through provider-core and declares `execution_scope: provider_local`
+  with `runtime_operations: ["ping"]`. Model, tool, and skill capabilities use
+  `execution_scope: transport_runtime`; the runtime router rejects any
+  operation not declared by the selected backend `runtime_operations` allowlist.
 
+- Fail-closed worker contract: `node scripts/provider-transport-workers/generic-python-sdk-worker.test.mjs`
+
+- Release proof: Hermes-specific staging gateway proof remains required before
+  GA or commercial release; the Node staging live SDK gate does not cover the
+  Python/TUI Hermes gateway path.
+
+- Production safety: Python SDK backends fail closed when workers cannot spawn,
+  Python modules cannot be resolved to an importable entry, selected runtime
+  health is unhealthy, or a requested runtime operation is absent from
+  `runtime_operations`, unless non-production mock fallback is explicitly
+  enabled.

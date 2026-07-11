@@ -8,14 +8,12 @@ Owner: SDKWork kernel maintainers.
 
 Kernel runtime connectivity is declared in [`../specs/topology.spec.json`](../specs/topology.spec.json) and materialized through env files under [`../configs/topology/`](../configs/topology/).
 
-| Topology profile id | Deployment profile | Service layout | Environment | Env file |
-| --- | --- | --- | --- | --- |
-| `standalone.split-services.development` | standalone | split-services | development | `configs/topology/standalone.split-services.development.env` |
-| `standalone.unified-process.development` | standalone | unified-process | development | `configs/topology/standalone.unified-process.development.env` |
-| `standalone.split-services.production` | standalone | split-services | production | `configs/topology/standalone.split-services.production.env` |
-| `standalone.unified-process.production` | standalone | unified-process | production | `configs/topology/standalone.unified-process.production.env` |
-| `cloud.split-services.development` | cloud | split-services | development | `configs/topology/cloud.split-services.development.env` |
-| `cloud.split-services.production` | cloud | split-services | production | `configs/topology/cloud.split-services.production.env` |
+| Topology profile id | Deployment profile | Environment | Env file |
+| --- | --- | --- | --- |
+| `standalone.development` | standalone | development | `configs/topology/standalone.development.env` |
+| `standalone.production` | standalone | production | `configs/topology/standalone.production.env` |
+| `cloud.development` | cloud | development | `configs/topology/cloud.development.env` |
+| `cloud.production` | cloud | production | `configs/topology/cloud.production.env` |
 
 ## Local Development Entrypoints
 
@@ -23,9 +21,8 @@ Use PNPM standard commands (`PNPM_SCRIPT_SPEC.md`):
 
 ```bash
 pnpm dev
-pnpm dev:server:postgres:split-services:standalone
-pnpm dev:server:postgres:unified-process:standalone
-pnpm dev:server:postgres:split-services:cloud
+pnpm dev:server:postgres:standalone
+pnpm dev:server:postgres:cloud
 ```
 
 These dispatch through `scripts/sdkwork-command.mjs` into `scripts/kernel-dev.mjs`, which loads the matching topology profile env bundle.

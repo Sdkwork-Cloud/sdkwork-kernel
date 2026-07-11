@@ -27,10 +27,12 @@
     {
       "capability_id": "sdk.session.lifecycle",
       "required": true,
+      "execution_scope": "provider_local",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.gemini-cli.session.lifecycle.ts",
+          "runtime_operations": ["ping"],
           "package": "@google/gemini-cli-sdk"
         }
       ]
@@ -38,10 +40,12 @@
     {
       "capability_id": "sdk.model.chat",
       "required": true,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.gemini-cli.model.chat.ts",
+          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
           "package": "@google/gemini-cli-sdk"
         }
       ]
@@ -49,10 +53,12 @@
     {
       "capability_id": "sdk.model.stream",
       "required": false,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.gemini-cli.model.stream.ts",
+          "runtime_operations": ["ping", "model_chat_stream"],
           "package": "@google/gemini-cli-sdk"
         }
       ]
@@ -60,10 +66,12 @@
     {
       "capability_id": "sdk.tool.invoke",
       "required": false,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.gemini-cli.tool.invoke.ts",
+          "runtime_operations": ["ping", "tool_invoke"],
           "package": "@google/gemini-cli-sdk"
         }
       ]

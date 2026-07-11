@@ -14,8 +14,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 
 const ALLOWED_DATABASES = new Set(['postgres', 'sqlite']);
-const ALLOWED_SERVICE_LAYOUTS = new Set(['unified-process', 'split-services']);
 const ALLOWED_DEPLOYMENT_PROFILES = new Set(['standalone', 'cloud']);
+const ALLOWED_ENVIRONMENTS = new Set(['development', 'test', 'staging', 'production']);
 const ALLOWED_RUNTIME_TARGETS = new Set([
   'browser',
   'desktop',
@@ -35,6 +35,7 @@ const ALLOWED_RUNTIME_TARGETS = new Set([
 ]);
 
 const RETIRED_VALUES = new Set(['self-hosted', 'cloud-hosted', 'hosting', 'web', 'mobile', 'native', 'docker']);
+const RETIRED_FLAGS = new Set(['service-layout']);
 
 function parseArgs(argv) {
   const args = { command: null, flags: {} };
@@ -54,21 +55,27 @@ function parseArgs(argv) {
 function validateAxisValues(flags) {
   const {
     database,
-    'service-layout': serviceLayout,
     'deployment-profile': deploymentProfile,
+    environment,
     'runtime-target': runtimeTarget,
   } = flags;
 
+  for (const flagName of Object.keys(flags)) {
+    if (RETIRED_FLAGS.has(flagName)) {
+      console.error(`[sdkwork-kernel] Retired flag --${flagName}. Use --deployment-profile and --environment.`);
+      process.exit(1);
+    }
+  }
   if (database && !ALLOWED_DATABASES.has(database)) {
     console.error(`[sdkwork-kernel] Invalid database: ${database}`);
     process.exit(1);
   }
-  if (serviceLayout && !ALLOWED_SERVICE_LAYOUTS.has(serviceLayout)) {
-    console.error(`[sdkwork-kernel] Invalid service-layout: ${serviceLayout}`);
-    process.exit(1);
-  }
   if (deploymentProfile && !ALLOWED_DEPLOYMENT_PROFILES.has(deploymentProfile)) {
     console.error(`[sdkwork-kernel] Invalid deployment-profile: ${deploymentProfile}`);
+    process.exit(1);
+  }
+  if (environment && !ALLOWED_ENVIRONMENTS.has(environment)) {
+    console.error(`[sdkwork-kernel] Invalid environment: ${environment}`);
     process.exit(1);
   }
   if (runtimeTarget && !ALLOWED_RUNTIME_TARGETS.has(runtimeTarget)) {
@@ -113,8 +120,8 @@ Commands:
 Dev flags:
   --runtime-target <server|browser|...>   Default: server
   --database <postgres|sqlite>          Default: postgres
-  --service-layout <unified-process|split-services>  Default: unified-process
   --deployment-profile <standalone|cloud>            Default: standalone
+  --environment <development|test|staging|production> Default: development
   --dry-run
 `);
 }
@@ -129,8 +136,8 @@ function dispatch({ command, flags }) {
 
   const runtimeTarget = flags['runtime-target'] || 'server';
   const database = flags.database || 'postgres';
-  const serviceLayout = flags['service-layout'] || 'unified-process';
   const deploymentProfile = flags['deployment-profile'] || 'standalone';
+  const environment = flags.environment || 'development';
 
   switch (command) {
     case 'dev': {
@@ -145,8 +152,8 @@ function dispatch({ command, flags }) {
       const devArgs = [
         '--deployment-profile',
         deploymentProfile,
-        '--service-layout',
-        serviceLayout,
+        '--environment',
+        environment,
       ];
       if (flags['dry-run']) {
         devArgs.push('--dry-run');

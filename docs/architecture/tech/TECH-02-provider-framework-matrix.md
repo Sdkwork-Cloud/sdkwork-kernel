@@ -21,17 +21,26 @@ Binding manifests are authoritative: `bindings/agent-providers/<framework>/provi
 | Codex | Code-agent | `standardizing` | `rust_native`, `typescript_node`, `ipc_protocol` | `@openai/codex-sdk`, `codex-core` |
 | Claude Code | Code-agent | `standardizing` | `typescript_node`, `ipc_protocol` | `@anthropic-ai/claude-agent-sdk` |
 | Gemini CLI | Code-agent | `standardizing` | `typescript_node`, `ipc_protocol` | Source-tree `@google/gemini-cli-sdk`; CLI npm `@google/gemini-cli` |
-| OpenCode | Code-agent | `experimental` | `typescript_node`, `http_openapi`, `ipc_protocol` | `@opencode-ai/sdk` |
-| Mimo Code | Code-agent | `experimental` | `typescript_node`, `http_openapi`, `ipc_protocol` | `@mimo-ai/sdk` |
+| OpenCode | Code-agent | `experimental` | `typescript_node`, `ipc_protocol` | `@opencode-ai/sdk` |
+| MiMo Code | Code-agent | `experimental` | `typescript_node`, `ipc_protocol` | `@mimo-ai/sdk` |
 | OpenClaw | Autonomous | `experimental` | `typescript_node`, `http_openapi`, `ipc_protocol` | `openclaw` plugin SDK + gateway OpenAPI |
 | Hermes | Autonomous | `experimental` | `python_process`, `ipc_protocol` | Python `run_agent` + TUI gateway JSON-RPC |
 | Rig | Framework-native | `standardizing` | `rust_native` | `rig-core` in-process |
 
-All shipped SDKWork-owned provider crates expose process-adapter plugin
-entrypoints. Direct in-process `ModelProvider::invoke`,
-`ModelProvider::stream`, and `ToolProvider::invoke_tool` for external
-SDK-backed providers fail closed with `ProviderUnavailable`; real execution
-must route through the negotiated SDK/runtime transport worker.
+SDKWork separates SDK/provider adapter crates from full kernel plugin runtime
+entrypoints. Direct in-process `ModelProvider::invoke`, `ModelProvider::stream`,
+and `ToolProvider::invoke_tool` for external SDK-backed providers fail closed
+with `ProviderUnavailable`; real execution must route through the negotiated
+SDK/runtime transport worker or an explicit kernel plugin runtime entrypoint.
+
+Binding manifests also define the executable runtime boundary. Each capability
+declares `execution_scope`, and each backend declares `runtime_operations`.
+`sdk.session.lifecycle` and `sdk.session.history` are provider-local lifecycle
+surfaces: they use `execution_scope: provider_local` and expose only
+`runtime_operations: ["ping"]` through runtime routing. Model, stream, tool, and
+skill capabilities use `execution_scope: transport_runtime`; runtime dispatch
+rejects any operation that is not declared in the selected backend
+`runtime_operations` allowlist before invoking a worker.
 
 | Provider crate | Plugin id | Agent id | Runtime entrypoint |
 | --- | --- | --- | --- |
@@ -40,37 +49,47 @@ must route through the negotiated SDK/runtime transport worker.
 | `sdkwork-agent-provider-opencode` | `plugin.intelligence.opencode` | `agent.intelligence.opencode` | `OpenCodeKernelPlugin::configure_runtime` |
 | `sdkwork-agent-provider-openclaw` | `plugin.intelligence.openclaw` | `agent.intelligence.openclaw` | `OpenClawKernelPlugin::configure_runtime` |
 | `sdkwork-agent-provider-hermes` | `plugin.intelligence.hermes` | `agent.intelligence.hermes` | `HermesKernelPlugin::configure_runtime` |
+| `sdkwork-agent-provider-rig` | `plugin.intelligence.rig` | `agent.intelligence.rig` | `RigKernelPlugin::configure_runtime` |
+
+Provider crates that do not yet expose a full `SdkworkKernelPlugin` runtime
+entrypoint still have an explicit SDK/provider adapter boundary and must remain
+fail-closed for direct in-process model/tool execution:
+
+| Provider crate | Binding id | Adapter boundary | Runtime execution path |
+| --- | --- | --- | --- |
+| `sdkwork-agent-provider-gemini-cli` | `binding.agent-provider.gemini-cli` | `GeminiCliSdkIntegration::bootstrap` | `NodeSdkBackendRuntime` for source-tree `@google/gemini-cli-sdk`; `@google/gemini-cli` remains a CLI package |
+| `sdkwork-agent-provider-mimo-code` | `binding.agent-provider.mimo-code` | `MiMoCodeAdapter`, `MiMoCodeMessageAdapter`, `MiMoCodeModelProvider`, `MiMoCodeToolProvider` | `@mimo-ai/sdk` through the binding/transport worker; agents facade and staging live SDK proof remain required before product GA |
 
 ## 3. Binding Capability Coverage
 
 Legend: **R** = required in manifest, **O** = optional, **—** = not declared (kernel SPI may still apply at host layer).
 
-| Capability id | Codex | Claude Code | Gemini CLI | OpenCode | OpenClaw | Hermes | Rig |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `sdk.session.lifecycle` | R | R | R | R | R | R | — |
-| `sdk.session.history` | R | — | — | — | — | — | — |
-| `sdk.model.chat` | R | R | R | R | R | R | R |
-| `sdk.model.stream` | O | O | O | — | — | — | — |
-| `sdk.tool.invoke` | O | O | O | O | O | O | R |
-| `sdk.skill.invoke` | — | — | — | — | — | O | — |
+| Capability id | Codex | Claude Code | Gemini CLI | OpenCode | MiMo Code | OpenClaw | Hermes | Rig |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `sdk.session.lifecycle` | R | R | R | R | R | R | R | — |
+| `sdk.session.history` | R | — | — | — | — | — | — | — |
+| `sdk.model.chat` | R | R | R | R | R | R | R | R |
+| `sdk.model.stream` | O | O | O | — | — | — | — | — |
+| `sdk.tool.invoke` | O | O | O | O | O | O | O | R |
+| `sdk.skill.invoke` | — | — | — | — | — | — | O | — |
 
 ## 4. Industry Feature Mapping
 
 How upstream framework strengths map to kernel SPI families (not all are binding-level today).
 
-| Upstream strength | Codex | Claude Code | OpenCode | OpenClaw | Hermes | Rig | Kernel SPI owner |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Sandbox / seatbelt | Yes (namespaces) | Limited | Partial | Plugin-owned | Terminal backends | Host-dependent | `SandboxProvider` + `HostProvider` |
-| Permission / approval | Approval presets | Tool allowlists | Policy in server | Plugin + gateway | Tool progress / sudo | Tool hooks | `PolicyProvider` |
-| MCP tools | Via core | Yes | Yes | Plugin SDK | MCP client catalog | Tool trait | `McpProvider` |
-| Skills / slash commands | Skills | Commands | Skills | Skills hub | Skills + plugins | Agent tools | `AgentSkillProvider` |
-| Memory plugins | Thread context | Project context | Instance state | mem0/supermemory plugins | Memory provider plugins | N/A | `MemoryProvider` + agents composition → `sdkwork-memory` |
-| Multi-channel gateway | No | No | No | Yes (Telegram, Slack, …) | Yes (~20 platforms) | No | `ProtocolAdapter` + product apps |
-| Multi-agent delegate | Subagents | Subagents | Subagent | Embedded runner | `delegate_task` | Multi-agent graph | `AgentCollaborationProvider` + `orchestration` |
-| Streaming model output | Yes | Yes | Yes | Gateway SSE | Ink + gateway | Provider streams | `ModelStreamProvider` + events |
-| Task / cron scheduling | No | No | Jobs in server | Cron plugin | `cronjob` tool | N/A | `TaskSchedulingProvider` |
-| Message history query | Thread rollouts | Session | DB in opencode | JSONL transcripts | SQLite FTS | Conversation | `MessageQueryProvider` |
-| Code workspace / patch | Yes | Yes | Yes | Terminal tools | Terminal + patch | N/A | `sdkwork-code-kernel` |
+| Upstream strength | Codex | Claude Code | Gemini CLI | OpenCode | MiMo Code | OpenClaw | Hermes | Rig | Kernel SPI owner |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Sandbox / seatbelt | Yes (namespaces) | Limited | CLI shell policy | Partial | Workspace tools | Plugin-owned | Terminal backends | Host-dependent | `SandboxProvider` + `HostProvider` |
+| Permission / approval | Approval presets | Tool allowlists | CLI confirmations | Policy in server | OpenCode-derived policy | Plugin + gateway | Tool progress / sudo | Tool hooks | `PolicyProvider` |
+| MCP tools | Via core | Yes | CLI MCP config | Yes | OpenCode-derived MCP | Plugin SDK | MCP client catalog | Tool trait | `McpProvider` |
+| Skills / slash commands | Skills | Commands | CLI commands | Skills | Code commands | Skills hub | Skills + plugins | Agent tools | `AgentSkillProvider` |
+| Memory plugins | Thread context | Project context | Project context | Instance state | Session/context state | mem0/supermemory plugins | Memory provider plugins | N/A | `MemoryProvider` + agents composition → `sdkwork-memory` |
+| Multi-channel gateway | No | No | No | No | No | Yes (Telegram, Slack, …) | Yes (~20 platforms) | No | `ProtocolAdapter` + product apps |
+| Multi-agent delegate | Subagents | Subagents | Limited | Subagent | Code subagents | Embedded runner | `delegate_task` | Multi-agent graph | `AgentCollaborationProvider` + `orchestration` |
+| Streaming model output | Yes | Yes | Yes | Yes | Runtime operation only | Gateway SSE | Ink + gateway | Provider streams | `ModelStreamProvider` + events |
+| Task / cron scheduling | No | No | No | Jobs in server | Jobs in server | Cron plugin | `cronjob` tool | N/A | `TaskSchedulingProvider` |
+| Message history query | Thread rollouts | Session | Session files | DB in opencode | Session records | JSONL transcripts | SQLite FTS | Conversation | `MessageQueryProvider` |
+| Code workspace / patch | Yes | Yes | Yes | Yes | Yes | Terminal tools | Terminal + patch | N/A | `sdkwork-code-kernel` |
 
 ## 5. Integration Mode Decision Tree
 
@@ -108,9 +127,9 @@ a binding manifest declares `integration_sources`.
 
 ### OpenCode
 
-- **Strengths:** Bun server SDK + HTTP OpenAPI fallback.
-- **Gaps:** Experimental status; streaming not in binding yet.
-- **BirdCoder:** Engine catalog entry; verify OpenAPI authority when HTTP backend used.
+- **Strengths:** Bun server SDK through the typed `@opencode-ai/sdk` worker.
+- **Gaps:** Experimental status; streaming and HTTP OpenAPI fallback are not in binding yet.
+- **BirdCoder:** Engine catalog entry; release proof uses the staging live SDK gate.
 
 ### OpenClaw
 
@@ -130,7 +149,7 @@ a binding manifest declares `integration_sources`.
 - **Gaps:** Not a replacement for Codex/Claude user-facing CLIs — host plugin role.
 - **Use:** Cloud production default when external subprocess transports unavailable.
 
-### Mimo Code
+### MiMo Code
 
 - **Status:** Provider crate and `bindings/agent-providers/mimo-code/provider-binding.manifest.json` exist.
 - **Action:** Complete agents facade registration and staging live SDK proof before product GA.
@@ -142,13 +161,33 @@ node scripts/check-agent-provider-bindings.mjs
 cargo test --manifest-path sdkwork-agent-provider-spi/Cargo.toml
 cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-codex/Cargo.toml
 cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-claude-code/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-gemini-cli/Cargo.toml
 cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-opencode/Cargo.toml
+cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-mimo-code/Cargo.toml
 cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-openclaw/Cargo.toml
 cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-hermes/Cargo.toml
 cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-rig/Cargo.toml
 ```
 
-Optional live proof: `node scripts/provider-transport-workers/engine-sdk-live.test.mjs`
+Credential-free SDK resolver and fail-closed contract. This verifies that
+installed or explicitly injected SDK packages expose importable entry files,
+that unbuilt source mirrors under `external/` are not treated as live SDK
+packages, and that production profiles fail closed when live execution is
+unavailable or when the requested operation is absent from `runtime_operations`:
+`node scripts/provider-transport-workers/engine-sdk-live.test.mjs`
+
+Hermes Python worker fail-closed contract:
+`node scripts/provider-transport-workers/generic-python-sdk-worker.test.mjs`
+
+Staging live SDK proof with real credentials:
+`SDKWORK_KERNEL_STAGING_LIVE_SDK=1 SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1 node scripts/provider-transport-workers/engine-sdk-live-staging.mjs --framework all`
+
+The staging live gate covers Codex, Claude Code, Gemini CLI, OpenCode, and
+OpenClaw. Codex, Claude Code, Gemini CLI, and OpenCode require importable SDK
+packages; OpenClaw proves the gateway HTTP authority through
+`OPENCLAW_GATEWAY_URL` and does not require a local `openclaw` npm package
+import. Hermes uses the Python/TUI gateway binding path and requires a separate
+Hermes-specific staging gateway proof before GA.
 
 ## 8. Related
 

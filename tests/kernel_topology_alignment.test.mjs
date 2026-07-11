@@ -25,29 +25,31 @@ async function readJson(relativePath) {
   return JSON.parse(await read(relativePath));
 }
 
-test('declares v2 topology spec and profile env files for sdkwork-kernel', async () => {
+test('declares v4 topology spec and profile env files for sdkwork-kernel', async () => {
   assert.equal(await exists('specs/topology.spec.json'), true);
   assert.equal(await exists('scripts/lib/kernel-topology.mjs'), true);
   assert.equal(await exists('scripts/kernel-dev.mjs'), true);
   assert.equal(await exists('docs/topology-standard.md'), true);
 
   const spec = await readJson('specs/topology.spec.json');
-  assert.equal(spec.schemaVersion, 2);
+  assert.equal(spec.schemaVersion, 4);
   assert.equal(spec.kind, 'sdkwork.app.topology');
   assert.equal(spec.appId, 'sdkwork-kernel');
   assert.equal(spec.archetype, 'realtime-application-platform');
-  assert.equal(spec.defaults.developmentProfileId, 'standalone.unified-process.development');
+  assert.equal(spec.profilePattern, '{deploymentProfile}.{environment}.env');
+  assert.equal(spec.defaults.developmentProfileId, 'standalone.development');
+  assert.equal(spec.defaults.productionProfileId, 'cloud.production');
+  assert.equal(spec.vocabulary.serviceLayout, undefined);
   assert.ok(spec.surfaces['application.public-ingress']);
   assert.ok(spec.surfaces['platform.api-gateway']);
 
   for (const profileId of [
-    'standalone.split-services.development',
-    'standalone.unified-process.development',
-    'standalone.split-services.production',
-    'standalone.unified-process.production',
-    'cloud.split-services.development',
-    'cloud.split-services.production',
+    'standalone.development',
+    'standalone.production',
+    'cloud.development',
+    'cloud.production',
   ]) {
+    assert.equal(profileId.split('.').length, 2, `${profileId} must be deploymentProfile.environment`);
     const profilePath = spec.profileFiles[profileId];
     assert.equal(await exists(profilePath), true, `${profilePath} should exist`);
     const profileEnv = await read(profilePath);
@@ -66,13 +68,16 @@ test('root package.json wires @sdkwork/app-topology and standard dev scripts', a
     'package.json must depend on @sdkwork/app-topology via file:../sdkwork-app-topology or workspace:*'
   );
   assert.match(packageJson.scripts.dev, /scripts\/sdkwork-command\.mjs dev/);
+  assert.doesNotMatch(JSON.stringify(packageJson.scripts), /service-layout/);
+  assert.doesNotMatch(JSON.stringify(packageJson.scripts), /split-services|unified-process/);
   assert.match(packageJson.scripts['topology:validate'], /sdkwork-topology\.mjs validate/);
 });
 
-test('kernel dev orchestrator rejects retired --topology and --hosting flags', async () => {
+test('kernel dev orchestrator rejects retired topology and process-layout flags', async () => {
   const devScript = await read('scripts/kernel-dev.mjs');
   assert.match(devScript, /--topology is retired/);
   assert.match(devScript, /--hosting is retired/);
+  assert.match(devScript, /--service-layout is retired/);
 });
 
 test('agent server reads topology bind env keys', async () => {
@@ -119,14 +124,14 @@ test('adapter-core and agent-server share canonical kernel runtime topology poli
 });
 
 test('cloud production topology documents postgres and redis runtime deps', async () => {
-  const profileEnv = await read('configs/topology/cloud.split-services.production.env');
+  const profileEnv = await read('configs/topology/cloud.production.env');
   assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres/);
   assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_URL/);
   assert.match(profileEnv, /SDKWORK_RATE_LIMIT_REDIS_URL/);
 });
 
 test('self-hosted production topology documents postgres and redis runtime deps', async () => {
-  const profileEnv = await read('configs/topology/standalone.split-services.production.env');
+  const profileEnv = await read('configs/topology/standalone.production.env');
   assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres/);
   assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_URL/);
   assert.match(profileEnv, /SDKWORK_RATE_LIMIT_REDIS_URL/);
@@ -135,7 +140,7 @@ test('self-hosted production topology documents postgres and redis runtime deps'
 test('all production topology profiles enforce token ingress and scale-out deps', async () => {
   const spec = await readJson('specs/topology.spec.json');
   const productionProfiles = Object.keys(spec.profileFiles).filter((id) => id.endsWith('.production'));
-  assert.equal(productionProfiles.length, 3);
+  assert.equal(productionProfiles.length, 2);
   for (const profileId of productionProfiles) {
     const profileEnv = await read(spec.profileFiles[profileId]);
     assert.match(profileEnv, /SDKWORK_KERNEL_ENVIRONMENT=production/);

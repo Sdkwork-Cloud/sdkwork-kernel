@@ -41,6 +41,7 @@ const commands = [
   ['node', ['scripts/provider-transport-workers/engine-sdk-live-staging.test.mjs']],
   ['node', ['scripts/provider-transport-workers/generic-ts-sdk-worker.test.mjs']],
   ['node', ['scripts/provider-transport-workers/generic-python-sdk-worker.test.mjs']],
+  ['node', ['scripts/provider-transport-workers/hermes-gateway-staging.test.mjs']],
   ['cargo', ['test', '--manifest-path', 'sdkwork-agent-provider-transport-ipc/Cargo.toml', '-q']],
   ['cargo', ['test', '--manifest-path', 'sdkwork-agent-provider-transport-node/Cargo.toml', '-q']],
   ['cargo', ['test', '--manifest-path', 'sdkwork-agent-provider-transport-python/Cargo.toml', '-q']],
@@ -116,6 +117,12 @@ if (runtimePostgresUri) {
   );
 }
 
+if (commercialRelease && !truthyEnv('SDKWORK_KERNEL_STAGING_HERMES_GATEWAY')) {
+  preflightFailures.push(
+    'commercial release verification requires Hermes staging gateway proof; set SDKWORK_KERNEL_STAGING_HERMES_GATEWAY=1'
+  );
+}
+
 if (commercialRelease) {
   commands.push([
     'node',
@@ -124,6 +131,10 @@ if (commercialRelease) {
       SDKWORK_KERNEL_STAGING_LIVE_SDK: '1',
       SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS: '1'
     }
+  ]);
+  commands.push([
+    'node',
+    ['scripts/provider-transport-workers/hermes-gateway-staging.mjs']
   ]);
 }
 

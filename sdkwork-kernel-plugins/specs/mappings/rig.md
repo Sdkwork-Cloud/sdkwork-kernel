@@ -2,7 +2,8 @@
 
 ## Source
 
-- Local path: `external/rig`
+- Local path: `external/rig` (source reference for upstream inspection)
+- Source-tree Rust crate: `external/rig/crates/rig-core` (`rig-core`)
 - Upstream: `https://github.com/0xPlaygrounds/rig.git`
 
 ## SDKWork Surface
@@ -163,8 +164,9 @@ implementations without changing kernel contracts.
 
 ## Status
 
-Reference source is declared at `external/rig` but is not required for default
-SDKWork checks. SDKWork adapter code is implemented as a local plugin with
+Reference source is declared at `external/rig` for upstream inspection, while
+the binding's Rust source-tree evidence points to
+`external/rig/crates/rig-core`. SDKWork adapter code is implemented as a local plugin with
 manifests, package lifecycle, configuration, memory SPI, knowledge SPI,
 deployment snapshots, diagnostics, and conformance contract tests. Model and
 tool execution are fail-closed even when `RigBackendConfig` selects live mode,

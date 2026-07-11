@@ -78,17 +78,25 @@ function operationBlocks(openapiText) {
   return blocks;
 }
 
-test("agent SDK family assemblies declare sdkwork-kernel owner metadata", () => {
+test("agent SDK manifests are the family metadata source of truth", () => {
   for (const family of families) {
-    const assemblyPath = path.join("sdks", family.root, ".sdkwork-assembly.json");
-    assert.ok(existsSync(path.join(workspaceRoot, assemblyPath)), `${family.root} must have ${assemblyPath}`);
+    const assemblyPath = path.join(workspaceRoot, "sdks", family.root, ".sdkwork-assembly.json");
+    assert.equal(
+      existsSync(assemblyPath),
+      false,
+      `${family.root} must not retain retired per-family .sdkwork-assembly.json`,
+    );
 
-    const assembly = readJson(assemblyPath);
-    assert.equal(assembly.sdkOwner, owner, `${family.root} must declare sdkOwner`);
-    assert.equal(assembly.apiAuthority, family.authority, `${family.root} must declare apiAuthority`);
-    assert.equal(assembly.generationInputSpec, family.input, `${family.root} must generate from owner-only sdkgen input`);
+    const manifest = readJson(path.join("sdks", family.root, family.manifest));
+    assert.equal(manifest.sdkOwner, owner, `${family.root} manifest must declare sdkOwner`);
+    assert.equal(manifest.apiAuthority, family.authority, `${family.root} manifest must declare apiAuthority`);
+    assert.equal(
+      manifest.generationInputSpec,
+      family.input,
+      `${family.root} manifest must generate from owner-only sdkgen input`,
+    );
     assert.deepEqual(
-      assembly.sdkDependencies?.map((dependency) => ({
+      manifest.sdkDependencies?.map((dependency) => ({
         workspace: dependency.workspace,
         apiAuthority: dependency.apiAuthority,
         dependencyMode: dependency.dependencyMode,
@@ -101,6 +109,16 @@ test("agent SDK family assemblies declare sdkwork-kernel owner metadata", () => 
         generatedTransportImportPolicy: "forbidden",
       })),
       `${family.root} must declare only dependency SDKs, not copied dependency APIs`,
+    );
+    assert.equal(
+      manifest.languages?.[0]?.consumerPackageName,
+      "@sdkwork/agent-internal-sdk",
+      `${family.root} manifest must declare the composed consumer package name`,
+    );
+    assert.equal(
+      manifest.languages?.[0]?.transportPackageName,
+      "sdkwork-agent-internal-sdk-generated-typescript",
+      `${family.root} manifest must declare the generated transport package name`,
     );
   }
 });

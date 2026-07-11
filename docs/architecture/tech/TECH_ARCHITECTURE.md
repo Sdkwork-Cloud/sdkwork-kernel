@@ -12,7 +12,7 @@ Specs: [ARCHITECTURE_DECISION_SPEC.md](../../../sdkwork-specs/ARCHITECTURE_DECIS
 | Shard | Topic |
 | --- | --- |
 | [TECH-01-kernel-module-reference.md](TECH-01-kernel-module-reference.md) | Crate reference, entrypoints, env vars, bootstrap sequence |
-| [TECH-02-provider-framework-matrix.md](TECH-02-provider-framework-matrix.md) | Framework capability matrix (Codex, Claude Code, OpenCode, OpenClaw, Hermes, Rig) |
+| [TECH-02-provider-framework-matrix.md](TECH-02-provider-framework-matrix.md) | Framework capability matrix (Codex, Claude Code, Gemini CLI, OpenCode, MiMo Code, OpenClaw, Hermes, Rig) |
 | [TECH-03-spi-implementation-gap-tracker.md](TECH-03-spi-implementation-gap-tracker.md) | SPI gaps, commercial scorecard, cross-repo alignment |
 | [TECH-2026-06-14-multi-mode-agent-system.md](TECH-2026-06-14-multi-mode-agent-system.md) | Server plugins, client bridge, provider crates |
 | [TECH-2026-06-10-agent-execution-loop.md](TECH-2026-06-10-agent-execution-loop.md) | Turn loop, planning, tool execution |
@@ -216,6 +216,15 @@ health and may return `503` with `application/problem+json` when degraded.
 Provider binding negotiation, bootstrap flow, and transport priority are documented in
 [TECH-01-kernel-module-reference.md §4–5](TECH-01-kernel-module-reference.md#4-provider-bootstrap-sequence).
 
+Provider binding manifests define both selection and execution. Capabilities
+declare `execution_scope`, and selected backends declare `runtime_operations`.
+Provider-local lifecycle capabilities such as `sdk.session.lifecycle` and
+`sdk.session.history` use provider-core/local SPI state and expose only
+`runtime_operations: ["ping"]` through runtime routing. Transport-backed model,
+stream, tool, and skill operations require `execution_scope: transport_runtime`
+and are rejected before worker invocation when the requested operation is absent
+from the selected backend allowlist.
+
 ### Agent kernel SPI provider families
 
 The `sdkwork-agent-kernel` crate defines **18 core** and **6 extension** provider
@@ -320,8 +329,10 @@ Application identity: `sdkwork.app.config.json` (`app.key: sdkwork-kernel`).
 
 | Profile | Use case | Key env |
 | --- | --- | --- |
-| `standalone.split-services.development` | Local dev | May allow mock providers |
-| `cloud.split-services.production` | Production | `SDKWORK_KERNEL_AGENT_PLUGIN=rig`, Postgres, token ingress |
+| `standalone.development` | Local dev | May allow mock providers |
+| `standalone.production` | Private/self-contained production | `SDKWORK_KERNEL_AGENT_PLUGIN=rig`, Postgres, token ingress |
+| `cloud.development` | Cloud topology validation | Managed-service URL shape, staging credentials |
+| `cloud.production` | Production cloud | `SDKWORK_KERNEL_AGENT_PLUGIN=rig`, Postgres, Redis, token ingress |
 
 Server plugin selection and client bridge builtins: [TECH-01-kernel-module-reference.md §5–6](TECH-01-kernel-module-reference.md#5-client-bridge-builtins).
 
@@ -454,7 +465,17 @@ node ../../../sdkwork-specs/tools/check-repository-docs-standard.mjs --root .
 ### Provider transport workers
 
 ```bash
+# Credential-free SDK resolver and fail-closed contract.
+# Unbuilt external source mirrors are not treated as live SDK packages.
+# Runtime operations must be declared by the selected backend runtime_operations allowlist.
 node scripts/provider-transport-workers/engine-sdk-live.test.mjs
+
+# Hermes Python worker fail-closed contract
+node scripts/provider-transport-workers/generic-python-sdk-worker.test.mjs
+
+# Staging live SDK/gateway proof with real credentials.
+# OpenClaw uses OPENCLAW_GATEWAY_URL instead of a required local npm import.
+SDKWORK_KERNEL_STAGING_LIVE_SDK=1 SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1 node scripts/provider-transport-workers/engine-sdk-live-staging.mjs --framework all
 ```
 
 ### Cross-repo
@@ -474,5 +495,9 @@ node scripts/kernel-birdcoder-alignment-contract.test.mjs
 pnpm test:topology
 ```
 
-Optional live SDK invokes require real upstream credentials and are not part of
-default `pnpm verify`.
+Staging live invokes require real upstream credentials or gateway endpoints and
+are not part of default `pnpm verify`. The current staging live gate covers
+Node SDK and gateway-backed providers: Codex, Claude Code, Gemini CLI, and
+OpenCode require importable SDK packages, while OpenClaw proves the gateway HTTP
+authority through `OPENCLAW_GATEWAY_URL`. Hermes Python/TUI gateway live proof is
+a separate GA prerequisite.

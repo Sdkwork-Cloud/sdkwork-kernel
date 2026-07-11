@@ -27,15 +27,18 @@
     {
       "capability_id": "sdk.session.lifecycle",
       "required": true,
+      "execution_scope": "provider_local",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.claude-code.session.lifecycle.ts",
+          "runtime_operations": ["ping"],
           "package": "@anthropic-ai/claude-agent-sdk"
         },
         {
           "kind": "ipc_protocol",
           "driver_id": "driver.claude-code.session.lifecycle.ipc",
+          "runtime_operations": ["ping"],
           "transport": "jsonrpc_stdio"
         }
       ]
@@ -43,10 +46,12 @@
     {
       "capability_id": "sdk.model.chat",
       "required": true,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.claude-code.model.chat.ts",
+          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
           "package": "@anthropic-ai/claude-agent-sdk"
         }
       ]
@@ -54,10 +59,12 @@
     {
       "capability_id": "sdk.model.stream",
       "required": false,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.claude-code.model.stream.ts",
+          "runtime_operations": ["ping", "model_chat_stream"],
           "package": "@anthropic-ai/claude-agent-sdk"
         }
       ]
@@ -65,10 +72,12 @@
     {
       "capability_id": "sdk.tool.invoke",
       "required": false,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.claude-code.tool.invoke.ts",
+          "runtime_operations": ["ping", "tool_invoke"],
           "package": "@anthropic-ai/claude-agent-sdk"
         }
       ]

@@ -67,7 +67,16 @@ executor deadlocks.
 
 ## Security and production posture
 
-- SDK workers fail closed when spawn/negotiation fails unless `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1` (development only; topology-controlled).
+- SDK workers fail closed when spawn/negotiation fails, SDK packages or Python
+  modules cannot be resolved, selected runtime health is unhealthy, or the
+  requested operation is absent from the selected backend `runtime_operations`
+  allowlist unless `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1` (development only;
+  topology-controlled).
+- Provider bindings declare capability `execution_scope`. `sdk.session.lifecycle`
+  and `sdk.session.history` are provider-local lifecycle surfaces backed by
+  provider-core/local SPI state with `execution_scope: provider_local` and
+  `runtime_operations: ["ping"]`; model, stream, tool, and skill execution uses
+  `execution_scope: transport_runtime`.
 - External SDK-backed provider crates also fail closed on direct in-process
   model/tool invocation. Production execution must route through the selected
   SDK/runtime transport worker registered by `SdkworkKernelPlugin::configure_runtime`.
@@ -111,12 +120,25 @@ Historical design drafts were retired in favor of this as-built document and `sd
 
 ## Staging / live SDK validation (post-`pnpm verify`)
 
-Contract gate (CI/local merge-ready):
+Credential-free resolver and fail-closed contract (CI/local merge-ready):
 
 ```bash
 pnpm verify
 node scripts/provider-transport-workers/engine-sdk-live.test.mjs
+node scripts/provider-transport-workers/generic-python-sdk-worker.test.mjs
 ```
+
+Staging live SDK/gateway proof with real credentials:
+
+```bash
+SDKWORK_KERNEL_STAGING_LIVE_SDK=1 SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1 node scripts/provider-transport-workers/engine-sdk-live-staging.mjs --framework all
+```
+
+The current staging gate covers Codex, Claude Code, Gemini CLI, OpenCode, and
+OpenClaw. Hermes uses the Python/TUI gateway binding path and requires the
+separate Hermes-specific staging gateway proof in
+`scripts/provider-transport-workers/hermes-gateway-staging.mjs` before release
+promotion.
 
 Optional live invokes (require real upstream credentials/runtime; not part of default `pnpm verify`):
 
@@ -125,6 +147,8 @@ Optional live invokes (require real upstream credentials/runtime; not part of de
 | OpenClaw | `SDKWORK_KERNEL_AGENT_PLUGIN=openclaw` | `OPENCLAW_GATEWAY_URL` (+ optional `OPENCLAW_GATEWAY_TOKEN`) |
 | Hermes | `SDKWORK_KERNEL_AGENT_PLUGIN=hermes` | Hermes `tui_gateway` / IPC when `SDKWORK_HERMES_USE_TUI_GATEWAY=1` |
 | Codex | `SDKWORK_KERNEL_AGENT_PLUGIN=codex` | `@openai/codex-sdk` worker path in `engine-sdk-live.mjs` |
+| Claude Code | `SDKWORK_KERNEL_AGENT_PLUGIN=claude-code` | `@anthropic-ai/claude-agent-sdk` |
+| OpenCode | `SDKWORK_KERNEL_AGENT_PLUGIN=opencode` | `@opencode-ai/sdk` package or `SDKWORK_AGENT_SDK_PACKAGE_PATHS` injection |
 | Rig (production default) | `SDKWORK_KERNEL_AGENT_PLUGIN=rig` | Typed Rig providers; mock only when topology allows |
 
-Use a non-production topology profile (for example `standalone.split-services.development`) and never set `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1` on `*.production` profiles unless explicitly approved for a controlled drill.
+Use a non-production topology profile (for example `standalone.development`) and never set `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1` on `*.production` profiles unless explicitly approved for a controlled drill.

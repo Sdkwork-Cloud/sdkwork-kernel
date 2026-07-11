@@ -16,7 +16,6 @@ export function validateSdkFamilyMetadata({ family, familyRoot, packageRoot, err
     }
   }
 
-  const assembly = readJsonIfExists(path.join(familyRoot, '.sdkwork-assembly.json'));
   const sdkManifest = readJsonIfExists(path.join(familyRoot, 'sdk-manifest.json'));
   const packageJson = readJsonIfExists(path.join(packageRoot, 'package.json'));
   const generatedPackageJson = readJsonIfExists(
@@ -25,24 +24,6 @@ export function validateSdkFamilyMetadata({ family, familyRoot, packageRoot, err
   const generatedMetadata = readJsonIfExists(
     path.join(packageRoot, SDKWORK_SDKGEN_STANDARD.generatedOutput, 'sdkwork-sdk.json')
   );
-
-  if (assembly) {
-    if (assembly.sdkOwner !== AGENT_SDK_OWNER) {
-      errors.push(`${family.familyDir} assembly sdkOwner must be ${AGENT_SDK_OWNER}`);
-    }
-    if (assembly.apiAuthority !== family.authority) {
-      errors.push(`${family.familyDir} assembly apiAuthority must be ${family.authority}`);
-    }
-    if (assembly.generationInputSpec !== `openapi/${family.authority}.sdkgen.yaml`) {
-      errors.push(`${family.familyDir} assembly generationInputSpec must be openapi/${family.authority}.sdkgen.yaml`);
-    }
-    assertDependencyList(
-      `${family.familyDir} assembly sdkDependencies`,
-      assembly.sdkDependencies ?? [],
-      family.sdkDependencies ?? [],
-      errors
-    );
-  }
 
   if (sdkManifest) {
     if (sdkManifest.sdkName !== family.sdkName) {

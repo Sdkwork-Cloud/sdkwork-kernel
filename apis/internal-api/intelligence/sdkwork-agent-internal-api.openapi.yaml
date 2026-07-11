@@ -9,7 +9,7 @@ servers:
     variables:
       applicationPublicIngressOrigin:
         default: http://127.0.0.1:18280
-        description: Local default from `standalone.split-services.development`; production profiles override via topology env files.
+        description: Local default from `standalone.development`; production profiles override via topology env files.
 tags:
   - name: intelligence
     description: Agent intelligence runtime operations on application ingress.

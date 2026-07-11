@@ -23,24 +23,41 @@ const FRAMEWORKS = {
   codex: {
     packageName: '@openai/codex-sdk',
     credentialRequirements: [['OPENAI_API_KEY']],
+    requirePackageResolution: true,
   },
   claude: {
     packageName: '@anthropic-ai/claude-agent-sdk',
     credentialRequirements: [['ANTHROPIC_API_KEY']],
+    requirePackageResolution: true,
   },
   gemini: {
     packageName: '@google/gemini-cli-sdk',
     credentialRequirements: [['GEMINI_API_KEY', 'GOOGLE_API_KEY']],
+    requirePackageResolution: true,
   },
   opencode: {
     packageName: '@opencode-ai/sdk',
     credentialRequirements: [['OPENCODE_API_KEY', 'OPENAI_API_KEY']],
+    requirePackageResolution: true,
   },
   openclaw: {
     packageName: 'openclaw',
-    credentialRequirements: [['OPENCLAW_GATEWAY_TOKEN'], ['OPENCLAW_GATEWAY_URL']],
+    credentialRequirements: [['OPENCLAW_GATEWAY_URL']],
+    requirePackageResolution: false,
   },
 };
+
+export function supportedStagingFrameworks() {
+  return Object.keys(FRAMEWORKS);
+}
+
+export function frameworkRequiresPackageResolution(framework) {
+  const config = FRAMEWORKS[framework];
+  if (!config) {
+    throw new Error(`unknown framework: ${framework}`);
+  }
+  return config.requirePackageResolution;
+}
 
 function parseFrameworkArg(argv) {
   const index = argv.indexOf('--framework');
@@ -73,10 +90,12 @@ export function missingCredentialRequirements(framework, env = process.env) {
 async function runFrameworkLiveInvoke(framework) {
   const config = FRAMEWORKS[framework];
   assert.ok(config, `unsupported framework: ${framework}`);
-  assert.ok(
-    resolvePackageSpecifier(config.packageName),
-    `${config.packageName} should resolve in staging workspace`,
-  );
+  if (config.requirePackageResolution) {
+    assert.ok(
+      resolvePackageSpecifier(config.packageName),
+      `${config.packageName} should resolve in staging workspace`,
+    );
+  }
 
   const result = await invokeModelChatLive(config.packageName, {
     model_request_id: `staging-${framework}`,
@@ -98,7 +117,7 @@ async function runFrameworkLiveInvoke(framework) {
 export async function runStagingLiveSdkGate(options = {}) {
   const framework = options.framework ?? parseFrameworkArg(process.argv.slice(2));
   const frameworks =
-    framework === 'all' ? Object.keys(FRAMEWORKS) : [framework];
+    framework === 'all' ? supportedStagingFrameworks() : [framework];
 
   if (!stagingEnabled()) {
     console.log(
@@ -107,7 +126,7 @@ export async function runStagingLiveSdkGate(options = {}) {
     return { status: 'skipped', reason: 'flag-disabled' };
   }
 
-  process.env.SDKWORK_KERNEL_PROFILE_ID = 'cloud.split-services.production';
+  process.env.SDKWORK_KERNEL_PROFILE_ID = 'cloud.production';
   process.env.SDKWORK_KERNEL_ENVIRONMENT = 'production';
   delete process.env.SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS;
 

@@ -40,6 +40,43 @@ pub enum SdkRuntimeOperation {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SdkRuntimeOperationKind {
+    Ping,
+    SessionCreate,
+    ModelChat,
+    ModelChatStream,
+    ToolInvoke,
+    SkillInvoke,
+}
+
+impl SdkRuntimeOperation {
+    pub fn kind(&self) -> SdkRuntimeOperationKind {
+        match self {
+            Self::Ping => SdkRuntimeOperationKind::Ping,
+            Self::SessionCreate { .. } => SdkRuntimeOperationKind::SessionCreate,
+            Self::ModelChat { .. } => SdkRuntimeOperationKind::ModelChat,
+            Self::ModelChatStream { .. } => SdkRuntimeOperationKind::ModelChatStream,
+            Self::ToolInvoke { .. } => SdkRuntimeOperationKind::ToolInvoke,
+            Self::SkillInvoke { .. } => SdkRuntimeOperationKind::SkillInvoke,
+        }
+    }
+}
+
+impl SdkRuntimeOperationKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ping => "ping",
+            Self::SessionCreate => "session_create",
+            Self::ModelChat => "model_chat",
+            Self::ModelChatStream => "model_chat_stream",
+            Self::ToolInvoke => "tool_invoke",
+            Self::SkillInvoke => "skill_invoke",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SdkRuntimeRequest {
     pub capability_id: String,
@@ -197,6 +234,19 @@ impl SdkRuntimeError {
             message: format!("capability not negotiated: {capability_id}"),
         }
     }
+
+    pub fn operation_not_supported(
+        capability_id: &str,
+        operation: SdkRuntimeOperationKind,
+    ) -> Self {
+        Self {
+            code: "operation_not_supported".to_string(),
+            message: format!(
+                "capability {capability_id} does not declare runtime operation {}",
+                operation.as_str()
+            ),
+        }
+    }
 }
 
 impl std::fmt::Display for SdkRuntimeError {
@@ -298,6 +348,7 @@ impl SdkRuntimeRouter {
             .negotiation
             .selected_driver(&request.capability_id)
             .ok_or_else(|| SdkRuntimeError::capability_not_negotiated(&request.capability_id))?;
+        validate_selected_operation(selected, request)?;
 
         let runtime = self
             .runtime_for(selected.backend_kind)
@@ -315,6 +366,7 @@ impl SdkRuntimeRouter {
             .negotiation
             .selected_driver(&request.capability_id)
             .ok_or_else(|| SdkRuntimeError::capability_not_negotiated(&request.capability_id))?;
+        validate_selected_operation(selected, request)?;
 
         let runtime = self
             .runtime_for(selected.backend_kind)
@@ -345,6 +397,21 @@ impl SdkRuntimeRouter {
             SdkBackendKind::IpcProtocol => self.ipc_runtime.as_ref(),
         }
     }
+}
+
+fn validate_selected_operation(
+    selected: &crate::negotiation::NegotiatedCapability,
+    request: &SdkRuntimeRequest,
+) -> Result<(), SdkRuntimeError> {
+    let operation = request.operation.kind();
+    if selected.runtime_operations.contains(&operation) {
+        return Ok(());
+    }
+
+    Err(SdkRuntimeError::operation_not_supported(
+        &request.capability_id,
+        operation,
+    ))
 }
 
 /// Canonical router alias for provider transport dispatch.

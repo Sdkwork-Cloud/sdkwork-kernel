@@ -78,7 +78,7 @@ Standard integration modes for `integration_sources[]` in provider bindings:
 | --- | --- | --- |
 | `official_sdk` | npm / PyPI published SDK | Preferred when an official SDK exists |
 | `rust_crate` | Cargo crate in workspace or registry | Preferred for in-process Rust providers |
-| `source_tree` | `external/<framework>` mirror | Used when integration requires vendored source |
+| `source_tree` | `external/<framework>` package/crate path | Used when integration requires vendored source |
 | `npm_package` | Node package without typed SDK wrapper | Worker or subprocess bootstrap |
 | `python_module` | Python package / module | Subprocess or JSON-RPC worker |
 | `http_openapi` | OpenAPI authority + generated transport | When only HTTP contract exists |
@@ -92,6 +92,11 @@ Rules:
   maps to `typescript_node` transport.
 - Rig-style `source_tree` + `rust_crate` integrations use the same provider crate
   layout as Codex-style SDK integrations.
+- `source_tree` entries point at the concrete package or crate path when the
+  upstream checkout has one, such as `external/gemini-cli/packages/sdk`,
+  `external/mimo-code/packages/sdk/js`, or `external/rig/crates/rig-core`.
+  Broader upstream roots remain mapping references only and must not satisfy
+  runtime SDK package health.
 
 ## 4. Transport Kinds And Priority
 
@@ -143,6 +148,23 @@ Negotiation steps:
 3. Resolve the declared `driver_id` from `DriverRegistry`.
 4. Record selected, missing, and degraded capabilities.
 5. Fail closed when any required capability is missing.
+
+Operation dispatch rules:
+
+- The selected backend's `runtime_operations[]` is the executable operation
+  allowlist for that negotiated capability.
+- `Ping` is a health probe, not proof that model, tool, skill, or session
+  operations are executable.
+- `ProviderTransportRouter` and `SdkRuntimeRouter` `MUST` reject a request with
+  `operation_not_supported` before invoking a runtime when the requested
+  operation is absent from the selected backend `runtime_operations[]`.
+- Capabilities with `execution_scope: provider_local` are implemented through
+  typed provider-core or local SPI paths. They may expose only `ping` through
+  runtime routing; lifecycle create/resume/close/list behavior must use the
+  provider-local lifecycle provider rather than a fake transport operation.
+- Capabilities with `execution_scope: transport_runtime` may execute through the
+  selected transport only when the backend runtime is healthy and the requested
+  operation is explicitly declared.
 
 ## 7. Extension Rules
 

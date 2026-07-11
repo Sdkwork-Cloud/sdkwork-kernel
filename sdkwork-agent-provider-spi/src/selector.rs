@@ -73,13 +73,15 @@ pub fn effective_backend_priority(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::binding::BackendCandidate;
+    use crate::binding::{BackendCandidate, CapabilityExecutionScope};
     use crate::driver::SdkDriverStatus;
+    use crate::runtime::SdkRuntimeOperationKind;
 
     fn candidate(kind: SdkBackendKind, driver_id: &str) -> BackendCandidate {
         BackendCandidate {
             kind,
             driver_id: driver_id.to_string(),
+            runtime_operations: vec![SdkRuntimeOperationKind::Ping],
             rust_crate: None,
             package: None,
             python_module: None,
@@ -93,6 +95,7 @@ mod tests {
         let capability = CapabilityBinding {
             capability_id: "sdk.model.chat".to_string(),
             required: true,
+            execution_scope: CapabilityExecutionScope::TransportRuntime,
             backends: vec![
                 candidate(SdkBackendKind::TypeScriptNode, "driver.test.model.chat.ts"),
                 candidate(SdkBackendKind::RustNative, "driver.test.model.chat.rust"),
@@ -112,6 +115,7 @@ mod tests {
         let capability = CapabilityBinding {
             capability_id: "sdk.model.chat".to_string(),
             required: true,
+            execution_scope: CapabilityExecutionScope::TransportRuntime,
             backends: vec![
                 candidate(SdkBackendKind::RustNative, "driver.test.model.chat.rust"),
                 candidate(SdkBackendKind::TypeScriptNode, "driver.test.model.chat.ts"),

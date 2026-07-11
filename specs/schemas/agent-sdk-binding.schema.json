@@ -92,13 +92,16 @@
     "capabilityEntry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["capability_id", "required", "backends"],
+      "required": ["capability_id", "required", "execution_scope", "backends"],
       "properties": {
         "capability_id": {
           "type": "string",
           "pattern": "^sdk\\.[a-z0-9.-]+\\.[a-z0-9.-]+$"
         },
         "required": { "type": "boolean" },
+        "execution_scope": {
+          "enum": ["transport_runtime", "provider_local"]
+        },
         "backends": {
           "type": "array",
           "items": { "$ref": "#/$defs/backendCandidate" },
@@ -109,12 +112,18 @@
     "backendCandidate": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kind", "driver_id"],
+      "required": ["kind", "driver_id", "runtime_operations"],
       "properties": {
         "kind": { "$ref": "#/$defs/backendKind" },
         "driver_id": {
           "type": "string",
           "pattern": "^driver\\.[a-z0-9.-]+\\.[a-z0-9.-]+\\.[a-z0-9.-]+$"
+        },
+        "runtime_operations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/runtimeOperation" },
+          "minItems": 1,
+          "uniqueItems": true
         },
         "crate": { "type": "string", "minLength": 1 },
         "package": { "type": "string", "minLength": 1 },
@@ -153,6 +162,16 @@
         "optional": { "type": "boolean" }
       }
     },
+    "runtimeOperation": {
+      "enum": [
+        "ping",
+        "session_create",
+        "model_chat",
+        "model_chat_stream",
+        "tool_invoke",
+        "skill_invoke"
+      ]
+    },
     "integrationSource": {
       "type": "object",
       "additionalProperties": false,
@@ -173,7 +192,10 @@
         "crate": { "type": "string", "minLength": 1 },
         "module": { "type": "string", "minLength": 1 },
         "transport": { "type": "string", "minLength": 1 },
-        "repository": { "type": "string", "minLength": 1 }
+        "repository": { "type": "string", "minLength": 1 },
+        "path": { "type": "string", "minLength": 1 },
+        "feature": { "type": "string", "minLength": 1 },
+        "optional": { "type": "boolean" }
       }
     }
   }

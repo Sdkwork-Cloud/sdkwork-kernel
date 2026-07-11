@@ -398,6 +398,10 @@ sdkwork_agent_provider_core::define_provider_lifecycle_provider!(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sdkwork_agent_kernel::{KernelError, SessionState, ToolCallStatus};
+    use sdkwork_agent_provider_core::{
+        ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
+    };
 
     fn sample_gemini_record() -> GeminiConversationRecord {
         GeminiConversationRecord {
@@ -607,25 +611,34 @@ mod tests {
     }
 
     #[test]
-    fn model_provider_invoke() {
+    fn model_provider_invoke_requires_transport_worker() {
         let provider = GeminiModelProvider::new();
         let request = ModelRequest::new("req.1", vec!["Explain Rust".to_string()])
             .with_model_id("gemini-2.5-pro");
-        let response = provider.invoke(request).unwrap();
-        assert_eq!(response.status, ModelStatus::Succeeded);
-        assert_eq!(response.provider_id, "provider.model.gemini");
-        assert!(response.messages[0].contains("Explain Rust"));
-        assert!(response.usage.is_some());
+        let error = provider
+            .invoke(request)
+            .expect_err("in-process Gemini model invoke must fail closed");
+        assert_eq!(
+            error,
+            KernelError::ProviderUnavailable {
+                provider_id: "provider.model.gemini".to_string()
+            }
+        );
     }
 
     #[test]
-    fn model_provider_stream() {
+    fn model_provider_stream_requires_transport_worker() {
         let provider = GeminiModelProvider::new();
         let request = ModelRequest::new("req.2", vec!["Hello".to_string()]);
-        let chunks = provider.stream(request).unwrap();
-        assert!(!chunks.is_empty());
-        assert_eq!(chunks[0].sequence, 0);
-        assert!(chunks.last().unwrap().sequence > 0);
+        let error = provider
+            .stream(request)
+            .expect_err("in-process Gemini model stream must fail closed");
+        assert_eq!(
+            error,
+            KernelError::ProviderUnavailable {
+                provider_id: "provider.model.gemini".to_string()
+            }
+        );
     }
 
     // --- Tool Provider Tests ---

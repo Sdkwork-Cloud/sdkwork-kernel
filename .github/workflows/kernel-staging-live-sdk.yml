@@ -14,6 +14,7 @@ on:
           - gemini
           - opencode
           - openclaw
+          - hermes
           - all
 
 permissions:
@@ -40,13 +41,17 @@ jobs:
           node-version: '22'
 
       - name: Staging contract (credential-free)
-        run: node scripts/provider-transport-workers/engine-sdk-live-staging.test.mjs
+        run: |
+          node scripts/provider-transport-workers/engine-sdk-live-staging.test.mjs
+          node scripts/provider-transport-workers/hermes-gateway-staging.test.mjs
 
       - name: Opt-in live SDK invoke gate
+        if: ${{ inputs.framework != 'hermes' }}
         env:
+          SDKWORK_STAGING_FRAMEWORK: ${{ inputs.framework }}
           SDKWORK_KERNEL_STAGING_LIVE_SDK: '1'
           SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS: '1'
-          SDKWORK_KERNEL_PROFILE_ID: cloud.split-services.production
+          SDKWORK_KERNEL_PROFILE_ID: cloud.production
           SDKWORK_KERNEL_ENVIRONMENT: production
           SDKWORK_AGENT_SDK_WORKSPACE_ROOT: ${{ github.workspace }}/../sdkwork-birdcoder
           OPENAI_API_KEY: ${{ secrets.STAGING_OPENAI_API_KEY }}
@@ -56,4 +61,22 @@ jobs:
           OPENCODE_API_KEY: ${{ secrets.STAGING_OPENCODE_API_KEY }}
           OPENCLAW_GATEWAY_URL: ${{ secrets.STAGING_OPENCLAW_GATEWAY_URL }}
           OPENCLAW_GATEWAY_TOKEN: ${{ secrets.STAGING_OPENCLAW_GATEWAY_TOKEN }}
-        run: node scripts/provider-transport-workers/engine-sdk-live-staging.mjs --framework ${{ inputs.framework }}
+        run: node scripts/provider-transport-workers/engine-sdk-live-staging.mjs --framework "$SDKWORK_STAGING_FRAMEWORK"
+
+      - uses: actions/setup-python@v5
+        if: ${{ inputs.framework == 'hermes' || inputs.framework == 'all' }}
+        with:
+          python-version: '3.12'
+
+      - name: Install Hermes Agent staging gateway
+        if: ${{ inputs.framework == 'hermes' || inputs.framework == 'all' }}
+        run: python -m pip install -e external/hermes-agent
+
+      - name: Opt-in Hermes TUI gateway proof
+        if: ${{ inputs.framework == 'hermes' || inputs.framework == 'all' }}
+        env:
+          SDKWORK_KERNEL_STAGING_HERMES_GATEWAY: '1'
+          SDKWORK_KERNEL_PROFILE_ID: cloud.production
+          SDKWORK_KERNEL_ENVIRONMENT: production
+          SDKWORK_HERMES_AGENT_SOURCE_ROOT: ${{ github.workspace }}/external/hermes-agent
+        run: node scripts/provider-transport-workers/hermes-gateway-staging.mjs

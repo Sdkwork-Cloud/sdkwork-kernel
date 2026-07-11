@@ -42,6 +42,7 @@ const skipPathFragments = [
 
 const allowlistPathFragments = [
   'specs/topology.spec.json',
+  'scripts/sdkwork-command.mjs',
   'scripts/kernel-dev.mjs',
   'docs/architecture/tech/TECH-sdkwork-standards-alignment-20260612.md',
   'docs/architecture/decisions/ADR-20260612-sdkwork-kernel-root-dictionary.md',
@@ -66,6 +67,9 @@ const bannedPatterns = [
   { id: 'retired split bind env key', pattern: /SDKWORK_BIND_ADDRESS/u },
   { id: 'retired mock fallback env key', pattern: /SDKWORK_KERNEL_ALLOW_MOCK_FALLBACK/u },
   { id: 'topology CLI flag', pattern: /--topology\b/u },
+  { id: 'public process layout CLI flag', pattern: /--service-layout\b/u },
+  { id: 'retired split-services profile segment', pattern: /\bsplit-services\b/u },
+  { id: 'retired unified-process profile segment', pattern: /\bunified-process\b/u },
   {
     id: 'hardcoded application ingress url',
     pattern: /http:\/\/127\.0\.0\.1:18280/u,
@@ -155,9 +159,14 @@ for (const { id, pattern } of bannedPatterns) {
 }
 
 const spec = JSON.parse(readText('specs/topology.spec.json'));
-assert.equal(spec.schemaVersion, 2);
+assert.equal(spec.schemaVersion, 4);
 assert.equal(spec.archetype, 'realtime-application-platform');
-assert.equal(spec.defaults.developmentProfileId, 'standalone.unified-process.development');
+assert.equal(spec.defaults.developmentProfileId, 'standalone.development');
+assert.equal(spec.defaults.productionProfileId, 'cloud.production');
+assert.equal(spec.vocabulary?.serviceLayout, undefined);
+for (const profileId of Object.keys(spec.profileFiles ?? {})) {
+  assert.equal(profileId.split('.').length, 2, `${profileId} must be deploymentProfile.environment`);
+}
 
 const profileDir = path.join(repoRoot, 'configs/topology');
 const profileFiles = fs.readdirSync(profileDir).filter((name) => name.endsWith('.env'));

@@ -1,4 +1,5 @@
 use crate::backend::SdkBackendKind;
+use crate::runtime::SdkRuntimeOperationKind;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -6,6 +7,7 @@ pub struct NegotiatedCapability {
     pub capability_id: String,
     pub backend_kind: SdkBackendKind,
     pub driver_id: String,
+    pub runtime_operations: Vec<SdkRuntimeOperationKind>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

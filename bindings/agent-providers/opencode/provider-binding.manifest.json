@@ -20,7 +20,6 @@
   "selection_policy": {
     "default_backend_priority": [
       "typescript_node",
-      "http_openapi",
       "ipc_protocol"
     ]
   },
@@ -28,10 +27,12 @@
     {
       "capability_id": "sdk.session.lifecycle",
       "required": true,
+      "execution_scope": "provider_local",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.opencode.session.lifecycle.ts",
+          "runtime_operations": ["ping"],
           "package": "@opencode-ai/sdk"
         }
       ]
@@ -39,10 +40,12 @@
     {
       "capability_id": "sdk.model.chat",
       "required": true,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.opencode.model.chat.ts",
+          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
           "package": "@opencode-ai/sdk"
         }
       ]
@@ -50,10 +53,12 @@
     {
       "capability_id": "sdk.tool.invoke",
       "required": false,
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.opencode.tool.invoke.ts",
+          "runtime_operations": ["ping", "tool_invoke"],
           "package": "@opencode-ai/sdk"
         }
       ]
@@ -63,10 +68,6 @@
     {
       "mode": "official_sdk",
       "package": "@opencode-ai/sdk"
-    },
-    {
-      "mode": "http_openapi",
-      "transport": "openclaw-gateway-open-api"
     },
     {
       "mode": "ipc_protocol",

@@ -39,7 +39,7 @@ pub fn default_python_binary() -> String {
 
 pub fn default_python_worker_script() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../scripts/provider-transport-workers/generic_python_sdk_worker.py")
+        .join("../scripts/provider-transport-workers/generic_python_sdk_worker.py")
 }
 
 enum PythonRuntimeBackend {
@@ -206,7 +206,7 @@ impl SdkBackendRuntime for PythonSdkBackendRuntime {
         match self.transport() {
             Ok(transport) => match transport.call(SDKWORK_PING_METHOD, None) {
                 Ok(result) if result.get("ok").and_then(Value::as_bool) == Some(true) => {
-                    SdkDriverHealth::healthy()
+                    package_probe_health(&self.package_name, &result)
                 }
                 Ok(_) => SdkDriverHealth::degraded("worker ping returned unexpected payload"),
                 Err(error) => SdkDriverHealth::unhealthy(error.to_string()),
@@ -297,10 +297,23 @@ fn map_transport_error(error: TransportError) -> SdkRuntimeError {
     SdkRuntimeError::new("transport_error", error.message)
 }
 
+fn package_probe_health(package_name: &str, payload: &Value) -> SdkDriverHealth {
+    match payload.get("package_resolved").and_then(Value::as_bool) {
+        Some(true) | None => SdkDriverHealth::healthy(),
+        Some(false) if mock_provider_invocation_allowed() => SdkDriverHealth::degraded(format!(
+            "official sdk package is not resolved; development mock fallback is enabled: {package_name}"
+        )),
+        Some(false) => SdkDriverHealth::unhealthy(format!(
+            "official sdk package is not resolved and mock fallback is disabled: {package_name}"
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use sdkwork_agent_provider_core::mock_provider_invocation_allowed;
+    use sdkwork_agent_provider_spi::SdkDriverStatus;
     use std::sync::{Mutex, OnceLock};
 
     const KERNEL_PROFILE_ID_ENV: &str = "SDKWORK_KERNEL_PROFILE_ID";
@@ -337,6 +350,16 @@ mod tests {
                 None => std::env::remove_var(self.key),
             }
         }
+    }
+
+    #[test]
+    fn default_worker_script_points_to_repository_script() {
+        let script = default_python_worker_script();
+        assert!(
+            script.exists(),
+            "default Python worker script must exist: {}",
+            script.display()
+        );
     }
 
     #[test]
@@ -412,5 +435,27 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("production profile"));
+    }
+
+    #[test]
+    fn health_is_unhealthy_when_official_sdk_is_missing_in_production_profile() {
+        let _lock = env_lock();
+        let _profile = EnvVarGuard::set(
+            KERNEL_PROFILE_ID_ENV,
+            Some("cloud.split-services.production"),
+        );
+        let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, Some("production"));
+        let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);
+        assert!(!mock_provider_invocation_allowed());
+
+        let runtime = PythonSdkBackendRuntime::bootstrap("sdkwork_missing_python_sdk");
+        let health = runtime.health();
+
+        assert_eq!(health.status, SdkDriverStatus::Unhealthy);
+        assert!(health
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("official sdk package is not resolved"));
     }
 }

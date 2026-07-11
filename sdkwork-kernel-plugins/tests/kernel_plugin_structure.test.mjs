@@ -192,6 +192,77 @@ test('mapping docs declare SDKWork surface and current plugin mode', () => {
   }
 });
 
+test('provider framework matrix documents every shipped provider crate boundary', () => {
+  const matrix = fs.readFileSync(
+    path.join(root, 'docs', 'architecture', 'tech', 'TECH-02-provider-framework-matrix.md'),
+    'utf8'
+  );
+
+  for (const crateName of providerFrameworkCrates) {
+    assert.match(
+      matrix,
+      new RegExp(`\\| \`${escapeRegExp(crateName)}\``),
+      `${crateName} should be documented in the provider framework matrix`
+    );
+  }
+
+  const runtimePluginBoundaries = new Map([
+    ['sdkwork-agent-provider-codex', 'CodexKernelPlugin::configure_runtime'],
+    ['sdkwork-agent-provider-claude-code', 'ClaudeCodeKernelPlugin::configure_runtime'],
+    ['sdkwork-agent-provider-opencode', 'OpenCodeKernelPlugin::configure_runtime'],
+    ['sdkwork-agent-provider-openclaw', 'OpenClawKernelPlugin::configure_runtime'],
+    ['sdkwork-agent-provider-hermes', 'HermesKernelPlugin::configure_runtime'],
+    ['sdkwork-agent-provider-rig', 'RigKernelPlugin::configure_runtime']
+  ]);
+
+  for (const [crateName, boundary] of runtimePluginBoundaries) {
+    assert.match(
+      matrix,
+      new RegExp(`\\| \`${escapeRegExp(crateName)}\` .* \`${escapeRegExp(boundary)}\``),
+      `${crateName} should document its kernel plugin runtime entrypoint`
+    );
+  }
+
+  assert.match(matrix, /GeminiCliSdkIntegration::bootstrap/);
+  assert.match(matrix, /MiMoCodeAdapter/);
+  assert.match(matrix, /staging live SDK proof remain required before product GA/);
+  assert.match(
+    matrix,
+    /\| Upstream strength \| Codex \| Claude Code \| Gemini CLI \| OpenCode \| MiMo Code \| OpenClaw \| Hermes \| Rig \| Kernel SPI owner \|/,
+    'industry feature mapping should cover every shipped provider framework column'
+  );
+  assert.match(
+    matrix,
+    /\| Capability id \| Codex \| Claude Code \| Gemini CLI \| OpenCode \| MiMo Code \| OpenClaw \| Hermes \| Rig \|/,
+    'binding capability coverage should cover every shipped provider framework column'
+  );
+
+  for (const crateName of providerFrameworkCrates) {
+    assert.match(
+      matrix,
+      new RegExp(`cargo test --manifest-path agent-providers/crates/${escapeRegExp(crateName)}/Cargo\\.toml`),
+      `${crateName} should have a documented cargo verification command`
+    );
+  }
+});
+
+test('canon indexes describe every shipped provider framework in the matrix summary', () => {
+  const expectedSummary = 'Codex, Claude Code, Gemini CLI, OpenCode, MiMo Code, OpenClaw, Hermes, Rig';
+  const canonPaths = [
+    'docs/product/prd/PRD.md',
+    'docs/architecture/tech/TECH_ARCHITECTURE.md'
+  ];
+
+  for (const relativePath of canonPaths) {
+    const content = fs.readFileSync(path.join(root, relativePath), 'utf8');
+    assert.match(
+      content,
+      new RegExp(escapeRegExp(expectedSummary)),
+      `${relativePath} should summarize all shipped provider frameworks`
+    );
+  }
+});
+
 test('deferred mapping docs declare SDKWork surface and policy boundaries', () => {
   const deferredMappings = ['zeroclaw'];
   for (const upstream of deferredMappings) {
@@ -292,4 +363,8 @@ function listFiles(pathsToScan) {
     }
   }
   return files;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

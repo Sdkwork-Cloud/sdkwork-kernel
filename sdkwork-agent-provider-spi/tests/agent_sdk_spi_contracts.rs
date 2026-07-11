@@ -1,6 +1,6 @@
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkCapabilityDriver, BindingRegistry,
-    DriverRegistry, SdkBackendKind, SdkDriverHealth, CODEX_BINDING_ID,
+    DriverRegistry, SdkBackendKind, SdkDriverHealth, SdkRuntimeOperationKind, CODEX_BINDING_ID,
 };
 use std::sync::Arc;
 
@@ -169,6 +169,65 @@ fn runtime_router_routes_to_registered_backend() {
 }
 
 #[test]
+fn runtime_router_rejects_operations_not_declared_by_selected_backend() {
+    use sdkwork_agent_provider_spi::{
+        NegotiatedCapability, SdkBackendRuntime, SdkCapabilityNegotiation, SdkRuntimeRequest,
+        SdkRuntimeResponse, SdkRuntimeRouter,
+    };
+
+    struct StubRuntime;
+
+    impl SdkBackendRuntime for StubRuntime {
+        fn backend_kind(&self) -> SdkBackendKind {
+            SdkBackendKind::RustNative
+        }
+
+        fn health(&self) -> SdkDriverHealth {
+            SdkDriverHealth::healthy()
+        }
+
+        fn invoke(
+            &self,
+            request: &SdkRuntimeRequest,
+        ) -> Result<SdkRuntimeResponse, sdkwork_agent_provider_spi::SdkRuntimeError> {
+            Ok(SdkRuntimeResponse::success(
+                SdkBackendKind::RustNative,
+                &request.capability_id,
+                serde_json::json!({ "unexpected": true }),
+            ))
+        }
+    }
+
+    let negotiation = SdkCapabilityNegotiation {
+        agent_id: "agent.intelligence.codex".to_string(),
+        binding_id: "binding.agent-provider.codex".to_string(),
+        binding_version: "0.1.0".to_string(),
+        selected: vec![NegotiatedCapability {
+            capability_id: "sdk.session.lifecycle".to_string(),
+            backend_kind: SdkBackendKind::RustNative,
+            driver_id: "driver.codex.session.lifecycle.rust".to_string(),
+            runtime_operations: vec![SdkRuntimeOperationKind::Ping],
+        }],
+        missing_required: Vec::new(),
+        degraded_optional: Vec::new(),
+    };
+    let router = SdkRuntimeRouter::new(negotiation).with_rust_runtime(Arc::new(StubRuntime));
+    let error = router
+        .invoke(&SdkRuntimeRequest {
+            capability_id: "sdk.session.lifecycle".to_string(),
+            operation: sdkwork_agent_provider_spi::SdkRuntimeOperation::SessionCreate {
+                agent_id: "agent.1".to_string(),
+                user_ref: None,
+            },
+            payload: None,
+        })
+        .expect_err("provider-local lifecycle must not execute SessionCreate through runtime");
+
+    assert_eq!(error.code, "operation_not_supported");
+    assert!(error.message.contains("session_create"));
+}
+
+#[test]
 fn hermes_binding_manifest_declares_run_agent_module() {
     let json = include_str!("../../bindings/agent-providers/hermes/provider-binding.manifest.json");
     let manifest = AgentSdkBindingManifest::from_json(json).expect("hermes manifest");
@@ -192,6 +251,44 @@ fn openclaw_binding_manifest_declares_typescript_package() {
         .and_then(|packages| packages.typescript.as_ref())
         .expect("typescript package ref");
     assert_eq!(typescript.package, "openclaw");
+}
+
+#[test]
+fn binding_manifest_preserves_integration_source_locators() {
+    let codex = include_str!("../../bindings/agent-providers/codex/provider-binding.manifest.json");
+    let rig = include_str!("../../bindings/agent-providers/rig/provider-binding.manifest.json");
+
+    let codex_manifest = AgentSdkBindingManifest::from_json(codex).expect("codex manifest");
+    let codex_sources = codex_manifest
+        .integration_sources
+        .as_ref()
+        .expect("codex integration sources");
+    let codex_ipc = codex_sources
+        .iter()
+        .find(|source| source.mode == "ipc_protocol")
+        .expect("codex ipc source");
+    assert_eq!(codex_ipc.transport.as_deref(), Some("jsonrpc_stdio"));
+
+    let rig_manifest = AgentSdkBindingManifest::from_json(rig).expect("rig manifest");
+    let rig_sources = rig_manifest
+        .integration_sources
+        .as_ref()
+        .expect("rig integration sources");
+    let rig_source_tree = rig_sources
+        .iter()
+        .find(|source| source.mode == "source_tree")
+        .expect("rig source_tree source");
+    assert_eq!(
+        rig_source_tree.path.as_deref(),
+        Some("external/rig/crates/rig-core")
+    );
+
+    let rig_crate = rig_sources
+        .iter()
+        .find(|source| source.mode == "rust_crate")
+        .expect("rig rust_crate source");
+    assert_eq!(rig_crate.feature.as_deref(), Some("rig-core-adapter"));
+    assert!(rig_crate.optional);
 }
 
 #[test]

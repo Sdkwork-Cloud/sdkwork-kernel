@@ -107,7 +107,7 @@ kernel env alone.
 
 | Class | Frameworks | Execution model | Primary SDK path |
 | --- | --- | --- | --- |
-| Code-agent CLI | Codex, Claude Code, Gemini CLI, OpenCode, Mimo Code | Tool + workspace loop, approval gates | Official SDK / rust crate / IPC when declared in binding |
+| Code-agent CLI | Codex, Claude Code, Gemini CLI, OpenCode, MiMo Code | Tool + workspace loop, approval gates | Official SDK / rust crate / IPC when declared in binding |
 | Autonomous gateway | OpenClaw, Hermes | Long-lived agent, channels, plugins | TypeScript plugin SDK / Python gateway / JSON-RPC |
 | Framework-native | Rig | In-process Rust agent graph | `rig-core` rust_native |
 | Kernel default host | Rig (server plugin) | Hosted operational runtime | Kernel plugin manifest |

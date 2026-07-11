@@ -31,7 +31,7 @@ impl NodeWorkerLaunchOptions {
 
 pub fn default_typescript_worker_script() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../scripts/provider-transport-workers/generic-ts-sdk-worker.mjs")
+        .join("../scripts/provider-transport-workers/generic-ts-sdk-worker.mjs")
 }
 
 enum NodeRuntimeBackend {
@@ -198,7 +198,7 @@ impl SdkBackendRuntime for NodeSdkBackendRuntime {
         match self.transport() {
             Ok(transport) => match transport.call(SDKWORK_PING_METHOD, None) {
                 Ok(result) if result.get("ok").and_then(Value::as_bool) == Some(true) => {
-                    SdkDriverHealth::healthy()
+                    package_probe_health(&self.package_name, &result)
                 }
                 Ok(_) => SdkDriverHealth::degraded("worker ping returned unexpected payload"),
                 Err(error) => SdkDriverHealth::unhealthy(error.to_string()),
@@ -289,15 +289,29 @@ fn map_transport_error(error: TransportError) -> SdkRuntimeError {
     SdkRuntimeError::new("transport_error", error.message)
 }
 
+fn package_probe_health(package_name: &str, payload: &Value) -> SdkDriverHealth {
+    match payload.get("package_resolved").and_then(Value::as_bool) {
+        Some(true) | None => SdkDriverHealth::healthy(),
+        Some(false) if mock_provider_invocation_allowed() => SdkDriverHealth::degraded(format!(
+            "official sdk package is not resolved; development mock fallback is enabled: {package_name}"
+        )),
+        Some(false) => SdkDriverHealth::unhealthy(format!(
+            "official sdk package is not resolved and mock fallback is disabled: {package_name}"
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use sdkwork_agent_provider_core::mock_provider_invocation_allowed;
+    use sdkwork_agent_provider_spi::SdkDriverStatus;
     use std::sync::{Mutex, OnceLock};
 
     const KERNEL_PROFILE_ID_ENV: &str = "SDKWORK_KERNEL_PROFILE_ID";
     const KERNEL_ENVIRONMENT_ENV: &str = "SDKWORK_KERNEL_ENVIRONMENT";
     const ALLOW_MOCK_PROVIDERS_ENV: &str = "SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS";
+    const OPENCLAW_GATEWAY_URL_ENV: &str = "OPENCLAW_GATEWAY_URL";
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -329,6 +343,16 @@ mod tests {
                 None => std::env::remove_var(self.key),
             }
         }
+    }
+
+    #[test]
+    fn default_worker_script_points_to_repository_script() {
+        let script = default_typescript_worker_script();
+        assert!(
+            script.exists(),
+            "default TypeScript worker script must exist: {}",
+            script.display()
+        );
     }
 
     #[test]
@@ -404,5 +428,50 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("production profile"));
+    }
+
+    #[test]
+    fn health_is_unhealthy_when_official_sdk_is_missing_in_production_profile() {
+        let _lock = env_lock();
+        let _profile = EnvVarGuard::set(
+            KERNEL_PROFILE_ID_ENV,
+            Some("cloud.split-services.production"),
+        );
+        let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, Some("production"));
+        let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);
+        assert!(!mock_provider_invocation_allowed());
+
+        let runtime = NodeSdkBackendRuntime::bootstrap("@sdkwork/missing-sdk");
+        let health = runtime.health();
+
+        assert_eq!(health.status, SdkDriverStatus::Unhealthy);
+        assert!(health
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("official sdk package is not resolved"));
+    }
+
+    #[test]
+    fn health_rejects_openclaw_gateway_without_local_package_in_production_profile() {
+        let _lock = env_lock();
+        let _profile = EnvVarGuard::set(
+            KERNEL_PROFILE_ID_ENV,
+            Some("cloud.split-services.production"),
+        );
+        let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, Some("production"));
+        let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);
+        let _gateway = EnvVarGuard::set(OPENCLAW_GATEWAY_URL_ENV, Some("http://127.0.0.1:43190"));
+        assert!(!mock_provider_invocation_allowed());
+
+        let runtime = NodeSdkBackendRuntime::bootstrap("openclaw");
+        let health = runtime.health();
+
+        assert_eq!(health.status, SdkDriverStatus::Unhealthy);
+        assert!(health
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("official sdk package is not resolved"));
     }
 }

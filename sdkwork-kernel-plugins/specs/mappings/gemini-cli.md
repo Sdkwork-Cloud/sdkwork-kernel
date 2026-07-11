@@ -60,4 +60,13 @@ Initial target: process-adapter profile with model/tool policy cases.
 - SDK binding: `bindings/agent-providers/gemini-cli/provider-binding.manifest.json`
 - Runtime worker: source-tree `@google/gemini-cli-sdk` via `NodeSdkBackendRuntime`; public npm package `@google/gemini-cli` is a CLI package, not the SDK binding source
 - SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`, optional `sdk.model.stream`, optional `sdk.tool.invoke`
-- Production safety: SDK backends fail closed when workers cannot spawn unless `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1`
+- Binding execution: `sdk.session.lifecycle` uses provider-local lifecycle
+  state through provider-core and declares `execution_scope: provider_local`
+  with `runtime_operations: ["ping"]`. Model and tool capabilities use
+  `execution_scope: transport_runtime`; the runtime router rejects any
+  operation not declared by the selected backend `runtime_operations` allowlist.
+- Production safety: SDK backends fail closed when workers cannot spawn, SDK
+  packages cannot be resolved to an importable entry, selected runtime health is
+  unhealthy, or a requested runtime operation is absent from
+  `runtime_operations`, unless non-production mock fallback is explicitly
+  enabled.

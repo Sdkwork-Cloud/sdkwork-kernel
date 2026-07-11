@@ -1,14 +1,11 @@
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus,
-    ModelStreamChunk, ModelUsage, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
-    SessionState, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor, ToolProvider,
-    ToolResult, ToolSchema,
+    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
+    ModelStreamChunk, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
+    SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
 use sdkwork_agent_provider_core::{
-    create_session_from_config, now_iso, uuid_simple, ConversationManager,
-    InMemoryConversationManager, MessageAdapter, SessionAdapter, SessionConfig,
-    SessionLifecycleProvider,
+    create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
 };
 
 // ============================================================================
@@ -368,25 +365,14 @@ impl ToolProvider for MiMoCodeToolProvider {
     }
 
     fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
-        let output = match call.tool_id.as_str() {
-            "mimo.code_edit" => {
-                format!("[MiMo CodeEdit] Mock edit: {}", call.arguments)
+        match call.tool_id.as_str() {
+            "mimo.code_edit" | "mimo.terminal" | "mimo.search" | "mimo.analyze" => {
+                sdkwork_agent_provider_core::reject_in_process_tool_invoke("provider.tool.mimo")
             }
-            "mimo.terminal" => {
-                format!("[MiMo Terminal] Mock execution: {}", call.arguments)
-            }
-            "mimo.search" => {
-                format!("[MiMo Search] Mock search: {}", call.arguments)
-            }
-            "mimo.analyze" => "[MiMo Analyze] Code quality: 95/100, no issues found".to_string(),
-            _ => {
-                return Err(KernelError::CapabilityMissing {
-                    capability_id: call.tool_id.clone(),
-                });
-            }
-        };
-
-        Ok(ToolResult::succeeded(&call.tool_call_id, output))
+            _ => Err(KernelError::CapabilityMissing {
+                capability_id: call.tool_id.clone(),
+            }),
+        }
     }
 }
 
@@ -405,6 +391,10 @@ sdkwork_agent_provider_core::define_provider_lifecycle_provider!(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sdkwork_agent_kernel::SessionState;
+    use sdkwork_agent_provider_core::{
+        ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
+    };
 
     fn sample_mimo_session() -> MiMoCodeSession {
         MiMoCodeSession {
@@ -653,25 +643,24 @@ mod tests {
     }
 
     #[test]
-    fn model_provider_invoke() {
+    fn model_provider_invoke_requires_transport_worker() {
         let provider = MiMoCodeModelProvider::new();
         let request = ModelRequest::new("req.1", vec!["Explain lifetimes".to_string()])
             .with_model_id("mimo-v2.5-pro");
-        let response = provider.invoke(request).unwrap();
-        assert_eq!(response.status, ModelStatus::Succeeded);
-        assert_eq!(response.provider_id, "provider.model.mimo");
-        assert!(response.messages[0].contains("Explain lifetimes"));
-        assert!(response.usage.is_some());
+        let error = provider
+            .invoke(request)
+            .expect_err("in-process model invocation is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]
-    fn model_provider_stream() {
+    fn model_provider_stream_requires_transport_worker() {
         let provider = MiMoCodeModelProvider::new();
         let request = ModelRequest::new("req.2", vec!["Hello".to_string()]);
-        let chunks = provider.stream(request).unwrap();
-        assert!(!chunks.is_empty());
-        assert_eq!(chunks[0].sequence, 0);
-        assert!(chunks.last().unwrap().sequence > 0);
+        let error = provider
+            .stream(request)
+            .expect_err("in-process model streaming is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     // --- Tool Provider Tests ---
@@ -699,12 +688,13 @@ mod tests {
     }
 
     #[test]
-    fn tool_provider_invoke_analyze() {
+    fn tool_provider_invoke_analyze_requires_transport_worker() {
         let provider = MiMoCodeToolProvider::new();
         let call = ToolCall::new("c.1", "mimo.analyze", r#"{"file":"src/main.rs"}"#);
-        let result = provider.invoke_tool(call).unwrap();
-        assert_eq!(result.normalized_status, ToolCallStatus::Succeeded);
-        assert!(result.output.contains("95/100"));
+        let error = provider
+            .invoke_tool(call)
+            .expect_err("in-process tool invocation is forbidden");
+        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
     }
 
     #[test]

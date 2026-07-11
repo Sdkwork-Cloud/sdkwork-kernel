@@ -34,8 +34,8 @@ export function validateKernelTopology({ kernelRoot, errors, readJson }) {
   }
 
   const spec = readJson('specs/topology.spec.json');
-  if (!spec || spec.schemaVersion !== 2 || spec.kind !== 'sdkwork.app.topology') {
-    errors.push('specs/topology.spec.json must declare schemaVersion 2 sdkwork.app.topology');
+  if (!spec || spec.schemaVersion !== 4 || spec.kind !== 'sdkwork.app.topology') {
+    errors.push('specs/topology.spec.json must declare schemaVersion 4 sdkwork.app.topology');
     return;
   }
 

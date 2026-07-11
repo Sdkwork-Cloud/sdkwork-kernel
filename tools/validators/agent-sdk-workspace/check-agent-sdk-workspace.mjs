@@ -39,7 +39,6 @@ for (const family of families) {
   const packageRoot = path.join(familyRoot, `${family.familyDir}-typescript`);
 
   ensureFile(path.join('sdks', family.familyDir, 'README.md'));
-  ensureFile(path.join('sdks', family.familyDir, '.sdkwork-assembly.json'));
   ensureFile(path.join('sdks', family.familyDir, 'sdk-manifest.json'));
   ensureFile(path.join('sdks', family.familyDir, 'specs', 'README.md'));
   ensureFile(path.join('sdks', family.familyDir, 'specs', 'component.spec.json'));
@@ -166,4 +165,3 @@ function validateMaterializedInternalOpenApi({
   }
 }
 }
-

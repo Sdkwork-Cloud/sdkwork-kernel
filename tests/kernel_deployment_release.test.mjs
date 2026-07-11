@@ -57,7 +57,7 @@ function writeReleaseWorkspaceFixture(workspaceRoot) {
     },
     environments: {
       production: {
-        topologyProfileId: 'cloud.split-services.production',
+        topologyProfileId: 'cloud.production',
         accessUrlEnv: 'SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL',
       },
     },
@@ -173,7 +173,7 @@ test('cloud compose provisions postgres and redis for agent-server', () => {
   assert.match(compose, /^\s*postgres:/m);
   assert.match(compose, /^\s*redis:/m);
   assert.match(compose, /env_file:/);
-  assert.match(compose, /configs\/topology\/cloud\.split-services\.production\.env/);
+  assert.match(compose, /configs\/topology\/cloud\.production\.env/);
   assert.match(compose, /SDKWORK_AGENT_RUNTIME_DATABASE_URL:/);
   assert.match(compose, /SDKWORK_RATE_LIMIT_REDIS_URL:/);
   assert.match(compose, /requirepass/);
@@ -256,11 +256,11 @@ test('app manifest requires SBOM and checksum evidence', () => {
   assert.equal(manifest.metadata?.topologySpec, 'specs/topology.spec.json');
   assert.equal(
     manifest.environments?.development?.topologyProfileId,
-    'standalone.unified-process.development',
+    'standalone.development',
   );
   assert.equal(
     manifest.environments?.production?.topologyProfileId,
-    'cloud.split-services.production',
+    'cloud.production',
   );
   assert.equal(
     manifest.environments?.production?.accessUrlEnv,
@@ -364,6 +364,9 @@ test('commercial release verification requires live dependencies explicitly', ()
   assert.match(verifier, /SDKWORK_AGENT_RUNTIME_POSTGRES_URI/);
   assert.match(verifier, /SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS/);
   assert.match(verifier, /SDKWORK_KERNEL_STAGING_LIVE_SDK/);
+  assert.match(verifier, /hermes-gateway-staging\.mjs/);
+  assert.match(verifier, /SDKWORK_KERNEL_STAGING_HERMES_GATEWAY/);
+  assert.match(verifier, /commercial release verification requires Hermes staging gateway proof/);
   assert.match(verifier, /commercial release verification requires live runtime PostgreSQL/);
   assert.match(verifier, /check-agent-workflow-standard\.mjs/);
   assert.match(verifier, /generic-ts-sdk-worker\.test\.mjs/);
@@ -408,6 +411,7 @@ test('commercial readiness docs distinguish merge and release dependency gates',
   assert.match(readiness, /pnpm verify:commercial/);
   assert.match(readiness, /commercial release verification fails closed/i);
   assert.match(readiness, /live runtime PostgreSQL/);
+  assert.match(readiness, /Hermes-specific staging gateway proof/);
   assert.match(readiness, /managed HA Postgres/);
   assert.match(readiness, /managed HA Redis/);
   assert.doesNotMatch(
@@ -423,6 +427,8 @@ test('commercial readiness docs distinguish merge and release dependency gates',
   assert.match(requirement, /commercial release verification fails closed/i);
   assert.match(requirement, /SDKWORK_AGENT_RUNTIME_POSTGRES_URI/);
   assert.match(requirement, /SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS/);
+  assert.match(requirement, /SDKWORK_KERNEL_STAGING_HERMES_GATEWAY/);
+  assert.match(requirement, /Hermes-specific staging gateway proof/);
   assert.match(requirement, /Rust IPC\/Node\/Python provider transport stubs/);
   assert.match(requirement, /managed HA Postgres/);
   assert.match(requirement, /managed HA Redis/);
@@ -441,6 +447,8 @@ test('staging live SDK workflow is opt-in and credential-gated', () => {
   assert.match(workflow, /SDKWORK_KERNEL_STAGING_LIVE_SDK/);
   assert.match(workflow, /SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS/);
   assert.match(workflow, /engine-sdk-live-staging\.mjs/);
+  assert.match(workflow, /hermes-gateway-staging\.mjs/);
+  assert.match(workflow, /SDKWORK_KERNEL_STAGING_HERMES_GATEWAY/);
   assert.doesNotMatch(workflow, /push:\s*\n\s*branches:/);
 });
 

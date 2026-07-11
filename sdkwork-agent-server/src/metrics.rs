@@ -450,7 +450,7 @@ mod tests {
         let _lock = crate::testing::env::lock();
         let _profile = crate::testing::env::VarGuard::set(
             "SDKWORK_KERNEL_PROFILE_ID",
-            Some("cloud.split-services.production"),
+            Some("cloud.production"),
         );
         let config = ServerConfig {
             environment: "development".to_string(),

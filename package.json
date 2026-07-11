@@ -8,10 +8,9 @@
     "@sdkwork/app-topology": "workspace:*"
   },
   "scripts": {
-    "dev": "node scripts/sdkwork-command.mjs dev --runtime-target server --database postgres --service-layout unified-process --deployment-profile standalone",
-    "dev:server:postgres:split-services:standalone": "node scripts/sdkwork-command.mjs dev --runtime-target server --database postgres --service-layout split-services --deployment-profile standalone",
-    "dev:server:postgres:unified-process:standalone": "node scripts/sdkwork-command.mjs dev --runtime-target server --database postgres --service-layout unified-process --deployment-profile standalone",
-    "dev:server:postgres:split-services:cloud": "node scripts/sdkwork-command.mjs dev --runtime-target server --database postgres --service-layout split-services --deployment-profile cloud",
+    "dev": "node scripts/sdkwork-command.mjs dev --runtime-target server --database postgres --deployment-profile standalone",
+    "dev:server:postgres:standalone": "node scripts/sdkwork-command.mjs dev --runtime-target server --database postgres --deployment-profile standalone",
+    "dev:server:postgres:cloud": "node scripts/sdkwork-command.mjs dev --runtime-target server --database postgres --deployment-profile cloud",
     "build": "node scripts/sdkwork-command.mjs build",
     "test": "node scripts/sdkwork-command.mjs test",
     "check": "pnpm run check:app-composition && node scripts/sdkwork-command.mjs check",

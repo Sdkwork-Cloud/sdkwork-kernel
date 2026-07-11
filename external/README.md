@@ -50,3 +50,15 @@ git submodule update --remote --merge external/mimo-code
 
 When a submodule is updated, review the changed upstream code and record the
 SDKWork mapping impact before committing the new gitlink.
+
+Submodule versions are pinned source references, not assertions that the
+corresponding npm, PyPI, or Cargo package is the latest registry release. When a
+provider package is intentionally upgraded, update the gitlink, binding
+manifest version metadata, mapping document, and staging live SDK proof
+together.
+
+Runtime workers must not treat these source mirrors as installed SDK packages
+unless the mirror exposes the package's own importable entry files or an
+explicit package path is injected through the worker configuration. For example,
+an unbuilt TypeScript source tree with only `package.json` does not satisfy the
+live SDK resolver contract.

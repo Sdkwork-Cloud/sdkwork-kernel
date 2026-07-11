@@ -18,9 +18,9 @@ pub use backend::{
     default_backend_priority, default_transport_priority, ProviderTransportKind, SdkBackendKind,
 };
 pub use binding::{
-    AgentSdkBindingManifest, BackendCandidate, CapabilityBinding, IntegrationSource,
-    LanguagePackages, ManifestStatus, NpmPackageRef, PythonPackageRef, RustPackageRef,
-    SelectionPolicy,
+    AgentSdkBindingManifest, BackendCandidate, CapabilityBinding, CapabilityExecutionScope,
+    IntegrationSource, LanguagePackages, ManifestStatus, NpmPackageRef, PythonPackageRef,
+    RustPackageRef, SelectionPolicy,
 };
 pub use bridge::{
     model_response_from_runtime, tool_result_from_runtime, wire_runtime_providers,
@@ -47,6 +47,6 @@ pub use negotiation::{NegotiatedCapability, SdkCapabilityNegotiation, SdkNegotia
 pub use registry::{BindingRegistry, DriverRegistry, RegisteredBinding};
 pub use runtime::{
     ProviderTransportRouter, SdkBackendRuntime, SdkRuntimeError, SdkRuntimeOperation,
-    SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
+    SdkRuntimeOperationKind, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
 };
 pub use selector::{select_backend, BackendSelection};

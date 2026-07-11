@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -69,7 +69,6 @@ function defaultPackagePaths(root) {
   const paths = {
     '@openai/codex-sdk': path.join(root, 'external/codex/sdk/typescript'),
     '@openai/codex': path.join(root, 'external/codex/sdk/typescript'),
-    '@opencode-ai/sdk': path.join(root, 'external/opencode/packages/sdk/js'),
     '@google/gemini-cli-sdk': path.join(root, 'external/gemini-cli/packages/sdk'),
     '@anthropic-ai/claude-agent-sdk': path.join(root, 'external/claude-code'),
     openclaw: path.join(root, 'external/openclaw'),
@@ -97,24 +96,108 @@ function configuredPackagePaths() {
   }
 }
 
+function fileExists(filePath) {
+  try {
+    return existsSync(filePath) && statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function packageEntryCandidates(packageJson) {
+  const candidates = [];
+  const rootExport = packageJson.exports?.['.'] ?? packageJson.exports;
+
+  appendExportCandidates(candidates, rootExport);
+  for (const field of ['module', 'main']) {
+    if (typeof packageJson[field] === 'string') {
+      candidates.push(packageJson[field]);
+    }
+  }
+  return candidates;
+}
+
+function appendExportCandidates(candidates, value) {
+  if (typeof value === 'string') {
+    candidates.push(value);
+    return;
+  }
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return;
+  }
+
+  for (const condition of ['import', 'default', 'node', 'module', 'require']) {
+    const next = value[condition];
+    if (typeof next === 'string') {
+      candidates.push(next);
+    } else if (next && typeof next === 'object') {
+      appendExportCandidates(candidates, next);
+    }
+  }
+}
+
+function localPackageNameMatches(requestedPackageName, actualPackageName) {
+  if (!actualPackageName) {
+    return false;
+  }
+  if (requestedPackageName === actualPackageName) {
+    return true;
+  }
+  return requestedPackageName === '@openai/codex' && actualPackageName === '@openai/codex-sdk';
+}
+
+function resolveLocalPackageSpecifier(packageName, localPath) {
+  if (!localPath || !existsSync(localPath)) {
+    return null;
+  }
+
+  if (fileExists(localPath)) {
+    const extension = path.extname(localPath).toLowerCase();
+    return ['.js', '.mjs', '.cjs'].includes(extension) ? pathToFileURL(localPath).href : null;
+  }
+
+  const packageJsonPath = path.join(localPath, 'package.json');
+  if (!fileExists(packageJsonPath)) {
+    return null;
+  }
+
+  let packageJson;
+  try {
+    packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+  } catch {
+    return null;
+  }
+
+  if (!localPackageNameMatches(packageName, packageJson.name)) {
+    return null;
+  }
+
+  for (const candidate of packageEntryCandidates(packageJson)) {
+    if (!candidate || !candidate.startsWith('.')) {
+      continue;
+    }
+    const entryPath = path.resolve(localPath, candidate);
+    if (fileExists(entryPath)) {
+      return pathToFileURL(entryPath).href;
+    }
+  }
+
+  return null;
+}
+
 export function resolvePackageSpecifier(packageName) {
   const require = createRequire(import.meta.url);
   try {
-    return require.resolve(packageName);
+    const resolved = require.resolve(packageName);
+    return path.isAbsolute(resolved) ? pathToFileURL(resolved).href : resolved;
   } catch {
     const paths = {
       ...defaultPackagePaths(workspaceRoot() ?? ''),
       ...configuredPackagePaths(),
     };
     const localPath = paths[packageName];
-    if (localPath && existsSync(localPath)) {
-      const entry = path.join(localPath, 'package.json');
-      if (existsSync(entry)) {
-        return pathToFileURL(entry).href;
-      }
-      return pathToFileURL(localPath).href;
-    }
-    return null;
+    return resolveLocalPackageSpecifier(packageName, localPath);
   }
 }
 

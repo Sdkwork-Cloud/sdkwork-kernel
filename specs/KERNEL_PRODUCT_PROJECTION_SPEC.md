@@ -78,7 +78,7 @@ Native-session catalog inventory remains BirdCoder-owned. Live replies route thr
 
 ## Production Fail-Closed
 
-Production kernel profiles are detected when `SDKWORK_KERNEL_ENVIRONMENT=production` **or** `SDKWORK_KERNEL_PROFILE_ID` ends with `.production` (for example `cloud.split-services.production`):
+Production kernel profiles are detected when `SDKWORK_KERNEL_ENVIRONMENT=production` **or** `SDKWORK_KERNEL_PROFILE_ID` ends with `.production` (for example `cloud.production`):
 
 - Mock `ModelProvider` responses MUST NOT be returned.
 - Runtime payloads with `mode=stub|sdk_probe|sdk_live_failed` MUST be rejected.

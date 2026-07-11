@@ -21,15 +21,25 @@ bindings/agent-providers/
 
 ## Integration Modes
 
-Bindings may declare `integration_sources[]` with modes such as:
+Bindings declare closed `integration_sources[]` entries. Each mode requires its
+authoritative locator field:
 
-- `official_sdk`
-- `rust_crate`
-- `source_tree`
-- `npm_package`
-- `python_module`
-- `http_openapi`
-- `ipc_protocol`
+| Mode | Required locator |
+| --- | --- |
+| `official_sdk` | `package` |
+| `rust_crate` | `crate` |
+| `source_tree` | `path` |
+| `npm_package` | `package` |
+| `python_module` | `module` |
+| `http_openapi` | `transport` |
+| `ipc_protocol` | `transport` |
+
+Optional fields are limited to `repository`, `feature`, and `optional`. Unknown
+fields are invalid. `source_tree.path` values under `external/` are inspection
+inputs only, not kernel crate dependencies. When the upstream checkout contains
+a narrower SDK package or Rust crate directory, `source_tree.path` points to
+that package or crate path, and the provider mapping document records the same
+path.
 
 ## Transport Priority
 
@@ -49,10 +59,11 @@ order per capability:
 | Codex | `binding.agent-provider.codex` | SDK + Rust crate |
 | Claude Code | `binding.agent-provider.claude-code` | TypeScript SDK |
 | Gemini CLI | `binding.agent-provider.gemini-cli` | Source-tree TypeScript SDK + CLI npm package |
-| Hermes | `binding.agent-provider.hermes` | Python |
-| OpenClaw | `binding.agent-provider.openclaw` | TypeScript SDK |
+| Hermes | `binding.agent-provider.hermes` | Python + IPC |
+| MiMo Code | `binding.agent-provider.mimo-code` | Source-tree TypeScript SDK |
+| OpenClaw | `binding.agent-provider.openclaw` | TypeScript SDK + gateway OpenAPI |
 | OpenCode | `binding.agent-provider.opencode` | TypeScript SDK |
-| Rig | `binding.agent-provider.rig` | Source tree + Rust crate |
+| Rig | `binding.agent-provider.rig` | Source-tree Rust crate |
 
 ## Adding A Binding
 

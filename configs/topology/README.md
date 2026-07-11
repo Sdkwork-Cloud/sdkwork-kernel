@@ -5,15 +5,14 @@ Human summary: `../../docs/topology-standard.md`
 
 ## Default profile
 
-`standalone.split-services.development`
+`standalone.development`
 
 ## Commands
 
 ```bash
 pnpm dev
-pnpm dev:server:postgres:split-services:standalone
-pnpm dev:server:postgres:unified-process:standalone
-pnpm dev:server:postgres:split-services:cloud
+pnpm dev:server:postgres:standalone
+pnpm dev:server:postgres:cloud
 pnpm topology:validate
 pnpm test:topology-baggage
 ```

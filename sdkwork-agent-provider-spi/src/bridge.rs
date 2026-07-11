@@ -465,7 +465,7 @@ mod tests {
     use super::*;
     use crate::backend::SdkBackendKind;
     use crate::negotiation::SdkCapabilityNegotiation;
-    use crate::runtime::SdkBackendRuntime;
+    use crate::runtime::{SdkBackendRuntime, SdkRuntimeOperationKind};
 
     struct StubRuntime;
 
@@ -503,6 +503,7 @@ mod tests {
                 capability_id: SDK_CAPABILITY_MODEL_CHAT.to_string(),
                 backend_kind: SdkBackendKind::RustNative,
                 driver_id: "driver.test.model.chat".to_string(),
+                runtime_operations: vec![SdkRuntimeOperationKind::ModelChat],
             }],
             missing_required: Vec::new(),
             degraded_optional: Vec::new(),

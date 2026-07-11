@@ -43,7 +43,7 @@ function pnpmCommand() {
 function parseArgs(argv) {
   const settings = {
     deploymentProfile: 'standalone',
-    serviceLayout: 'split-services',
+    environment: 'development',
     dryRun: false,
     help: false,
   };
@@ -59,10 +59,15 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
-    if (arg === '--service-layout') {
-      settings.serviceLayout = argv[index + 1] ?? settings.serviceLayout;
+    if (arg === '--environment') {
+      settings.environment = argv[index + 1] ?? settings.environment;
       index += 1;
       continue;
+    }
+    if (arg === '--service-layout') {
+      throw new Error(
+        '--service-layout is retired; use --deployment-profile and --environment',
+      );
     }
     if (arg === '--hosting') {
       throw new Error(
@@ -71,7 +76,7 @@ function parseArgs(argv) {
     }
     if (arg === '--topology') {
       throw new Error(
-        '--topology is retired; use --deployment-profile and --service-layout',
+        '--topology is retired; use --deployment-profile and --environment',
       );
     }
     if (arg === '--dry-run') {
@@ -89,7 +94,7 @@ Topology-aware kernel dev entry. Loads configs/topology profile env via @sdkwork
 
 Options:
   --deployment-profile <standalone|cloud>           Default: standalone
-  --service-layout <split-services|unified-process> Default: split-services
+  --environment <development|test|staging|production> Default: development
   --dry-run                                         Print plan without executing
   --help, -h
 `);
@@ -223,7 +228,7 @@ async function main() {
     process.exit(0);
   }
 
-  const profileId = resolveDevProfileId(settings.deploymentProfile, settings.serviceLayout)
+  const profileId = resolveDevProfileId(settings.deploymentProfile, settings.environment)
     || DEFAULT_DEV_PROFILE_ID;
   const profileEnv = loadProfile(profileId);
   const runtimeEnv = mergeRuntimeEnv(process.env, profileEnv, bridgeLegacyServiceEnv(profileEnv), IAM_APPLICATION_BOOTSTRAP_ENV, {

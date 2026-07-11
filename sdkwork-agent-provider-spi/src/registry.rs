@@ -105,6 +105,7 @@ impl BindingRegistry {
                 capability_id: capability.capability_id.clone(),
                 backend_kind: selection.backend.kind,
                 driver_id: selection.backend.driver_id.clone(),
+                runtime_operations: selection.backend.runtime_operations.clone(),
             });
         }
 

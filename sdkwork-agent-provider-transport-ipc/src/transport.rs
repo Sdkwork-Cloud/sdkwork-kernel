@@ -5,13 +5,91 @@ use crate::protocol::{
 use sdkwork_agent_kernel::mock_provider_invocation_allowed_from_env;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-const MAX_STREAM_BUFFER_CHUNKS: usize = 4096;
-const MAX_STREAM_CHUNK_BYTES: usize = 256 * 1024;
+/// Maximum encoded JSON-RPC request or response frame accepted from a worker.
+///
+/// This is deliberately lower than the HTTP body limit.  A worker must not be
+/// able to turn one malformed line into an unbounded `String` allocation.
+pub const MAX_IPC_FRAME_BYTES: usize = 8 * 1024 * 1024;
+/// Maximum number of stream chunks in one operation.
+pub const MAX_STREAM_BUFFER_CHUNKS: usize = 4096;
+/// Maximum UTF-8 byte length of one stream chunk.
+pub const MAX_STREAM_CHUNK_BYTES: usize = 256 * 1024;
+/// Maximum aggregate UTF-8 bytes emitted by one stream operation.
+pub const MAX_STREAM_TOTAL_BYTES: usize = 16 * 1024 * 1024;
+/// Default number of concurrently leased provider workers per runtime.
+pub const DEFAULT_PROVIDER_WORKER_CONCURRENCY: usize = 8;
+/// Hard upper bound for the configured worker concurrency.
+pub const MAX_PROVIDER_WORKER_CONCURRENCY: usize = 64;
+
+/// Returns the bounded worker concurrency configured for provider processes.
+pub fn provider_worker_concurrency_limit() -> usize {
+    std::env::var("SDKWORK_PROVIDER_WORKER_MAX_CONCURRENCY")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .map(|value| value.clamp(1, MAX_PROVIDER_WORKER_CONCURRENCY))
+        .unwrap_or(DEFAULT_PROVIDER_WORKER_CONCURRENCY)
+}
+
+/// Tracks stream count and byte budgets without retaining the stream payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamResourceBudget {
+    chunks: usize,
+    total_bytes: usize,
+}
+
+impl StreamResourceBudget {
+    pub const fn new() -> Self {
+        Self {
+            chunks: 0,
+            total_bytes: 0,
+        }
+    }
+
+    pub fn record_chunk(&mut self, content: &str) -> Result<(), TransportError> {
+        let bytes = content.len();
+        if bytes > MAX_STREAM_CHUNK_BYTES {
+            return Err(TransportError::new(format!(
+                "worker stream chunk exceeded byte limit ({MAX_STREAM_CHUNK_BYTES})"
+            )));
+        }
+        if self.chunks >= MAX_STREAM_BUFFER_CHUNKS {
+            return Err(TransportError::new(format!(
+                "worker stream exceeded chunk limit ({MAX_STREAM_BUFFER_CHUNKS})"
+            )));
+        }
+        let total = self
+            .total_bytes
+            .checked_add(bytes)
+            .ok_or_else(|| TransportError::new("worker stream byte budget overflow"))?;
+        if total > MAX_STREAM_TOTAL_BYTES {
+            return Err(TransportError::new(format!(
+                "worker stream exceeded total byte limit ({MAX_STREAM_TOTAL_BYTES})"
+            )));
+        }
+        self.chunks += 1;
+        self.total_bytes = total;
+        Ok(())
+    }
+
+    pub const fn chunks(&self) -> usize {
+        self.chunks
+    }
+
+    pub const fn total_bytes(&self) -> usize {
+        self.total_bytes
+    }
+}
+
+impl Default for StreamResourceBudget {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransportError {
@@ -47,7 +125,7 @@ pub trait JsonRpcTransport {
         sink: &mut dyn FnMut(Value) -> Result<bool, TransportError>,
     ) -> Result<(), TransportError> {
         let result = self.call(method, params)?;
-        expand_buffered_stream_payload(result, |frame| sink(frame))
+        expand_buffered_stream_payload(result, sink)
     }
 }
 
@@ -60,7 +138,14 @@ where
     F: FnMut(Value) -> Result<bool, TransportError>,
 {
     if is_stream_chunk_frame(&payload) {
-        return if on_frame(payload)? { Ok(()) } else { Ok(()) };
+        let content = payload
+            .get("content")
+            .or_else(|| payload.get("delta"))
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        StreamResourceBudget::new().record_chunk(content)?;
+        on_frame(payload)?;
+        return Ok(());
     }
     if is_stream_terminal_frame(&payload) {
         on_frame(payload)?;
@@ -75,23 +160,20 @@ where
         ));
     }
     if let Some(chunks) = payload.get("chunks").and_then(Value::as_array) {
+        if chunks.len() > MAX_STREAM_BUFFER_CHUNKS {
+            return Err(TransportError::new(format!(
+                "worker stream exceeded chunk limit ({MAX_STREAM_BUFFER_CHUNKS})"
+            )));
+        }
         let model_request_id = payload.get("model_request_id").and_then(Value::as_str);
+        let mut budget = StreamResourceBudget::new();
         for (index, entry) in chunks.iter().enumerate() {
-            if index >= MAX_STREAM_BUFFER_CHUNKS {
-                return Err(TransportError::new(format!(
-                    "worker stream exceeded chunk limit ({MAX_STREAM_BUFFER_CHUNKS})"
-                )));
-            }
             let content = entry
                 .get("content")
                 .or_else(|| entry.get("delta"))
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            if content.len() > MAX_STREAM_CHUNK_BYTES {
-                return Err(TransportError::new(format!(
-                    "worker stream chunk exceeded byte limit ({MAX_STREAM_CHUNK_BYTES})"
-                )));
-            }
+            budget.record_chunk(content)?;
             let sequence = entry
                 .get("sequence")
                 .and_then(Value::as_u64)
@@ -109,21 +191,18 @@ where
         return Ok(());
     }
     if let Some(messages) = payload.get("messages").and_then(Value::as_array) {
+        if messages.len() > MAX_STREAM_BUFFER_CHUNKS {
+            return Err(TransportError::new(format!(
+                "worker stream exceeded chunk limit ({MAX_STREAM_BUFFER_CHUNKS})"
+            )));
+        }
         let model_request_id = payload.get("model_request_id").and_then(Value::as_str);
+        let mut budget = StreamResourceBudget::new();
         for (index, entry) in messages.iter().enumerate() {
-            if index >= MAX_STREAM_BUFFER_CHUNKS {
-                return Err(TransportError::new(format!(
-                    "worker stream exceeded chunk limit ({MAX_STREAM_BUFFER_CHUNKS})"
-                )));
-            }
             let Some(content) = entry.as_str() else {
                 continue;
             };
-            if content.len() > MAX_STREAM_CHUNK_BYTES {
-                return Err(TransportError::new(format!(
-                    "worker stream chunk exceeded byte limit ({MAX_STREAM_CHUNK_BYTES})"
-                )));
-            }
+            budget.record_chunk(content)?;
             let frame = stream_chunk_frame(index as u64, content, model_request_id);
             if !on_frame(frame)? {
                 return Ok(());
@@ -333,6 +412,7 @@ pub struct StdioJsonRpcSession {
     /// Serializes full request/response pairs so concurrent callers cannot interleave stdio I/O.
     call_lock: Mutex<()>,
     next_id: AtomicU64,
+    poisoned: std::sync::atomic::AtomicBool,
 }
 
 impl StdioJsonRpcSession {
@@ -358,6 +438,7 @@ impl StdioJsonRpcSession {
                 stdout: Mutex::new(BufReader::new(stdout)),
                 call_lock: Mutex::new(()),
                 next_id: AtomicU64::new(1),
+                poisoned: std::sync::atomic::AtomicBool::new(false),
             },
             child,
         ))
@@ -365,6 +446,75 @@ impl StdioJsonRpcSession {
 
     fn next_id(&self) -> String {
         self.next_id.fetch_add(1, Ordering::Relaxed).to_string()
+    }
+
+    pub fn is_reusable(&self) -> bool {
+        !self.poisoned.load(Ordering::Acquire)
+    }
+
+    fn poison(&self) {
+        self.poisoned.store(true, Ordering::Release);
+    }
+
+    fn write_request(&self, request: &JsonRpcRequest) -> Result<(), TransportError> {
+        let encoded = serde_json::to_vec(request)
+            .map_err(|error| TransportError::new(format!("encode request failed: {error}")))?;
+        if encoded.len() > MAX_IPC_FRAME_BYTES {
+            return Err(TransportError::new(format!(
+                "worker request exceeded frame byte limit ({MAX_IPC_FRAME_BYTES})"
+            )));
+        }
+        let mut stdin = self
+            .stdin
+            .lock()
+            .map_err(|error| TransportError::new(format!("stdin lock failed: {error}")))?;
+        stdin
+            .write_all(&encoded)
+            .and_then(|_| stdin.write_all(b"\n"))
+            .and_then(|_| stdin.flush())
+            .map_err(|error| {
+                self.poison();
+                TransportError::new(format!("worker write failed: {error}"))
+            })
+    }
+
+    fn read_response(&self) -> Result<JsonRpcResponse, TransportError> {
+        let mut frame = Vec::new();
+        let bytes_read = {
+            let mut stdout = self
+                .stdout
+                .lock()
+                .map_err(|error| TransportError::new(format!("stdout lock failed: {error}")))?;
+            let mut limited = (&mut *stdout).take((MAX_IPC_FRAME_BYTES + 1) as u64);
+            limited.read_until(b'\n', &mut frame).map_err(|error| {
+                self.poison();
+                TransportError::new(format!("worker read failed: {error}"))
+            })?
+        };
+        if bytes_read == 0 {
+            self.poison();
+            return Err(TransportError::new("worker closed stdout"));
+        }
+        if frame.len() > MAX_IPC_FRAME_BYTES {
+            self.poison();
+            return Err(TransportError::new(format!(
+                "worker response exceeded frame byte limit ({MAX_IPC_FRAME_BYTES})"
+            )));
+        }
+        if !frame.ends_with(b"\n") {
+            self.poison();
+            return Err(TransportError::new(
+                "worker response frame is not newline terminated",
+            ));
+        }
+        let line = std::str::from_utf8(&frame[..frame.len() - 1]).map_err(|error| {
+            self.poison();
+            TransportError::new(format!("worker response is not valid UTF-8: {error}"))
+        })?;
+        serde_json::from_str(line).map_err(|error| {
+            self.poison();
+            TransportError::new(format!("decode worker response failed: {error}"))
+        })
     }
 }
 
@@ -376,35 +526,15 @@ impl JsonRpcTransport for StdioJsonRpcSession {
             .map_err(|error| TransportError::new(format!("call lock failed: {error}")))?;
 
         let request = JsonRpcRequest::new(self.next_id(), method, params);
-        let encoded = serde_json::to_string(&request)
-            .map_err(|error| TransportError::new(format!("encode request failed: {error}")))?;
-
-        {
-            let mut stdin = self
-                .stdin
-                .lock()
-                .map_err(|error| TransportError::new(format!("stdin lock failed: {error}")))?;
-            stdin
-                .write_all(encoded.as_bytes())
-                .and_then(|_| stdin.write_all(b"\n"))
-                .and_then(|_| stdin.flush())
-                .map_err(|error| TransportError::new(format!("worker write failed: {error}")))?;
+        self.write_request(&request)?;
+        let response = self.read_response()?;
+        if response.id != request.id {
+            self.poison();
+            return Err(TransportError::new(format!(
+                "worker response id mismatch: expected {}, got {}",
+                request.id, response.id
+            )));
         }
-
-        let mut line = String::new();
-        {
-            let mut stdout = self
-                .stdout
-                .lock()
-                .map_err(|error| TransportError::new(format!("stdout lock failed: {error}")))?;
-            stdout
-                .read_line(&mut line)
-                .map_err(|error| TransportError::new(format!("worker read failed: {error}")))?;
-        }
-
-        let response: JsonRpcResponse = serde_json::from_str(line.trim()).map_err(|error| {
-            TransportError::new(format!("decode worker response failed: {error}"))
-        })?;
 
         response
             .into_result()
@@ -424,37 +554,13 @@ impl JsonRpcTransport for StdioJsonRpcSession {
 
         let request_id = self.next_id();
         let request = JsonRpcRequest::new(request_id.clone(), method, params);
-        let encoded = serde_json::to_string(&request)
-            .map_err(|error| TransportError::new(format!("encode request failed: {error}")))?;
-
-        {
-            let mut stdin = self
-                .stdin
-                .lock()
-                .map_err(|error| TransportError::new(format!("stdin lock failed: {error}")))?;
-            stdin
-                .write_all(encoded.as_bytes())
-                .and_then(|_| stdin.write_all(b"\n"))
-                .and_then(|_| stdin.flush())
-                .map_err(|error| TransportError::new(format!("worker write failed: {error}")))?;
-        }
+        self.write_request(&request)?;
+        let mut budget = StreamResourceBudget::new();
 
         loop {
-            let mut line = String::new();
-            {
-                let mut stdout = self
-                    .stdout
-                    .lock()
-                    .map_err(|error| TransportError::new(format!("stdout lock failed: {error}")))?;
-                stdout
-                    .read_line(&mut line)
-                    .map_err(|error| TransportError::new(format!("worker read failed: {error}")))?;
-            }
-
-            let response: JsonRpcResponse = serde_json::from_str(line.trim()).map_err(|error| {
-                TransportError::new(format!("decode worker response failed: {error}"))
-            })?;
+            let response = self.read_response()?;
             if response.id != request_id {
+                self.poison();
                 return Err(TransportError::new(format!(
                     "worker response id mismatch: expected {request_id}, got {}",
                     response.id
@@ -466,7 +572,24 @@ impl JsonRpcTransport for StdioJsonRpcSession {
                 .map_err(|error| TransportError::new(error.message))?;
 
             if is_stream_chunk_frame(&result) {
-                if !sink(result)? {
+                let content = result
+                    .get("content")
+                    .or_else(|| result.get("delta"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                if let Err(error) = budget.record_chunk(content) {
+                    self.poison();
+                    return Err(error);
+                }
+                let keep_streaming = match sink(result) {
+                    Ok(keep_streaming) => keep_streaming,
+                    Err(error) => {
+                        self.poison();
+                        return Err(error);
+                    }
+                };
+                if !keep_streaming {
+                    self.poison();
                     return Ok(());
                 }
                 continue;
@@ -476,7 +599,7 @@ impl JsonRpcTransport for StdioJsonRpcSession {
                 return Ok(());
             }
 
-            expand_buffered_stream_payload(result, |frame| sink(frame))?;
+            expand_buffered_stream_payload(result, &mut *sink)?;
             return Ok(());
         }
     }

@@ -171,8 +171,10 @@ paths:
       x-sdkwork-domain: intelligence
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
+      x-sdkwork-idempotent: true
       parameters:
         - $ref: '#/components/parameters/PermissionRequestIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -201,6 +203,7 @@ paths:
       x-sdkwork-api-authority: sdkwork-agent-internal-api
       tags: [intelligence]
       summary: List runtime sessions
+      description: Cursor-only keyset list ordered by updatedAt/sessionId. Omit cursor for the first page and pass through pageInfo.nextCursor thereafter.
       operationId: runtime.sessions.list
       security:
         - ApiKey: []
@@ -211,7 +214,6 @@ paths:
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
       parameters:
-        - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
@@ -244,7 +246,9 @@ paths:
       x-sdkwork-domain: intelligence
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
+      x-sdkwork-idempotent: true
       parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -343,8 +347,10 @@ paths:
       x-sdkwork-domain: intelligence
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
+      x-sdkwork-idempotent: true
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -367,6 +373,7 @@ paths:
       x-sdkwork-api-authority: sdkwork-agent-internal-api
       tags: [intelligence]
       summary: List session messages
+      description: Cursor-only keyset list ordered by createdAt/messageId. Omit cursor for the first page and pass through pageInfo.nextCursor thereafter.
       operationId: runtime.sessions.messages.list
       security:
         - ApiKey: []
@@ -378,7 +385,6 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
-        - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
@@ -411,8 +417,10 @@ paths:
       x-sdkwork-domain: intelligence
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
+      x-sdkwork-idempotent: true
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -424,11 +432,11 @@ paths:
               $ref: '#/components/schemas/SendMessageRequest'
       responses:
         '201':
-          description: Message accepted
+          description: Completed user and assistant message turn
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MessageItemResponse'
+                $ref: '#/components/schemas/MessageTurnItemResponse'
         default:
           description: RFC 9457 problem detail response
           content:
@@ -441,6 +449,7 @@ paths:
       x-sdkwork-api-authority: sdkwork-agent-internal-api
       tags: [intelligence]
       summary: List session tasks
+      description: Cursor-only keyset list ordered by createdAt/taskId. Omit cursor for the first page and pass through pageInfo.nextCursor thereafter.
       operationId: runtime.sessions.tasks.list
       security:
         - ApiKey: []
@@ -452,7 +461,6 @@ paths:
       x-sdkwork-tenant-scope: application
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
-        - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PageSize'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
@@ -485,8 +493,10 @@ paths:
       x-sdkwork-domain: intelligence
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
+      x-sdkwork-idempotent: true
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -557,8 +567,10 @@ paths:
       x-sdkwork-domain: intelligence
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
+      x-sdkwork-idempotent: true
       parameters:
         - $ref: '#/components/parameters/TaskIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -622,8 +634,10 @@ paths:
       x-sdkwork-domain: intelligence
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
+      x-sdkwork-idempotent: true
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -718,8 +732,10 @@ paths:
       x-sdkwork-domain: intelligence
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
+      x-sdkwork-idempotent: true
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -790,9 +806,11 @@ paths:
       x-sdkwork-domain: intelligence
       x-sdkwork-resource: runtime
       x-sdkwork-tenant-scope: application
+      x-sdkwork-idempotent: true
       parameters:
         - $ref: '#/components/parameters/SessionIdPath'
         - $ref: '#/components/parameters/ToolNamePath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
         - $ref: '#/components/parameters/SdkworkTenantIdHeader'
         - $ref: '#/components/parameters/SdkworkUserIdHeader'
         - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
@@ -910,6 +928,16 @@ components:
       schema:
         type: string
       description: HMAC-SHA256 hex proof over "{tenantId}\n{userId}" keyed by the ingress token; required for non-loopback signed identity mode.
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Client-generated retry key. It is scoped by the authenticated tenant, principal, HTTP method, and route. Reusing it with a different request body returns 40901.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+        pattern: '^[A-Za-z0-9._:/-]+$'
     LastEventIdQuery:
       name: lastEventId
       in: query
@@ -936,7 +964,7 @@ components:
       name: page_size
       in: query
       required: false
-      description: Page size for offset pagination. Default 20, maximum 200.
+      description: Page size for list pagination. Default 20, maximum 200.
       schema:
         type: integer
         format: int32
@@ -1429,30 +1457,46 @@ components:
           nullable: true
     CreateSessionRequest:
       type: object
+      additionalProperties: false
       required: [agentId]
       properties:
         agentId:
           type: string
+          minLength: 1
+          maxLength: 256
         tenantId:
           type: string
         userRef:
           type: string
         model:
           type: string
+          minLength: 1
+          maxLength: 256
         modelProvider:
           type: string
         title:
           type: string
+          minLength: 1
+          maxLength: 1024
         goal:
           type: string
+          minLength: 1
+          maxLength: 262144
         instructions:
           type: string
+          minLength: 1
+          maxLength: 262144
         cwd:
           type: string
+          minLength: 1
+          maxLength: 4096
         workspaceRoots:
           type: array
+          maxItems: 32
           items:
             type: string
+            minLength: 1
+            maxLength: 4096
         source:
           type: string
         kind:
@@ -1463,8 +1507,10 @@ components:
           description: Session timeout in milliseconds.
         metadata:
           type: object
+          maxProperties: 64
           additionalProperties:
             type: string
+            maxLength: 4096
     SessionResponse:
       type: object
       required: [sessionId, source, kind, agentId, state, workspaceRoots, tokenUsage, messageCount, toolCallCount, compressionCount, changeSummary, childSessionIds, metadata]
@@ -1579,10 +1625,13 @@ components:
                         $ref: '#/components/schemas/SessionResponse'
     SendMessageRequest:
       type: object
+      additionalProperties: false
       required: [content]
       properties:
         content:
           type: string
+          minLength: 1
+          maxLength: 262144
     MessageResponse:
       type: object
       required: [messageId, sessionId, role, parts]
@@ -1614,6 +1663,21 @@ components:
           type: string
         content:
           type: string
+          maxLength: 262144
+    MessageTurnResponse:
+      type: object
+      additionalProperties: false
+      required: [userMessage, status]
+      properties:
+        userMessage:
+          $ref: '#/components/schemas/MessageResponse'
+        assistantMessage:
+          allOf:
+            - $ref: '#/components/schemas/MessageResponse'
+          nullable: true
+        status:
+          type: string
+          enum: [completed]
     MessageListResponse:
       description: Paginated session message list following SdkWorkApiResponse envelope.
       allOf:
@@ -1633,10 +1697,13 @@ components:
                         $ref: '#/components/schemas/MessageResponse'
     SubmitTaskRequest:
       type: object
+      additionalProperties: false
       required: [instruction]
       properties:
         instruction:
           type: string
+          minLength: 1
+          maxLength: 65536
     TaskResponse:
       type: object
       required: [taskId, sessionId, instruction, state]
@@ -1712,14 +1779,20 @@ components:
           nullable: true
     StreamModelRequest:
       type: object
+      additionalProperties: false
       properties:
         modelId:
           type: string
+          minLength: 1
+          maxLength: 256
           nullable: true
         messages:
           type: array
+          maxItems: 128
           items:
             type: string
+            minLength: 1
+            maxLength: 262144
     CancelModelResponse:
       type: object
       required: [modelRequestId, providerId, status]
@@ -1763,10 +1836,13 @@ components:
           type: string
     ExecuteToolRequest:
       type: object
+      additionalProperties: false
       required: [input]
       properties:
         input:
           type: string
+          minLength: 1
+          maxLength: 262144
     ExecuteToolResponse:
       type: object
       required: [toolCallId, toolId, input, status]
@@ -1880,6 +1956,20 @@ components:
                   properties:
                     item:
                       $ref: '#/components/schemas/MessageResponse'
+    MessageTurnItemResponse:
+      description: Completed message turn SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkResourceData'
+                - type: object
+                  properties:
+                    item:
+                      $ref: '#/components/schemas/MessageTurnResponse'
     TaskItemResponse:
       description: Task resource SdkWorkApiResponse envelope.
       allOf:

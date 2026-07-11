@@ -328,14 +328,17 @@ pub async fn ingress_auth_middleware(
                         .unwrap_or_else(|| "unknown".to_string()),
                 )
         })?;
-        let identity = ingress
-            .jwt_validator
-            .as_ref()
-            .ok_or_else(|| {
+        let validator = ingress.jwt_validator.clone().ok_or_else(|| {
+            ProblemDetail::new(StatusCode::SERVICE_UNAVAILABLE)
+                .with_detail("JWT validator is not initialized")
+        })?;
+        let identity = tokio::task::spawn_blocking(move || validator.validate(&bearer))
+            .await
+            .map_err(|error| {
+                tracing::error!(error = %error, "JWT validation worker failed");
                 ProblemDetail::new(StatusCode::SERVICE_UNAVAILABLE)
-                    .with_detail("JWT validator is not initialized")
+                    .with_detail("JWT validation is temporarily unavailable")
             })?
-            .validate(&bearer)
             .map_err(|status| {
                 let ctx = request.extensions().get::<RequestContext>();
                 security_audit::log_auth_failure(
@@ -503,6 +506,7 @@ pub fn cors_layer(config: &ServerConfig) -> tower_http::cors::CorsLayer {
         .allow_headers([
             axum::http::header::CONTENT_TYPE,
             axum::http::header::AUTHORIZATION,
+            HeaderName::from_static("idempotency-key"),
             HeaderName::from_static("x-request-id"),
             HeaderName::from_static("x-api-key"),
             HeaderName::from_static("x-sdkwork-tenant-id"),

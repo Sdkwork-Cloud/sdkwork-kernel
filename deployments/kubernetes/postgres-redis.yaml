@@ -39,6 +39,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: sdkwork-agent-runtime-postgres
+        sdkwork.com/runtime-data-service: postgres
     spec:
       containers:
         - name: postgres
@@ -116,6 +117,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: sdkwork-agent-runtime-redis
+        sdkwork.com/runtime-data-service: redis
     spec:
       containers:
         - name: redis

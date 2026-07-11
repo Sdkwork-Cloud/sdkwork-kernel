@@ -3,6 +3,16 @@ import { createRequire } from 'node:module';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  invokeCodexCliModelChat,
+  isCodexPackage,
+  probeCodexCli,
+} from './codex-cli-live.mjs';
+import {
+  invokeProviderCliModelChat,
+  isProviderCliPackage,
+  probeProviderCli,
+} from './provider-cli-live.mjs';
 
 const workerDir = path.dirname(fileURLToPath(import.meta.url));
 const kernelRoot = path.resolve(workerDir, '../..');
@@ -69,8 +79,12 @@ function defaultPackagePaths(root) {
   const paths = {
     '@openai/codex-sdk': path.join(root, 'external/codex/sdk/typescript'),
     '@openai/codex': path.join(root, 'external/codex/sdk/typescript'),
-    '@google/gemini-cli-sdk': path.join(root, 'external/gemini-cli/packages/sdk'),
+    '@google/gemini-cli-sdk': [
+      path.join(root, 'external/gemini/packages/sdk'),
+      path.join(root, 'external/gemini-cli/packages/sdk'),
+    ],
     '@anthropic-ai/claude-agent-sdk': path.join(root, 'external/claude-code'),
+    '@opencode-ai/sdk': path.join(root, 'external/opencode/packages/sdk/js'),
     openclaw: path.join(root, 'external/openclaw'),
   };
 
@@ -148,6 +162,15 @@ function localPackageNameMatches(requestedPackageName, actualPackageName) {
 }
 
 function resolveLocalPackageSpecifier(packageName, localPath) {
+  if (Array.isArray(localPath)) {
+    for (const candidate of localPath) {
+      const resolved = resolveLocalPackageSpecifier(packageName, candidate);
+      if (resolved) {
+        return resolved;
+      }
+    }
+    return null;
+  }
   if (!localPath || !existsSync(localPath)) {
     return null;
   }
@@ -204,6 +227,22 @@ export function resolvePackageSpecifier(packageName) {
 export function probePackage(packageName) {
   return {
     resolved: Boolean(resolvePackageSpecifier(packageName)),
+  };
+}
+
+export function probeModelChatRuntime(packageName) {
+  const packageProbe = probePackage(packageName);
+  const cliProbe = isCodexPackage(packageName)
+    ? probeCodexCli()
+    : isProviderCliPackage(packageName)
+      ? probeProviderCli(packageName)
+      : null;
+  const cliAvailable = Boolean(cliProbe?.available);
+  return {
+    ...packageProbe,
+    cli_available: cliAvailable,
+    runtime_available: packageProbe.resolved || cliAvailable,
+    runtime_mode: cliAvailable ? 'sdk_cli' : packageProbe.resolved ? 'sdk_live' : null,
   };
 }
 
@@ -497,6 +536,58 @@ export async function invokeModelChatLive(packageName, operation) {
 
   const prompt = resolveModelChatPrompt(operation);
   return handler(prompt, operation, packageName);
+}
+
+export async function invokeModelChatRuntime(packageName, operation) {
+  const packageProbe = probePackage(packageName);
+  const codexPackage = isCodexPackage(packageName);
+  const providerCliPackage = isProviderCliPackage(packageName);
+  const cliProbe = codexPackage
+    ? probeCodexCli()
+    : providerCliPackage
+      ? probeProviderCli(packageName)
+      : null;
+  let sdkError = null;
+  let cliError = null;
+
+  // The CLI transport is the production-complete Codex lane. Prefer it when
+  // present so an incomplete or version-skewed SDK facade cannot shadow it.
+  if (cliProbe?.available) {
+    try {
+      const prompt = resolveModelChatPrompt(operation);
+      return codexPackage
+        ? await invokeCodexCliModelChat(operation, { packageName, prompt })
+        : await invokeProviderCliModelChat(packageName, operation, { prompt });
+    } catch (error) {
+      cliError = error;
+    }
+  }
+
+  if (packageProbe.resolved) {
+    try {
+      return await invokeModelChatLive(packageName, operation);
+    } catch (error) {
+      sdkError = error;
+    }
+  }
+
+  if ((codexPackage || providerCliPackage) && !cliProbe?.available) {
+    cliError = new Error(`provider_cli_unavailable: no real executable was found for ${packageName}`);
+  }
+
+  if (sdkError || cliError) {
+    if (sdkError && cliError) {
+      throw new Error(
+        `Provider CLI invoke failed (${formatError(cliError)}); Provider SDK invoke failed (${formatError(sdkError)})`,
+      );
+    }
+    throw sdkError ?? cliError;
+  }
+  throw new Error(`package not resolved: ${packageName}`);
+}
+
+function formatError(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function buildModelChatStreamResult(baseResult) {

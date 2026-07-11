@@ -528,6 +528,10 @@ importers:
       '@sdkwork/sdk-common':
         specifier: workspace:*
         version: link:../../../../sdkwork-sdk-commons/sdkwork-sdk-common-typescript
+    devDependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 5.8.3
 
 packages:
 

@@ -1,6 +1,8 @@
 export interface KernelEvent {
   eventId: string;
   eventType: string;
-  occurredAt: string;
-  payload?: Record<string, unknown>;
+  severity: string;
+  summary: string;
+  sequence: number;
+  traceId?: string | null;
 }

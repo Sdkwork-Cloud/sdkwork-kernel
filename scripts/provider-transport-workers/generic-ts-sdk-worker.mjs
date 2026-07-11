@@ -3,9 +3,10 @@ import readline from 'node:readline';
 import {
   buildModelChatStreamResult,
   buildStubModelChatResult,
-  invokeModelChatLive,
+  invokeModelChatRuntime,
   mockProviderInvocationAllowed,
   probePackage,
+  probeModelChatRuntime,
 } from './engine-sdk-live.mjs';
 
 const packageIndex = process.argv.indexOf('--package');
@@ -62,10 +63,22 @@ function syntheticProviderOperationAllowed() {
   return mockProviderInvocationAllowed();
 }
 
+function operationRequiresLiveProvider(operation) {
+  const value = operation?.execution_options?.require_live_provider;
+  if (value == null) {
+    return false;
+  }
+  if (typeof value !== 'boolean') {
+    throw new Error('execution_options.require_live_provider must be a boolean');
+  }
+  return value;
+}
+
 async function handleCapabilityInvoke(params) {
   const operation = params.operation ?? {};
   const op = operation.operation ?? operation;
   const packageProbe = probePackage(packageName);
+  const runtimeProbe = probeModelChatRuntime(packageName);
 
   if (op === 'ping') {
     return {
@@ -73,6 +86,9 @@ async function handleCapabilityInvoke(params) {
       backend: 'typescript_node',
       package: packageName,
       package_resolved: packageProbe.resolved,
+      cli_available: runtimeProbe.cli_available,
+      runtime_available: runtimeProbe.runtime_available,
+      runtime_mode: runtimeProbe.runtime_mode,
     };
   }
 
@@ -93,24 +109,28 @@ async function handleCapabilityInvoke(params) {
   if (op === 'model_chat' || op === 'model_chat_stream') {
     const handleResult = (result) =>
       op === 'model_chat_stream' ? buildModelChatStreamResult(result) : result;
+    const fallbackAllowed =
+      mockProviderInvocationAllowed() && !operationRequiresLiveProvider(operation);
 
-    if (packageProbe.resolved) {
-      try {
-        return handleResult(await invokeModelChatLive(packageName, operation));
-      } catch (error) {
-        if (!mockProviderInvocationAllowed()) {
-          return {
-            ok: false,
-            mode: 'sdk_live_failed',
-            package: packageName,
-            error: error instanceof Error ? error.message : String(error),
-            model_request_id: operation.model_request_id ?? null,
-          };
-        }
+    try {
+      return handleResult(await invokeModelChatRuntime(packageName, operation));
+    } catch (error) {
+      if (!fallbackAllowed) {
+        return {
+          ok: false,
+          mode: 'sdk_live_failed',
+          package: packageName,
+          package_resolved: packageProbe.resolved,
+          cli_available: runtimeProbe.cli_available,
+          runtime_available: runtimeProbe.runtime_available,
+          runtime_mode: runtimeProbe.runtime_mode,
+          error: error instanceof Error ? error.message : String(error),
+          model_request_id: operation.model_request_id ?? null,
+        };
       }
     }
 
-    if (!mockProviderInvocationAllowed()) {
+    if (!fallbackAllowed) {
       return {
         ok: false,
         mode: 'sdk_live_failed',
@@ -172,7 +192,7 @@ async function handleCapabilityInvoke(params) {
 
 function handleRequest(request) {
   if (request.method === 'sdkwork/ping') {
-    const probe = probePackage(packageName);
+    const probe = probeModelChatRuntime(packageName);
     writeResponse({
       jsonrpc: '2.0',
       id: request.id,
@@ -181,6 +201,9 @@ function handleRequest(request) {
         backend: 'typescript_node',
         package: packageName,
         package_resolved: probe.resolved,
+        cli_available: probe.cli_available,
+        runtime_available: probe.runtime_available,
+        runtime_mode: probe.runtime_mode,
       },
     });
     return;

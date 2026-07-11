@@ -10,6 +10,15 @@ pub struct ChatMessage {
     pub metadata: Option<serde_json::Value>,
 }
 
+/// One completed server-side message turn.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatTurn {
+    pub user_message: ChatMessage,
+    pub assistant_message: Option<ChatMessage>,
+    pub status: ChatStatus,
+}
+
 /// Message role
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -65,34 +74,87 @@ pub struct SseEvent {
     pub id: Option<String>,
 }
 
-/// WebSocket message
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WsMessage {
-    #[serde(rename = "type")]
-    pub message_type: String,
-    pub payload: serde_json::Value,
+/// Standard bounded list query for internal-api resources.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SdkWorkListQuery {
+    pub page_size: Option<u32>,
+    pub cursor: Option<String>,
 }
 
-/// Chat events
+/// Standard list continuation metadata.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+#[serde(default)]
+pub struct SdkWorkPageInfo {
+    pub mode: String,
+    pub page: Option<u64>,
+    pub page_size: u32,
+    pub total_items: Option<u64>,
+    pub total_pages: Option<u64>,
+    pub has_more: bool,
+    pub next_cursor: Option<String>,
+}
+
+/// One server-bounded page. This type never auto-fetches following pages.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SdkWorkPage<T> {
+    pub items: Vec<T>,
+    pub page_info: SdkWorkPageInfo,
+}
+
+/// Typed request for the internal model SSE endpoint.
 #[derive(Debug, Clone)]
-pub enum ChatEvent {
-    /// Message received
-    MessageReceived(ChatMessage),
-    /// Streaming chunk
-    StreamChunk {
-        message_id: String,
-        content: String,
-        sequence: u32,
-    },
-    /// Stream completed
-    StreamCompleted {
-        message_id: String,
-        final_content: String,
-    },
-    /// Error occurred
-    Error { error: String, recoverable: bool },
-    /// Session state changed
-    SessionStateChanged { session_id: String, state: String },
+pub struct ModelStreamRequest {
+    pub session_id: String,
+    pub model_id: Option<String>,
+    pub messages: Option<Vec<String>>,
+}
+
+/// Typed model output chunk carried by `model.chunk`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelStreamChunk {
+    pub model_request_id: String,
+    pub sequence: u64,
+    pub content: String,
+    pub finish_reason: Option<String>,
+}
+
+/// Named model SSE events.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModelStreamEvent {
+    Chunk(ModelStreamChunk),
+    Done,
+    Error { message: String },
+}
+
+/// Request for replaying and optionally following session events.
+#[derive(Debug, Clone)]
+pub struct SessionEventStreamRequest {
+    pub session_id: String,
+    pub last_event_id: Option<String>,
+    pub live: bool,
+}
+
+/// Typed payload emitted by the session event stream.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRuntimeStreamData {
+    pub event_id: String,
+    pub event_type: String,
+    pub sequence: u32,
+    pub payload: String,
+    pub timestamp: Option<String>,
+}
+
+/// Session event with SSE transport metadata preserved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionRuntimeStreamEvent {
+    pub event: String,
+    pub id: Option<String>,
+    pub data: SessionRuntimeStreamData,
 }
 
 /// Session configuration

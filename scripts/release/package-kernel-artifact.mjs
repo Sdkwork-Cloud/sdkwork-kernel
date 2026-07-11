@@ -28,6 +28,12 @@ const format = target.formats?.[0];
 const binaryPath = process.env.SDKWORK_KERNEL_RELEASE_BINARY?.trim()
   ? path.resolve(kernelRoot, process.env.SDKWORK_KERNEL_RELEASE_BINARY.trim())
   : releaseBinaryPathFor(kernelRoot, target.platform);
+const providerWorkerRelativePaths = [
+  'generic-ts-sdk-worker.mjs',
+  'engine-sdk-live.mjs',
+  'codex-cli-live.mjs',
+  'provider-cli-live.mjs',
+];
 
 if (!fs.existsSync(binaryPath)) {
   console.error(`Missing release binary for ${packageId}: ${binaryPath}`);
@@ -63,11 +69,76 @@ function quotePowerShellLiteral(value) {
   return `'${String(value).replace(/'/gu, "''")}'`;
 }
 
-function createZipArchive() {
+function assertPathWithin(parentPath, childPath) {
+  const relativePath = path.relative(path.resolve(parentPath), path.resolve(childPath));
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    throw new Error(`release staging path must stay within ${parentPath}: ${childPath}`);
+  }
+}
+
+function copyRequiredFile(sourcePath, targetPath, label) {
+  if (!fs.existsSync(sourcePath) || !fs.statSync(sourcePath).isFile()) {
+    throw new Error(`Missing ${label}: ${sourcePath}`);
+  }
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.copyFileSync(sourcePath, targetPath);
+}
+
+function stageReleasePayload(stagingDir) {
+  assertPathWithin(outputDir, stagingDir);
+  fs.rmSync(stagingDir, { recursive: true, force: true });
+  fs.mkdirSync(stagingDir, { recursive: true });
+
+  const stagedBinary = path.join(stagingDir, path.basename(binaryPath));
+  copyRequiredFile(binaryPath, stagedBinary, 'release binary');
+
+  const providerRuntimeDir = path.join(stagingDir, 'provider-runtime');
+  const workerTargetDir = path.join(providerRuntimeDir, 'workers');
+  for (const workerRelativePath of providerWorkerRelativePaths) {
+    copyRequiredFile(
+      path.join(kernelRoot, 'scripts', 'provider-transport-workers', workerRelativePath),
+      path.join(workerTargetDir, workerRelativePath),
+      `provider worker ${workerRelativePath}`,
+    );
+  }
+
+  const nodeSource = process.execPath;
+  const targetIsWindows = target.platform === 'windows';
+  if (targetIsWindows !== (path.extname(nodeSource).toLowerCase() === '.exe')) {
+    throw new Error(
+      `Node runtime ${nodeSource} does not match release target platform ${target.platform}; package on the target runner.`,
+    );
+  }
+  const nodeTarget = targetIsWindows
+    ? path.join(providerRuntimeDir, 'node', 'node.exe')
+    : path.join(providerRuntimeDir, 'node', 'bin', 'node');
+  copyRequiredFile(nodeSource, nodeTarget, 'Node runtime');
+
+  if (!targetIsWindows) {
+    fs.chmodSync(stagedBinary, 0o755);
+    fs.chmodSync(nodeTarget, 0o755);
+  }
+
+  fs.writeFileSync(
+    path.join(providerRuntimeDir, 'manifest.json'),
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        nodeVersion: process.version,
+        workers: providerWorkerRelativePaths.map((worker) => `workers/${worker}`),
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
+  );
+}
+
+function createZipArchive(stagingDir) {
   const command = [
     'Compress-Archive',
-    '-LiteralPath',
-    quotePowerShellLiteral(binaryPath),
+    '-Path',
+    quotePowerShellLiteral(path.join(stagingDir, '*')),
     '-DestinationPath',
     quotePowerShellLiteral(artifactPath),
     '-Force',
@@ -75,26 +146,36 @@ function createZipArchive() {
   runChecked('powershell', ['-NoProfile', '-Command', command]);
 }
 
-function createTarGzArchive() {
+function createTarGzArchive(stagingDir) {
   runChecked('tar', [
     '-czf',
     artifactPath,
     '-C',
-    path.dirname(binaryPath),
-    path.basename(binaryPath),
+    stagingDir,
+    '.',
   ]);
 }
 
+const stagingDir = path.join(outputDir, `.package-staging-${packageId}`);
+let packagingError = null;
 try {
+  stageReleasePayload(stagingDir);
   if (format === 'zip') {
-    createZipArchive();
+    createZipArchive(stagingDir);
   } else if (format === 'tar.gz') {
-    createTarGzArchive();
+    createTarGzArchive(stagingDir);
   } else {
     throw new Error(`unsupported kernel package format: ${format}`);
   }
 } catch (error) {
   console.error(error.message);
+  packagingError = error;
+} finally {
+  assertPathWithin(outputDir, stagingDir);
+  fs.rmSync(stagingDir, { recursive: true, force: true });
+}
+
+if (packagingError) {
   process.exit(1);
 }
 

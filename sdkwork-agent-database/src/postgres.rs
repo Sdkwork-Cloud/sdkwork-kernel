@@ -1,6 +1,6 @@
 use crate::error::DatabaseResult;
 use crate::postgres_pool::BlockingPostgresPool;
-use crate::schema_migrations::POSTGRES_MIGRATION_SQL;
+use crate::schema_migrations::apply_postgres_pool;
 use crate::traits::{AgentDatabase, DatabaseParam, DatabaseRow};
 use sqlx::{Column, Row};
 use std::collections::HashMap;
@@ -15,7 +15,7 @@ impl PostgresDatabase {
     pub async fn connect_migrated_async(connection_uri: &str) -> DatabaseResult<Self> {
         let pool = BlockingPostgresPool::connect_async(connection_uri).await?;
         let db = Self { pool };
-        db.migrate()?;
+        db.migrate_async().await?;
         Ok(db)
     }
 
@@ -29,7 +29,7 @@ impl PostgresDatabase {
     pub async fn connect_from_sdkwork_env_async(service_name: &str) -> DatabaseResult<Self> {
         let pool = BlockingPostgresPool::connect_from_sdkwork_env_async(service_name).await?;
         let db = Self { pool };
-        db.migrate()?;
+        db.migrate_async().await?;
         Ok(db)
     }
 
@@ -41,7 +41,13 @@ impl PostgresDatabase {
     }
 
     pub fn migrate(&self) -> DatabaseResult<()> {
-        self.pool.execute_batch_sql(POSTGRES_MIGRATION_SQL)
+        let pool = self.pool.pool().clone();
+        self.pool
+            .run_db(async move { apply_postgres_pool(&pool).await })
+    }
+
+    pub async fn migrate_async(&self) -> DatabaseResult<()> {
+        apply_postgres_pool(self.pool.pool()).await
     }
 
     pub fn health(&self) -> DatabaseResult<bool> {
@@ -123,5 +129,9 @@ impl AgentDatabase for PostgresDatabase {
 
     fn health(&self) -> DatabaseResult<bool> {
         PostgresDatabase::health(self)
+    }
+
+    fn migrate_schema(&self) -> DatabaseResult<()> {
+        self.migrate()
     }
 }

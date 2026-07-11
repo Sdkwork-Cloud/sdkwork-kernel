@@ -46,7 +46,8 @@ pub use mapping::{
 pub use negotiation::{NegotiatedCapability, SdkCapabilityNegotiation, SdkNegotiationError};
 pub use registry::{BindingRegistry, DriverRegistry, RegisteredBinding};
 pub use runtime::{
-    ProviderTransportRouter, SdkBackendRuntime, SdkRuntimeError, SdkRuntimeOperation,
-    SdkRuntimeOperationKind, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
+    ProviderTransportRouter, SdkBackendRuntime, SdkRuntimeError, SdkRuntimeExecutionOptions,
+    SdkRuntimeOperation, SdkRuntimeOperationKind, SdkRuntimeRequest, SdkRuntimeResponse,
+    SdkRuntimeRouter,
 };
 pub use selector::{select_backend, BackendSelection};

@@ -7,9 +7,6 @@ pub mod session;
 mod sse;
 mod types;
 
-#[cfg(feature = "websocket")]
-mod websocket;
-
 pub use bridge::*;
 pub use chat::{ChatClient, MockChatClient};
 pub use ingress_auth::{
@@ -18,6 +15,3 @@ pub use ingress_auth::{
 pub use session::{sort_bridge_sessions, BridgeSessionQuery, BridgeSessionStore};
 pub use sse::{SseChatClient, INTERNAL_RUNTIME_MOUNT_PREFIX};
 pub use types::*;
-
-#[cfg(feature = "websocket")]
-pub use websocket::WebSocketChatClient;

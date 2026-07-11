@@ -3,7 +3,7 @@ use sdkwork_agent_database::{MessageRow, SessionRow};
 use sdkwork_agent_kernel::ModelStreamChunk;
 use sdkwork_agent_session::MessageConfig;
 
-use crate::api::internal_runtime::{bridge_config_from_row, InternalRuntimeApiState};
+use crate::api::internal_runtime::InternalRuntimeApiState;
 use crate::http_response::ApiError;
 
 /// Extract assistant-visible text from a bridge turn response.
@@ -29,7 +29,20 @@ pub async fn dispatch_user_message(
     content: &str,
     row: &SessionRow,
     trace_id: &str,
-) -> Result<(MessageRow, BridgeMessageResponse), ApiError> {
+) -> Result<(MessageRow, Option<MessageRow>, BridgeMessageResponse), ApiError> {
+    state.register_persisted_session(row, trace_id).await?;
+    let runtime = state.runtime.clone();
+    let session_key = session_id.to_string();
+    let content_owned = content.to_string();
+    let bridge_response =
+        tokio::task::spawn_blocking(move || runtime.send_message(&session_key, &content_owned))
+            .await
+            .map_err(|error| {
+                tracing::error!(error = %error, trace_id, "message dispatch worker failed");
+                ApiError::internal("message dispatch worker failed", trace_id)
+            })?
+            .map_err(|error| ApiError::from_kernel(error, trace_id))?;
+
     let session_key = session_id.to_string();
     let user_content = content.to_string();
     let user_row = state
@@ -39,34 +52,25 @@ pub async fn dispatch_user_message(
         .await
         .map_err(|error| ApiError::from_persistence(error, trace_id))?;
 
-    state
-        .runtime
-        .register_session(session_id, bridge_config_from_row(row))
-        .map_err(|error| ApiError::from_kernel(error, trace_id))?;
-
-    let runtime = state.runtime.clone();
-    let session_key = session_id.to_string();
-    let content_owned = content.to_string();
-    let bridge_response =
-        tokio::task::spawn_blocking(move || runtime.send_message(&session_key, &content_owned))
-            .await
-            .map_err(|error| ApiError::internal(error.to_string(), trace_id))?
-            .map_err(|error| ApiError::from_kernel(error, trace_id))?;
-
     let assistant_content = assistant_content_from_bridge(&bridge_response);
-    if !assistant_content.is_empty() {
+    let assistant_row = if !assistant_content.is_empty() {
         let session_key = session_id.to_string();
-        state
-            .persist(move |persistence| {
-                persistence.send_message(&session_key, MessageConfig::assistant(assistant_content))
-            })
-            .await
-            .map_err(|error| ApiError::from_persistence(error, trace_id))?;
-    }
+        Some(
+            state
+                .persist(move |persistence| {
+                    persistence
+                        .send_message(&session_key, MessageConfig::assistant(assistant_content))
+                })
+                .await
+                .map_err(|error| ApiError::from_persistence(error, trace_id))?,
+        )
+    } else {
+        None
+    };
 
     emit_turn_completed(state, session_id, &user_row.message_id, trace_id).await?;
 
-    Ok((user_row, bridge_response))
+    Ok((user_row, assistant_row, bridge_response))
 }
 
 /// Persist the user message, stream a runtime bridge turn, then persist the assistant reply.
@@ -78,20 +82,7 @@ pub async fn dispatch_user_message_stream(
     model_override: Option<&str>,
     trace_id: &str,
 ) -> Result<(MessageRow, String, Vec<ModelStreamChunk>), ApiError> {
-    let session_key = session_id.to_string();
-    let user_content = content.to_string();
-    let user_row = state
-        .persist(move |persistence| {
-            persistence.send_message(&session_key, MessageConfig::user(user_content))
-        })
-        .await
-        .map_err(|error| ApiError::from_persistence(error, trace_id))?;
-
-    state
-        .runtime
-        .register_session(session_id, bridge_config_from_row(row))
-        .map_err(|error| ApiError::from_kernel(error, trace_id))?;
-
+    state.register_persisted_session(row, trace_id).await?;
     let runtime = state.runtime.clone();
     let session_key = session_id.to_string();
     let content_owned = content.to_string();
@@ -104,8 +95,20 @@ pub async fn dispatch_user_message_stream(
         )
     })
     .await
-    .map_err(|error| ApiError::internal(error.to_string(), trace_id))?
+    .map_err(|error| {
+        tracing::error!(error = %error, trace_id, "stream dispatch worker failed");
+        ApiError::internal("stream dispatch worker failed", trace_id)
+    })?
     .map_err(|error| ApiError::from_kernel(error, trace_id))?;
+
+    let session_key = session_id.to_string();
+    let user_content = content.to_string();
+    let user_row = state
+        .persist(move |persistence| {
+            persistence.send_message(&session_key, MessageConfig::user(user_content))
+        })
+        .await
+        .map_err(|error| ApiError::from_persistence(error, trace_id))?;
 
     let assistant_content: String = chunks.iter().map(|chunk| chunk.content.as_str()).collect();
     if !assistant_content.is_empty() {
@@ -164,7 +167,7 @@ mod tests {
             .create_session(SessionConfig::new("agent.1"))
             .expect("session should be created");
 
-        let (user_row, bridge_response) = dispatch_user_message(
+        let (user_row, assistant_row, bridge_response) = dispatch_user_message(
             &state,
             &session.session_id,
             "Hello runtime",
@@ -176,6 +179,10 @@ mod tests {
 
         assert_eq!(user_row.role, "user");
         assert_eq!(user_row.content, "Hello runtime");
+        assert_eq!(
+            assistant_row.as_ref().map(|row| row.role.as_str()),
+            Some("assistant")
+        );
         assert!(!assistant_content_from_bridge(&bridge_response).is_empty());
 
         let messages = persistence

@@ -2,7 +2,7 @@
 
 Status: active
 Owner: SDKWork kernel maintainers
-Updated: 2026-07-08
+Updated: 2026-07-11
 Parent: [TECH_ARCHITECTURE.md](TECH_ARCHITECTURE.md)
 Specs: [AGENT_KERNEL_SPEC.md](../../../specs/AGENT_KERNEL_SPEC.md), [AGENT_CONFORMANCE_SPEC.md](../../../specs/AGENT_CONFORMANCE_SPEC.md)
 
@@ -39,10 +39,10 @@ shard when traits, specs, or provider wiring change.
 | Family | Trait | Spec shard | Rust module | Wired in default runtime |
 | --- | --- | --- | --- | --- |
 | sandbox | `SandboxProvider` | `SANDBOX_PROVIDER_SPEC.md` | `sandbox.rs`, `host_sandbox.rs` | Yes — `RuntimeBuilder::enable_platform_host_sandbox()` wraps host `process` |
-| secret | `SecretProvider` | `SECRET_PROVIDER_SPEC.md` | `secret.rs`, `secret_env.rs`, `secret_composite.rs` | **Closed (pre-prod)** — `ChainedSecretProvider` (env/file + optional Vault feature); enterprise cloud SM deferred |
-| rate_limit | `RateLimitProvider` | `AGENT_KERNEL_SPEC.md` §3.4 | `rate_limit.rs`, `ingress_rate_limit.rs` | **Closed** — HTTP ingress uses `TokenBucketRateLimitProvider`; Redis distributed path remains server-owned |
-| cancellation | `CancellationProvider` | `AGENT_KERNEL_SPEC.md` §3.4 | `cancellation.rs` | **Closed** — `SdkBackendRuntime::cancel_inflight` + worker kill/respawn |
-| model_stream | `ModelStreamProvider` | `AGENT_MODEL_PROVIDER_SPI_SPEC.md` | `model_stream.rs`, `model.rs` | **Closed** — `ModelStreamSink` + IPC NDJSON + HTTP SSE incremental path; `finalize_stream` releases in-memory stream capacity |
+| secret | `SecretProvider` | `SECRET_PROVIDER_SPEC.md` | `secret.rs`, `secret_env.rs`, `secret_composite.rs` | Implementation present; target secret-manager integration and rotation evidence required |
+| rate_limit | `RateLimitProvider` | `AGENT_KERNEL_SPEC.md` §3.4 | `rate_limit.rs`, `ingress_rate_limit.rs` | Implementation present; Redis-backed cluster failure drills required |
+| cancellation | `CancellationProvider` | `AGENT_KERNEL_SPEC.md` §3.4 | `cancellation.rs` | Implementation present; request-scoped transport cancellation and stress evidence required |
+| model_stream | `ModelStreamProvider` | `AGENT_MODEL_PROVIDER_SPI_SPEC.md` | `model_stream.rs`, `model.rs` | Implementation present; live-binding slow-consumer/disconnect/soak evidence required |
 | backend_health | `BackendHealthMonitor` | `BACKEND_HEALTH_MONITOR_SPEC.md` | `backend_health.rs` | Yes — `BackendHealthWorker` spawned in `sdkwork-agent-server` bootstrap |
 
 ### 1.3 Orchestration primitives (not a separate provider family yet)
@@ -58,24 +58,24 @@ Priority aligns with [ADR-20260628](../decisions/ADR-20260628-KERNEL-SPI-COMPREH
 
 | ID | Gap | Priority | Spec | Implementation | Product impact | Next action |
 | --- | --- | --- | --- | --- | --- | --- |
-| G-01 | Sandbox not default-routed from HostProvider | P0 | `SANDBOX_PROVIDER_SPEC.md` | **Closed** — `SandboxingHostProvider` + platform sandbox on bootstrap | Codex-class prod isolation | Linux sandbox conformance CI (follow-up) |
-| G-02 | A2A protocol adapter incomplete | P0 | `A2A_PROTOCOL_ADAPTER_SPEC.md` | **Closed** — structured `A2ATaskRequest.messages`, `RegistryA2AProtocolAdapter`, multimodal task tests | External HTTP A2A interop | Remote HTTP adapter + conformance suite |
-| G-03 | Orchestration not connected to planning loop | P0 | `MULTI_AGENT_ORCHESTRATION_SPEC.md` | **Closed** — `OrchestrationPlan::into_planning_plan()` | Multi-agent workflows | Wire planning provider callers to orchestration bridge |
-| G-04 | Backend health monitor not spawned in all server profiles | P0 | `BACKEND_HEALTH_MONITOR_SPEC.md` | **Closed** — `BackendHealthWorker` in server bootstrap | Stale backend selection | Expose monitor snapshot on runtime diagnostics API (optional) |
-| G-05 | Model streaming not universal across providers | P1 | `AGENT_MODEL_PROVIDER_SPI_SPEC.md` | **Closed** — `ModelStreamSink` + `ModelProvider::stream_into`; IPC NDJSON `stream.chunk`/`stream.done` frames; HTTP SSE pushes chunks as emitted; finalized in-memory streams release provider capacity | BirdCoder live transcript | Live SDK incremental SSE per binding (optional hardening) |
-| G-06 | Cancellation not propagated to subprocess transports | P1 | `cancellation.rs` | **Closed** — `SpawnedWorker`, `SdkBackendRuntime::cancel_inflight`, Node/Python worker kill + respawn | Long tool runs | Wire `CancellationProvider` to runtime router callers |
-| G-07 | Secret vault backends (HashiCorp, cloud SM) | P1 | `SECRET_PROVIDER_SPEC.md` | **Closed (pre-prod)** — `ChainedSecretProvider` + `EnvFileSecretProvider` + `VaultSecretProvider` (`secret-vault` feature) | Enterprise deploy | Cloud SM adapters behind separate feature flags |
-| G-08 | Rate limit provider vs server middleware duplication | P1 | `rate_limit.rs` | **Closed** — `TokenBucketRateLimitProvider` SPI backs in-process + Redis fail-over; Redis Lua stays server transport | Quota consistency | Monitor Redis/SPI metric parity in production |
+| G-01 | Sandbox not default-routed from HostProvider | P0 | `SANDBOX_PROVIDER_SPEC.md` | Implementation present; Linux sandbox conformance CI pending | Codex-class prod isolation | Run Linux sandbox conformance and escape tests |
+| G-02 | A2A protocol adapter incomplete | P0 | `A2A_PROTOCOL_ADAPTER_SPEC.md` | Local types/registry adapter implemented; remote HTTP conformance pending | External HTTP A2A interop | Remote HTTP adapter + conformance suite |
+| G-03 | Orchestration not connected to planning loop | P0 | `MULTI_AGENT_ORCHESTRATION_SPEC.md` | Conversion helper implemented; caller integration evidence pending | Multi-agent workflows | Wire planning provider callers to orchestration bridge |
+| G-04 | Backend health monitor not spawned in all server profiles | P0 | `BACKEND_HEALTH_MONITOR_SPEC.md` | Worker bootstrap implemented; composed production readiness pending | Stale backend selection | Add required provider/Redis readiness and diagnostics evidence |
+| G-05 | Model streaming not universal across providers | P1 | `AGENT_MODEL_PROVIDER_SPI_SPEC.md` | Incremental bridge/IPC/SSE implemented; per-binding live soak pending | BirdCoder live transcript | Run cancellation, disconnect, slow-consumer, and live SDK soak per binding |
+| G-06 | Cancellation not propagated to subprocess transports | P1 | `cancellation.rs` | Transport cancellation implementation present; isolation/stress evidence pending | Long tool runs | Verify request-scoped cancellation without collateral worker turns |
+| G-07 | Secret vault backends (HashiCorp, cloud SM) | P1 | `SECRET_PROVIDER_SPEC.md` | Env/file/Vault implementation present; production secret-manager and rotation evidence pending | Enterprise deploy | Add target cloud SM adapters and rotation drills |
+| G-08 | Rate limit provider vs server middleware duplication | P1 | `rate_limit.rs` | Shared provider and Redis path implemented; cluster failure semantics require release drills | Quota consistency | Verify fail-closed Redis outage and metric parity in staging |
 | G-09 | Provider fallback chains in binding manifests | P2 | `AGENT_PROVIDER_BINDING_SPEC.md` | Single-backend selection | Resilience | Add `fallback_backends` to manifest schema |
 | G-10 | Context compression provider | P2 | `AGENT_CONTEXT_MEMORY_SPEC.md` | `ContextProvider::trim` only | Long sessions | Add optional `ContextCompressionProvider` or extend context SPI |
 | G-11 | Artifact durable storage provider | P2 | `AGENT_KERNEL_SPEC.md` | `AgentArtifact` object only | Task outputs | Add `ArtifactStorageProvider` or delegate to `sdkwork-drive` via agents |
-| G-12 | MiMo Code facade/live SDK proof pending | P1 | `AGENT_PROVIDER_BINDING_SPEC.md` | **Closed** — `bindings/agent-providers/mimo-code/` and `agent-providers/crates/sdkwork-agent-provider-mimo-code/` exist | BirdCoder engine parity | Add agents facade registration and staging live SDK proof |
-| G-13 | Live official SDK staging gate | P1 | `AGENT_PROVIDER_INTEGRATION_SPEC.md` | **Closed** - `engine-sdk-live-staging.mjs` for Codex/Claude/Gemini/OpenCode/OpenClaw, `hermes-gateway-staging.mjs` for Hermes, and `.github/workflows/kernel-staging-live-sdk.yml` (`workflow_dispatch`, credential-gated) | Commercial confidence | Populate staging repository secrets, set `SDKWORK_KERNEL_STAGING_HERMES_GATEWAY=1`, and schedule release train invokes |
-| G-14 | Kernel mock fail-closed in release builds | P0 | `AGENT_RUNTIME_SPEC.md` | **Closed** — `mock_policy` + preflight rejects production mock override + `tests/release_mock_fail_closed.rs` | Production safety | Add release step to CI matrix |
-| G-15 | Multimodal interaction contract runtime wiring | P0 | `AGENT_KERNEL_SPEC.md` §6.4 | **Closed** — `interaction_contract` on `AgentDefinition`; chat/execution/bridge → `ModelExecutionService` | Voice/vision agents | Live SDK multimodal wire in bindings |
-| G-16 | Model providers consume structured `input_messages` | P1 | `AGENT_MODEL_PROVIDER_SPI_SPEC.md` §4.1 | **Closed** — `model_wire.rs`, `SdkRuntimeRequest::from_model_request` + worker `wire_messages` | Native OpenAI/Anthropic multimodal | Per-package live multimodal conformance |
-| G-17 | Protocol adapter structured ingress (non-RPC) | P1 | `AGENT_PROTOCOL_ADAPTER_SPEC.md` | **Closed** — chat RPC `parse_chat_rpc_payload` | HTTP multimodal upload | Remote A2A HTTP ingress |
-| G-18 | Developer-friendly Agent SPI (`api` module) | P1 | `AGENT_KERNEL_SPEC.md` §3.5 | **Closed** — `ContentBlock`, `MessageBuilder`, `AgentInvokeRequest`, industry role mapping | Provider-native multimodal egress | Live provider adoption |
+| G-12 | MiMo Code facade/live SDK proof pending | P1 | `AGENT_PROVIDER_BINDING_SPEC.md` | Binding/provider implementation present; agents facade and live proof pending | BirdCoder engine parity | Add agents facade registration and staging live SDK proof |
+| G-13 | Live official SDK staging gate | P1 | `AGENT_PROVIDER_INTEGRATION_SPEC.md` | Workflow/scripts present; target credentials and release-run evidence required | Commercial confidence | Populate protected staging inputs and record release-train invokes |
+| G-14 | Kernel mock fail-closed in release builds | P0 | `AGENT_RUNTIME_SPEC.md` | Policy/preflight/test implementation present; exact-release gate required | Production safety | Keep the release step mandatory in CI/promotion |
+| G-15 | Multimodal interaction contract runtime wiring | P0 | `AGENT_KERNEL_SPEC.md` §6.4 | Runtime wiring present; live provider conformance pending | Voice/vision agents | Live SDK multimodal wire in bindings |
+| G-16 | Model providers consume structured `input_messages` | P1 | `AGENT_MODEL_PROVIDER_SPI_SPEC.md` §4.1 | Structured wire implementation present; per-package live conformance pending | Native OpenAI/Anthropic multimodal | Per-package live multimodal conformance |
+| G-17 | Protocol adapter structured ingress (non-RPC) | P1 | `AGENT_PROTOCOL_ADAPTER_SPEC.md` | Chat RPC parsing present; remote HTTP ingress pending | HTTP multimodal upload | Remote A2A HTTP ingress |
+| G-18 | Developer-friendly Agent SPI (`api` module) | P1 | `AGENT_KERNEL_SPEC.md` §3.5 | Authored API types present; live provider adoption evidence pending | Provider-native multimodal egress | Live provider adoption |
 
 ## 3. sdkwork-agents Alignment Gaps
 
@@ -83,10 +83,10 @@ Kernel SPI alone does not deliver product value — agents must expose operation
 
 | Product need | Agents API | Kernel bridge | Status |
 | --- | --- | --- | --- |
-| Agent CRUD + composition | `/app/v3/api/ai/agents/*` | N/A | Done |
-| Chat sessions + messages | `/app/v3/api/ai/agents/{id}/sessions/*` | Runtime facade turn | Done |
-| Code engine bootstrap | `sdkwork-agents-runtime-facade` | Provider negotiation | Done |
-| Memory tier binding | composition slot `memory` | `MemoryProvider` at runtime | Done (composition); backend variety in `sdkwork-memory` |
+| Agent CRUD + composition | `/app/v3/api/ai/agents/*` | N/A | Implemented; sibling release gate required |
+| Chat sessions + messages | `/app/v3/api/ai/agents/{id}/sessions/*` | Runtime facade turn | Implemented; sibling contract gate required |
+| Code engine bootstrap | `sdkwork-agents-runtime-facade` | Provider negotiation | Implemented; cross-repository verification required |
+| Memory tier binding | composition slot `memory` | `MemoryProvider` at runtime | Composition implemented; backend variety and integration evidence remain in `sdkwork-memory` |
 | Task scheduling (business) | agents domain jobs (if exposed) | `TaskSchedulingProvider` | Verify API coverage for scheduled agent jobs |
 | Message search (business) | `agents.messages.list` with `q` | `MessageQueryProvider` | Must follow `PAGINATION_SPEC.md` |
 
@@ -109,19 +109,21 @@ authority first — see `sdkwork-birdcoder/docs/architecture/tech/TECH-33-agents
 
 | Dimension | Score | Blockers |
 | --- | --- | --- |
-| Architecture / layering | **A** | Dependency rules enforced cross-repo |
-| SPI completeness (spec) | **A-** | Extension specs exist; A2A/orchestration wiring open |
-| SPI completeness (runtime wiring) | **A** | Optional cloud SM secret adapters |
-| Provider catalog | **A-** | Staging secrets population for live SDK workflow and Hermes-specific staging gateway proof |
-| Agents API + SDK | **A-** | 70 ops; pagination/search conformance ongoing |
-| Security / fail-closed | **A** | Optional cloud SM secret adapters |
-| Operability (HA, observability) | **A-** | TECH_ARCHITECTURE §6–7 |
-| Go-to-market artifacts | **C+** | Published registry, SBOM pipeline (P4) |
+| Architecture / layering | **Implemented; gate required** | Dependency rules require cross-repository verification |
+| SPI completeness (spec) | **Implemented with open gaps** | Extension specs exist; remote A2A and orchestration caller wiring remain open |
+| SPI completeness (runtime wiring) | **Implemented; target evidence required** | Secret-manager, provider readiness, and live binding evidence remain required |
+| Provider catalog | **Release gate** | Protected staging inputs and Hermes-specific gateway proof are required |
+| Agents API + SDK | **Release gate** | Pagination/search and sibling facade conformance remain required |
+| Security / fail-closed | **Release gate** | Dedicated secrets, Redis outage drills, provider cancellation, and exact-release tests remain required |
+| Operability (HA, observability) | **Target-environment gate** | Managed HA services, NetworkPolicy, image digest, restore/failover/load evidence required |
+| Go-to-market artifacts | **Blocked** | Published registry, immutable container evidence, and release promotion records remain open |
 
-**Commercial landing verdict:** Suitable for **controlled beta** with Rig/Codex/Claude
-paths and agents-managed composition. **Enterprise GA** requires REQ-2026-0001
-artifact publishing evidence, populated staging credentials for live SDK gate,
-and Hermes-specific staging gateway proof.
+**Commercial landing verdict:** **Not approved for production or GA.** A controlled
+beta/pilot can proceed only after the exact release revision passes repository
+gates and the target environment supplies managed HA data services, protected
+secrets, immutable artifacts, NetworkPolicy, restore/failover/load evidence,
+provider live proof, and sibling-repository approval. Remaining gaps are release
+blockers, not documentation-only debt.
 
 Improvement plan owner: [REQ-2026-0001](../../product/requirements/REQ-2026-0001-commercial-hardening.md).
 

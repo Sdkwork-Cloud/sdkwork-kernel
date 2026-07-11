@@ -1,5 +1,6 @@
 use axum::extract::FromRef;
 use axum::{middleware as axum_middleware, routing::get, Router};
+use sdkwork_web_bootstrap::{service_router, ServiceRouterConfig};
 use std::sync::Arc;
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -105,6 +106,9 @@ fn try_build_app_with_rate_limit(
     runtime_state: Arc<internal_runtime::InternalRuntimeApiState>,
     rate_limit: Arc<crate::rate_limit::RateLimitState>,
 ) -> anyhow::Result<Router> {
+    let idempotency = Arc::new(crate::idempotency::IdempotencyState::from_config(
+        config.as_ref(),
+    )?);
     let metrics_registry = metrics::MetricsRegistry::from_config(config.as_ref());
     let operational_profile = metrics::OperationalProfile::from_runtime(
         persistence.persistence_backend_label(),
@@ -123,9 +127,6 @@ fn try_build_app_with_rate_limit(
     );
 
     let health_routes = Router::new()
-        .route(&config.health_path, get(health::health_check))
-        .route("/readyz", get(health::readiness_check))
-        .route("/livez", get(health::liveness_check))
         .route("/metrics", get(metrics::prometheus_metrics))
         .with_state(operational_state);
 
@@ -135,14 +136,31 @@ fn try_build_app_with_rate_limit(
     // the shorter timeout on SSE connections.
     let internal_runtime = Router::new().nest(
         INTERNAL_RUNTIME_MOUNT_PREFIX,
-        build_internal_runtime_routes(runtime_state),
+        build_internal_runtime_routes(runtime_state.clone()),
     );
 
     let standard_routes = Router::new().merge(health_routes).merge(internal_runtime);
+    let standard_routes = service_router(
+        standard_routes,
+        ServiceRouterConfig::default()
+            .skip_metrics()
+            .with_readiness_check(Arc::new(
+                health::RuntimeReadiness::new(
+                    persistence.clone(),
+                    config.clone(),
+                    runtime_state.runtime.clone(),
+                )
+                .map_err(anyhow::Error::msg)?,
+            )),
+    );
 
     Ok(Router::new()
         .merge(standard_routes)
         .layer(axum::Extension(metrics_registry))
+        .layer(axum_middleware::from_fn_with_state(
+            idempotency,
+            crate::idempotency::middleware,
+        ))
         .layer(RequestBodyLimitLayer::new(config.max_body_size))
         .layer(axum_middleware::from_fn_with_state(
             rate_limit,

@@ -76,11 +76,11 @@ where
             metadata_json,
         };
 
+        let event = self.build_event(&session_id, "session.created", "info", None);
         self.db
-            .save_session(&row)
-            .map_err(|e| format!("failed to save session: {}", e))?;
-
-        self.record_event(&session_id, "session.created", "info", None)?;
+            .save_session_with_event(&row, &event)
+            .map_err(|e| format!("failed to create session: {e}"))?;
+        self.notify_event(event);
 
         Ok(row)
     }
@@ -126,11 +126,11 @@ where
         session.state = "closed".to_string();
         session.updated_at = Some(chrono::Utc::now().to_rfc3339());
 
+        let event = self.build_event(session_id, "session.closed", "info", None);
         self.db
-            .update_session(&session)
-            .map_err(|e| format!("failed to close session: {}", e))?;
-
-        self.record_event(session_id, "session.closed", "info", None)?;
+            .save_session_with_event(&session, &event)
+            .map_err(|e| format!("failed to close session: {e}"))?;
+        self.notify_event(event);
 
         Ok(session)
     }
@@ -225,6 +225,17 @@ where
             .map_err(|e| format!("failed to load messages: {}", e))
     }
 
+    /// Load the most recent bounded message window in chronological order.
+    pub fn load_recent_messages(
+        &self,
+        session_id: &str,
+        limit: i64,
+    ) -> Result<Vec<MessageRow>, String> {
+        self.db
+            .load_recent_messages(session_id, limit)
+            .map_err(|e| format!("failed to load recent messages: {e}"))
+    }
+
     /// Get message count for a session
     pub fn message_count(&self, session_id: &str) -> Result<i64, String> {
         self.db
@@ -256,24 +267,38 @@ where
         severity: &str,
         payload: Option<&str>,
     ) -> Result<(), String> {
-        let event = EventRow {
-            event_id: format!("evt.{}", generate_id()),
-            session_id: Some(session_id.to_string()),
-            event_type: event_type.to_string(),
-            severity: severity.to_string(),
-            payload: payload.map(|s| s.to_string()),
-            created_at: chrono::Utc::now().to_rfc3339(),
-        };
+        let event = self.build_event(session_id, event_type, severity, payload);
 
         self.db
             .save_event(&event)
             .map_err(|e| format!("failed to save event: {}", e))?;
 
+        self.notify_event(event);
+
+        Ok(())
+    }
+
+    fn build_event(
+        &self,
+        session_id: &str,
+        event_type: &str,
+        severity: &str,
+        payload: Option<&str>,
+    ) -> EventRow {
+        EventRow {
+            event_id: format!("evt.{}", generate_id()),
+            session_id: Some(session_id.to_string()),
+            event_type: event_type.to_string(),
+            severity: severity.to_string(),
+            payload: payload.map(str::to_string),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+
+    fn notify_event(&self, event: EventRow) {
         if let Some(listener) = &self.event_listener {
             listener(event);
         }
-
-        Ok(())
     }
 
     /// Create a task in a session.
@@ -288,10 +313,11 @@ where
             created_at: now.clone(),
             updated_at: Some(now),
         };
+        let event = self.build_event(session_id, "task.created", "info", Some(&task.task_id));
         self.db
-            .save_task(&task)
-            .map_err(|e| format!("failed to save task: {}", e))?;
-        self.record_event(session_id, "task.created", "info", Some(&task.task_id))?;
+            .save_task_with_event(&task, &event)
+            .map_err(|e| format!("failed to create task: {e}"))?;
+        self.notify_event(event);
         Ok(task)
     }
 
@@ -320,15 +346,16 @@ where
         let mut task = self.get_task(task_id)?;
         task.state = "cancelled".to_string();
         task.updated_at = Some(chrono::Utc::now().to_rfc3339());
-        self.db
-            .update_task(&task)
-            .map_err(|e| format!("failed to cancel task: {}", e))?;
-        self.record_event(
+        let event = self.build_event(
             &task.session_id,
             "task.cancelled",
             "info",
             Some(&task.task_id),
-        )?;
+        );
+        self.db
+            .save_task_with_event(&task, &event)
+            .map_err(|e| format!("failed to cancel task: {e}"))?;
+        self.notify_event(event);
         Ok(task)
     }
 
@@ -343,6 +370,8 @@ where
         let query = sdkwork_agent_database::EventQuery {
             event_type: None,
             severity: None,
+            owner_tenant_id: None,
+            owner_user_ref: None,
             after_event_id: after_event_id.map(str::to_string),
             limit,
             offset: None,

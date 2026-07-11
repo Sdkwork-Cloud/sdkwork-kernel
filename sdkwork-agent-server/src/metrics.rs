@@ -13,6 +13,17 @@ use crate::persistence::PersistenceState;
 
 const SERVICE_NAME: &str = "sdkwork-agent-server";
 const RUNTIME_TARGET: &str = "server";
+static SSE_ACTIVE_CONNECTIONS: AtomicU64 = AtomicU64::new(0);
+
+pub fn record_sse_connection_open() {
+    SSE_ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn record_sse_connection_close() {
+    let _ = SSE_ACTIVE_CONNECTIONS.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+        Some(current.saturating_sub(1))
+    });
+}
 
 const DURATION_BUCKETS_SECS: [f64; 12] = [
     0.005,
@@ -276,6 +287,17 @@ impl MetricsRegistry {
             "sdkwork_kernel_tenant_token_quota_rejected_total{{{base}}} {}",
             self.tenant_token_quota_rejected_total
                 .load(Ordering::Relaxed)
+        );
+
+        let _ = writeln!(
+            output,
+            "# HELP sdkwork_kernel_sse_active_connections Active SSE connections in this server process."
+        );
+        let _ = writeln!(output, "# TYPE sdkwork_kernel_sse_active_connections gauge");
+        let _ = writeln!(
+            output,
+            "sdkwork_kernel_sse_active_connections{{{base}}} {}",
+            SSE_ACTIVE_CONNECTIONS.load(Ordering::Relaxed)
         );
 
         let _ = writeln!(

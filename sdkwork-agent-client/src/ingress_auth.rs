@@ -60,7 +60,6 @@ fn uses_jwt_ingress_profile(auth: &AgentAuth) -> bool {
 }
 
 /// Attach canonical internal-api ingress auth headers to an outbound HTTP request.
-#[cfg(feature = "http")]
 pub fn apply_ingress_auth(
     builder: reqwest::RequestBuilder,
     auth: &AgentAuth,

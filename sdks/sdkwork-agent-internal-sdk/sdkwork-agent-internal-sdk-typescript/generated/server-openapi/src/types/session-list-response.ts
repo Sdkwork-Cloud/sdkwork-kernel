@@ -1,5 +1,5 @@
 import type { SdkWorkPageData } from './sdk-work-page-data';
-import type { SessionItemResponse } from './session-item-response';
+import type { SessionResponse } from './session-response';
 
 /** Paginated runtime session list following SdkWorkApiResponse envelope. */
 export interface SessionListResponse {

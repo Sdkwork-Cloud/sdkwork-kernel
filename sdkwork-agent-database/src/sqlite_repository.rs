@@ -1,10 +1,12 @@
 use crate::error::{DatabaseError, DatabaseResult};
-use crate::pagination::{resolve_list_limit, resolve_list_offset};
+use crate::pagination::{resolve_history_limit, resolve_list_limit, resolve_list_offset};
 use crate::sqlite::SqliteDatabase;
 use crate::traits::*;
 use crate::types::*;
 use crate::PermissionRow;
-use rusqlite::{params, OptionalExtension, Row};
+use rusqlite::{
+    params, params_from_iter, OptionalExtension, Row, Transaction, TransactionBehavior,
+};
 
 impl SqliteDatabase {
     /// Open a SQLite database file and run schema migrations.
@@ -37,6 +39,255 @@ impl SqliteDatabase {
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         crate::schema_migrations::apply_sqlite_connection(&conn)
+    }
+}
+
+fn sqlite_terminal_state_sql(column: &str) -> String {
+    format!(
+        "lower({column}) IN ('closed','completed','complete','failed','cancelled','canceled','terminated','expired','orphaned','rejected','denied','approved')"
+    )
+}
+
+fn sqlite_in_clause(count: usize) -> String {
+    std::iter::repeat_n("?", count)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn sqlite_delete_ids(
+    tx: &Transaction<'_>,
+    table: &str,
+    column: &str,
+    ids: &[String],
+) -> DatabaseResult<usize> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let sql = format!(
+        "DELETE FROM {table} WHERE {column} IN ({})",
+        sqlite_in_clause(ids.len())
+    );
+    tx.execute(&sql, params_from_iter(ids.iter()))
+        .map_err(|error| DatabaseError::Query(format!("failed to purge {table}: {error}")))
+}
+
+impl RuntimeMaintenance for SqliteDatabase {
+    fn purge_expired(&self, cutoff: &str, batch_size: i64) -> DatabaseResult<RuntimePurgeCounts> {
+        if !(1..=10_000).contains(&batch_size) {
+            return Err(DatabaseError::Query(
+                "runtime purge batch_size must be between 1 and 10000".to_string(),
+            ));
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let tx =
+            Transaction::new_unchecked(&conn, TransactionBehavior::Immediate).map_err(|error| {
+                DatabaseError::Transaction(format!("failed to begin runtime purge: {error}"))
+            })?;
+        let terminal_state = sqlite_terminal_state_sql("state");
+        let mut counts = RuntimePurgeCounts::default();
+
+        let session_ids: Vec<String> = {
+            let mut statement = tx
+                .prepare(&format!(
+                    "SELECT session_id FROM sessions
+                     WHERE COALESCE(updated_at, created_at) < ?1
+                       AND {terminal_state}
+                     ORDER BY COALESCE(updated_at, created_at), session_id
+                     LIMIT ?2"
+                ))
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to select expired sessions: {error}"))
+                })?;
+            let rows = statement
+                .query_map(params![cutoff, batch_size], |row| row.get::<_, String>(0))
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to read expired sessions: {error}"))
+                })?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|error| {
+                DatabaseError::Query(format!("failed to collect expired sessions: {error}"))
+            })?
+        };
+        if !session_ids.is_empty() {
+            let clause = sqlite_in_clause(session_ids.len());
+            for (table, count) in [
+                ("messages", &mut counts.messages),
+                ("tasks", &mut counts.tasks),
+                ("events", &mut counts.events),
+                ("permissions", &mut counts.permissions),
+            ] {
+                let sql = format!("SELECT COUNT(*) FROM {table} WHERE session_id IN ({clause})");
+                let value: i64 = tx
+                    .query_row(&sql, params_from_iter(session_ids.iter()), |row| row.get(0))
+                    .map_err(|error| {
+                        DatabaseError::Query(format!("failed to count expired {table}: {error}"))
+                    })?;
+                *count = (*count).saturating_add(value.max(0) as u64);
+            }
+            let deleted = sqlite_delete_ids(&tx, "sessions", "session_id", &session_ids)?;
+            counts.sessions = deleted as u64;
+        }
+
+        let message_rows: Vec<(String, String)> = {
+            let mut statement = tx
+                .prepare(
+                    "SELECT message_id, session_id FROM messages
+                          WHERE created_at < ?1
+                          ORDER BY created_at, message_id LIMIT ?2",
+                )
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to select expired messages: {error}"))
+                })?;
+            let rows = statement
+                .query_map(params![cutoff, batch_size], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to read expired messages: {error}"))
+                })?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|error| {
+                DatabaseError::Query(format!("failed to collect expired messages: {error}"))
+            })?
+        };
+        if !message_rows.is_empty() {
+            let message_ids: Vec<String> = message_rows.iter().map(|(id, _)| id.clone()).collect();
+            let mut affected_sessions = message_rows
+                .iter()
+                .map(|(_, session_id)| session_id.clone())
+                .collect::<Vec<_>>();
+            affected_sessions.sort_unstable();
+            affected_sessions.dedup();
+            counts.messages = counts.messages.saturating_add(sqlite_delete_ids(
+                &tx,
+                "messages",
+                "message_id",
+                &message_ids,
+            )? as u64);
+            for session_id in affected_sessions {
+                tx.execute(
+                    "UPDATE sessions SET message_count = (
+                        SELECT COUNT(*) FROM messages WHERE messages.session_id = sessions.session_id
+                    ) WHERE session_id = ?1",
+                    params![session_id],
+                )
+                .map_err(|error| DatabaseError::Query(format!("failed to refresh message count: {error}")))?;
+            }
+        }
+
+        let task_ids: Vec<String> = {
+            let mut statement = tx
+                .prepare(&format!(
+                    "SELECT task_id FROM tasks
+                     WHERE COALESCE(updated_at, created_at) < ?1
+                       AND {}
+                     ORDER BY COALESCE(updated_at, created_at), task_id LIMIT ?2",
+                    sqlite_terminal_state_sql("state")
+                ))
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to select expired tasks: {error}"))
+                })?;
+            let rows = statement
+                .query_map(params![cutoff, batch_size], |row| row.get::<_, String>(0))
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to read expired tasks: {error}"))
+                })?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|error| {
+                DatabaseError::Query(format!("failed to collect expired tasks: {error}"))
+            })?
+        };
+        counts.tasks = counts
+            .tasks
+            .saturating_add(sqlite_delete_ids(&tx, "tasks", "task_id", &task_ids)? as u64);
+
+        let event_ids: Vec<String> = {
+            let mut statement = tx
+                .prepare(
+                    "SELECT event_id FROM events WHERE created_at < ?1
+                          ORDER BY created_at, event_id LIMIT ?2",
+                )
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to select expired events: {error}"))
+                })?;
+            let rows = statement
+                .query_map(params![cutoff, batch_size], |row| row.get::<_, String>(0))
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to read expired events: {error}"))
+                })?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|error| {
+                DatabaseError::Query(format!("failed to collect expired events: {error}"))
+            })?
+        };
+        counts.events = counts
+            .events
+            .saturating_add(sqlite_delete_ids(&tx, "events", "event_id", &event_ids)? as u64);
+
+        let permission_ids: Vec<String> = {
+            let mut statement = tx
+                .prepare(&format!(
+                    "SELECT permission_request_id FROM permissions
+                     WHERE COALESCE(updated_at, created_at) < ?1
+                       AND {}
+                     ORDER BY COALESCE(updated_at, created_at), permission_request_id LIMIT ?2",
+                    sqlite_terminal_state_sql("status")
+                ))
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to select expired permissions: {error}"))
+                })?;
+            let rows = statement
+                .query_map(params![cutoff, batch_size], |row| row.get::<_, String>(0))
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to read expired permissions: {error}"))
+                })?;
+            rows.collect::<Result<Vec<_>, _>>().map_err(|error| {
+                DatabaseError::Query(format!("failed to collect expired permissions: {error}"))
+            })?
+        };
+        counts.permissions = counts.permissions.saturating_add(sqlite_delete_ids(
+            &tx,
+            "permissions",
+            "permission_request_id",
+            &permission_ids,
+        )? as u64);
+
+        tx.commit().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to commit runtime purge: {error}"))
+        })?;
+        Ok(counts)
+    }
+
+    fn schema_status(&self) -> DatabaseResult<RuntimeSchemaStatus> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let (version, count): (i64, i64) = conn
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0), COUNT(*) FROM agent_runtime_schema_migration_history",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|error| DatabaseError::Migration(format!("failed to read SQLite migration state: {error}")))?;
+        let structural = crate::schema_migrations::validate_sqlite_schema(&conn).is_ok();
+        Ok(RuntimeSchemaStatus {
+            version,
+            expected_version: CURRENT_SCHEMA_VERSION,
+            drift_free: structural
+                && version == CURRENT_SCHEMA_VERSION
+                && count == CURRENT_SCHEMA_VERSION,
+        })
+    }
+
+    fn run_maintenance(&self) -> DatabaseResult<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        conn.execute_batch("PRAGMA wal_checkpoint(PASSIVE); PRAGMA incremental_vacuum(1000);")
+            .map_err(|error| {
+                DatabaseError::Query(format!("failed to run SQLite maintenance: {error}"))
+            })
     }
 }
 
@@ -381,7 +632,7 @@ impl MessageRepository for SqliteDatabase {
             );
             values.push(after_message_id.to_string());
         }
-        sql.push_str(" ORDER BY created_at ASC");
+        sql.push_str(" ORDER BY created_at ASC, message_id ASC");
         let limit = resolve_list_limit(query.limit);
         let offset = resolve_list_offset(query.offset);
         sql.push_str(" LIMIT ? OFFSET ?");
@@ -399,6 +650,42 @@ impl MessageRepository for SqliteDatabase {
                 DatabaseError::Query(format!("failed to read message row: {error}"))
             })?);
         }
+        Ok(messages)
+    }
+
+    fn load_recent_messages(
+        &self,
+        session_id: &str,
+        limit: i64,
+    ) -> DatabaseResult<Vec<MessageRow>> {
+        let limit = resolve_history_limit(limit)?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let mut statement = conn
+            .prepare(
+                "SELECT message_id, session_id, role, content, created_at, metadata_json
+                 FROM messages
+                 WHERE session_id = ?1
+                 ORDER BY created_at DESC, message_id DESC
+                 LIMIT ?2",
+            )
+            .map_err(|error| {
+                DatabaseError::Query(format!("failed to prepare recent messages: {error}"))
+            })?;
+        let rows = statement
+            .query_map(params![session_id, limit], map_message_row)
+            .map_err(|error| {
+                DatabaseError::Query(format!("failed to load recent messages: {error}"))
+            })?;
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(row.map_err(|error| {
+                DatabaseError::Query(format!("failed to read recent message row: {error}"))
+            })?);
+        }
+        messages.reverse();
         Ok(messages)
     }
 
@@ -571,6 +858,7 @@ impl EventRepository for SqliteDatabase {
             sql.push_str(" AND severity = ?");
             values.push(severity.to_string());
         }
+        append_sqlite_event_scope(&mut sql, &mut values, query);
         if let Some(after_event_id) = query
             .after_event_id
             .as_deref()
@@ -631,7 +919,8 @@ impl EventRepository for SqliteDatabase {
             sql.push_str(" AND severity = ?");
             values.push(severity.to_string());
         }
-        sql.push_str(" ORDER BY created_at DESC");
+        append_sqlite_event_scope(&mut sql, &mut values, query);
+        sql.push_str(" ORDER BY created_at DESC, event_id DESC");
         let limit = resolve_list_limit(query.limit);
         let offset = resolve_list_offset(query.offset);
         sql.push_str(" LIMIT ? OFFSET ?");
@@ -666,6 +955,27 @@ impl EventRepository for SqliteDatabase {
         .map_err(|error| DatabaseError::Query(format!("failed to delete events: {error}")))?;
         Ok(())
     }
+}
+
+fn append_sqlite_event_scope(sql: &mut String, values: &mut Vec<String>, query: &EventQuery) {
+    if query.owner_tenant_id.is_none() && query.owner_user_ref.is_none() {
+        return;
+    }
+    sql.push_str(
+        " AND events.session_id IS NOT NULL
+          AND EXISTS (
+              SELECT 1 FROM sessions AS event_session
+              WHERE event_session.session_id = events.session_id",
+    );
+    if let Some(owner_tenant_id) = query.owner_tenant_id.as_deref() {
+        sql.push_str(" AND event_session.owner_tenant_id = ?");
+        values.push(owner_tenant_id.to_string());
+    }
+    if let Some(owner_user_ref) = query.owner_user_ref.as_deref() {
+        sql.push_str(" AND event_session.owner_user_ref = ?");
+        values.push(owner_user_ref.to_string());
+    }
+    sql.push(')');
 }
 
 fn map_permission_row(row: &Row<'_>) -> rusqlite::Result<PermissionRow> {
@@ -746,7 +1056,15 @@ impl PermissionRepository for SqliteDatabase {
             sql.push_str(" AND status = ?");
             values.push(status.to_string());
         }
-        sql.push_str(" ORDER BY created_at DESC");
+        if let Some(owner_tenant_id) = query.owner_tenant_id.as_deref() {
+            sql.push_str(" AND owner_tenant_id = ?");
+            values.push(owner_tenant_id.to_string());
+        }
+        if let Some(owner_user_ref) = query.owner_user_ref.as_deref() {
+            sql.push_str(" AND owner_user_ref = ?");
+            values.push(owner_user_ref.to_string());
+        }
+        sql.push_str(" ORDER BY created_at DESC, permission_request_id DESC");
         let limit = resolve_list_limit(query.limit);
         let offset = resolve_list_offset(query.offset);
         sql.push_str(" LIMIT ? OFFSET ?");
@@ -792,6 +1110,58 @@ impl PermissionRepository for SqliteDatabase {
 }
 
 impl RuntimeSessionWrites for SqliteDatabase {
+    fn save_session_with_event(
+        &self,
+        session: &SessionRow,
+        event: &EventRow,
+    ) -> DatabaseResult<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let tx = conn.unchecked_transaction().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+        })?;
+        tx.execute(
+            crate::upsert_sql::sqlite::SAVE_SESSION,
+            params![
+                session.session_id,
+                session.agent_id,
+                session.kind,
+                session.source,
+                session.state,
+                session.title,
+                session.model,
+                session.cwd,
+                session.provider_id,
+                session.bridge_id,
+                session.token_usage_json,
+                session.message_count,
+                session.owner_tenant_id,
+                session.owner_user_ref,
+                session.created_at,
+                session.updated_at,
+                session.metadata_json,
+            ],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to save session: {error}")))?;
+        tx.execute(
+            crate::upsert_sql::sqlite::SAVE_EVENT,
+            params![
+                event.event_id,
+                event.session_id,
+                event.event_type,
+                event.severity,
+                event.payload,
+                event.created_at,
+            ],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to save event: {error}")))?;
+        tx.commit().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to commit session event: {error}"))
+        })
+    }
+
     fn append_message_with_event(
         &self,
         message: &MessageRow,
@@ -914,6 +1284,43 @@ impl RuntimeSessionWrites for SqliteDatabase {
             DatabaseError::Transaction(format!("failed to commit transaction: {error}"))
         })?;
         Ok(())
+    }
+
+    fn save_task_with_event(&self, task: &TaskRow, event: &EventRow) -> DatabaseResult<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let tx = conn.unchecked_transaction().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+        })?;
+        tx.execute(
+            crate::upsert_sql::sqlite::SAVE_TASK,
+            params![
+                task.task_id,
+                task.session_id,
+                task.instruction,
+                task.state,
+                task.created_at,
+                task.updated_at,
+            ],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to save task: {error}")))?;
+        tx.execute(
+            crate::upsert_sql::sqlite::SAVE_EVENT,
+            params![
+                event.event_id,
+                event.session_id,
+                event.event_type,
+                event.severity,
+                event.payload,
+                event.created_at,
+            ],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to save event: {error}")))?;
+        tx.commit().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to commit task event: {error}"))
+        })
     }
 }
 

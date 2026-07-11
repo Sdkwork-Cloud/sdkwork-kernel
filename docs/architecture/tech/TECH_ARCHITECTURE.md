@@ -2,8 +2,8 @@
 
 Status: active
 Owner: SDKWork kernel maintainers
-Updated: 2026-07-08
-Specs: [ARCHITECTURE_DECISION_SPEC.md](../../../sdkwork-specs/ARCHITECTURE_DECISION_SPEC.md), [DOCUMENTATION_SPEC.md](../../../sdkwork-specs/DOCUMENTATION_SPEC.md), [RUST_CODE_SPEC.md](../../../sdkwork-specs/RUST_CODE_SPEC.md), [INTERNAL_API_SPEC.md](../../../sdkwork-specs/INTERNAL_API_SPEC.md), [SECURITY_SPEC.md](../../../sdkwork-specs/SECURITY_SPEC.md)
+Updated: 2026-07-11
+Specs: [ARCHITECTURE_DECISION_SPEC.md](../../../sdkwork-specs/ARCHITECTURE_DECISION_SPEC.md), [DOCUMENTATION_SPEC.md](../../../sdkwork-specs/DOCUMENTATION_SPEC.md), [RUST_CODE_SPEC.md](../../../sdkwork-specs/RUST_CODE_SPEC.md), [INTERNAL_API_SPEC.md](../../../sdkwork-specs/INTERNAL_API_SPEC.md), [SECURITY_SPEC.md](../../../sdkwork-specs/SECURITY_SPEC.md), [HEALTH_CHECK_SPEC.md](../../../sdkwork-specs/HEALTH_CHECK_SPEC.md), [DEPLOYMENT_SPEC.md](../../../sdkwork-specs/DEPLOYMENT_SPEC.md)
 
 ## Document Map
 
@@ -181,7 +181,7 @@ TypeScript SDK is regenerated via `node sdks/workspace-agent-sdkgen.mjs --mode a
 | `runtime.sessions.create/list` | POST/GET | `/sessions` | `create_session` / `list_sessions` |
 | `runtime.sessions.retrieve/delete` | GET/DELETE | `/sessions/{sessionId}` | `get_session` / delete |
 | `runtime.sessions.close` | POST | `/sessions/{sessionId}/close` | `close_session` |
-| `runtime.sessions.messages.send/list` | POST/GET | `/sessions/{sessionId}/messages` | `send_message` / message query |
+| `runtime.sessions.messages.send/list` | POST/GET | `/sessions/{sessionId}/messages` | `send_message` returns a completed `MessageTurnResponse`; list uses cursor-only keyset paging |
 | `runtime.sessions.tasks.submit/list` | POST/GET | `/sessions/{sessionId}/tasks` | `create_task` / `list_tasks` |
 | `runtime.tasks.retrieve` | GET | `/tasks/{taskId}` | `get_task` |
 | `runtime.tasks.cancel` | POST | `/tasks/{taskId}/cancel` | `cancel_task` |
@@ -197,6 +197,12 @@ The infrastructure probes used by load balancers and orchestrators are
 `/healthz`, `/readyz`, and `/livez`; they intentionally return minimal probe
 bodies. Internal runtime `/health` combines runtime state with persistence
 health and may return `503` with `application/problem+json` when degraded.
+
+`POST /sessions/{sessionId}/messages` returns `201 Created` with the standard
+`SdkWorkApiResponse.data.item` envelope. Its item contains required
+`userMessage`, optional `assistantMessage`, and `status: "completed"`, so SDK
+consumers receive the completed persisted turn instead of only the submitted
+user message.
 
 ### SDK families
 
@@ -273,8 +279,9 @@ classification of each operation.
 - `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1` is development-only.
 - Transport `prepare()` health determines router attachment.
 - SDK workers reject fail-open invoke paths when spawn or negotiation fails.
-- **Rate limiter**: Redis failures fall back to in-process token buckets
-  (fail-closed) rather than allowing requests unconditionally.
+- **Rate limiter**: Multi-replica production uses Redis-backed enforcement and
+  denies requests when Redis fails. Bounded in-process buckets are limited to
+  non-distributed profiles; they are not a production cluster fallback.
 - **Tenant token quota**: Uses an atomic **reserve-and-adjust** pattern
   (Redis Lua script) to eliminate the TOCTOU race between quota check and
   usage recording. Reservation is capped by the tenant's configured daily
@@ -289,16 +296,16 @@ classification of each operation.
 - **Token fingerprint**: Rate-limit keys for unauthenticated clients use
   SHA-256 (via `sdkwork-utils-rust`) instead of `DefaultHasher`, ensuring
   stable, platform-independent fingerprints.
-- **Metrics/Ingress token separation**: Metrics auth no longer auto-falls
-  back to the ingress token; a preflight warning is emitted when the same
-  token is reused.
+- **Metrics/Ingress token separation**: Metrics auth never falls back to the
+  ingress token. Production preflight fails when the dedicated metrics token
+  is missing, and deployment policy requires separate credentials.
 - **Security headers**: CSP, HSTS, `X-Content-Type-Options`,
   `X-Frame-Options`, `Referrer-Policy`, and `Permissions-Policy` are set
   on every response.
 - **RFC 9457 Problem Details**: All middleware-layer error responses
   (auth failures, rate limiting, identity resolution) return structured
-  `application/problem+json` bodies with `type`, `title`, `status`,
-  `detail`, and `requestId` fields for machine-readable error handling.
+  `application/problem+json` bodies with `type`, `title`, `status`, numeric
+  `code`, and `traceId` for machine-readable error handling.
 - **SQLite production guard**: Preflight check `runtime_sqlite_scaling`
   returns `Failed` (not `Warning`) when SQLite is selected for production
   scale-out deployments, preventing data corruption from RWO PVC
@@ -310,6 +317,9 @@ classification of each operation.
 - Client remote mode: `sdkwork-agent-client/src/ingress_auth.rs` aligned with server.
 - Request IDs use UUID v7 (time-ordered, collision-resistant) instead of
   nanosecond timestamps.
+- Infrastructure probes are mounted through
+  `sdkwork-web-bootstrap::service_router`; the persistence readiness adapter is
+  the current framework readiness dependency.
 - Permission decisions are persisted to the database `permissions` table,
   surviving server restarts.
 
@@ -332,26 +342,33 @@ Application identity: `sdkwork.app.config.json` (`app.key: sdkwork-kernel`).
 | `standalone.development` | Local dev | May allow mock providers |
 | `standalone.production` | Private/self-contained production | `SDKWORK_KERNEL_AGENT_PLUGIN=rig`, Postgres, token ingress |
 | `cloud.development` | Cloud topology validation | Managed-service URL shape, staging credentials |
-| `cloud.production` | Production cloud | `SDKWORK_KERNEL_AGENT_PLUGIN=rig`, Postgres, Redis, token ingress |
+| `cloud.production` | Production cloud | `SDKWORK_KERNEL_AGENT_PLUGIN=rig`, managed HA Postgres/Redis, dedicated ingress/metrics secrets |
 
 Server plugin selection and client bridge builtins: [TECH-01-kernel-module-reference.md §5–6](TECH-01-kernel-module-reference.md#5-client-bridge-builtins).
 
 Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
 
-### Production HA posture
+### Production Deployment Controls And Release Gates
 
 - **PostgreSQL enforcement**: Production scale-out deployments must use
   PostgreSQL for session persistence. The preflight check
   `runtime_sqlite_scaling` fails if SQLite is selected, preventing
   RWO PVC data corruption across replicas.
-- **PodDisruptionBudget**: `minAvailable: 1` ensures at least one replica
-  stays available during voluntary disruptions.
-- **Pod anti-affinity**: Soft anti-affinity on `kubernetes.io/hostname`
-  spreads pods across nodes for fault isolation.
-- **Topology spread constraints**: `maxSkew: 1` on
-  `topology.kubernetes.io/zone` ensures cross-zone distribution.
+- **Data-plane HA**: Production uses managed HA PostgreSQL and managed HA
+  Redis (or operator-managed equivalents) with backup/restore and failover
+  evidence. `deployments/kubernetes/postgres-redis.yaml` is intentionally a
+  single-node local/staging fixture and is excluded from production rollout.
+- **PodDisruptionBudget**: The production baseline uses `minAvailable: 2`
+  with three initial replicas. Availability still depends on verified node,
+  zone, ingress, and managed-service redundancy in the target cluster.
+- **Pod anti-affinity**: Required anti-affinity on
+  `kubernetes.io/hostname` prevents production replicas from sharing a node.
+- **Topology spread constraints**: `maxSkew: 1` with `DoNotSchedule` on
+  `topology.kubernetes.io/zone` fails closed when the cluster cannot satisfy
+  the declared zone distribution.
 - **Probes**: Startup, readiness, and liveness probes are all configured.
-  Readiness checks validate database connectivity.
+  Framework readiness currently validates persistence connectivity; Redis and
+  provider-runtime failover remain explicit release-environment checks.
 - **Graceful shutdown**: `shutdown_signal()` returns immediately on
   SIGTERM/SIGINT, allowing axum to start draining in-flight requests.
   A `select!` with `force_close_timer()` enforces a 25-second hard
@@ -363,14 +380,26 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
 - **SSE connection limit**: Maximum 256 concurrent SSE streams per server
   instance to prevent resource exhaustion. An `AtomicU32` counter with
   `CountedStream` ensures accurate decrement even on abrupt disconnect.
-- **HPA**: Scales 2–6 replicas based on CPU and memory utilization with
-  stabilization windows for scale-up (30 s) and scale-down (300 s).
-  Custom metric annotations document Prometheus-exported metric names
-  for optional prometheus-adapter integration.
-- **NetworkPolicy**: Restricts ingress to the ingress controller and kubelet;
-  egress limited to DNS, HTTPS, Redis, PostgreSQL, and OTEL collector.
+- **HPA**: The manifest baseline is 3 to 20 replicas using CPU and memory with
+  stabilization windows. This is not a capacity claim; enabling the
+  `sdkwork_kernel_sse_active_connections` metric requires a verified metrics
+  adapter mapping and target-environment load evidence.
+- **NetworkPolicy**: The base policy admits only explicitly labelled ingress
+  and monitoring namespaces, DNS, public HTTPS, and labelled same-namespace
+  data/OTLP services. Managed external PostgreSQL, Redis, and private OTLP
+  require an environment-owned exact-CIDR or approved CNI/FQDN overlay.
 - **PreStop hook**: 5-second sleep to allow load balancer deregistration
   before the container receives SIGTERM.
+- **Container hardening**: Production pods disable service-account token
+  mounting, drop Linux capabilities, use the runtime-default seccomp profile,
+  run non-root with a read-only root filesystem, and bound writable temporary
+  volumes and ephemeral storage.
+- **Immutable rollout**: Production release identity is an OCI digest. The
+  checked-in version tag is a convenience placeholder and must be replaced by
+  the verified digest before apply; `latest` is forbidden.
+- **Compose boundary**: `docker-compose.cloud.yml` contains only the stateless
+  server and requires external secret injection plus managed PostgreSQL/Redis.
+  It is a single-instance smoke/pilot handoff, not an HA production stack.
 
 ### Performance architecture
 
@@ -399,22 +428,29 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
   rule across SQLite, PostgreSQL, and the typed in-memory test adapter.
 - **Rate limiter**: O(1) LRU eviction via insertion-order queue instead of
   O(n) scan.
-- **SSE events**: Replay events are assigned sequential indices 0..N,
-  and live events continue from N onward within a single connection.
-  Clients use `event_id` for deduplication across reconnections.
+- **SSE events**: The handler subscribes before persistence replay, uses the
+  process-local broadcast path for low latency, and polls the durable store in
+  bounded batches to recover cross-pod and lagged events. Each connection has
+  a bounded output channel; clients use persisted `event_id` values, not the
+  connection-local sequence, for deduplication and reconnection.
 - **SSE connection cap**: `AtomicU32` counter enforces a per-server
   maximum of 256 concurrent streams with RAII decrement via
   `CountedStream`.
 - **Model stream provider state**: In-memory stream provider slots are released
   by `finalize_stream`, so completed streams do not keep occupying
   `max_concurrent` capacity in long-running runtimes.
-- **Token quota**: Atomic Lua-script-based reservation eliminates the
-  TOCTOU race; pre-reserved tokens are adjusted to actual usage after
-  model invocation completes using the same bounded reservation amount.
-  Zero-quota tenants fail before invocation and do not accrue adjustment usage.
-- **List pagination**: List endpoints use `page` and `page_size` query parameters
-  (default page size 20, max 200) with offset-mode `PageInfo` in
-  `SdkWorkApiResponse` envelopes per `PAGINATION_SPEC.md`.
+- **Token quota**: Atomic Lua-script-based reservation eliminates the TOCTOU
+  race. Reservations are released on provider failure/cancellation and
+  reconciled exactly once on completion or disconnect; provider-reported usage
+  is used when available, otherwise the conservative reservation is charged.
+  Zero-quota tenants fail before invocation.
+- **List pagination**: Session/message/task lists are cursor-only. Clients omit
+  `cursor` on the first request and pass through `data.pageInfo.nextCursor` for
+  each continuation; `page` and offset pagination are not accepted by these
+  operations. HMAC-signed, versioned, resource-scoped cursors drive bounded SQL
+  keyset queries. `page_size` defaults to 20, rejects values outside `1..=200`,
+  and each query fetches at most `page_size + 1` rows to determine `hasMore`
+  and `nextCursor` per `PAGINATION_SPEC.md`.
 - **sdkwork-utils-rust**: Shared utility library provides SHA-256,
   HMAC, AES-256-GCM, HKDF, and ID generation to reduce cross-crate
   code duplication.

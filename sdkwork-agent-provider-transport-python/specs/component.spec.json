@@ -16,9 +16,9 @@
   },
   "canonicalSpecs": [
     {
-      "file": "AGENT_SDK_SPI_SPEC.md",
-      "path": "../specs/AGENT_SDK_SPI_SPEC.md",
-      "purpose": "External agent SDK adaptation SPI rules."
+      "file": "AGENT_PROVIDER_INTEGRATION_SPEC.md",
+      "path": "../specs/AGENT_PROVIDER_INTEGRATION_SPEC.md",
+      "purpose": "External agent provider integration and transport rules."
     },
     {
       "file": "COMPONENT_SPEC.md",
@@ -55,7 +55,8 @@
     "configKeys": [
       "SDKWORK_KERNEL_PROFILE_ID",
       "SDKWORK_KERNEL_ENVIRONMENT",
-      "SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS"
+      "SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS",
+      "SDKWORK_PROVIDER_WORKER_MAX_CONCURRENCY"
     ]
   },
   "verification": {

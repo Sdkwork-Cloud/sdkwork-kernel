@@ -1,5 +1,5 @@
 import type { SdkWorkPageData } from './sdk-work-page-data';
-import type { TaskItemResponse } from './task-item-response';
+import type { TaskResponse } from './task-response';
 
 /** Paginated session task list following SdkWorkApiResponse envelope. */
 export interface TaskListResponse {

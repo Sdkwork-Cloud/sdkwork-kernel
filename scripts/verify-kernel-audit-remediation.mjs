@@ -38,6 +38,8 @@ const commands = [
   ['node', ['scripts/check-agent-sdk-workspace.mjs']],
   ['node', ['--test', 'scripts/dev/sdkwork-kernel-utils-standard.test.mjs']],
   ['node', ['scripts/provider-transport-workers/engine-sdk-live.test.mjs']],
+  ['node', ['--test', 'scripts/provider-transport-workers/codex-cli-live.test.mjs']],
+  ['node', ['--test', 'scripts/provider-transport-workers/provider-cli-live.test.mjs']],
   ['node', ['scripts/provider-transport-workers/engine-sdk-live-staging.test.mjs']],
   ['node', ['scripts/provider-transport-workers/generic-ts-sdk-worker.test.mjs']],
   ['node', ['scripts/provider-transport-workers/generic-python-sdk-worker.test.mjs']],

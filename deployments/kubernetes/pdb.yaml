@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/name: sdkwork-agent-server
     app.kubernetes.io/part-of: sdkwork-kernel
 spec:
-  minAvailable: 1
+  minAvailable: 2
   selector:
     matchLabels:
       app.kubernetes.io/name: sdkwork-agent-server

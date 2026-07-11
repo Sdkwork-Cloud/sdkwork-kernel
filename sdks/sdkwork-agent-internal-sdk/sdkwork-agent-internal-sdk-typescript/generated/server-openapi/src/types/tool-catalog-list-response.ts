@@ -1,4 +1,5 @@
 import type { SdkWorkPageData } from './sdk-work-page-data';
+import type { ToolDescriptor } from './tool-descriptor';
 
 /** Tool catalog SdkWorkApiResponse page envelope. */
 export interface ToolCatalogListResponse {

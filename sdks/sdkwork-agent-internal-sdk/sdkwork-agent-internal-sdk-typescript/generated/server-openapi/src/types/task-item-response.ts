@@ -1,4 +1,5 @@
 import type { SdkWorkResourceData } from './sdk-work-resource-data';
+import type { TaskResponse } from './task-response';
 
 /** Task resource SdkWorkApiResponse envelope. */
 export interface TaskItemResponse {

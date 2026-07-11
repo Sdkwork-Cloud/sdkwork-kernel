@@ -1,5 +1,4 @@
 use crate::error::DatabaseResult;
-use crate::schema_migrations::migrate_sqlite;
 use crate::traits::AgentDatabase;
 
 /// Schema manager for SQLite database migrations.
@@ -12,8 +11,8 @@ impl SchemaManager {
         Self { db }
     }
 
-    /// Run all migrations from the canonical SQLite migration file.
+    /// Run the backend's versioned migration authority.
     pub fn migrate(&self) -> DatabaseResult<()> {
-        migrate_sqlite(self.db.as_ref())
+        self.db.migrate_schema()
     }
 }

@@ -1,18 +1,35 @@
-# Production rollout runbook
+# Production Rollout Runbook
 
-Owner: SDKWork kernel maintainers.
+Owner: SDKWork kernel maintainers
+Scope: `cloud.production` runtime (`sdkwork-agent-server`)
+
+This runbook is a release and operations gate. The repository does not claim
+commercial production readiness until every required item below is evidenced
+in the target environment. `kubernetes/postgres-redis.yaml` is a local or
+staging smoke fixture only; it is never a production data plane.
 
 ## Preconditions
 
-- Topology profile: `cloud.production` (`configs/topology/cloud.production.env`)
-- `SDKWORK_KERNEL_INGRESS_TOKEN` provisioned in secret manager (never in git)
-- Managed HA Postgres (or operator-managed equivalent) with backups, restore testing, failover monitoring, and `SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres` plus `SDKWORK_AGENT_RUNTIME_DATABASE_URL` or `SDKWORK_AGENT_RUNTIME_POSTGRES_URI`
-- Managed HA Redis (or operator-managed equivalent) with authentication, failover monitoring, and `SDKWORK_RATE_LIMIT_REDIS_URL` or `SDKWORK_REDIS_URL` for distributed rate limiting across replicas
-- `SDKWORK_KERNEL_AGENT_PLUGIN=rig` (production default; see `configs/topology/cloud.production.env`)
-- Optional: `SDKWORK_KERNEL_METRICS_TOKEN` (defaults to ingress token when unset)
-- Optional: `SDKWORK_OTEL_EXPORTER_OTLP_ENDPOINT` for distributed tracing
+- Use topology profile `cloud.production` or an approved customer equivalent.
+- Provision unique ingress and metrics credentials through the environment
+  secret manager. `SDKWORK_KERNEL_METRICS_TOKEN` must not reuse the ingress
+  token.
+- Provision managed HA PostgreSQL across failure domains with TLS,
+  least-privilege credentials, backups/PITR, restore evidence, failover
+  monitoring, and tested connection limits.
+- Provision managed HA Redis with authentication, TLS where supported,
+  failover monitoring, and capacity alarms. Redis is required for distributed
+  rate limits and token quotas.
+- Set `SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres`, inject
+  `SDKWORK_AGENT_RUNTIME_DATABASE_URL` and `SDKWORK_RATE_LIMIT_REDIS_URL`, and
+  keep `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS` unset.
+- Pass the approved provider runtime staging live gate.
 
-## Build and supply-chain evidence
+Checked-in production topology files intentionally leave all secret-bearing
+values empty. The server must fail closed when required secret injection is
+missing.
+
+## Release Evidence
 
 ```bash
 pnpm verify
@@ -23,61 +40,126 @@ node scripts/release/generate-kernel-checksums.mjs
 node scripts/release/validate-release-artifacts.mjs
 ```
 
-`pnpm verify:commercial` is the production promotion gate. It fails closed unless
-`SDKWORK_AGENT_RUNTIME_POSTGRES_URI` points at a live runtime Postgres database
-and staging SDK credentials are available for the opt-in live SDK gate.
+Record the exact immutable OCI digest, SBOM, provenance/attestation,
+base-image trace, checksums, deployment profile, runtime target, and rollback
+digest. A mutable tag such as `latest` is not release identity.
 
-## Container rollout
+## Compose Smoke Or Pilot
 
-```bash
-docker compose -f deployments/docker/docker-compose.cloud.yml up -d --build
-curl -fsS "${SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL}/healthz"
+`docker-compose.cloud.yml` starts only `agent-server` and connects to external
+managed PostgreSQL and Redis. It is single-instance and does not provide HA,
+failover, or zero-downtime rollout.
+
+Required protected values:
+
+```text
+SDKWORK_AGENT_SERVER_IMAGE=registry.example.invalid/sdkwork-agent-server@sha256:<verified-digest>
+SDKWORK_KERNEL_INGRESS_TOKEN=<secret>
+SDKWORK_KERNEL_METRICS_TOKEN=<dedicated-secret>
+SDKWORK_CORS_ORIGINS=<explicit-allowlist>
+SDKWORK_AGENT_RUNTIME_DATABASE_URL=<managed-postgresql-url>
+SDKWORK_RATE_LIMIT_REDIS_URL=<managed-redis-url>
 ```
 
-Compose starts PostgreSQL, Redis, and `agent-server` with shared runtime persistence and Redis-backed rate limits.
+```bash
+docker compose -f deployments/docker/docker-compose.cloud.yml config --quiet
+docker compose -f deployments/docker/docker-compose.cloud.yml up -d
+curl -fsS "${SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL}/healthz"
+curl -fsS "${SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL}/readyz"
+```
 
-## Kubernetes rollout
+Use Kubernetes or an equivalent orchestrator for commercial multi-instance
+deployment.
 
-1. Provision managed HA Postgres and managed HA Redis. `deployments/kubernetes/postgres-redis.yaml` is a single-node local/staging smoke reference only and must not be used as the production data plane.
-2. Create secret `sdkwork-agent-server` with keys:
+## Kubernetes Rollout
+
+1. Provision the managed data services and record TLS, backup/restore,
+   failover, monitoring, and capacity evidence.
+2. Configure an ExternalSecret, SealedSecret, or platform secret binding named
+   `sdkwork-agent-server` with these required keys:
+
    - `ingress-token`
-   - optional `metrics-token`
-   - `runtime-postgres-password` (when using bundled Postgres manifest)
-   - `runtime-database-url` — e.g. `postgresql://sdkwork:<password>@sdkwork-agent-runtime-postgres:5432/sdkwork_agent_runtime`
-   - `runtime-redis-password` (when using bundled Redis manifest)
-   - `runtime-redis-url` — e.g. `redis://:<password>@sdkwork-agent-runtime-redis:6379/0`
-3. Apply manifests in order: `configmap.yaml`, `deployment.yaml`, `service.yaml`, `hpa.yaml`.
-4. Verify infrastructure probes: `/healthz`, `/readyz`, `/livez`.
-5. Scrape metrics with bearer token: `GET /metrics` + `Authorization: Bearer <metrics-token>`.
-6. Confirm operational gauges:
-   - `sdkwork_kernel_runtime_persistence_backend_info{backend="postgres"} 1`
-   - `sdkwork_kernel_rate_limit_backend_info{backend="redis"} 1`
+   - `metrics-token`
+   - `runtime-database-url`
+   - `runtime-redis-url`
+
+   `runtime-postgres-password` and `runtime-redis-password` are only for the
+   local/staging fixture and must not be used by production.
+3. Label the approved ingress and monitoring namespaces:
+
+   ```bash
+   kubectl label namespace <ingress-namespace> sdkwork.com/agent-server-ingress=true --overwrite
+   kubectl label namespace <monitoring-namespace> sdkwork.com/agent-server-monitoring=true --overwrite
+   ```
+
+4. Apply an environment-owned NetworkPolicy overlay restricted to the exact
+   managed PostgreSQL, Redis, and private OTLP destinations. Standard
+   NetworkPolicy cannot safely select external managed services by DNS name;
+   use the approved CNI/FQDN or fixed-CIDR policy. Never allow database ports
+   to `0.0.0.0/0`.
+5. Replace the convenience image tag in `deployment.yaml` with the verified
+   immutable digest and apply the production manifests:
+
+   ```bash
+   kubectl apply -f deployments/kubernetes/configmap.yaml
+   kubectl set image -f deployments/kubernetes/deployment.yaml \
+     agent-server="${SDKWORK_AGENT_SERVER_IMAGE}" --local -o yaml | kubectl apply -f -
+   kubectl apply -f deployments/kubernetes/service.yaml
+   kubectl apply -f deployments/kubernetes/networkpolicy.yaml
+   kubectl apply -f deployments/kubernetes/pdb.yaml
+   kubectl apply -f deployments/kubernetes/hpa.yaml
+   kubectl -n <namespace> rollout status deployment/sdkwork-agent-server
+   ```
+
+   Do not apply `kubernetes/postgres-redis.yaml` or `kubernetes/pvc.yaml` to a
+   production namespace.
+6. Verify three initial replicas are spread across required nodes/zones, no pod
+   uses `:latest`, and any custom metrics adapter exposes the exact
+   `sdkwork_kernel_*` names from `hpa.yaml`.
+7. Verify probes and metrics through approved network paths:
+
+   ```bash
+   curl -fsS "${SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL}/healthz"
+   curl -fsS "${SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL}/readyz"
+   curl -fsS "${SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL}/livez"
+   curl -fsS -H "Authorization: Bearer ${SDKWORK_KERNEL_METRICS_TOKEN}" \
+     "${SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL}/metrics"
+   ```
+
+Confirm `sdkwork_kernel_runtime_persistence_backend_info{backend="postgres"}`
+and `sdkwork_kernel_rate_limit_backend_info{backend="redis"}` are present.
+Readiness currently proves persistence availability; separately verify Redis
+failover and the provider runtime before promotion.
 
 ## Rollback
 
-- Kubernetes: `kubectl rollout undo deployment/sdkwork-agent-server`
+- Kubernetes: redeploy the previous immutable digest, run
+  `kubectl -n <namespace> rollout undo deployment/sdkwork-agent-server`, and
+  repeat probes, metrics, and provider smoke checks.
+- Compose/pilot: redeploy the previous immutable digest, never a mutable tag.
+- A non-backward-compatible database migration requires its documented
+  forward-fix plan; image rollback is not data rollback.
+- Stop rollout on readiness failures, elevated 5xx/auth failures, Redis
+  failover errors, quota inconsistencies, or SSE disconnect regression.
 
-## Staging plugin validation (optional)
+## Scaling And Resilience
 
-Before switching production away from `SDKWORK_KERNEL_AGENT_PLUGIN=rig`, validate alternate plugins on a development/staging profile:
+- HPA 3 to 20 is a baseline, not a capacity guarantee. Run target-environment
+  load tests for concurrent SSE, cancellation, rate limits, quota reservation,
+  and database pool saturation before setting customer limits.
+- Capacity planning must include the per-pod SSE cap, connection churn, event
+  replay queries, and PostgreSQL/Redis limits.
+- Exercise application-pod, node, and zone loss; PostgreSQL failover/restore;
+  Redis failover; secret rotation; and graceful shutdown before promotion.
 
-1. Set `SDKWORK_KERNEL_AGENT_PLUGIN` to `openclaw`, `hermes`, or `codex` in the staging topology env file.
-2. Run `pnpm verify` on the candidate build.
-3. Exercise live upstream prerequisites documented in [TECH-2026-06-14-multi-mode-agent-system.md](../../docs/architecture/tech/TECH-2026-06-14-multi-mode-agent-system.md) (OpenClaw gateway URL, Hermes tui_gateway, Codex SDK worker).
-4. Confirm session create accepts the plugin's hosted `agentId` via internal-api runtime routes.
+## Verification Record
 
-Production remains locked to `rig` in all `*.production.env` profiles unless an explicit product decision changes that policy.
-- Docker Compose: redeploy previous image digest; Postgres data remains in the `postgres` volume
-
-## Scaling
-
-- Runtime sessions persist in **PostgreSQL**; horizontal pod autoscaling (`hpa.yaml`, max 3) is supported when all replicas share the same database URL.
-- Rate limits are **shared via Redis**; do not rely on per-replica in-memory buckets in production cloud profiles.
-- Gateway-level abuse protection remains recommended in addition to kernel Redis limits.
-
-## Verification
+Record command output, image/config digests, dashboard links, and operator
+approval in the target package release evidence. At minimum run:
 
 - `pnpm test:topology-smoke`
 - `pnpm verify:commercial`
+- `node --test tests/kernel_deployment_release.test.mjs`
 - `cargo test --test http_internal_runtime_contracts --manifest-path sdkwork-agent-server/Cargo.toml`
-- Live Postgres: `SDKWORK_AGENT_RUNTIME_POSTGRES_URI=... cargo test --features postgres-sync --test agent_runtime_postgres_contracts --manifest-path sdkwork-agent-database/Cargo.toml`
+- the live PostgreSQL contract with `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` set in
+  the protected release environment

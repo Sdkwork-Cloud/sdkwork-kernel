@@ -4,13 +4,24 @@ use sdkwork_agent_provider_spi::{
     SdkRuntimeRequest, SdkRuntimeResponse,
 };
 use sdkwork_agent_provider_transport_ipc::{
-    FailClosedJsonRpcTransport, JsonRpcTransport, PackageStubJsonRpcTransport, SpawnedWorker,
+    provider_worker_concurrency_limit, FailClosedJsonRpcTransport, JsonRpcTransport,
+    PackageStubJsonRpcTransport, SpawnedWorker, SpawnedWorkerLease, SpawnedWorkerPool,
     TransportError, SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_PING_METHOD,
 };
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::time::Duration;
+
+const WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
+const HEALTH_WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(2);
+
+const NODE_BINARY_ENV: &str = "SDKWORK_AGENT_NODE_BINARY";
+const WORKER_SCRIPT_ENV: &str = "SDKWORK_AGENT_TYPESCRIPT_WORKER_SCRIPT";
+const PROVIDER_RUNTIME_ROOT_ENV: &str = "SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT";
+const PROVIDER_RUNTIME_DIR_NAME: &str = "provider-runtime";
+const TYPESCRIPT_WORKER_RELATIVE_PATH: &str = "workers/generic-ts-sdk-worker.mjs";
 
 #[derive(Debug, Clone)]
 pub struct NodeWorkerLaunchOptions {
@@ -22,25 +33,115 @@ pub struct NodeWorkerLaunchOptions {
 impl NodeWorkerLaunchOptions {
     pub fn for_package(package_name: impl Into<String>) -> Self {
         Self {
-            node_binary: "node".to_string(),
+            node_binary: default_node_binary(),
             worker_script: default_typescript_worker_script(),
             package_name: package_name.into(),
         }
     }
 }
 
+/// Resolves the Node executable used by the provider worker.
+///
+/// Release packages set `SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT` (or place a
+/// `provider-runtime` directory beside the executable). Development builds
+/// continue to use the host `node` command when no packaged runtime exists.
+pub fn default_node_binary() -> String {
+    if let Some(configured) = std::env::var_os(NODE_BINARY_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+    {
+        return configured.to_string_lossy().into_owned();
+    }
+
+    if let Some(root) = provider_runtime_root() {
+        if let Some(binary) = bundled_node_binary(&root) {
+            return binary.to_string_lossy().into_owned();
+        }
+    }
+
+    "node".to_string()
+}
+
 pub fn default_typescript_worker_script() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../scripts/provider-transport-workers/generic-ts-sdk-worker.mjs")
+    if let Some(configured) = std::env::var_os(WORKER_SCRIPT_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+    {
+        return configured;
+    }
+
+    if let Some(root) = provider_runtime_root() {
+        return root.join(TYPESCRIPT_WORKER_RELATIVE_PATH);
+    }
+
+    // Keep repository-relative source paths out of release binaries. The
+    // fallback is retained for debug/test builds where the sibling kernel
+    // checkout is available.
+    #[cfg(debug_assertions)]
+    {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../scripts/provider-transport-workers/generic-ts-sdk-worker.mjs")
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        PathBuf::from(PROVIDER_RUNTIME_DIR_NAME).join(TYPESCRIPT_WORKER_RELATIVE_PATH)
+    }
+}
+
+fn provider_runtime_root() -> Option<PathBuf> {
+    if let Some(configured) = std::env::var_os(PROVIDER_RUNTIME_ROOT_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+    {
+        return Some(configured);
+    }
+
+    let executable = std::env::current_exe().ok()?;
+    let mut ancestors = executable.parent();
+    while let Some(directory) = ancestors {
+        let candidates = [
+            directory.join(PROVIDER_RUNTIME_DIR_NAME),
+            directory.join("resources").join(PROVIDER_RUNTIME_DIR_NAME),
+            directory.join("Resources").join(PROVIDER_RUNTIME_DIR_NAME),
+            directory
+                .join("share")
+                .join("sdkwork-birdcoder")
+                .join(PROVIDER_RUNTIME_DIR_NAME),
+        ];
+        if let Some(candidate) = candidates
+            .into_iter()
+            .find(|path| path.join(TYPESCRIPT_WORKER_RELATIVE_PATH).is_file())
+        {
+            return Some(candidate);
+        }
+        ancestors = directory.parent();
+    }
+
+    None
+}
+
+fn bundled_node_binary(root: &Path) -> Option<PathBuf> {
+    let candidates = if cfg!(windows) {
+        [
+            root.join("node").join("node.exe"),
+            root.join("node").join("bin").join("node.exe"),
+            root.join("node").join("bin").join("node"),
+        ]
+    } else {
+        [
+            root.join("node").join("bin").join("node"),
+            root.join("node").join("node"),
+            root.join("node").join("bin").join("node.exe"),
+        ]
+    };
+    candidates.into_iter().find(|path| path.is_file())
 }
 
 enum NodeRuntimeBackend {
     Stub(Arc<dyn JsonRpcTransport + Send + Sync>),
     FailClosed(Arc<dyn JsonRpcTransport + Send + Sync>),
-    Managed {
-        worker: Mutex<Option<SpawnedWorker>>,
-        launch_options: NodeWorkerLaunchOptions,
-    },
+    Managed { pool: Arc<SpawnedWorkerPool> },
 }
 
 pub struct NodeSdkBackendRuntime {
@@ -92,13 +193,18 @@ impl NodeSdkBackendRuntime {
             ));
         }
 
-        let worker = spawn_worker(options).map_err(map_transport_error)?;
+        let launch_options = options.clone();
+        let pool = Arc::new(
+            SpawnedWorkerPool::new(provider_worker_concurrency_limit(), move || {
+                spawn_worker(&launch_options)
+            })
+            .map_err(map_transport_error)?,
+        );
+        pool.warm_up(WORKER_ACQUIRE_TIMEOUT)
+            .map_err(map_transport_error)?;
         Ok(Self {
             package_name: options.package_name.clone(),
-            backend: NodeRuntimeBackend::Managed {
-                worker: Mutex::new(Some(worker)),
-                launch_options: options.clone(),
-            },
+            backend: NodeRuntimeBackend::Managed { pool },
         })
     }
 
@@ -129,29 +235,47 @@ impl NodeSdkBackendRuntime {
         }
     }
 
-    fn transport(&self) -> Result<Arc<dyn JsonRpcTransport + Send + Sync>, SdkRuntimeError> {
+    fn shared_transport(&self) -> Result<Arc<dyn JsonRpcTransport + Send + Sync>, SdkRuntimeError> {
         match &self.backend {
             NodeRuntimeBackend::Stub(transport) | NodeRuntimeBackend::FailClosed(transport) => {
                 Ok(transport.clone())
             }
-            NodeRuntimeBackend::Managed {
-                worker,
-                launch_options,
-            } => {
-                let mut guard = worker
-                    .lock()
-                    .map_err(|error| SdkRuntimeError::new("lock_error", error.to_string()))?;
-                let needs_respawn = guard
-                    .as_ref()
-                    .map(|entry| !entry.is_running())
-                    .unwrap_or(true);
-                if needs_respawn {
-                    *guard = Some(spawn_worker(launch_options).map_err(map_transport_error)?);
-                }
-                let entry = guard
-                    .as_ref()
-                    .expect("worker should be present after respawn");
-                Ok(Arc::new(entry.transport()))
+            NodeRuntimeBackend::Managed { .. } => Err(SdkRuntimeError::new(
+                "transport_error",
+                "managed workers require a request-scoped lease",
+            )),
+        }
+    }
+
+    fn acquire_worker(
+        pool: &SpawnedWorkerPool,
+        request: &SdkRuntimeRequest,
+    ) -> Result<SpawnedWorkerLease, SdkRuntimeError> {
+        match request.operation.request_id() {
+            Some(request_id) => pool
+                .acquire(request_id, WORKER_ACQUIRE_TIMEOUT)
+                .map_err(map_transport_error),
+            None => pool
+                .acquire_internal("invoke", WORKER_ACQUIRE_TIMEOUT)
+                .map_err(map_transport_error),
+        }
+    }
+
+    fn ping_worker(&self) -> Result<Value, SdkRuntimeError> {
+        match &self.backend {
+            NodeRuntimeBackend::Managed { pool } => {
+                let lease = pool
+                    .acquire_internal("health", HEALTH_WORKER_ACQUIRE_TIMEOUT)
+                    .map_err(map_transport_error)?;
+                lease
+                    .transport()
+                    .call(SDKWORK_PING_METHOD, None)
+                    .map_err(map_transport_error)
+            }
+            NodeRuntimeBackend::Stub(transport) | NodeRuntimeBackend::FailClosed(transport) => {
+                transport
+                    .call(SDKWORK_PING_METHOD, None)
+                    .map_err(map_transport_error)
             }
         }
     }
@@ -163,9 +287,19 @@ impl NodeSdkBackendRuntime {
             "payload": request.payload,
             "package": self.package_name,
         });
-        self.transport()?
-            .call(SDKWORK_CAPABILITY_INVOKE_METHOD, Some(params))
-            .map_err(map_transport_error)
+        match &self.backend {
+            NodeRuntimeBackend::Managed { pool } => {
+                let lease = Self::acquire_worker(pool, request)?;
+                lease
+                    .transport()
+                    .call(SDKWORK_CAPABILITY_INVOKE_METHOD, Some(params))
+                    .map_err(map_transport_error)
+            }
+            NodeRuntimeBackend::Stub(_) | NodeRuntimeBackend::FailClosed(_) => self
+                .shared_transport()?
+                .call(SDKWORK_CAPABILITY_INVOKE_METHOD, Some(params))
+                .map_err(map_transport_error),
+        }
     }
 
     fn invoke_worker_streaming(
@@ -179,13 +313,29 @@ impl NodeSdkBackendRuntime {
             "payload": request.payload,
             "package": self.package_name,
         });
-        self.transport()?
-            .call_streaming(
-                SDKWORK_CAPABILITY_INVOKE_METHOD,
-                Some(params),
-                &mut |frame| sink(frame).map_err(|error| TransportError::new(error.message)),
-            )
-            .map_err(map_transport_error)
+        match &self.backend {
+            NodeRuntimeBackend::Managed { pool } => {
+                let lease = Self::acquire_worker(pool, request)?;
+                lease
+                    .transport()
+                    .call_streaming(
+                        SDKWORK_CAPABILITY_INVOKE_METHOD,
+                        Some(params),
+                        &mut |frame| {
+                            sink(frame).map_err(|error| TransportError::new(error.message))
+                        },
+                    )
+                    .map_err(map_transport_error)
+            }
+            NodeRuntimeBackend::Stub(_) | NodeRuntimeBackend::FailClosed(_) => self
+                .shared_transport()?
+                .call_streaming(
+                    SDKWORK_CAPABILITY_INVOKE_METHOD,
+                    Some(params),
+                    &mut |frame| sink(frame).map_err(|error| TransportError::new(error.message)),
+                )
+                .map_err(map_transport_error),
+        }
     }
 }
 
@@ -195,13 +345,10 @@ impl SdkBackendRuntime for NodeSdkBackendRuntime {
     }
 
     fn health(&self) -> SdkDriverHealth {
-        match self.transport() {
-            Ok(transport) => match transport.call(SDKWORK_PING_METHOD, None) {
-                Ok(result) if result.get("ok").and_then(Value::as_bool) == Some(true) => {
-                    package_probe_health(&self.package_name, &result)
-                }
-                Ok(_) => SdkDriverHealth::degraded("worker ping returned unexpected payload"),
-                Err(error) => SdkDriverHealth::unhealthy(error.to_string()),
+        match self.ping_worker() {
+            Ok(result) => match result.get("ok").and_then(Value::as_bool) {
+                Some(true) => package_probe_health(&self.package_name, &result),
+                _ => SdkDriverHealth::degraded("worker ping returned unexpected payload"),
             },
             Err(error) => SdkDriverHealth::unhealthy(error.message),
         }
@@ -209,10 +356,7 @@ impl SdkBackendRuntime for NodeSdkBackendRuntime {
 
     fn invoke(&self, request: &SdkRuntimeRequest) -> Result<SdkRuntimeResponse, SdkRuntimeError> {
         if matches!(request.operation, SdkRuntimeOperation::Ping) {
-            let payload = self
-                .transport()?
-                .call(SDKWORK_PING_METHOD, None)
-                .map_err(map_transport_error)?;
+            let payload = self.ping_worker()?;
             return Ok(SdkRuntimeResponse::success(
                 SdkBackendKind::TypeScriptNode,
                 &request.capability_id,
@@ -245,10 +389,7 @@ impl SdkBackendRuntime for NodeSdkBackendRuntime {
         sink: &mut dyn FnMut(Value) -> Result<bool, SdkRuntimeError>,
     ) -> Result<(), SdkRuntimeError> {
         if matches!(request.operation, SdkRuntimeOperation::Ping) {
-            let payload = self
-                .transport()?
-                .call(SDKWORK_PING_METHOD, None)
-                .map_err(map_transport_error)?;
+            let payload = self.ping_worker()?;
             sink(payload)?;
             return Ok(());
         }
@@ -263,16 +404,13 @@ impl SdkBackendRuntime for NodeSdkBackendRuntime {
         SdkBackendRuntime::invoke_streaming(self, request, sink)
     }
 
-    fn cancel_inflight(&self) -> Result<(), SdkRuntimeError> {
-        if let NodeRuntimeBackend::Managed { worker, .. } = &self.backend {
-            let guard = worker
-                .lock()
-                .map_err(|error| SdkRuntimeError::new("lock_error", error.to_string()))?;
-            if let Some(entry) = guard.as_ref() {
-                entry.cancel_inflight().map_err(map_transport_error)?;
+    fn cancel_inflight(&self, request_id: &str) -> Result<bool, SdkRuntimeError> {
+        match &self.backend {
+            NodeRuntimeBackend::Managed { pool } => {
+                pool.cancel(request_id).map_err(map_transport_error)
             }
+            NodeRuntimeBackend::Stub(_) | NodeRuntimeBackend::FailClosed(_) => Ok(false),
         }
-        Ok(())
     }
 }
 
@@ -290,6 +428,10 @@ fn map_transport_error(error: TransportError) -> SdkRuntimeError {
 }
 
 fn package_probe_health(package_name: &str, payload: &Value) -> SdkDriverHealth {
+    if payload.get("runtime_available").and_then(Value::as_bool) == Some(true) {
+        return SdkDriverHealth::healthy();
+    }
+
     match payload.get("package_resolved").and_then(Value::as_bool) {
         Some(true) | None => SdkDriverHealth::healthy(),
         Some(false) if mock_provider_invocation_allowed() => SdkDriverHealth::degraded(format!(
@@ -312,6 +454,9 @@ mod tests {
     const KERNEL_ENVIRONMENT_ENV: &str = "SDKWORK_KERNEL_ENVIRONMENT";
     const ALLOW_MOCK_PROVIDERS_ENV: &str = "SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS";
     const OPENCLAW_GATEWAY_URL_ENV: &str = "OPENCLAW_GATEWAY_URL";
+    const NODE_BINARY_ENV: &str = "SDKWORK_AGENT_NODE_BINARY";
+    const WORKER_SCRIPT_ENV: &str = "SDKWORK_AGENT_TYPESCRIPT_WORKER_SCRIPT";
+    const PROVIDER_RUNTIME_ROOT_ENV: &str = "SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT";
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -347,12 +492,79 @@ mod tests {
 
     #[test]
     fn default_worker_script_points_to_repository_script() {
+        let _lock = env_lock();
+        let _root = EnvVarGuard::set(PROVIDER_RUNTIME_ROOT_ENV, None);
+        let _script = EnvVarGuard::set(WORKER_SCRIPT_ENV, None);
         let script = default_typescript_worker_script();
         assert!(
             script.exists(),
             "default TypeScript worker script must exist: {}",
             script.display()
         );
+    }
+
+    #[test]
+    fn packaged_runtime_root_resolves_worker_and_node_without_repository_paths() {
+        let _lock = env_lock();
+        let root = std::env::temp_dir().join(format!(
+            "sdkwork-provider-runtime-test-{}",
+            std::process::id()
+        ));
+        let worker = root.join(TYPESCRIPT_WORKER_RELATIVE_PATH);
+        let node = if cfg!(windows) {
+            root.join("node").join("node.exe")
+        } else {
+            root.join("node").join("bin").join("node")
+        };
+        std::fs::create_dir_all(worker.parent().expect("worker parent")).expect("worker dir");
+        std::fs::create_dir_all(node.parent().expect("node parent")).expect("node dir");
+        std::fs::write(&worker, "#!/usr/bin/env node\n").expect("worker file");
+        std::fs::write(&node, "provider node\n").expect("node file");
+
+        let _runtime_root = EnvVarGuard::set(
+            PROVIDER_RUNTIME_ROOT_ENV,
+            Some(root.to_string_lossy().as_ref()),
+        );
+        let _script = EnvVarGuard::set(WORKER_SCRIPT_ENV, None);
+        let _node = EnvVarGuard::set(NODE_BINARY_ENV, None);
+
+        assert_eq!(default_typescript_worker_script(), worker);
+        assert_eq!(default_node_binary(), node.to_string_lossy());
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn explicit_worker_and_node_paths_take_precedence_over_packaged_root() {
+        let _lock = env_lock();
+        let root = std::env::temp_dir().join(format!(
+            "sdkwork-provider-runtime-explicit-test-{}",
+            std::process::id()
+        ));
+        let explicit_worker = root.join("explicit-worker.mjs");
+        let explicit_node = root.join(if cfg!(windows) {
+            "explicit-node.exe"
+        } else {
+            "explicit-node"
+        });
+        std::fs::create_dir_all(&root).expect("runtime test dir");
+        std::fs::write(&explicit_worker, "worker\n").expect("worker file");
+        std::fs::write(&explicit_node, "node\n").expect("node file");
+
+        let _runtime_root = EnvVarGuard::set(PROVIDER_RUNTIME_ROOT_ENV, None);
+        let _script = EnvVarGuard::set(
+            WORKER_SCRIPT_ENV,
+            Some(explicit_worker.to_string_lossy().as_ref()),
+        );
+        let _node = EnvVarGuard::set(
+            NODE_BINARY_ENV,
+            Some(explicit_node.to_string_lossy().as_ref()),
+        );
+
+        assert_eq!(default_typescript_worker_script(), explicit_worker);
+        assert_eq!(default_node_binary(), explicit_node.to_string_lossy());
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -473,5 +685,64 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("official sdk package is not resolved"));
+    }
+
+    #[test]
+    fn package_probe_is_healthy_when_real_cli_runtime_is_available() {
+        let _lock = env_lock();
+        let _profile = EnvVarGuard::set(
+            KERNEL_PROFILE_ID_ENV,
+            Some("cloud.split-services.production"),
+        );
+        let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, Some("production"));
+        let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);
+
+        let health = package_probe_health(
+            "@openai/codex-sdk",
+            &json!({
+                "package_resolved": false,
+                "cli_available": true,
+                "runtime_available": true,
+                "runtime_mode": "sdk_cli"
+            }),
+        );
+
+        assert_eq!(health.status, SdkDriverStatus::Healthy);
+    }
+
+    #[test]
+    fn package_probe_is_unhealthy_without_package_or_real_runtime_in_production() {
+        let _lock = env_lock();
+        let _profile = EnvVarGuard::set(
+            KERNEL_PROFILE_ID_ENV,
+            Some("cloud.split-services.production"),
+        );
+        let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, Some("production"));
+        let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);
+
+        let health = package_probe_health(
+            "@openai/codex-sdk",
+            &json!({
+                "package_resolved": false,
+                "cli_available": false,
+                "runtime_available": false
+            }),
+        );
+
+        assert_eq!(health.status, SdkDriverStatus::Unhealthy);
+    }
+
+    #[test]
+    fn package_probe_is_healthy_when_official_package_is_resolved() {
+        let health = package_probe_health(
+            "@openai/codex-sdk",
+            &json!({
+                "package_resolved": true,
+                "runtime_available": true,
+                "runtime_mode": "sdk_live"
+            }),
+        );
+
+        assert_eq!(health.status, SdkDriverStatus::Healthy);
     }
 }

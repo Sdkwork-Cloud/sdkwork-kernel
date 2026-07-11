@@ -7,14 +7,16 @@ use axum::{
     },
     Json,
 };
-use futures::stream::{self, Stream, StreamExt};
+use futures::stream::{self, Stream};
 use sdkwork_agent_api_bridge::BridgeSessionConfig;
 use sdkwork_agent_database::{
     EventRow, MessageQuery, MessageRow, PermissionRow, SessionRow, TaskQuery, TaskRow,
 };
+use sdkwork_agent_kernel::{AgentMessage, AgentMessageRole, AgentPart};
 use sdkwork_agent_session::{SessionConfig, SessionQuery};
 use sdkwork_utils_rust::{
-    validated_offset_list_params, DEFAULT_LIST_PAGE_SIZE, MAX_LIST_PAGE_SIZE,
+    base64url_decode, base64url_encode, hmac_sha256_base64url, secure_compare,
+    DEFAULT_LIST_PAGE_SIZE, MAX_LIST_PAGE_SIZE,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -34,18 +36,28 @@ use crate::access::{
 use crate::agent_registry::{apply_hosted_agent_defaults, validate_hosted_agent_id};
 use crate::config::ServerConfig;
 use crate::http_response::{
-    api_created, api_item, api_no_content, catalog_list_response, cursor_list_response,
-    offset_list_response, ApiError,
+    api_created, api_item, api_no_content, catalog_list_response, cursor_list_response, ApiError,
 };
 use crate::metrics::MetricsRegistry;
 use crate::middleware::RequestContext;
 use crate::persistence::PersistenceState;
 use crate::runtime::RuntimeState;
-use crate::tenant_token_quota::TenantTokenQuotaState;
+use crate::tenant_token_quota::{TenantTokenQuotaReservation, TenantTokenQuotaState};
 
 /// Maximum concurrent SSE event stream connections per server instance.
 /// Prevents resource exhaustion from too many long-lived connections.
 const MAX_CONCURRENT_SSE_STREAMS: u32 = 256;
+const MAX_MESSAGE_CONTENT_BYTES: usize = 256 * 1024;
+const MAX_TASK_INSTRUCTION_BYTES: usize = 64 * 1024;
+const MAX_TOOL_INPUT_BYTES: usize = 256 * 1024;
+const MAX_SESSION_TEXT_BYTES: usize = 256 * 1024;
+const MAX_MODEL_ID_BYTES: usize = 256;
+const MAX_MODEL_OVERRIDE_MESSAGES: usize = 128;
+const MAX_METADATA_ENTRIES: usize = 64;
+const MAX_METADATA_KEY_BYTES: usize = 128;
+const MAX_METADATA_VALUE_BYTES: usize = 4096;
+const MAX_WORKSPACE_ROOTS: usize = 32;
+const MAX_WORKSPACE_ROOT_BYTES: usize = 4096;
 
 /// Shared internal-api runtime HTTP handler state.
 #[derive(Clone)]
@@ -71,7 +83,7 @@ pub struct PermissionRequestJson {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PermissionDecisionBody {
     pub decision: String,
 }
@@ -292,7 +304,7 @@ pub struct WorkspaceJson {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CreateKernelSessionRequest {
     pub agent_id: String,
     pub tenant_id: Option<String>,
@@ -357,6 +369,7 @@ pub struct ChangeSummaryJson {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SendKernelMessageRequest {
     pub content: String,
 }
@@ -380,7 +393,16 @@ pub struct MessagePartJson {
     pub content: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageTurnViewJson {
+    pub user_message: MessageViewJson,
+    pub assistant_message: Option<MessageViewJson>,
+    pub status: String,
+}
+
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SubmitTaskRequest {
     pub instruction: String,
 }
@@ -423,7 +445,7 @@ pub struct ToolDescriptorJson {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InvokeModelRequest {
     pub model_id: Option<String>,
 }
@@ -439,6 +461,7 @@ pub struct ModelResponseJson {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExecuteToolRequest {
     pub input: String,
 }
@@ -455,6 +478,7 @@ pub struct ToolCallJson {
 
 /// Request body for `POST /sessions/{sessionId}/model/stream`.
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StreamModelRequest {
     pub model_id: Option<String>,
     pub messages: Option<Vec<String>>,
@@ -462,7 +486,7 @@ pub struct StreamModelRequest {
 
 /// Request body for `POST /sessions/{sessionId}/model/cancel`.
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CancelModelRequest {
     pub model_request_id: String,
     pub provider_id: Option<String>,
@@ -501,7 +525,6 @@ pub struct StreamEventJson {
 #[derive(Debug, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct ListMessagesQuery {
-    pub page: Option<i64>,
     pub page_size: Option<i64>,
     pub cursor: Option<String>,
 }
@@ -509,7 +532,6 @@ pub struct ListMessagesQuery {
 #[derive(Debug, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct ListSessionsQuery {
-    pub page: Option<i64>,
     pub page_size: Option<i64>,
     pub cursor: Option<String>,
 }
@@ -517,7 +539,6 @@ pub struct ListSessionsQuery {
 #[derive(Debug, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct ListTasksQuery {
-    pub page: Option<i64>,
     pub page_size: Option<i64>,
     pub cursor: Option<String>,
 }
@@ -573,7 +594,7 @@ impl InternalRuntimeApiState {
         self.persistence.run(operation).await
     }
 
-    async fn build_snapshot(&self) -> Result<RuntimeSnapshotJson, String> {
+    async fn build_snapshot(&self, ctx: &RequestContext) -> Result<RuntimeSnapshotJson, String> {
         let db_healthy = matches!(
             self.persist(|persistence| persistence.health()).await,
             Ok(true)
@@ -605,10 +626,23 @@ impl InternalRuntimeApiState {
             })
             .collect();
 
+        let (owner_tenant_id, owner_user_ref) = if self.access_policy.enforce_session_scope {
+            (
+                ctx.tenant_id.clone(),
+                ctx.user_id.clone().or_else(|| ctx.subject_id.clone()),
+            )
+        } else {
+            (None, None)
+        };
+
+        let permission_tenant = owner_tenant_id.clone();
+        let permission_user = owner_user_ref.clone();
         let permissions = self
-            .persist(|persistence| {
+            .persist(move |persistence| {
                 persistence.list_permissions(sdkwork_agent_database::PermissionQuery {
                     status: None,
+                    owner_tenant_id: permission_tenant,
+                    owner_user_ref: permission_user,
                     limit: Some(100),
                     offset: None,
                 })
@@ -620,11 +654,13 @@ impl InternalRuntimeApiState {
             .collect();
 
         let event_rows = self
-            .persist(|persistence| {
+            .persist(move |persistence| {
                 persistence.list_recent_events(sdkwork_agent_database::EventQuery {
                     event_type: None,
                     severity: None,
                     after_event_id: None,
+                    owner_tenant_id,
+                    owner_user_ref,
                     limit: Some(100),
                     offset: None,
                 })
@@ -664,6 +700,166 @@ impl InternalRuntimeApiState {
             review_findings: Vec::new(),
         })
     }
+
+    pub(crate) async fn register_persisted_session(
+        &self,
+        row: &SessionRow,
+        trace_id: &str,
+    ) -> Result<(), ApiError> {
+        const MAX_HYDRATED_MESSAGES: i64 = 512;
+        let session_id = row.session_id.clone();
+        let messages = self
+            .persist(move |persistence| {
+                persistence.load_recent_messages(&session_id, MAX_HYDRATED_MESSAGES)
+            })
+            .await
+            .map_err(|error| ApiError::from_persistence(error, trace_id))?;
+        let history = messages
+            .into_iter()
+            .map(message_row_to_agent_message)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| {
+                tracing::error!(
+                    session_id = %row.session_id,
+                    error = %error,
+                    trace_id,
+                    "persisted message history is invalid"
+                );
+                ApiError::internal("persisted message history is invalid", trace_id)
+            })?;
+        self.runtime
+            .register_session_with_history(&row.session_id, bridge_config_from_row(row), history)
+            .map_err(|error| ApiError::from_kernel(error, trace_id))?;
+        Ok(())
+    }
+}
+
+fn validate_required_text(
+    value: &str,
+    field: &str,
+    max_bytes: usize,
+    trace_id: &str,
+) -> Result<(), ApiError> {
+    if value.trim().is_empty() {
+        return Err(ApiError::invalid_parameter(
+            format!("{field} must not be empty"),
+            trace_id,
+        ));
+    }
+    if value.len() > max_bytes {
+        return Err(ApiError::invalid_parameter(
+            format!("{field} exceeds {max_bytes} bytes"),
+            trace_id,
+        ));
+    }
+    Ok(())
+}
+
+fn validate_optional_text(
+    value: Option<&str>,
+    field: &str,
+    max_bytes: usize,
+    trace_id: &str,
+) -> Result<(), ApiError> {
+    if let Some(value) = value {
+        validate_required_text(value, field, max_bytes, trace_id)?;
+    }
+    Ok(())
+}
+
+fn validate_create_session_request(
+    request: &CreateKernelSessionRequest,
+    trace_id: &str,
+) -> Result<(), ApiError> {
+    validate_required_text(&request.agent_id, "agentId", MAX_MODEL_ID_BYTES, trace_id)?;
+    validate_optional_text(
+        request.model.as_deref(),
+        "model",
+        MAX_MODEL_ID_BYTES,
+        trace_id,
+    )?;
+    validate_optional_text(request.title.as_deref(), "title", 1024, trace_id)?;
+    validate_optional_text(
+        request.goal.as_deref(),
+        "goal",
+        MAX_SESSION_TEXT_BYTES,
+        trace_id,
+    )?;
+    validate_optional_text(
+        request.instructions.as_deref(),
+        "instructions",
+        MAX_SESSION_TEXT_BYTES,
+        trace_id,
+    )?;
+    validate_optional_text(
+        request.cwd.as_deref(),
+        "cwd",
+        MAX_WORKSPACE_ROOT_BYTES,
+        trace_id,
+    )?;
+    if let Some(roots) = request.workspace_roots.as_ref() {
+        if roots.len() > MAX_WORKSPACE_ROOTS {
+            return Err(ApiError::invalid_parameter(
+                "workspaceRoots exceeds 32 entries",
+                trace_id,
+            ));
+        }
+        for root in roots {
+            validate_required_text(
+                root,
+                "workspaceRoots item",
+                MAX_WORKSPACE_ROOT_BYTES,
+                trace_id,
+            )?;
+        }
+    }
+    if let Some(metadata) = request.metadata.as_ref() {
+        if metadata.len() > MAX_METADATA_ENTRIES {
+            return Err(ApiError::invalid_parameter(
+                "metadata exceeds 64 entries",
+                trace_id,
+            ));
+        }
+        for (key, value) in metadata {
+            validate_required_text(key, "metadata key", MAX_METADATA_KEY_BYTES, trace_id)?;
+            if value.len() > MAX_METADATA_VALUE_BYTES {
+                return Err(ApiError::invalid_parameter(
+                    "metadata value exceeds 4096 bytes",
+                    trace_id,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_stream_model_request(
+    request: &StreamModelRequest,
+    trace_id: &str,
+) -> Result<(), ApiError> {
+    validate_optional_text(
+        request.model_id.as_deref(),
+        "modelId",
+        MAX_MODEL_ID_BYTES,
+        trace_id,
+    )?;
+    if let Some(messages) = request.messages.as_ref() {
+        if messages.len() > MAX_MODEL_OVERRIDE_MESSAGES {
+            return Err(ApiError::invalid_parameter(
+                "messages exceeds 128 entries",
+                trace_id,
+            ));
+        }
+        for message in messages {
+            validate_required_text(
+                message,
+                "messages item",
+                MAX_MESSAGE_CONTENT_BYTES,
+                trace_id,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 fn session_row_to_view(row: SessionRow) -> SessionViewJson {
@@ -800,6 +996,31 @@ fn message_row_to_view(row: MessageRow) -> MessageViewJson {
     }
 }
 
+fn message_row_to_agent_message(row: MessageRow) -> Result<AgentMessage, String> {
+    let role = match row.role.trim().to_ascii_lowercase().as_str() {
+        "user" => AgentMessageRole::User,
+        "assistant" | "agent" => AgentMessageRole::Agent,
+        "system" => AgentMessageRole::System,
+        "model" => AgentMessageRole::Model,
+        "tool" => AgentMessageRole::Tool,
+        "policy" => AgentMessageRole::Policy,
+        "adapter" => AgentMessageRole::Adapter,
+        other => return Err(format!("unsupported persisted message role: {other}")),
+    };
+    let part_id = format!("{}/part.0", row.message_id);
+    let mut message = AgentMessage::new(
+        row.message_id,
+        role,
+        vec![AgentPart::text(part_id, row.content)],
+    )
+    .for_session(row.session_id)
+    .created_at(row.created_at);
+    for (key, value) in parse_metadata_map(row.metadata_json.as_deref()) {
+        message = message.with_metadata(key, value);
+    }
+    Ok(message)
+}
+
 fn task_row_to_view(row: TaskRow) -> TaskViewJson {
     TaskViewJson {
         task_id: row.task_id,
@@ -847,6 +1068,7 @@ impl Drop for CountedStream {
     fn drop(&mut self) {
         if !self.decremented {
             self.counter.fetch_sub(1, Ordering::Relaxed);
+            crate::metrics::record_sse_connection_close();
             self.decremented = true;
         }
     }
@@ -873,6 +1095,114 @@ enum ModelStreamWorkerItem {
 
 struct MpscModelStreamSink {
     tx: mpsc::Sender<ModelStreamWorkerItem>,
+}
+
+struct ModelSseStream {
+    receiver: ReceiverStream<ModelStreamWorkerItem>,
+    reservation: Option<TenantTokenQuotaReservation>,
+    connection_count: Arc<AtomicU32>,
+    estimated_tokens: u64,
+    provider_failed: bool,
+    terminal_sent: bool,
+    connection_released: bool,
+}
+
+impl ModelSseStream {
+    fn new(
+        receiver: ReceiverStream<ModelStreamWorkerItem>,
+        reservation: Option<TenantTokenQuotaReservation>,
+        connection_count: Arc<AtomicU32>,
+    ) -> Self {
+        Self {
+            receiver,
+            reservation,
+            connection_count,
+            estimated_tokens: 0,
+            provider_failed: false,
+            terminal_sent: false,
+            connection_released: false,
+        }
+    }
+
+    fn reconcile_quota(&mut self, completed: bool) {
+        let Some(reservation) = self.reservation.take() else {
+            return;
+        };
+        let actual_tokens = if completed && !self.provider_failed {
+            reservation.reserved_tokens()
+        } else {
+            self.estimated_tokens
+        };
+        tokio::spawn(async move {
+            reservation.reconcile(actual_tokens).await;
+        });
+    }
+
+    fn release_connection(&mut self) {
+        if !self.connection_released {
+            self.connection_count.fetch_sub(1, Ordering::Relaxed);
+            crate::metrics::record_sse_connection_close();
+            self.connection_released = true;
+        }
+    }
+}
+
+impl Drop for ModelSseStream {
+    fn drop(&mut self) {
+        self.reconcile_quota(false);
+        self.release_connection();
+    }
+}
+
+impl Stream for ModelSseStream {
+    type Item = Result<Event, Infallible>;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        loop {
+            match Pin::new(&mut this.receiver).poll_next(cx) {
+                std::task::Poll::Ready(Some(ModelStreamWorkerItem::Chunk(chunk))) => {
+                    this.estimated_tokens = this
+                        .estimated_tokens
+                        .saturating_add(estimated_tokens_for_text(&chunk.content));
+                    return std::task::Poll::Ready(Some(Ok(model_chunk_to_event(&chunk))));
+                }
+                std::task::Poll::Ready(Some(ModelStreamWorkerItem::Failed(message))) => {
+                    this.provider_failed = true;
+                    tracing::warn!(error = %message, "model provider stream failed");
+                    return std::task::Poll::Ready(Some(Ok(Event::default()
+                        .event("model.error")
+                        .data(
+                            serde_json::json!({ "code": "PROVIDER_STREAM_FAILED" }).to_string(),
+                        ))));
+                }
+                std::task::Poll::Ready(None) if !this.terminal_sent => {
+                    this.terminal_sent = true;
+                    this.reconcile_quota(true);
+                    return std::task::Poll::Ready(Some(Ok(Event::default()
+                        .event("model.done")
+                        .data("{}"))));
+                }
+                std::task::Poll::Ready(None) => {
+                    this.release_connection();
+                    return std::task::Poll::Ready(None);
+                }
+                std::task::Poll::Pending => return std::task::Poll::Pending,
+            }
+        }
+    }
+}
+
+fn estimated_tokens_for_text(content: &str) -> u64 {
+    let bytes = content.len() as u64;
+    if bytes == 0 {
+        0
+    } else {
+        bytes.saturating_add(3) / 4
+    }
 }
 
 impl sdkwork_agent_kernel::ModelStreamSink for MpscModelStreamSink {
@@ -906,6 +1236,7 @@ fn spawn_model_sse_stream(
     model_id: Option<String>,
     override_messages: Option<Vec<String>>,
     connection_count: Arc<AtomicU32>,
+    reservation: Option<TenantTokenQuotaReservation>,
 ) -> Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>> {
     let (tx, rx) = mpsc::channel::<ModelStreamWorkerItem>(32);
     tokio::task::spawn_blocking(move || {
@@ -922,45 +1253,106 @@ fn spawn_model_sse_stream(
         }
     });
 
-    let inner: Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>> = Box::pin(
-        ReceiverStream::new(rx)
-            .flat_map(|item| match item {
-                ModelStreamWorkerItem::Chunk(chunk) => {
-                    stream::iter(vec![Ok(model_chunk_to_event(&chunk))])
-                }
-                ModelStreamWorkerItem::Failed(message) => stream::iter(vec![Ok(Event::default()
-                    .event("model.error")
-                    .data(serde_json::json!({ "message": message }).to_string()))]),
-            })
-            .chain(stream::once(async {
-                Ok(Event::default().event("model.done").data("{}"))
-            })),
-    );
-    Box::pin(CountedStream::new(inner, connection_count))
+    Box::pin(ModelSseStream::new(
+        ReceiverStream::new(rx),
+        reservation,
+        connection_count,
+    ))
 }
 
 fn live_event_stream(
     receiver: broadcast::Receiver<EventRow>,
+    persistence: Arc<PersistenceState>,
     session_id: String,
+    replay: Vec<EventRow>,
     sequence: u32,
-) -> impl Stream<Item = Result<Event, Infallible>> {
-    futures::stream::unfold(
-        (receiver, session_id, sequence),
-        |(mut receiver, session_id, mut sequence)| async move {
-            loop {
-                match receiver.recv().await {
-                    Ok(row) if row.session_id.as_deref() == Some(session_id.as_str()) => {
-                        let event = event_row_to_sse(&row, sequence);
-                        sequence += 1;
-                        return Some((Ok(event), (receiver, session_id, sequence)));
+    last_event_id: Option<String>,
+) -> SessionEventStream {
+    const EVENT_POLL_INTERVAL: Duration = Duration::from_secs(1);
+    const EVENT_POLL_BATCH: i64 = 200;
+    let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(64);
+
+    tokio::spawn(async move {
+        let mut receiver = Some(receiver);
+        let mut receiver_open = true;
+        let mut sequence = sequence;
+        let mut cursor = last_event_id;
+
+        for row in replay {
+            if cursor.as_deref() == Some(row.event_id.as_str()) {
+                continue;
+            }
+            cursor = Some(row.event_id.clone());
+            if tx.send(Ok(event_row_to_sse(&row, sequence))).await.is_err() {
+                return;
+            }
+            sequence = sequence.saturating_add(1);
+        }
+
+        let mut interval = tokio::time::interval(EVENT_POLL_INTERVAL);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    let session_for_poll = session_id.clone();
+                    let after_event_id = cursor.clone();
+                    match persistence.run(move |state| {
+                        state.load_session_events(
+                            &session_for_poll,
+                            Some(EVENT_POLL_BATCH),
+                            after_event_id.as_deref(),
+                        )
+                    }).await {
+                        Ok(rows) => {
+                            for row in rows {
+                                if cursor.as_deref() == Some(row.event_id.as_str()) {
+                                    continue;
+                                }
+                                cursor = Some(row.event_id.clone());
+                                if tx.send(Ok(event_row_to_sse(&row, sequence))).await.is_err() {
+                                    return;
+                                }
+                                sequence = sequence.saturating_add(1);
+                            }
+                        }
+                        Err(error) => {
+                            tracing::warn!(session_id = %session_id, error = %error, "durable SSE event poll failed");
+                        }
                     }
-                    Ok(_) => continue,
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(broadcast::error::RecvError::Closed) => return None,
+                }
+                received = async {
+                    match receiver.as_mut() {
+                        Some(receiver) => receiver.recv().await,
+                        None => std::future::pending().await,
+                    }
+                }, if receiver_open => {
+                    match received {
+                        Ok(row) if row.session_id.as_deref() == Some(session_id.as_str()) => {
+                            if cursor.as_deref() == Some(row.event_id.as_str()) {
+                                continue;
+                            }
+                            cursor = Some(row.event_id.clone());
+                            if tx.send(Ok(event_row_to_sse(&row, sequence))).await.is_err() {
+                                return;
+                            }
+                            sequence = sequence.saturating_add(1);
+                        }
+                        Ok(_) => {}
+                        Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                            tracing::warn!(session_id = %session_id, skipped, "SSE event bus lagged; durable poll will recover events");
+                        }
+                        Err(broadcast::error::RecvError::Closed) => {
+                            receiver_open = false;
+                            receiver = None;
+                        }
+                    }
                 }
             }
-        },
-    )
+        }
+    });
+
+    Box::pin(ReceiverStream::new(rx))
 }
 fn event_row_to_stream(row: &EventRow, sequence: u32) -> StreamEventJson {
     StreamEventJson {
@@ -1243,7 +1635,7 @@ pub async fn load_snapshot(
 ) -> Result<Response, ApiError> {
     let trace_id = ctx.problem_trace_id();
     let snapshot = state
-        .build_snapshot()
+        .build_snapshot(&ctx)
         .await
         .map_err(|error| ApiError::internal(error, &trace_id))?;
     Ok(api_item(snapshot, &trace_id))
@@ -1318,6 +1710,7 @@ pub async fn create_session(
     Json(request): Json<CreateKernelSessionRequest>,
 ) -> Result<Response, ApiError> {
     let trace_id = ctx.problem_trace_id();
+    validate_create_session_request(&request, &trace_id)?;
     let registered = validate_hosted_agent_id(&request.agent_id)
         .map_err(|_| ApiError::invalid_parameter("unknown hosted agent id", &trace_id))?;
 
@@ -1385,44 +1778,27 @@ pub async fn list_sessions(
     Query(query): Query<ListSessionsQuery>,
 ) -> Result<Response, ApiError> {
     let trace_id = ctx.problem_trace_id();
-    let cursor = reject_page_with_cursor(query.page, query.cursor.as_deref(), &trace_id)?;
-
     let (owner_tenant_id, owner_user_ref) = if state.access_policy.enforce_session_scope {
-        (ctx.tenant_id.clone(), ctx.user_id.clone())
+        (
+            ctx.tenant_id.clone(),
+            ctx.user_id.clone().or_else(|| ctx.subject_id.clone()),
+        )
     } else {
         (None, None)
     };
-
-    if let Some(after_session_id) = cursor {
-        let page_size = resolved_list_page_size(query.page_size);
-        let db_query = SessionQuery {
-            owner_tenant_id,
-            owner_user_ref,
-            after_session_id: Some(after_session_id.to_string()),
-            limit: Some(page_size + 1),
-            offset: Some(0),
-            ..SessionQuery::default()
-        };
-        let rows = state
-            .persist(move |persistence| persistence.list_sessions(db_query))
-            .await
-            .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
-        let views: Vec<_> = rows.into_iter().map(session_row_to_view).collect();
-        return Ok(cursor_list_response(
-            views,
-            page_size,
-            |view| view.session_id.clone(),
-            &trace_id,
-        ));
-    }
-
-    let params = resolve_list_page_params(query.page, query.page_size)
-        .map_err(|_| ApiError::invalid_parameter("invalid pagination parameters", &trace_id))?;
+    let after_session_id = query
+        .cursor
+        .as_deref()
+        .map(|cursor| decode_resource_cursor(&state.config, "sessions", cursor))
+        .transpose()
+        .map_err(|_| ApiError::invalid_parameter("invalid session cursor", &trace_id))?;
+    let page_size = resolved_cursor_page_size(query.page_size, &trace_id)?;
     let db_query = SessionQuery {
         owner_tenant_id,
         owner_user_ref,
-        limit: Some(params.page_size + 1),
-        offset: Some(params.offset),
+        after_session_id,
+        limit: Some(page_size + 1),
+        offset: Some(0),
         ..SessionQuery::default()
     };
     let rows = state
@@ -1430,10 +1806,10 @@ pub async fn list_sessions(
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     let views: Vec<_> = rows.into_iter().map(session_row_to_view).collect();
-    Ok(offset_list_response(
+    Ok(cursor_list_response(
         views,
-        params.page_size,
-        params,
+        page_size,
+        |view| encode_resource_cursor(&state.config, "sessions", &view.session_id),
         &trace_id,
     ))
 }
@@ -1498,6 +1874,12 @@ pub async fn send_message(
     Json(request): Json<SendKernelMessageRequest>,
 ) -> Result<Response, ApiError> {
     let trace_id = ctx.problem_trace_id();
+    validate_required_text(
+        &request.content,
+        "content",
+        MAX_MESSAGE_CONTENT_BYTES,
+        &trace_id,
+    )?;
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
@@ -1506,16 +1888,23 @@ pub async fn send_message(
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
     ensure_session_active_api(&row, &trace_id)?;
     let content = request.content.clone();
-    let (row, bridge_response) = crate::message_dispatch::dispatch_user_message(
-        &state,
-        &session_id,
-        &content,
-        &row,
+    let (user_row, assistant_row, _bridge_response) =
+        crate::message_dispatch::dispatch_user_message(
+            &state,
+            &session_id,
+            &content,
+            &row,
+            &trace_id,
+        )
+        .await?;
+    Ok(api_created(
+        MessageTurnViewJson {
+            user_message: message_row_to_view(user_row),
+            assistant_message: assistant_row.map(message_row_to_view),
+            status: "completed".to_string(),
+        },
         &trace_id,
-    )
-    .await?;
-    let _ = bridge_response;
-    Ok(api_created(message_row_to_view(row), &trace_id))
+    ))
 }
 
 pub async fn get_messages(
@@ -1532,44 +1921,27 @@ pub async fn get_messages(
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
 
-    let cursor = reject_page_with_cursor(query.page, query.cursor.as_deref(), &trace_id)?;
-
-    if let Some(after_message_id) = cursor {
-        let page_size = resolved_list_page_size(query.page_size);
-        let message_query = MessageQuery {
-            after_message_id: Some(after_message_id.to_string()),
-            limit: Some(page_size + 1),
-            offset: Some(0),
-        };
-        let rows = state
-            .persist(move |persistence| persistence.list_messages(&session_id, message_query))
-            .await
-            .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
-        let views: Vec<MessageViewJson> = rows.into_iter().map(message_row_to_view).collect();
-        return Ok(cursor_list_response(
-            views,
-            page_size,
-            |view| view.message_id.clone(),
-            &trace_id,
-        ));
-    }
-
-    let params = resolve_list_page_params(query.page, query.page_size)
-        .map_err(|_| ApiError::invalid_parameter("invalid pagination parameters", &trace_id))?;
+    let after_message_id = query
+        .cursor
+        .as_deref()
+        .map(|cursor| decode_resource_cursor(&state.config, "messages", cursor))
+        .transpose()
+        .map_err(|_| ApiError::invalid_parameter("invalid message cursor", &trace_id))?;
+    let page_size = resolved_cursor_page_size(query.page_size, &trace_id)?;
     let message_query = MessageQuery {
-        limit: Some(params.page_size + 1),
-        offset: Some(params.offset),
-        ..Default::default()
+        after_message_id,
+        limit: Some(page_size + 1),
+        offset: Some(0),
     };
     let rows = state
         .persist(move |persistence| persistence.list_messages(&session_id, message_query))
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     let views = rows.into_iter().map(message_row_to_view).collect();
-    Ok(offset_list_response(
+    Ok(cursor_list_response(
         views,
-        params.page_size,
-        params,
+        page_size,
+        |view| encode_resource_cursor(&state.config, "messages", &view.message_id),
         &trace_id,
     ))
 }
@@ -1581,6 +1953,12 @@ pub async fn submit_task(
     Json(request): Json<SubmitTaskRequest>,
 ) -> Result<Response, ApiError> {
     let trace_id = ctx.problem_trace_id();
+    validate_required_text(
+        &request.instruction,
+        "instruction",
+        MAX_TASK_INSTRUCTION_BYTES,
+        &trace_id,
+    )?;
     let session_key = session_id.clone();
     let session = state
         .persist(move |persistence| persistence.get_session(&session_key))
@@ -1630,33 +2008,17 @@ pub async fn list_tasks(
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &session, &trace_id)?;
 
-    let cursor = reject_page_with_cursor(query.page, query.cursor.as_deref(), &trace_id)?;
-    if let Some(after_task_id) = cursor {
-        let page_size = resolved_list_page_size(query.page_size);
-        let task_query = TaskQuery {
-            after_task_id: Some(after_task_id.to_string()),
-            limit: Some(page_size + 1),
-            offset: Some(0),
-            ..Default::default()
-        };
-        let rows = state
-            .persist(move |persistence| persistence.list_tasks(&session_id, task_query))
-            .await
-            .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
-        let views = rows.into_iter().map(task_row_to_view).collect();
-        return Ok(cursor_list_response(
-            views,
-            page_size,
-            |view| view.task_id.clone(),
-            &trace_id,
-        ));
-    }
-
-    let params = resolve_list_page_params(query.page, query.page_size)
-        .map_err(|_| ApiError::invalid_parameter("invalid pagination parameters", &trace_id))?;
+    let after_task_id = query
+        .cursor
+        .as_deref()
+        .map(|cursor| decode_resource_cursor(&state.config, "tasks", cursor))
+        .transpose()
+        .map_err(|_| ApiError::invalid_parameter("invalid task cursor", &trace_id))?;
+    let page_size = resolved_cursor_page_size(query.page_size, &trace_id)?;
     let task_query = TaskQuery {
-        limit: Some(params.page_size + 1),
-        offset: Some(params.offset),
+        after_task_id,
+        limit: Some(page_size + 1),
+        offset: Some(0),
         ..Default::default()
     };
     let rows = state
@@ -1664,10 +2026,10 @@ pub async fn list_tasks(
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     let views = rows.into_iter().map(task_row_to_view).collect();
-    Ok(offset_list_response(
+    Ok(cursor_list_response(
         views,
-        params.page_size,
-        params,
+        page_size,
+        |view| encode_resource_cursor(&state.config, "tasks", &view.task_id),
         &trace_id,
     ))
 }
@@ -1727,6 +2089,12 @@ pub async fn invoke_model(
     Json(request): Json<InvokeModelRequest>,
 ) -> Result<Response, ApiError> {
     let trace_id = ctx.problem_trace_id();
+    validate_optional_text(
+        request.model_id.as_deref(),
+        "modelId",
+        MAX_MODEL_ID_BYTES,
+        &trace_id,
+    )?;
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
@@ -1734,34 +2102,45 @@ pub async fn invoke_model(
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
     ensure_session_active_api(&row, &trace_id)?;
-    let _ = state
-        .runtime
-        .register_session(&session_id, bridge_config_from_row(&row));
+    state.register_persisted_session(&row, &trace_id).await?;
 
-    if let Some(tenant_id) = ctx.tenant_id.as_deref() {
-        if let Err(status) = state.tenant_token_quota.try_consume(tenant_id).await {
-            crate::security_audit::log_auth_failure(
-                "quota.token_rejected",
-                Some(&ctx.request_id),
-                "/internal/v3/api/intelligence/runtime/sessions/{session_id}/model/invoke",
-                Some(tenant_id),
-                ctx.user_id.as_deref(),
-                "tenant daily model token quota exhausted",
-            );
-            metrics.record_tenant_token_quota_rejection();
-            return Err(ApiError::from_status(
-                status,
-                "tenant daily model token quota exhausted",
-                &trace_id,
-            ));
+    let mut quota_reservation = if let Some(tenant_id) = ctx.tenant_id.as_deref() {
+        match state.tenant_token_quota.clone().reserve(tenant_id).await {
+            Ok(reservation) => reservation,
+            Err(status) => {
+                crate::security_audit::log_auth_failure(
+                    "quota.token_rejected",
+                    Some(&ctx.request_id),
+                    "/internal/v3/api/intelligence/runtime/sessions/{session_id}/model/invoke",
+                    Some(tenant_id),
+                    ctx.user_id.as_deref(),
+                    "tenant daily model token quota exhausted",
+                );
+                metrics.record_tenant_token_quota_rejection();
+                return Err(ApiError::from_status(
+                    status,
+                    "tenant daily model token quota exhausted",
+                    &trace_id,
+                ));
+            }
         }
-    }
+    } else {
+        None
+    };
 
     let model_id = request.model_id.clone();
-    let result = state
+    let result = match state
         .runtime
         .invoke_model_for_session(&session_id, model_id)
-        .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
+    {
+        Ok(result) => result,
+        Err(error) => {
+            if let Some(reservation) = quota_reservation.take() {
+                reservation.release().await;
+            }
+            return Err(ApiError::from_kernel(error, &trace_id));
+        }
+    };
 
     let status_label = format!("{:?}", result.response.status).to_lowercase();
     metrics.record_model_invocation(&result.response.provider_id, &status_label);
@@ -1783,12 +2162,15 @@ pub async fn invoke_model(
             "output",
             u64::from(usage.output_tokens),
         );
-        if let Some(tenant_id) = ctx.tenant_id.as_deref() {
-            state
-                .tenant_token_quota
-                .adjust_usage(tenant_id, u64::from(usage.total_tokens()))
-                .await;
-        }
+    }
+    if let Some(reservation) = quota_reservation.take() {
+        let actual_tokens = result
+            .response
+            .usage
+            .as_ref()
+            .map(|usage| u64::from(usage.total_tokens()))
+            .unwrap_or_else(|| reservation.reserved_tokens());
+        reservation.reconcile(actual_tokens).await;
     }
 
     Ok(api_item(
@@ -1854,6 +2236,7 @@ pub async fn execute_tool(
     Json(request): Json<ExecuteToolRequest>,
 ) -> Result<Response, ApiError> {
     let trace_id = ctx.problem_trace_id();
+    validate_required_text(&request.input, "input", MAX_TOOL_INPUT_BYTES, &trace_id)?;
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
@@ -1861,9 +2244,7 @@ pub async fn execute_tool(
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
     ensure_session_active_api(&row, &trace_id)?;
-    let _ = state
-        .runtime
-        .register_session(&session_id, bridge_config_from_row(&row));
+    state.register_persisted_session(&row, &trace_id).await?;
 
     let result = state
         .runtime
@@ -1898,6 +2279,7 @@ pub async fn stream_model(
     Json(request): Json<StreamModelRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let trace_id = ctx.problem_trace_id();
+    validate_stream_model_request(&request, &trace_id)?;
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
@@ -1905,9 +2287,7 @@ pub async fn stream_model(
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
     ensure_session_active_api(&row, &trace_id)?;
-    let _ = state
-        .runtime
-        .register_session(&session_id, bridge_config_from_row(&row));
+    state.register_persisted_session(&row, &trace_id).await?;
 
     let current = state.sse_connection_count.fetch_add(1, Ordering::Relaxed);
     if current >= MAX_CONCURRENT_SSE_STREAMS {
@@ -1917,26 +2297,33 @@ pub async fn stream_model(
             &trace_id,
         ));
     }
+    crate::metrics::record_sse_connection_open();
 
-    if let Some(tenant_id) = ctx.tenant_id.as_deref() {
-        if let Err(status) = state.tenant_token_quota.try_consume(tenant_id).await {
-            state.sse_connection_count.fetch_sub(1, Ordering::Relaxed);
-            crate::security_audit::log_auth_failure(
-                "quota.token_rejected",
-                Some(&ctx.request_id),
-                "/internal/v3/api/intelligence/runtime/sessions/{session_id}/model/stream",
-                Some(tenant_id),
-                ctx.user_id.as_deref(),
-                "tenant daily model token quota exhausted",
-            );
-            metrics.record_tenant_token_quota_rejection();
-            return Err(ApiError::from_status(
-                status,
-                "tenant daily model token quota exhausted",
-                &trace_id,
-            ));
+    let quota_reservation = if let Some(tenant_id) = ctx.tenant_id.as_deref() {
+        match state.tenant_token_quota.clone().reserve(tenant_id).await {
+            Ok(reservation) => reservation,
+            Err(status) => {
+                state.sse_connection_count.fetch_sub(1, Ordering::Relaxed);
+                crate::metrics::record_sse_connection_close();
+                crate::security_audit::log_auth_failure(
+                    "quota.token_rejected",
+                    Some(&ctx.request_id),
+                    "/internal/v3/api/intelligence/runtime/sessions/{session_id}/model/stream",
+                    Some(tenant_id),
+                    ctx.user_id.as_deref(),
+                    "tenant daily model token quota exhausted",
+                );
+                metrics.record_tenant_token_quota_rejection();
+                return Err(ApiError::from_status(
+                    status,
+                    "tenant daily model token quota exhausted",
+                    &trace_id,
+                ));
+            }
         }
-    }
+    } else {
+        None
+    };
 
     let model_id = request.model_id.clone();
     let override_messages = request.messages;
@@ -1947,6 +2334,7 @@ pub async fn stream_model(
         model_id,
         override_messages,
         connection_count,
+        quota_reservation,
     );
 
     Ok(Sse::new(stream).keep_alive(
@@ -2015,6 +2403,10 @@ pub async fn stream_session_events(
 
     let last_event_id = last_event_id_from_request(&headers, &query);
     let live = query.live.unwrap_or(true);
+    // Subscribe before the persistence replay query so events committed during
+    // the replay window are buffered locally. The live stream also polls the
+    // durable store, which recovers cross-pod and lagged broadcast events.
+    let live_receiver = live.then(|| state.persistence.event_bus().subscribe());
     let session_for_events = session_id.clone();
     let replay_after_event_id = last_event_id.clone();
     let events = state
@@ -2027,13 +2419,6 @@ pub async fn stream_session_events(
         })
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
-    let replay_count = events.len();
-    let replay = stream::iter(
-        events
-            .into_iter()
-            .enumerate()
-            .map(|(index, row)| Ok(event_row_to_sse(&row, index as u32))),
-    );
 
     let current = state.sse_connection_count.fetch_add(1, Ordering::Relaxed);
     if current >= MAX_CONCURRENT_SSE_STREAMS {
@@ -2043,19 +2428,28 @@ pub async fn stream_session_events(
             &trace_id,
         ));
     }
+    crate::metrics::record_sse_connection_open();
 
     let connection_count = state.sse_connection_count.clone();
     let stream: SessionEventStream = if live {
         let live_stream = live_event_stream(
-            state.persistence.event_bus().subscribe(),
+            live_receiver.expect("live receiver is present when live streaming is enabled"),
+            state.persistence.clone(),
             session_id,
-            replay_count as u32,
+            events,
+            0,
+            last_event_id,
         );
         // Wrap the stream to decrement the connection counter on drop.
-        let inner: Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>> =
-            Box::pin(replay.chain(live_stream));
+        let inner: Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>> = live_stream;
         Box::pin(CountedStream::new(inner, connection_count))
     } else {
+        let replay = stream::iter(
+            events
+                .into_iter()
+                .enumerate()
+                .map(|(index, row)| Ok(event_row_to_sse(&row, index as u32))),
+        );
         let inner: Pin<Box<dyn Stream<Item = Result<Event, Infallible>> + Send>> = Box::pin(replay);
         Box::pin(CountedStream::new(inner, connection_count))
     };
@@ -2067,32 +2461,68 @@ pub async fn stream_session_events(
     ))
 }
 
-fn resolve_list_page_params(
-    page: Option<i64>,
-    page_size: Option<i64>,
-) -> Result<sdkwork_utils_rust::OffsetListPageParams, sdkwork_utils_rust::SdkWorkResultCode> {
-    validated_offset_list_params(page, page_size)
-}
-
-fn resolved_list_page_size(page_size: Option<i64>) -> i64 {
-    page_size
-        .unwrap_or(i64::from(DEFAULT_LIST_PAGE_SIZE))
-        .clamp(1, i64::from(MAX_LIST_PAGE_SIZE))
-}
-
-fn reject_page_with_cursor<'a>(
-    page: Option<i64>,
-    cursor: Option<&'a str>,
-    trace_id: &str,
-) -> Result<Option<&'a str>, ApiError> {
-    let cursor = cursor.map(str::trim).filter(|value| !value.is_empty());
-    if cursor.is_some() && page.is_some() {
+fn resolved_cursor_page_size(page_size: Option<i64>, trace_id: &str) -> Result<i64, ApiError> {
+    let page_size = page_size.unwrap_or(i64::from(DEFAULT_LIST_PAGE_SIZE));
+    if !(1..=i64::from(MAX_LIST_PAGE_SIZE)).contains(&page_size) {
         return Err(ApiError::invalid_parameter(
-            "page and cursor cannot be combined",
+            "page_size must be between 1 and 200",
             trace_id,
         ));
     }
-    Ok(cursor)
+    Ok(page_size)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ResourceCursorPayload {
+    version: u8,
+    resource: String,
+    id: String,
+}
+
+fn cursor_signing_secret(config: &ServerConfig) -> String {
+    config
+        .ingress_token
+        .as_deref()
+        .or(config.ingress_jwt_secret.as_deref())
+        .or(config.metrics_token.as_deref())
+        .map(|secret| format!("sdkwork-kernel-cursor-v1:{secret}"))
+        .unwrap_or_else(|| "sdkwork-kernel-local-cursor-v1".to_string())
+}
+
+fn encode_resource_cursor(config: &ServerConfig, resource: &str, id: &str) -> String {
+    let payload = ResourceCursorPayload {
+        version: 1,
+        resource: resource.to_string(),
+        id: id.to_string(),
+    };
+    let raw = serde_json::to_vec(&payload).expect("resource cursor serialization");
+    let encoded = base64url_encode(&raw);
+    let signature =
+        hmac_sha256_base64url(encoded.as_bytes(), cursor_signing_secret(config).as_bytes());
+    format!("{encoded}.{signature}")
+}
+
+fn decode_resource_cursor(
+    config: &ServerConfig,
+    expected_resource: &str,
+    cursor: &str,
+) -> Result<String, ()> {
+    let (encoded, signature) = cursor.trim().split_once('.').ok_or(())?;
+    if encoded.is_empty() || signature.is_empty() {
+        return Err(());
+    }
+    let expected_signature =
+        hmac_sha256_base64url(encoded.as_bytes(), cursor_signing_secret(config).as_bytes());
+    if !secure_compare(&expected_signature, signature) {
+        return Err(());
+    }
+    let raw = base64url_decode(encoded).ok_or(())?;
+    let payload: ResourceCursorPayload = serde_json::from_slice(&raw).map_err(|_| ())?;
+    if payload.version != 1 || payload.resource != expected_resource || payload.id.trim().is_empty()
+    {
+        return Err(());
+    }
+    Ok(payload.id)
 }
 
 #[cfg(test)]
@@ -2122,6 +2552,41 @@ mod tests {
             api_surface: None,
             route_template: String::new(),
         })
+    }
+
+    #[test]
+    fn resource_cursor_round_trip_is_resource_scoped() {
+        let config = ServerConfig::default();
+        let cursor = encode_resource_cursor(&config, "messages", "msg.1");
+        assert_eq!(
+            decode_resource_cursor(&config, "messages", &cursor),
+            Ok("msg.1".to_string())
+        );
+        assert!(decode_resource_cursor(&config, "sessions", &cursor).is_err());
+    }
+
+    #[test]
+    fn resource_cursor_rejects_tampering() {
+        let config = ServerConfig::default();
+        let cursor = encode_resource_cursor(&config, "tasks", "task.1");
+        let mut tampered = cursor.into_bytes();
+        let index = tampered
+            .iter()
+            .position(|byte| *byte != b'.')
+            .expect("cursor contains payload bytes");
+        tampered[index] = if tampered[index] == b'a' { b'b' } else { b'a' };
+        let tampered = String::from_utf8(tampered).expect("ASCII cursor");
+        assert!(decode_resource_cursor(&config, "tasks", &tampered).is_err());
+    }
+
+    #[test]
+    fn cursor_page_size_is_strict() {
+        assert_eq!(
+            resolved_cursor_page_size(None, "trace").expect("default"),
+            i64::from(DEFAULT_LIST_PAGE_SIZE)
+        );
+        assert!(resolved_cursor_page_size(Some(0), "trace").is_err());
+        assert!(resolved_cursor_page_size(Some(201), "trace").is_err());
     }
 
     #[tokio::test]

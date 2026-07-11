@@ -35,14 +35,43 @@ impl SpawnedWorker {
         }
     }
 
+    pub fn is_reusable(&self) -> bool {
+        self.session.is_reusable() && self.is_running()
+    }
+
+    /// Terminates only this worker process. Request-scoped cancellation is
+    /// implemented by leasing one worker to one active request.
     pub fn cancel_inflight(&self) -> Result<(), TransportError> {
         let Ok(mut guard) = self.child.lock() else {
             return Err(TransportError::new("worker child lock failed"));
         };
         if let Some(mut child) = guard.take() {
-            let _ = child.kill();
-            let _ = child.wait();
+            match child.try_wait() {
+                Ok(Some(_)) => return Ok(()),
+                Ok(None) => {}
+                Err(error) => {
+                    *guard = Some(child);
+                    return Err(TransportError::new(format!(
+                        "worker status check failed: {error}"
+                    )));
+                }
+            }
+            if let Err(error) = child.kill() {
+                *guard = Some(child);
+                return Err(TransportError::new(format!(
+                    "worker termination failed: {error}"
+                )));
+            }
+            child
+                .wait()
+                .map_err(|error| TransportError::new(format!("worker wait failed: {error}")))?;
         }
         Ok(())
+    }
+}
+
+impl Drop for SpawnedWorker {
+    fn drop(&mut self) {
+        let _ = self.cancel_inflight();
     }
 }

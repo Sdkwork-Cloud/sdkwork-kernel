@@ -63,7 +63,7 @@ impl AgentSdkIntegration {
 
     pub fn selected_driver_id(&self, capability_id: &str) -> Option<&str> {
         self.negotiation
-            .selected_driver(&capability_id)
+            .selected_driver(capability_id)
             .map(|entry| entry.driver_id.as_str())
     }
 

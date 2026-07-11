@@ -1,4 +1,5 @@
 import type { SdkWorkResourceData } from './sdk-work-resource-data';
+import type { SessionResponse } from './session-response';
 
 /** Session resource SdkWorkApiResponse envelope. */
 export interface SessionItemResponse {

@@ -4,11 +4,11 @@ use sdkwork_agent_provider_spi::{
     SdkRuntimeRequest, SdkRuntimeResponse,
 };
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub struct ProviderBackedRustHandler {
-    model: Mutex<Arc<dyn ModelProvider + Send + Sync>>,
-    tools: Mutex<Arc<dyn ToolProvider + Send + Sync>>,
+    model: Arc<dyn ModelProvider + Send + Sync>,
+    tools: Arc<dyn ToolProvider + Send + Sync>,
     default_model: String,
 }
 
@@ -19,8 +19,8 @@ impl ProviderBackedRustHandler {
         default_model: impl Into<String>,
     ) -> Self {
         Self {
-            model: Mutex::new(model),
-            tools: Mutex::new(tools),
+            model,
+            tools,
             default_model: default_model.into(),
         }
     }
@@ -39,6 +39,7 @@ impl ProviderBackedRustHandler {
                 model_request_id,
                 messages,
                 wire_messages,
+                ..
             } => {
                 self.invoke_model_chat(model_request_id, messages, wire_messages.as_ref(), request)
             }
@@ -46,6 +47,7 @@ impl ProviderBackedRustHandler {
                 model_request_id,
                 messages,
                 wire_messages,
+                ..
             } => self.invoke_model_chat_stream(
                 model_request_id,
                 messages,
@@ -58,12 +60,7 @@ impl ProviderBackedRustHandler {
                 arguments,
             } => {
                 let call = ToolCall::new(tool_call_id, tool_id, arguments);
-                let result = self
-                    .tools
-                    .lock()
-                    .map_err(|error| SdkRuntimeError::new("lock_error", error.to_string()))?
-                    .invoke_tool(call)
-                    .map_err(map_kernel_error)?;
+                let result = self.tools.invoke_tool(call).map_err(map_kernel_error)?;
                 Ok(SdkRuntimeResponse::success(
                     SdkBackendKind::RustNative,
                     &request.capability_id,
@@ -126,12 +123,7 @@ impl ProviderBackedRustHandler {
     ) -> Result<SdkRuntimeResponse, SdkRuntimeError> {
         let model_request =
             self.build_model_request(model_request_id, messages, wire_messages, request);
-        let response = self
-            .model
-            .lock()
-            .map_err(|error| SdkRuntimeError::new("lock_error", error.to_string()))?
-            .invoke(model_request)
-            .map_err(map_kernel_error)?;
+        let response = self.model.invoke(model_request).map_err(map_kernel_error)?;
         Ok(SdkRuntimeResponse::success(
             SdkBackendKind::RustNative,
             &request.capability_id,
@@ -148,12 +140,7 @@ impl ProviderBackedRustHandler {
     ) -> Result<SdkRuntimeResponse, SdkRuntimeError> {
         let model_request =
             self.build_model_request(model_request_id, messages, wire_messages, request);
-        let chunks = self
-            .model
-            .lock()
-            .map_err(|error| SdkRuntimeError::new("lock_error", error.to_string()))?
-            .stream(model_request)
-            .map_err(map_kernel_error)?;
+        let chunks = self.model.stream(model_request).map_err(map_kernel_error)?;
         Ok(SdkRuntimeResponse::success(
             SdkBackendKind::RustNative,
             &request.capability_id,
@@ -178,14 +165,7 @@ impl SdkBackendRuntime for InProcessRustSdkRuntime {
     }
 
     fn health(&self) -> SdkDriverHealth {
-        let model_health = self
-            .handler
-            .model
-            .lock()
-            .map(|model| model.health())
-            .unwrap_or_else(|_| sdkwork_agent_kernel::ProviderHealth {
-                status: "unavailable".to_string(),
-            });
+        let model_health = self.handler.model.health();
         if model_health.status == "available" {
             SdkDriverHealth::healthy()
         } else {
@@ -195,6 +175,14 @@ impl SdkBackendRuntime for InProcessRustSdkRuntime {
 
     fn invoke(&self, request: &SdkRuntimeRequest) -> Result<SdkRuntimeResponse, SdkRuntimeError> {
         self.handler.invoke_inner(request)
+    }
+
+    fn cancel_inflight(&self, request_id: &str) -> Result<bool, SdkRuntimeError> {
+        self.handler
+            .model
+            .cancel(request_id)
+            .map(|_| true)
+            .map_err(map_kernel_error)
     }
 }
 

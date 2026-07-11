@@ -1,6 +1,14 @@
-# SDKWork Agent SDK Backend IPC
+# SDKWork Agent Provider Transport IPC
 
-JSON-RPC stdio transport and in-memory stubs for external agent SDK backend workers.
+JSON-RPC stdio transport and development-only stubs for external agent provider workers.
+
+Managed Node and Python runtimes lease one worker process to one active request. This permits
+bounded concurrency and request-scoped cancellation without terminating unrelated tenant work.
+`SDKWORK_PROVIDER_WORKER_MAX_CONCURRENCY` defaults to `8` and is clamped to `1..=64`.
+
+The wire contract rejects JSON-RPC frames larger than 8 MiB, more than 4096 stream chunks,
+individual chunks larger than 256 KiB, and aggregate stream content larger than 16 MiB. A worker
+that violates framing is discarded instead of being reused.
 
 Verification:
 

@@ -1,6 +1,7 @@
 use sdkwork_agent_provider_transport_ipc::{
     expand_buffered_stream_payload, is_stream_chunk_frame, is_stream_terminal_frame,
     stream_chunk_frame, stream_done_frame, JsonRpcTransport, PackageStubJsonRpcTransport,
+    MAX_STREAM_BUFFER_CHUNKS, MAX_STREAM_CHUNK_BYTES, MAX_STREAM_TOTAL_BYTES,
     SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_STREAM_EVENT_CHUNK, SDKWORK_STREAM_EVENT_DONE,
 };
 use serde_json::json;
@@ -105,4 +106,41 @@ fn stream_frame_helpers_round_trip() {
     assert!(is_stream_chunk_frame(&chunk));
     let done = stream_done_frame("stop");
     assert!(is_stream_terminal_frame(&done));
+}
+
+#[test]
+fn stream_limits_reject_too_many_chunks() {
+    let payload = json!({
+        "ok": true,
+        "chunks": vec![json!({"content": "x"}); MAX_STREAM_BUFFER_CHUNKS + 1]
+    });
+    let error = expand_buffered_stream_payload(payload, |_frame| Ok(true))
+        .expect_err("chunk count must be bounded");
+    assert!(error.message.contains("chunk limit"));
+}
+
+#[test]
+fn stream_limits_reject_one_oversized_chunk() {
+    let payload = json!({
+        "ok": true,
+        "chunks": [{"content": "x".repeat(MAX_STREAM_CHUNK_BYTES + 1)}]
+    });
+    let error = expand_buffered_stream_payload(payload, |_frame| Ok(true))
+        .expect_err("chunk bytes must be bounded");
+    assert!(error.message.contains("byte limit"));
+}
+
+#[test]
+fn stream_limits_reject_aggregate_bytes() {
+    let chunk = "x".repeat(MAX_STREAM_CHUNK_BYTES);
+    let count = (MAX_STREAM_TOTAL_BYTES / MAX_STREAM_CHUNK_BYTES) + 1;
+    let payload = json!({
+        "ok": true,
+        "chunks": (0..count)
+            .map(|_| json!({"content": chunk}))
+            .collect::<Vec<_>>()
+    });
+    let error = expand_buffered_stream_payload(payload, |_frame| Ok(true))
+        .expect_err("aggregate stream bytes must be bounded");
+    assert!(error.message.contains("total byte limit"));
 }

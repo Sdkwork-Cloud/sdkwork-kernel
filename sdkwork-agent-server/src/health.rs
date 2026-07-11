@@ -1,8 +1,140 @@
-use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 
-use crate::persistence::PersistenceState;
+use crate::{config::ServerConfig, persistence::PersistenceState, runtime::RuntimeState};
+
+#[derive(Clone)]
+struct RedisDependency {
+    name: &'static str,
+    client: redis::Client,
+}
+
+/// Framework-owned readiness adapter for all required runtime dependencies.
+#[derive(Clone)]
+pub struct RuntimeReadiness {
+    persistence: Arc<PersistenceState>,
+    config: Arc<ServerConfig>,
+    runtime: RuntimeState,
+    redis_dependencies: Vec<RedisDependency>,
+}
+
+impl RuntimeReadiness {
+    pub fn new(
+        persistence: Arc<PersistenceState>,
+        config: Arc<ServerConfig>,
+        runtime: RuntimeState,
+    ) -> Result<Self, String> {
+        let mut redis_dependencies = Vec::new();
+        if config.is_production_kernel_profile() && config.effective_deployment_profile() == "cloud"
+        {
+            let rate_limit_url = config.effective_rate_limit_redis_url().ok_or_else(|| {
+                "cloud production readiness requires rate-limit Redis configuration".to_string()
+            })?;
+            redis_dependencies.push(RedisDependency {
+                name: "rate_limit_redis",
+                client: redis::Client::open(rate_limit_url)
+                    .map_err(|error| format!("invalid rate-limit Redis configuration: {error}"))?,
+            });
+            let idempotency_url = config.effective_idempotency_redis_url().ok_or_else(|| {
+                "cloud production readiness requires idempotency Redis configuration".to_string()
+            })?;
+            redis_dependencies.push(RedisDependency {
+                name: "idempotency_redis",
+                client: redis::Client::open(idempotency_url)
+                    .map_err(|error| format!("invalid idempotency Redis configuration: {error}"))?,
+            });
+        }
+        Ok(Self {
+            persistence,
+            config,
+            runtime,
+            redis_dependencies,
+        })
+    }
+}
+
+impl sdkwork_web_bootstrap::ReadinessCheck for RuntimeReadiness {
+    fn check(&self) -> sdkwork_web_bootstrap::ReadinessFuture<'_> {
+        let persistence = self.persistence.clone();
+        let config = self.config.clone();
+        let runtime = self.runtime.clone();
+        let redis_dependencies = self.redis_dependencies.clone();
+        Box::pin(async move {
+            persistence.run(|state| state.readiness()).await?;
+            if config.is_production_kernel_profile() {
+                validate_required_runtime(&runtime)?;
+            }
+            if config.is_production_kernel_profile()
+                && config.effective_deployment_profile() == "cloud"
+            {
+                for dependency in redis_dependencies {
+                    let mut connection = time_limited_redis_connection(&dependency).await?;
+                    let response = tokio::time::timeout(
+                        Duration::from_secs(2),
+                        redis::cmd("PING").query_async::<String>(&mut connection),
+                    )
+                    .await
+                    .map_err(|_| format!("{} readiness timed out", dependency.name))?
+                    .map_err(|error| format!("{} readiness failed: {error}", dependency.name))?;
+                    if response != "PONG" {
+                        return Err(format!(
+                            "{} readiness returned an unexpected response",
+                            dependency.name
+                        ));
+                    }
+                }
+            }
+            Ok(())
+        })
+    }
+}
+
+async fn time_limited_redis_connection(
+    dependency: &RedisDependency,
+) -> Result<redis::aio::MultiplexedConnection, String> {
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        dependency.client.get_multiplexed_async_connection(),
+    )
+    .await
+    .map_err(|_| format!("{} connection timed out", dependency.name))?
+    .map_err(|error| format!("{} connection failed: {error}", dependency.name))
+}
+
+fn validate_required_runtime(runtime: &RuntimeState) -> Result<(), String> {
+    let diagnostics = runtime.agent_runtime().diagnostics();
+    if diagnostics.state != "ready" || !diagnostics.missing_required_capabilities.is_empty() {
+        return Err("required runtime capabilities are unavailable".to_string());
+    }
+    let required_provider_ids: HashSet<&str> = runtime
+        .agent_runtime()
+        .capability_manifest()
+        .capabilities
+        .iter()
+        .filter(|capability| capability.required)
+        .map(|capability| capability.provider_id.as_str())
+        .collect();
+    for provider_id in required_provider_ids {
+        let provider = diagnostics.provider(provider_id).ok_or_else(|| {
+            format!("required provider is missing from diagnostics: {provider_id}")
+        })?;
+        if !provider.typed_registered {
+            return Err(format!("required provider is not typed: {provider_id}"));
+        }
+        let healthy = provider.health.as_ref().is_some_and(|health| {
+            matches!(
+                health.status.to_ascii_lowercase().as_str(),
+                "available" | "ready" | "healthy"
+            )
+        });
+        if !healthy {
+            return Err(format!("required provider is unavailable: {provider_id}"));
+        }
+    }
+    Ok(())
+}
 
 /// Health check response
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,12 +151,6 @@ pub struct ComponentHealth {
     pub name: String,
     pub status: String,
     pub message: Option<String>,
-}
-
-/// SDKWork infrastructure probe response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProbeResponse {
-    pub status: String,
 }
 
 /// Health check state
@@ -89,54 +215,9 @@ pub(crate) fn aggregate_component_status(components: &[ComponentHealth]) -> Stri
     }
 }
 
-/// Health check handler
-pub async fn health_check(
-    State((_health_state, _persistence)): State<(Arc<HealthState>, Arc<PersistenceState>)>,
-) -> (StatusCode, Json<ProbeResponse>) {
-    (
-        StatusCode::OK,
-        Json(ProbeResponse {
-            status: "ok".to_string(),
-        }),
-    )
-}
-
-/// Readiness check handler
-pub async fn readiness_check(
-    State((_health_state, persistence)): State<(Arc<HealthState>, Arc<PersistenceState>)>,
-) -> (StatusCode, Json<ProbeResponse>) {
-    match persistence.run(|state| state.health()).await {
-        Ok(true) => (
-            StatusCode::OK,
-            Json(ProbeResponse {
-                status: "ready".to_string(),
-            }),
-        ),
-        _ => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(ProbeResponse {
-                status: "READINESS_DEPENDENCY_UNAVAILABLE".to_string(),
-            }),
-        ),
-    }
-}
-
-/// Liveness check handler
-pub async fn liveness_check(
-    State((_health_state, _persistence)): State<(Arc<HealthState>, Arc<PersistenceState>)>,
-) -> (StatusCode, Json<ProbeResponse>) {
-    (
-        StatusCode::OK,
-        Json(ProbeResponse {
-            status: "ok".to_string(),
-        }),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistence::PersistenceState;
 
     #[test]
     fn health_state_uptime() {
@@ -145,11 +226,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn readiness_reports_database_state() {
-        let health_state = Arc::new(HealthState::new());
+    async fn standalone_readiness_checks_database_and_schema() {
+        let config = Arc::new(ServerConfig::default());
         let persistence = Arc::new(PersistenceState::memory().expect("persistence"));
-        let (status, Json(response)) = readiness_check(State((health_state, persistence))).await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(response.status, "ready");
+        let runtime = RuntimeState::try_for_config(config.as_ref()).expect("runtime");
+        let readiness = RuntimeReadiness::new(persistence, config, runtime).expect("readiness");
+        sdkwork_web_bootstrap::ReadinessCheck::check(&readiness)
+            .await
+            .expect("ready");
     }
 }

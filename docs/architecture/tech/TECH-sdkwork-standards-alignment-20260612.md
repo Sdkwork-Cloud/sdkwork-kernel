@@ -498,7 +498,7 @@ Out of kernel scope (documented, not implemented in this repository):
 
 Phase 5 utils:
 
-- `sdkwork-utils-rust` workspace dependency; server list handlers use `validated_offset_list_params`
+- `sdkwork-utils-rust` workspace dependency; runtime session/message/task lists now use bounded cursor-only keyset pagination, superseding the historical `validated_offset_list_params` path
 - `sdkwork-agent-database` postgres pool bootstrap through `sdkwork-database-sqlx`
 - `tools/validators/kernel-standards/platform-utils.mjs` and `scripts/dev/sdkwork-kernel-utils-standard.test.mjs`
 - `pnpm test:utils-standard` in root `package.json`

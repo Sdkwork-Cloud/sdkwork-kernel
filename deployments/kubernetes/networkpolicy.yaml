@@ -1,3 +1,11 @@
+# Production base policy for sdkwork-agent-server.
+#
+# Before applying it, label the approved ingress and monitoring namespaces as
+# documented in the production runbook. Standard Kubernetes NetworkPolicy
+# cannot select an external managed service by DNS name, so production
+# environments must also add a provider/CNI-specific egress policy limited to
+# the exact managed PostgreSQL, Redis, and private OTLP destinations. This base
+# policy intentionally fails closed for undeclared external private endpoints.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -13,24 +21,21 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow traffic from the Kubernetes ingress controller namespace.
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
+              sdkwork.com/agent-server-ingress: "true"
       ports:
         - protocol: TCP
           port: 18280
-    # Allow health check probes from the kubelet (same node).
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: kube-system
+              sdkwork.com/agent-server-monitoring: "true"
       ports:
         - protocol: TCP
           port: 18280
   egress:
-    # Allow DNS resolution.
     - to:
         - namespaceSelector:
             matchLabels:
@@ -40,39 +45,45 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Allow outbound HTTPS for provider API calls.
+    # Public HTTPS is required for approved provider APIs and HTTPS JWKS.
+    # Private provider endpoints require an environment-specific overlay.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
+              - 0.0.0.0/8
               - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
               - 172.16.0.0/12
+              - 192.0.0.0/24
               - 192.168.0.0/16
+              - 198.18.0.0/15
+              - 224.0.0.0/4
+              - 240.0.0.0/4
       ports:
         - protocol: TCP
           port: 443
-    # Allow Redis connectivity within the cluster.
+    # Same-namespace operator-managed or staging data services may opt in with
+    # these labels. Managed external services require the explicit overlay
+    # described above and in the runbook.
     - to:
-        - namespaceSelector: {}
-          podSelector:
+        - podSelector:
             matchLabels:
-              app.kubernetes.io/name: redis
-      ports:
-        - protocol: TCP
-          port: 6379
-    # Allow PostgreSQL connectivity within the cluster.
-    - to:
-        - namespaceSelector: {}
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: postgres
+              sdkwork.com/runtime-data-service: postgres
       ports:
         - protocol: TCP
           port: 5432
-    # Allow OTEL collector connectivity.
     - to:
-        - namespaceSelector: {}
-          podSelector:
+        - podSelector:
+            matchLabels:
+              sdkwork.com/runtime-data-service: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    - to:
+        - podSelector:
             matchLabels:
               app.kubernetes.io/name: otel-collector
       ports:

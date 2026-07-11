@@ -47,10 +47,15 @@ delete process.env.SDKWORK_KERNEL_PROFILE_ID;
 delete process.env.SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS;
 delete process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS;
 
-assert.doesNotMatch(
+assert.match(
   fs.readFileSync(path.join(workerDir, 'engine-sdk-live.mjs'), 'utf8'),
   /external\/opencode\/packages\/sdk\/js/,
-  'OpenCode SDK resolver must not assume external/opencode is a TypeScript SDK workspace',
+  'OpenCode SDK resolver should include the canonical SDK mirror path',
+);
+assert.match(
+  fs.readFileSync(path.join(workerDir, 'engine-sdk-live.mjs'), 'utf8'),
+  /external\/gemini\/packages\/sdk/,
+  'Gemini SDK resolver should include the canonical SDK mirror path',
 );
 
 assert.equal(mockProviderInvocationAllowed(), true, 'dev profile should allow mock fallback');

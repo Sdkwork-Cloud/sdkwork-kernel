@@ -2,12 +2,7 @@
 name = "sdkwork-agent-client"
 version = "0.1.0"
 edition = "2021"
-description = "Client SDK for SDKWork agent chat with SSE and WebSocket support"
-
-[features]
-default = ["http"]
-http = ["dep:reqwest"]
-websocket = ["dep:tokio-tungstenite"]
+description = "Typed HTTP and SSE client for the SDKWork agent internal API"
 
 [dependencies]
 sdkwork-agent-kernel.workspace = true
@@ -26,7 +21,4 @@ hmac = "0.12"
 sha2 = "0.10"
 
 # HTTP/SSE
-reqwest = { version = "0.12", features = ["stream", "json"], optional = true }
-
-# WebSocket
-tokio-tungstenite = { version = "0.24", features = ["native-tls"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["stream", "json", "rustls-tls"] }

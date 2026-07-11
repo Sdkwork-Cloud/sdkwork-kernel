@@ -16,9 +16,9 @@
   },
   "canonicalSpecs": [
     {
-      "file": "AGENT_SDK_SPI_SPEC.md",
-      "path": "../specs/AGENT_SDK_SPI_SPEC.md",
-      "purpose": "External agent SDK adaptation SPI rules."
+      "file": "AGENT_PROVIDER_INTEGRATION_SPEC.md",
+      "path": "../specs/AGENT_PROVIDER_INTEGRATION_SPEC.md",
+      "purpose": "External agent provider integration and transport rules."
     },
     {
       "file": "COMPONENT_SPEC.md",
@@ -55,7 +55,17 @@
     "configKeys": [
       "SDKWORK_KERNEL_PROFILE_ID",
       "SDKWORK_KERNEL_ENVIRONMENT",
-      "SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS"
+      "SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS",
+      "SDKWORK_AGENT_NODE_BINARY",
+      "SDKWORK_AGENT_TYPESCRIPT_WORKER_SCRIPT",
+      "SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT",
+      "SDKWORK_AGENT_SDK_PACKAGE_PATHS",
+      "SDKWORK_AGENT_SDK_WORKSPACE_ROOT",
+      "SDKWORK_PROVIDER_WORKER_MAX_CONCURRENCY",
+      "SDKWORK_CODEX_CLI_BIN",
+      "SDKWORK_CLAUDE_CLI_BIN",
+      "SDKWORK_GEMINI_CLI_BIN",
+      "SDKWORK_OPENCODE_CLI_BIN"
     ]
   },
   "verification": {

@@ -4,13 +4,18 @@ use sdkwork_agent_provider_spi::{
     SdkRuntimeRequest, SdkRuntimeResponse,
 };
 use sdkwork_agent_provider_transport_ipc::{
-    FailClosedJsonRpcTransport, JsonRpcTransport, PackageStubJsonRpcTransport, SpawnedWorker,
+    provider_worker_concurrency_limit, FailClosedJsonRpcTransport, JsonRpcTransport,
+    PackageStubJsonRpcTransport, SpawnedWorker, SpawnedWorkerLease, SpawnedWorkerPool,
     TransportError, SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_PING_METHOD,
 };
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::time::Duration;
+
+const WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
+const HEALTH_WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone)]
 pub struct PythonWorkerLaunchOptions {
@@ -45,10 +50,7 @@ pub fn default_python_worker_script() -> PathBuf {
 enum PythonRuntimeBackend {
     Stub(Arc<dyn JsonRpcTransport + Send + Sync>),
     FailClosed(Arc<dyn JsonRpcTransport + Send + Sync>),
-    Managed {
-        worker: Mutex<Option<SpawnedWorker>>,
-        launch_options: PythonWorkerLaunchOptions,
-    },
+    Managed { pool: Arc<SpawnedWorkerPool> },
 }
 
 pub struct PythonSdkBackendRuntime {
@@ -100,13 +102,18 @@ impl PythonSdkBackendRuntime {
             ));
         }
 
-        let worker = spawn_worker(options).map_err(map_transport_error)?;
+        let launch_options = options.clone();
+        let pool = Arc::new(
+            SpawnedWorkerPool::new(provider_worker_concurrency_limit(), move || {
+                spawn_worker(&launch_options)
+            })
+            .map_err(map_transport_error)?,
+        );
+        pool.warm_up(WORKER_ACQUIRE_TIMEOUT)
+            .map_err(map_transport_error)?;
         Ok(Self {
             package_name: options.package_name.clone(),
-            backend: PythonRuntimeBackend::Managed {
-                worker: Mutex::new(Some(worker)),
-                launch_options: options.clone(),
-            },
+            backend: PythonRuntimeBackend::Managed { pool },
         })
     }
 
@@ -137,29 +144,47 @@ impl PythonSdkBackendRuntime {
         }
     }
 
-    fn transport(&self) -> Result<Arc<dyn JsonRpcTransport + Send + Sync>, SdkRuntimeError> {
+    fn shared_transport(&self) -> Result<Arc<dyn JsonRpcTransport + Send + Sync>, SdkRuntimeError> {
         match &self.backend {
             PythonRuntimeBackend::Stub(transport) | PythonRuntimeBackend::FailClosed(transport) => {
                 Ok(transport.clone())
             }
-            PythonRuntimeBackend::Managed {
-                worker,
-                launch_options,
-            } => {
-                let mut guard = worker
-                    .lock()
-                    .map_err(|error| SdkRuntimeError::new("lock_error", error.to_string()))?;
-                let needs_respawn = guard
-                    .as_ref()
-                    .map(|entry| !entry.is_running())
-                    .unwrap_or(true);
-                if needs_respawn {
-                    *guard = Some(spawn_worker(launch_options).map_err(map_transport_error)?);
-                }
-                let entry = guard
-                    .as_ref()
-                    .expect("worker should be present after respawn");
-                Ok(Arc::new(entry.transport()))
+            PythonRuntimeBackend::Managed { .. } => Err(SdkRuntimeError::new(
+                "transport_error",
+                "managed workers require a request-scoped lease",
+            )),
+        }
+    }
+
+    fn acquire_worker(
+        pool: &SpawnedWorkerPool,
+        request: &SdkRuntimeRequest,
+    ) -> Result<SpawnedWorkerLease, SdkRuntimeError> {
+        match request.operation.request_id() {
+            Some(request_id) => pool
+                .acquire(request_id, WORKER_ACQUIRE_TIMEOUT)
+                .map_err(map_transport_error),
+            None => pool
+                .acquire_internal("invoke", WORKER_ACQUIRE_TIMEOUT)
+                .map_err(map_transport_error),
+        }
+    }
+
+    fn ping_worker(&self) -> Result<Value, SdkRuntimeError> {
+        match &self.backend {
+            PythonRuntimeBackend::Managed { pool } => {
+                let lease = pool
+                    .acquire_internal("health", HEALTH_WORKER_ACQUIRE_TIMEOUT)
+                    .map_err(map_transport_error)?;
+                lease
+                    .transport()
+                    .call(SDKWORK_PING_METHOD, None)
+                    .map_err(map_transport_error)
+            }
+            PythonRuntimeBackend::Stub(transport) | PythonRuntimeBackend::FailClosed(transport) => {
+                transport
+                    .call(SDKWORK_PING_METHOD, None)
+                    .map_err(map_transport_error)
             }
         }
     }
@@ -171,9 +196,19 @@ impl PythonSdkBackendRuntime {
             "payload": request.payload,
             "package": self.package_name,
         });
-        self.transport()?
-            .call(SDKWORK_CAPABILITY_INVOKE_METHOD, Some(params))
-            .map_err(map_transport_error)
+        match &self.backend {
+            PythonRuntimeBackend::Managed { pool } => {
+                let lease = Self::acquire_worker(pool, request)?;
+                lease
+                    .transport()
+                    .call(SDKWORK_CAPABILITY_INVOKE_METHOD, Some(params))
+                    .map_err(map_transport_error)
+            }
+            PythonRuntimeBackend::Stub(_) | PythonRuntimeBackend::FailClosed(_) => self
+                .shared_transport()?
+                .call(SDKWORK_CAPABILITY_INVOKE_METHOD, Some(params))
+                .map_err(map_transport_error),
+        }
     }
 
     fn invoke_worker_streaming(
@@ -187,13 +222,29 @@ impl PythonSdkBackendRuntime {
             "payload": request.payload,
             "package": self.package_name,
         });
-        self.transport()?
-            .call_streaming(
-                SDKWORK_CAPABILITY_INVOKE_METHOD,
-                Some(params),
-                &mut |frame| sink(frame).map_err(|error| TransportError::new(error.message)),
-            )
-            .map_err(map_transport_error)
+        match &self.backend {
+            PythonRuntimeBackend::Managed { pool } => {
+                let lease = Self::acquire_worker(pool, request)?;
+                lease
+                    .transport()
+                    .call_streaming(
+                        SDKWORK_CAPABILITY_INVOKE_METHOD,
+                        Some(params),
+                        &mut |frame| {
+                            sink(frame).map_err(|error| TransportError::new(error.message))
+                        },
+                    )
+                    .map_err(map_transport_error)
+            }
+            PythonRuntimeBackend::Stub(_) | PythonRuntimeBackend::FailClosed(_) => self
+                .shared_transport()?
+                .call_streaming(
+                    SDKWORK_CAPABILITY_INVOKE_METHOD,
+                    Some(params),
+                    &mut |frame| sink(frame).map_err(|error| TransportError::new(error.message)),
+                )
+                .map_err(map_transport_error),
+        }
     }
 }
 
@@ -203,13 +254,10 @@ impl SdkBackendRuntime for PythonSdkBackendRuntime {
     }
 
     fn health(&self) -> SdkDriverHealth {
-        match self.transport() {
-            Ok(transport) => match transport.call(SDKWORK_PING_METHOD, None) {
-                Ok(result) if result.get("ok").and_then(Value::as_bool) == Some(true) => {
-                    package_probe_health(&self.package_name, &result)
-                }
-                Ok(_) => SdkDriverHealth::degraded("worker ping returned unexpected payload"),
-                Err(error) => SdkDriverHealth::unhealthy(error.to_string()),
+        match self.ping_worker() {
+            Ok(result) => match result.get("ok").and_then(Value::as_bool) {
+                Some(true) => package_probe_health(&self.package_name, &result),
+                _ => SdkDriverHealth::degraded("worker ping returned unexpected payload"),
             },
             Err(error) => SdkDriverHealth::unhealthy(error.message),
         }
@@ -217,10 +265,7 @@ impl SdkBackendRuntime for PythonSdkBackendRuntime {
 
     fn invoke(&self, request: &SdkRuntimeRequest) -> Result<SdkRuntimeResponse, SdkRuntimeError> {
         if matches!(request.operation, SdkRuntimeOperation::Ping) {
-            let payload = self
-                .transport()?
-                .call(SDKWORK_PING_METHOD, None)
-                .map_err(map_transport_error)?;
+            let payload = self.ping_worker()?;
             return Ok(SdkRuntimeResponse::success(
                 SdkBackendKind::PythonProcess,
                 &request.capability_id,
@@ -253,10 +298,7 @@ impl SdkBackendRuntime for PythonSdkBackendRuntime {
         sink: &mut dyn FnMut(Value) -> Result<bool, SdkRuntimeError>,
     ) -> Result<(), SdkRuntimeError> {
         if matches!(request.operation, SdkRuntimeOperation::Ping) {
-            let payload = self
-                .transport()?
-                .call(SDKWORK_PING_METHOD, None)
-                .map_err(map_transport_error)?;
+            let payload = self.ping_worker()?;
             sink(payload)?;
             return Ok(());
         }
@@ -271,16 +313,13 @@ impl SdkBackendRuntime for PythonSdkBackendRuntime {
         SdkBackendRuntime::invoke_streaming(self, request, sink)
     }
 
-    fn cancel_inflight(&self) -> Result<(), SdkRuntimeError> {
-        if let PythonRuntimeBackend::Managed { worker, .. } = &self.backend {
-            let guard = worker
-                .lock()
-                .map_err(|error| SdkRuntimeError::new("lock_error", error.to_string()))?;
-            if let Some(entry) = guard.as_ref() {
-                entry.cancel_inflight().map_err(map_transport_error)?;
+    fn cancel_inflight(&self, request_id: &str) -> Result<bool, SdkRuntimeError> {
+        match &self.backend {
+            PythonRuntimeBackend::Managed { pool } => {
+                pool.cancel(request_id).map_err(map_transport_error)
             }
+            PythonRuntimeBackend::Stub(_) | PythonRuntimeBackend::FailClosed(_) => Ok(false),
         }
-        Ok(())
     }
 }
 

@@ -7,11 +7,16 @@ use std::collections::HashMap;
 
 /// Maximum in-bridge message history entries retained per session.
 const MAX_SESSION_BRIDGE_HISTORY: usize = 512;
+/// Maximum flattened message bytes retained per session.
+const MAX_SESSION_BRIDGE_HISTORY_BYTES: usize = 4 * 1024 * 1024;
+/// Hard bound for active transient sessions retained by one runtime process.
+const MAX_SESSION_BRIDGE_SESSIONS: usize = 4096;
 
 /// Manages session lifecycle and message history
 pub struct SessionBridge {
     sessions: HashMap<String, AgentSession>,
     histories: HashMap<String, Vec<AgentMessage>>,
+    history_bytes: HashMap<String, usize>,
 }
 
 impl SessionBridge {
@@ -19,6 +24,7 @@ impl SessionBridge {
         Self {
             sessions: HashMap::new(),
             histories: HashMap::new(),
+            history_bytes: HashMap::new(),
         }
     }
 
@@ -30,6 +36,11 @@ impl SessionBridge {
     ) -> KernelResult<AgentSession> {
         if self.sessions.contains_key(session_id) {
             return self.get_session(session_id);
+        }
+        if self.sessions.len() >= MAX_SESSION_BRIDGE_SESSIONS {
+            return Err(KernelError::resource_exhausted(
+                "active session bridge capacity exhausted",
+            ));
         }
 
         let mut session = AgentSession::new(session_id)
@@ -60,12 +71,18 @@ impl SessionBridge {
         self.sessions
             .insert(session_id.to_string(), session.clone());
         self.histories.insert(session_id.to_string(), Vec::new());
+        self.history_bytes.insert(session_id.to_string(), 0);
 
         Ok(session)
     }
 
     /// Create a new session
     pub fn create_session(&mut self, config: BridgeSessionConfig) -> KernelResult<AgentSession> {
+        if self.sessions.len() >= MAX_SESSION_BRIDGE_SESSIONS {
+            return Err(KernelError::resource_exhausted(
+                "active session bridge capacity exhausted",
+            ));
+        }
         let session_id = format!("session.{}", generate_id());
 
         let mut session = AgentSession::new(&session_id)
@@ -95,7 +112,8 @@ impl SessionBridge {
         session = session.activate(&mut recorder)?;
 
         self.sessions.insert(session_id.clone(), session.clone());
-        self.histories.insert(session_id, Vec::new());
+        self.histories.insert(session_id.clone(), Vec::new());
+        self.history_bytes.insert(session_id, 0);
 
         Ok(session)
     }
@@ -125,6 +143,7 @@ impl SessionBridge {
     /// Remove a session and its in-bridge message history from transient runtime state.
     pub fn remove_session(&mut self, session_id: &str) -> bool {
         self.histories.remove(session_id);
+        self.history_bytes.remove(session_id);
         self.sessions.remove(session_id).is_some()
     }
 
@@ -135,10 +154,20 @@ impl SessionBridge {
             .get_mut(session_id)
             .ok_or_else(|| KernelError::validation(format!("session not found: {}", session_id)))?;
 
+        let message_bytes = message_size(&message);
+        if message_bytes > MAX_SESSION_BRIDGE_HISTORY_BYTES {
+            return Err(KernelError::resource_exhausted(
+                "message exceeds session bridge byte budget",
+            ));
+        }
         history.push(message);
-        if history.len() > MAX_SESSION_BRIDGE_HISTORY {
-            let overflow = history.len() - MAX_SESSION_BRIDGE_HISTORY;
-            history.drain(0..overflow);
+        let retained_bytes = self.history_bytes.entry(session_id.to_string()).or_insert(0);
+        *retained_bytes = retained_bytes.saturating_add(message_bytes);
+        while history.len() > MAX_SESSION_BRIDGE_HISTORY
+            || *retained_bytes > MAX_SESSION_BRIDGE_HISTORY_BYTES
+        {
+            let removed = history.remove(0);
+            *retained_bytes = retained_bytes.saturating_sub(message_size(&removed));
         }
 
         // Update session message count
@@ -146,6 +175,41 @@ impl SessionBridge {
             session.record_message_received();
         }
 
+        Ok(())
+    }
+
+    /// Replace transient history with a bounded persisted snapshot.
+    pub fn replace_history(
+        &mut self,
+        session_id: &str,
+        messages: Vec<AgentMessage>,
+    ) -> KernelResult<()> {
+        if !self.sessions.contains_key(session_id) {
+            return Err(KernelError::validation(format!(
+                "session not found: {session_id}"
+            )));
+        }
+
+        let mut retained = Vec::new();
+        let mut retained_bytes = 0usize;
+        for message in messages.into_iter().rev() {
+            let message_bytes = message_size(&message);
+            if message_bytes > MAX_SESSION_BRIDGE_HISTORY_BYTES {
+                continue;
+            }
+            if retained.len() >= MAX_SESSION_BRIDGE_HISTORY
+                || retained_bytes.saturating_add(message_bytes)
+                    > MAX_SESSION_BRIDGE_HISTORY_BYTES
+            {
+                break;
+            }
+            retained_bytes = retained_bytes.saturating_add(message_bytes);
+            retained.push(message);
+        }
+        retained.reverse();
+        self.histories.insert(session_id.to_string(), retained);
+        self.history_bytes
+            .insert(session_id.to_string(), retained_bytes);
         Ok(())
     }
 
@@ -165,6 +229,7 @@ impl SessionBridge {
             .ok_or_else(|| KernelError::validation(format!("session not found: {}", session_id)))?;
 
         history.clear();
+        self.history_bytes.insert(session_id.to_string(), 0);
         Ok(())
     }
 
@@ -183,6 +248,10 @@ impl Default for SessionBridge {
 /// RFC3339 UTC timestamp for bridge-owned session metadata.
 fn chrono_now() -> String {
     chrono::Utc::now().to_rfc3339()
+}
+
+fn message_size(message: &AgentMessage) -> usize {
+    sdkwork_agent_kernel::flatten_message_to_text(message).len()
 }
 
 #[cfg(test)]

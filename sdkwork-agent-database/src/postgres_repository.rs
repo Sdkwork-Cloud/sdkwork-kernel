@@ -1,7 +1,7 @@
 use sqlx::Row;
 
 use crate::error::{DatabaseError, DatabaseResult};
-use crate::pagination::{resolve_list_limit, resolve_list_offset};
+use crate::pagination::{resolve_history_limit, resolve_list_limit, resolve_list_offset};
 use crate::postgres::PostgresDatabase;
 use crate::traits::*;
 use crate::types::*;
@@ -63,6 +63,211 @@ fn map_event_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<EventRow> {
 
 fn map_sqlx_error(error: sqlx::Error) -> DatabaseError {
     DatabaseError::Query(error.to_string())
+}
+
+impl RuntimeMaintenance for PostgresDatabase {
+    fn purge_expired(&self, cutoff: &str, batch_size: i64) -> DatabaseResult<RuntimePurgeCounts> {
+        if !(1..=10_000).contains(&batch_size) {
+            return Err(DatabaseError::Query(
+                "runtime purge batch_size must be between 1 and 10000".to_string(),
+            ));
+        }
+        let pool = self.pool.pool().clone();
+        let cutoff = cutoff.to_owned();
+        self.pool.run_db(async move {
+            let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            let mut counts = RuntimePurgeCounts::default();
+
+            let session_ids = sqlx::query_scalar::<_, String>(
+                "SELECT session_id FROM sessions
+                 WHERE COALESCE(updated_at, created_at) < $1
+                   AND lower(state) IN (
+                     'closed','completed','complete','failed','cancelled','canceled',
+                     'terminated','expired','orphaned','rejected','denied','approved'
+                   )
+                 ORDER BY COALESCE(updated_at, created_at), session_id
+                 FOR UPDATE SKIP LOCKED LIMIT $2",
+            )
+            .bind(&cutoff)
+            .bind(batch_size)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
+            if !session_ids.is_empty() {
+                for (table, count) in [
+                    ("messages", &mut counts.messages),
+                    ("tasks", &mut counts.tasks),
+                    ("events", &mut counts.events),
+                    ("permissions", &mut counts.permissions),
+                ] {
+                    let sql = format!("SELECT COUNT(*) FROM {table} WHERE session_id = ANY($1)");
+                    let value = sqlx::query_scalar::<_, i64>(&sql)
+                        .bind(&session_ids)
+                        .fetch_one(&mut *tx)
+                        .await
+                        .map_err(map_sqlx_error)?;
+                    *count = (*count).saturating_add(value.max(0) as u64);
+                }
+                let result = sqlx::query("DELETE FROM sessions WHERE session_id = ANY($1)")
+                    .bind(&session_ids)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(map_sqlx_error)?;
+                counts.sessions = result.rows_affected();
+            }
+
+            let message_rows = sqlx::query(
+                "SELECT message_id, session_id FROM messages
+                 WHERE created_at < $1 ORDER BY created_at, message_id
+                 FOR UPDATE SKIP LOCKED LIMIT $2",
+            )
+            .bind(&cutoff)
+            .bind(batch_size)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
+            if !message_rows.is_empty() {
+                let message_ids = message_rows
+                    .iter()
+                    .map(|row| {
+                        row.try_get::<String, _>("message_id")
+                            .map_err(map_sqlx_error)
+                    })
+                    .collect::<DatabaseResult<Vec<_>>>()?;
+                let mut affected_sessions = message_rows
+                    .iter()
+                    .map(|row| {
+                        row.try_get::<String, _>("session_id")
+                            .map_err(map_sqlx_error)
+                    })
+                    .collect::<DatabaseResult<Vec<_>>>()?;
+                affected_sessions.sort_unstable();
+                affected_sessions.dedup();
+                let result = sqlx::query("DELETE FROM messages WHERE message_id = ANY($1)")
+                    .bind(&message_ids)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(map_sqlx_error)?;
+                counts.messages = counts.messages.saturating_add(result.rows_affected());
+                sqlx::query(
+                    "UPDATE sessions SET message_count = remaining.count
+                     FROM (
+                       SELECT sessions.session_id, COUNT(messages.message_id)::BIGINT AS count
+                       FROM sessions
+                       LEFT JOIN messages ON messages.session_id = sessions.session_id
+                       WHERE sessions.session_id = ANY($1)
+                       GROUP BY sessions.session_id
+                     ) AS remaining
+                     WHERE sessions.session_id = remaining.session_id",
+                )
+                .bind(&affected_sessions)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_sqlx_error)?;
+            }
+
+            let task_ids = sqlx::query_scalar::<_, String>(
+                "SELECT task_id FROM tasks
+                 WHERE COALESCE(updated_at, created_at) < $1
+                   AND lower(state) IN (
+                     'closed','completed','complete','failed','cancelled','canceled',
+                     'terminated','expired','orphaned','rejected','denied','approved'
+                   )
+                 ORDER BY COALESCE(updated_at, created_at), task_id
+                 FOR UPDATE SKIP LOCKED LIMIT $2",
+            )
+            .bind(&cutoff)
+            .bind(batch_size)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
+            if !task_ids.is_empty() {
+                let result = sqlx::query("DELETE FROM tasks WHERE task_id = ANY($1)")
+                    .bind(&task_ids)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(map_sqlx_error)?;
+                counts.tasks = counts.tasks.saturating_add(result.rows_affected());
+            }
+
+            let event_ids = sqlx::query_scalar::<_, String>(
+                "SELECT event_id FROM events WHERE created_at < $1
+                 ORDER BY created_at, event_id FOR UPDATE SKIP LOCKED LIMIT $2",
+            )
+            .bind(&cutoff)
+            .bind(batch_size)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
+            if !event_ids.is_empty() {
+                let result = sqlx::query("DELETE FROM events WHERE event_id = ANY($1)")
+                    .bind(&event_ids)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(map_sqlx_error)?;
+                counts.events = counts.events.saturating_add(result.rows_affected());
+            }
+
+            let permission_ids = sqlx::query_scalar::<_, String>(
+                "SELECT permission_request_id FROM permissions
+                 WHERE COALESCE(updated_at, created_at) < $1
+                   AND lower(status) IN (
+                     'closed','completed','complete','failed','cancelled','canceled',
+                     'terminated','expired','orphaned','rejected','denied','approved'
+                   )
+                 ORDER BY COALESCE(updated_at, created_at), permission_request_id
+                 FOR UPDATE SKIP LOCKED LIMIT $2",
+            )
+            .bind(&cutoff)
+            .bind(batch_size)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
+            if !permission_ids.is_empty() {
+                let result =
+                    sqlx::query("DELETE FROM permissions WHERE permission_request_id = ANY($1)")
+                        .bind(&permission_ids)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(map_sqlx_error)?;
+                counts.permissions = counts.permissions.saturating_add(result.rows_affected());
+            }
+
+            tx.commit().await.map_err(map_sqlx_error)?;
+            Ok(counts)
+        })
+    }
+
+    fn schema_status(&self) -> DatabaseResult<RuntimeSchemaStatus> {
+        let pool = self.pool.pool().clone();
+        self.pool.run_db(async move {
+            let (version, count) = sqlx::query_as::<_, (i64, i64)>(
+                "SELECT COALESCE(MAX(version), 0), COUNT(*)
+                 FROM agent_runtime_schema_migration_history",
+            )
+            .fetch_one(&pool)
+            .await
+            .map_err(map_sqlx_error)?;
+            let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            let structural = crate::schema_migrations::validate_postgres_schema(&mut tx)
+                .await
+                .is_ok();
+            tx.rollback().await.map_err(map_sqlx_error)?;
+            Ok(RuntimeSchemaStatus {
+                version,
+                expected_version: CURRENT_SCHEMA_VERSION,
+                drift_free: structural
+                    && version == CURRENT_SCHEMA_VERSION
+                    && count == CURRENT_SCHEMA_VERSION,
+            })
+        })
+    }
+
+    fn run_maintenance(&self) -> DatabaseResult<()> {
+        // PostgreSQL autovacuum owns dead-row reclamation. Application workers
+        // must not issue blocking VACUUM commands on every retention pass.
+        Ok(())
+    }
 }
 
 impl SessionRepository for PostgresDatabase {
@@ -347,7 +552,7 @@ impl MessageRepository for PostgresDatabase {
                     )",
                 );
             }
-            builder.push(" ORDER BY created_at ASC");
+            builder.push(" ORDER BY created_at ASC, message_id ASC");
             let limit = resolve_list_limit(query.limit);
             let offset = resolve_list_offset(query.offset);
             builder.push(" LIMIT ");
@@ -356,6 +561,35 @@ impl MessageRepository for PostgresDatabase {
             builder.push_bind(offset);
             let rows = builder.build().fetch_all(&pool).await?;
             rows.iter().map(map_message_row).collect()
+        })
+    }
+
+    fn load_recent_messages(
+        &self,
+        session_id: &str,
+        limit: i64,
+    ) -> DatabaseResult<Vec<MessageRow>> {
+        let limit = resolve_history_limit(limit)?;
+        let pool = self.pool.pool().clone();
+        let session_id = session_id.to_owned();
+        self.pool.run_db(async move {
+            let rows = sqlx::query(
+                "SELECT message_id, session_id, role, content, created_at, metadata_json
+                 FROM messages
+                 WHERE session_id = $1
+                 ORDER BY created_at DESC, message_id DESC
+                 LIMIT $2",
+            )
+            .bind(&session_id)
+            .bind(limit)
+            .fetch_all(&pool)
+            .await?;
+            let mut messages: Vec<MessageRow> = rows
+                .iter()
+                .map(map_message_row)
+                .collect::<DatabaseResult<_>>()?;
+            messages.reverse();
+            Ok(messages)
         })
     }
 
@@ -535,6 +769,23 @@ impl EventRepository for PostgresDatabase {
                 builder.push(" AND severity = ");
                 builder.push_bind(severity);
             }
+            if query.owner_tenant_id.is_some() || query.owner_user_ref.is_some() {
+                builder.push(
+                    " AND events.session_id IS NOT NULL
+                      AND EXISTS (
+                          SELECT 1 FROM sessions AS event_session
+                          WHERE event_session.session_id = events.session_id",
+                );
+                if let Some(owner_tenant_id) = query.owner_tenant_id.as_deref() {
+                    builder.push(" AND event_session.owner_tenant_id = ");
+                    builder.push_bind(owner_tenant_id);
+                }
+                if let Some(owner_user_ref) = query.owner_user_ref.as_deref() {
+                    builder.push(" AND event_session.owner_user_ref = ");
+                    builder.push_bind(owner_user_ref);
+                }
+                builder.push(")");
+            }
             if let Some(after_event_id) = query
                 .after_event_id
                 .as_deref()
@@ -586,7 +837,24 @@ impl EventRepository for PostgresDatabase {
                 builder.push(" AND severity = ");
                 builder.push_bind(severity);
             }
-            builder.push(" ORDER BY created_at DESC");
+            if query.owner_tenant_id.is_some() || query.owner_user_ref.is_some() {
+                builder.push(
+                    " AND events.session_id IS NOT NULL
+                      AND EXISTS (
+                          SELECT 1 FROM sessions AS event_session
+                          WHERE event_session.session_id = events.session_id",
+                );
+                if let Some(owner_tenant_id) = query.owner_tenant_id.as_deref() {
+                    builder.push(" AND event_session.owner_tenant_id = ");
+                    builder.push_bind(owner_tenant_id);
+                }
+                if let Some(owner_user_ref) = query.owner_user_ref.as_deref() {
+                    builder.push(" AND event_session.owner_user_ref = ");
+                    builder.push_bind(owner_user_ref);
+                }
+                builder.push(")");
+            }
+            builder.push(" ORDER BY created_at DESC, event_id DESC");
             let limit = resolve_list_limit(query.limit);
             let offset = resolve_list_offset(query.offset);
             builder.push(" LIMIT ");
@@ -703,7 +971,15 @@ impl PermissionRepository for PostgresDatabase {
                 builder.push(" AND status = ");
                 builder.push_bind(status);
             }
-            builder.push(" ORDER BY created_at DESC");
+            if let Some(ref owner_tenant_id) = query.owner_tenant_id {
+                builder.push(" AND owner_tenant_id = ");
+                builder.push_bind(owner_tenant_id);
+            }
+            if let Some(ref owner_user_ref) = query.owner_user_ref {
+                builder.push(" AND owner_user_ref = ");
+                builder.push_bind(owner_user_ref);
+            }
+            builder.push(" ORDER BY created_at DESC, permission_request_id DESC");
             let limit = resolve_list_limit(query.limit);
             let offset = resolve_list_offset(query.offset);
             builder.push(" LIMIT ");
@@ -739,6 +1015,84 @@ impl PermissionRepository for PostgresDatabase {
 }
 
 impl RuntimeSessionWrites for PostgresDatabase {
+    fn save_session_with_event(
+        &self,
+        session: &SessionRow,
+        event: &EventRow,
+    ) -> DatabaseResult<()> {
+        let pool = self.pool.pool().clone();
+        let session = session.clone();
+        let event = event.clone();
+        self.pool.run_db(async move {
+            let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            sqlx::query(
+                "INSERT INTO sessions (
+                    session_id, agent_id, kind, source, state, title, model, cwd,
+                    provider_id, bridge_id, token_usage_json, message_count,
+                    owner_tenant_id, owner_user_ref,
+                    created_at, updated_at, metadata_json
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                ON CONFLICT (session_id) DO UPDATE SET
+                    agent_id = EXCLUDED.agent_id,
+                    kind = EXCLUDED.kind,
+                    source = EXCLUDED.source,
+                    state = EXCLUDED.state,
+                    title = EXCLUDED.title,
+                    model = EXCLUDED.model,
+                    cwd = EXCLUDED.cwd,
+                    provider_id = EXCLUDED.provider_id,
+                    bridge_id = EXCLUDED.bridge_id,
+                    token_usage_json = EXCLUDED.token_usage_json,
+                    message_count = EXCLUDED.message_count,
+                    owner_tenant_id = EXCLUDED.owner_tenant_id,
+                    owner_user_ref = EXCLUDED.owner_user_ref,
+                    created_at = EXCLUDED.created_at,
+                    updated_at = EXCLUDED.updated_at,
+                    metadata_json = EXCLUDED.metadata_json",
+            )
+            .bind(&session.session_id)
+            .bind(&session.agent_id)
+            .bind(&session.kind)
+            .bind(&session.source)
+            .bind(&session.state)
+            .bind(&session.title)
+            .bind(&session.model)
+            .bind(&session.cwd)
+            .bind(&session.provider_id)
+            .bind(&session.bridge_id)
+            .bind(&session.token_usage_json)
+            .bind(session.message_count)
+            .bind(&session.owner_tenant_id)
+            .bind(&session.owner_user_ref)
+            .bind(&session.created_at)
+            .bind(&session.updated_at)
+            .bind(&session.metadata_json)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "INSERT INTO events (
+                    event_id, session_id, event_type, severity, payload, created_at
+                ) VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (event_id) DO UPDATE SET
+                    session_id = EXCLUDED.session_id,
+                    event_type = EXCLUDED.event_type,
+                    severity = EXCLUDED.severity,
+                    payload = EXCLUDED.payload,
+                    created_at = EXCLUDED.created_at",
+            )
+            .bind(&event.event_id)
+            .bind(&event.session_id)
+            .bind(&event.event_type)
+            .bind(&event.severity)
+            .bind(&event.payload)
+            .bind(&event.created_at)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            Ok(())
+        })
+    }
+
     fn append_message_with_event(
         &self,
         message: &MessageRow,
@@ -849,6 +1203,55 @@ impl RuntimeSessionWrites for PostgresDatabase {
                     "session not found: {session_id}"
                 )));
             }
+            tx.commit().await?;
+            Ok(())
+        })
+    }
+
+    fn save_task_with_event(&self, task: &TaskRow, event: &EventRow) -> DatabaseResult<()> {
+        let pool = self.pool.pool().clone();
+        let task = task.clone();
+        let event = event.clone();
+        self.pool.run_db(async move {
+            let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            sqlx::query(
+                "INSERT INTO tasks (
+                    task_id, session_id, instruction, state, created_at, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (task_id) DO UPDATE SET
+                    session_id = EXCLUDED.session_id,
+                    instruction = EXCLUDED.instruction,
+                    state = EXCLUDED.state,
+                    created_at = EXCLUDED.created_at,
+                    updated_at = EXCLUDED.updated_at",
+            )
+            .bind(&task.task_id)
+            .bind(&task.session_id)
+            .bind(&task.instruction)
+            .bind(&task.state)
+            .bind(&task.created_at)
+            .bind(&task.updated_at)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "INSERT INTO events (
+                    event_id, session_id, event_type, severity, payload, created_at
+                ) VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (event_id) DO UPDATE SET
+                    session_id = EXCLUDED.session_id,
+                    event_type = EXCLUDED.event_type,
+                    severity = EXCLUDED.severity,
+                    payload = EXCLUDED.payload,
+                    created_at = EXCLUDED.created_at",
+            )
+            .bind(&event.event_id)
+            .bind(&event.session_id)
+            .bind(&event.event_type)
+            .bind(&event.severity)
+            .bind(&event.payload)
+            .bind(&event.created_at)
+            .execute(&mut *tx)
+            .await?;
             tx.commit().await?;
             Ok(())
         })

@@ -116,18 +116,6 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
         });
     }
 
-    if config.metrics_auth_required()
-        && config.metrics_token.is_none()
-        && config.ingress_token.is_some()
-    {
-        checks.push(PreflightCheck {
-            name: "metrics_token_separation".to_string(),
-            status: PreflightStatus::Warning,
-            message: "Metrics auth reuses ingress token; set SDKWORK_KERNEL_METRICS_TOKEN separately for least-privilege"
-                .to_string(),
-        });
-    }
-
     if config.otel_export_enabled() && !cfg!(feature = "observability-otel") {
         checks.push(PreflightCheck {
             name: "otel_feature".to_string(),
@@ -152,6 +140,47 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
             name: "rate_limit_redis".to_string(),
             status: PreflightStatus::Failed,
             message: "Production cloud/server deployments require SDKWORK_RATE_LIMIT_REDIS_URL (or SDKWORK_REDIS_URL) for distributed rate limiting"
+                .to_string(),
+        });
+    }
+
+    if config.requires_distributed_idempotency()
+        && config.effective_idempotency_redis_url().is_none()
+    {
+        checks.push(PreflightCheck {
+            name: "idempotency_redis".to_string(),
+            status: PreflightStatus::Failed,
+            message: "Production cloud/server deployments require SDKWORK_IDEMPOTENCY_REDIS_URL for distributed idempotency"
+                .to_string(),
+        });
+    }
+
+    if config.is_production_kernel_profile() && !config.idempotency_require_key {
+        checks.push(PreflightCheck {
+            name: "idempotency_key_required".to_string(),
+            status: PreflightStatus::Failed,
+            message:
+                "Production profiles must require Idempotency-Key on retry-sensitive mutations"
+                    .to_string(),
+        });
+    }
+
+    if !(60..=7 * 24 * 60 * 60).contains(&config.idempotency_ttl_secs) {
+        checks.push(PreflightCheck {
+            name: "idempotency_ttl".to_string(),
+            status: PreflightStatus::Failed,
+            message: "Idempotency retention must be between 60 seconds and 7 days".to_string(),
+        });
+    }
+
+    if config.idempotency_max_cached_response_bytes == 0
+        || config.idempotency_max_cached_response_bytes > 1024 * 1024
+        || config.idempotency_max_cached_response_bytes > config.max_body_size
+    {
+        checks.push(PreflightCheck {
+            name: "idempotency_response_limit".to_string(),
+            status: PreflightStatus::Failed,
+            message: "Idempotency response cache limit must be positive, at most 1 MiB, and no larger than max body size"
                 .to_string(),
         });
     }
@@ -199,6 +228,30 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
             status: PreflightStatus::Failed,
             message: "SQLite runtime persistence cannot scale horizontally; set SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres for multi-replica production deployments"
                 .to_string(),
+        });
+    }
+
+    if !(1..=365).contains(&config.runtime_retention_days) {
+        checks.push(PreflightCheck {
+            name: "runtime_retention_days".to_string(),
+            status: PreflightStatus::Failed,
+            message: "Runtime retention must be between 1 and 365 days".to_string(),
+        });
+    }
+
+    if !(1..=10_000).contains(&config.runtime_cleanup_batch_size) {
+        checks.push(PreflightCheck {
+            name: "runtime_cleanup_batch_size".to_string(),
+            status: PreflightStatus::Failed,
+            message: "Runtime cleanup batch size must be between 1 and 10000 rows".to_string(),
+        });
+    }
+
+    if !(10..=24 * 60 * 60).contains(&config.runtime_cleanup_interval_secs) {
+        checks.push(PreflightCheck {
+            name: "runtime_cleanup_interval".to_string(),
+            status: PreflightStatus::Failed,
+            message: "Runtime cleanup interval must be between 10 seconds and 24 hours".to_string(),
         });
     }
 
@@ -296,7 +349,7 @@ fn validate_timeout(timeout: u64) -> PreflightCheck {
 }
 
 fn validate_body_size(size: usize) -> PreflightCheck {
-    if size > 0 && size <= 100 * 1024 * 1024 {
+    if size > 0 && size <= 4 * 1024 * 1024 {
         PreflightCheck {
             name: "max_body_size".to_string(),
             status: PreflightStatus::Passed,
@@ -305,8 +358,10 @@ fn validate_body_size(size: usize) -> PreflightCheck {
     } else {
         PreflightCheck {
             name: "max_body_size".to_string(),
-            status: PreflightStatus::Warning,
-            message: format!("Max body size {} bytes is unusual", size),
+            status: PreflightStatus::Failed,
+            message: format!(
+                "Max body size {size} bytes is unsafe; configure a value between 1 byte and 4 MiB"
+            ),
         }
     }
 }

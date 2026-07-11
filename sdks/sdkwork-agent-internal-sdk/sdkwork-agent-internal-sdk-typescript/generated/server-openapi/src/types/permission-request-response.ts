@@ -1,3 +1,4 @@
+import type { PermissionRequest } from './permission-request';
 import type { SdkWorkResourceData } from './sdk-work-resource-data';
 
 /** Permission request SdkWorkApiResponse envelope. */

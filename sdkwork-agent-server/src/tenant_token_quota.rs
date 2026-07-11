@@ -11,7 +11,7 @@
 //! explicit quota override remain unlimited regardless of backend state.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use axum::http::StatusCode;
@@ -67,6 +67,89 @@ enum QuotaBackend {
 pub struct TenantTokenQuotaState {
     overrides: HashMap<String, u64>,
     backend: QuotaBackend,
+}
+
+#[derive(Debug, Clone)]
+enum QuotaReservationKey {
+    Memory(String),
+    Redis(String),
+}
+
+/// A quota reservation that is reconciled exactly once.
+///
+/// Dropping an unfinished reservation releases it. This protects error,
+/// cancellation, timeout, and disconnected-stream paths from permanently
+/// charging the pessimistic preflight estimate.
+pub struct TenantTokenQuotaReservation {
+    state: Arc<TenantTokenQuotaState>,
+    tenant_id: String,
+    key: QuotaReservationKey,
+    reserved_tokens: u64,
+    finalized: bool,
+}
+
+impl TenantTokenQuotaReservation {
+    pub fn reserved_tokens(&self) -> u64 {
+        self.reserved_tokens
+    }
+
+    pub async fn reconcile(mut self, actual_tokens: u64) {
+        self.state
+            .reconcile_reservation(
+                &self.tenant_id,
+                &self.key,
+                self.reserved_tokens,
+                actual_tokens,
+            )
+            .await;
+        self.finalized = true;
+    }
+
+    pub async fn release(self) {
+        self.reconcile(0).await;
+    }
+}
+
+impl Drop for TenantTokenQuotaReservation {
+    fn drop(&mut self) {
+        if self.finalized {
+            return;
+        }
+
+        match (&self.state.backend, &self.key) {
+            (QuotaBackend::Memory { counters }, QuotaReservationKey::Memory(key)) => {
+                adjust_memory_counter(counters, key, self.reserved_tokens, 0);
+            }
+            (QuotaBackend::Redis { .. }, QuotaReservationKey::Redis(key)) => {
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    let state = self.state.clone();
+                    let tenant_id = self.tenant_id.clone();
+                    let key = key.clone();
+                    let reserved_tokens = self.reserved_tokens;
+                    handle.spawn(async move {
+                        state
+                            .reconcile_reservation(
+                                &tenant_id,
+                                &QuotaReservationKey::Redis(key),
+                                reserved_tokens,
+                                0,
+                            )
+                            .await;
+                    });
+                } else {
+                    warn!(
+                        tenant_id = self.tenant_id,
+                        "quota reservation dropped outside an async runtime; redis release was not scheduled"
+                    );
+                }
+            }
+            _ => warn!(
+                tenant_id = self.tenant_id,
+                "quota reservation backend changed before reconciliation"
+            ),
+        }
+        self.finalized = true;
+    }
 }
 
 impl TenantTokenQuotaState {
@@ -170,6 +253,54 @@ impl TenantTokenQuotaState {
         self.overrides.get(tenant_id).copied()
     }
 
+    /// Reserve a bounded estimate and return an exactly-once reconciliation guard.
+    pub async fn reserve(
+        self: &Arc<Self>,
+        tenant_id: &str,
+    ) -> Result<Option<TenantTokenQuotaReservation>, StatusCode> {
+        let Some(limit) = self.quota_for_tenant(tenant_id) else {
+            return Ok(None);
+        };
+        if limit == 0 {
+            return Err(StatusCode::TOO_MANY_REQUESTS);
+        }
+
+        let reserve = reserved_tokens_for_limit(limit);
+        let date = Utc::now().format("%Y-%m-%d").to_string();
+        let key = match &self.backend {
+            QuotaBackend::Memory { counters } => {
+                let key = Self::counter_key_for_date(tenant_id, &date);
+                self.try_consume_memory(counters, &key, limit, reserve)?;
+                QuotaReservationKey::Memory(key)
+            }
+            QuotaBackend::Redis {
+                connection,
+                reserve_script,
+                ..
+            } => {
+                let key = Self::redis_key_for_date(tenant_id, &date);
+                self.try_consume_redis(
+                    connection.clone(),
+                    reserve_script,
+                    tenant_id,
+                    &key,
+                    limit,
+                    reserve,
+                )
+                .await?;
+                QuotaReservationKey::Redis(key)
+            }
+        };
+
+        Ok(Some(TenantTokenQuotaReservation {
+            state: self.clone(),
+            tenant_id: tenant_id.to_string(),
+            key,
+            reserved_tokens: reserve,
+            finalized: false,
+        }))
+    }
+
     /// Atomically reserve token budget for a model invocation.
     ///
     /// This replaces the separate `check_allowed` + `record_usage` flow that
@@ -194,7 +325,8 @@ impl TenantTokenQuotaState {
         let reserve = reserved_tokens_for_limit(limit);
         match &self.backend {
             QuotaBackend::Memory { counters } => {
-                self.try_consume_memory(counters, tenant_id, limit, reserve)
+                let key = Self::counter_key(tenant_id);
+                self.try_consume_memory(counters, &key, limit, reserve)
             }
             QuotaBackend::Redis {
                 connection,
@@ -205,6 +337,7 @@ impl TenantTokenQuotaState {
                     connection.clone(),
                     reserve_script,
                     tenant_id,
+                    &Self::redis_key(tenant_id),
                     limit,
                     reserve,
                 )
@@ -225,7 +358,8 @@ impl TenantTokenQuotaState {
         }
         match &self.backend {
             QuotaBackend::Memory { counters } => {
-                self.adjust_usage_memory(counters, tenant_id, reserved, actual_tokens);
+                let key = Self::counter_key(tenant_id);
+                adjust_memory_counter(counters, &key, reserved, actual_tokens);
             }
             QuotaBackend::Redis {
                 connection,
@@ -236,6 +370,7 @@ impl TenantTokenQuotaState {
                     connection.clone(),
                     adjust_script,
                     tenant_id,
+                    &Self::redis_key(tenant_id),
                     reserved,
                     actual_tokens,
                 )
@@ -291,32 +426,35 @@ impl TenantTokenQuotaState {
     }
 
     fn counter_key(tenant_id: &str) -> String {
-        format!("{}:{}", tenant_id, Utc::now().format("%Y-%m-%d"))
+        Self::counter_key_for_date(tenant_id, &Utc::now().format("%Y-%m-%d").to_string())
+    }
+
+    fn counter_key_for_date(tenant_id: &str, date: &str) -> String {
+        format!("{tenant_id}:{date}")
     }
 
     fn redis_key(tenant_id: &str) -> String {
-        format!(
-            "sdkwork:tenant_token_quota:{}:{}",
-            tenant_id,
-            Utc::now().format("%Y-%m-%d")
-        )
+        Self::redis_key_for_date(tenant_id, &Utc::now().format("%Y-%m-%d").to_string())
+    }
+
+    fn redis_key_for_date(tenant_id: &str, date: &str) -> String {
+        format!("sdkwork:tenant_token_quota:{tenant_id}:{date}")
     }
 
     fn try_consume_memory(
         &self,
         counters: &Mutex<HashMap<String, u64>>,
-        tenant_id: &str,
+        key: &str,
         limit: u64,
         reserve: u64,
     ) -> Result<(), StatusCode> {
-        let key = Self::counter_key(tenant_id);
         let mut counters = counters.lock().unwrap_or_else(|error| error.into_inner());
-        if !counters.contains_key(&key) && counters.len() >= MAX_QUOTA_COUNTERS {
+        if !counters.contains_key(key) && counters.len() >= MAX_QUOTA_COUNTERS {
             if let Some(oldest_key) = counters.keys().next().cloned() {
                 counters.remove(&oldest_key);
             }
         }
-        let current = counters.entry(key).or_insert(0);
+        let current = counters.entry(key.to_string()).or_insert(0);
         if *current + reserve > limit {
             return Err(StatusCode::TOO_MANY_REQUESTS);
         }
@@ -324,31 +462,17 @@ impl TenantTokenQuotaState {
         Ok(())
     }
 
-    fn adjust_usage_memory(
-        &self,
-        counters: &Mutex<HashMap<String, u64>>,
-        tenant_id: &str,
-        reserved: u64,
-        actual: u64,
-    ) {
-        let key = Self::counter_key(tenant_id);
-        let mut counters = counters.lock().unwrap_or_else(|error| error.into_inner());
-        let current = counters.entry(key).or_insert(0);
-        // Reconcile: current already includes `reserved`; adjust by delta.
-        *current = current.saturating_sub(reserved).saturating_add(actual);
-    }
-
     async fn try_consume_redis(
         &self,
         mut connection: ConnectionManager,
         script: &redis::Script,
         tenant_id: &str,
+        key: &str,
         limit: u64,
         reserve: u64,
     ) -> Result<(), StatusCode> {
-        let key = Self::redis_key(tenant_id);
         let result: redis::RedisResult<i32> = script
-            .key(&key)
+            .key(key)
             .arg(limit)
             .arg(reserve)
             .arg(172_800_i64)
@@ -365,17 +489,50 @@ impl TenantTokenQuotaState {
         }
     }
 
+    async fn reconcile_reservation(
+        &self,
+        tenant_id: &str,
+        key: &QuotaReservationKey,
+        reserved: u64,
+        actual: u64,
+    ) {
+        match (&self.backend, key) {
+            (QuotaBackend::Memory { counters }, QuotaReservationKey::Memory(key)) => {
+                adjust_memory_counter(counters, key, reserved, actual);
+            }
+            (
+                QuotaBackend::Redis {
+                    connection,
+                    adjust_script,
+                    ..
+                },
+                QuotaReservationKey::Redis(key),
+            ) => {
+                self.adjust_usage_redis(
+                    connection.clone(),
+                    adjust_script,
+                    tenant_id,
+                    key,
+                    reserved,
+                    actual,
+                )
+                .await;
+            }
+            _ => warn!(tenant_id, "quota reservation backend mismatch"),
+        }
+    }
+
     async fn adjust_usage_redis(
         &self,
         mut connection: ConnectionManager,
         script: &redis::Script,
         tenant_id: &str,
+        key: &str,
         reserved: u64,
         actual: u64,
     ) {
-        let key = Self::redis_key(tenant_id);
         let result: Result<(), redis::RedisError> = script
-            .key(&key)
+            .key(key)
             .arg(reserved)
             .arg(actual)
             .invoke_async(&mut connection)
@@ -484,6 +641,18 @@ fn reserved_tokens_for_limit(limit: u64) -> u64 {
     DEFAULT_RESERVE_TOKENS.min(limit)
 }
 
+fn adjust_memory_counter(
+    counters: &Mutex<HashMap<String, u64>>,
+    key: &str,
+    reserved: u64,
+    actual: u64,
+) {
+    let mut counters = counters.lock().unwrap_or_else(|error| error.into_inner());
+    let current = counters.entry(key.to_string()).or_insert(0);
+    // Reconcile: current already includes `reserved`; adjust by delta.
+    *current = current.saturating_sub(reserved).saturating_add(actual);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -543,6 +712,44 @@ mod tests {
         state.adjust_usage("100001", 100).await;
         // Verify the counter reflects actual usage, not the reserved estimate.
         assert_eq!(state.current_usage("100001").await.expect("usage"), 100);
+    }
+
+    #[tokio::test]
+    async fn reservation_release_removes_pessimistic_charge() {
+        let state = Arc::new(TenantTokenQuotaState::from_config(&quota_config(
+            "100001", 10_000,
+        )));
+        let reservation = state
+            .clone()
+            .reserve("100001")
+            .await
+            .expect("reserve succeeds")
+            .expect("quota is configured");
+
+        reservation.release().await;
+
+        assert_eq!(state.current_usage("100001").await.expect("usage"), 0);
+    }
+
+    #[tokio::test]
+    async fn dropped_memory_reservation_releases_charge() {
+        let state = Arc::new(TenantTokenQuotaState::from_config(&quota_config(
+            "100001", 10_000,
+        )));
+        let reservation = state
+            .clone()
+            .reserve("100001")
+            .await
+            .expect("reserve succeeds")
+            .expect("quota is configured");
+        assert_eq!(
+            state.current_usage("100001").await.expect("usage"),
+            DEFAULT_RESERVE_TOKENS
+        );
+
+        drop(reservation);
+
+        assert_eq!(state.current_usage("100001").await.expect("usage"), 0);
     }
 
     #[tokio::test]

@@ -1,60 +1,43 @@
-# Cloud reference stack for sdkwork-agent-server.
-# Secrets are injected at deploy time; never commit real tokens.
+# Cloud deployment handoff for sdkwork-agent-server.
+#
+# This file intentionally contains only the stateless runtime. It is suitable
+# for a single-instance smoke or pilot deployment when the database and cache
+# are supplied by external managed services. It is not an HA production
+# orchestrator: production scale-out uses the Kubernetes (or equivalent)
+# deployment with managed HA PostgreSQL and Redis.
+#
+# All values that can contain credentials are required at deploy time. Do not
+# add defaults, checked-in passwords, or embedded database/cache services here.
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: sdkwork
-      POSTGRES_PASSWORD: ${SDKWORK_AGENT_RUNTIME_POSTGRES_PASSWORD:-sdkwork}
-      POSTGRES_DB: sdkwork_agent_runtime
-    ports:
-      - "5433:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sdkwork -d sdkwork_agent_runtime"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    environment:
-      REDIS_PASSWORD: ${SDKWORK_AGENT_RUNTIME_REDIS_PASSWORD:-changeme}
-    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\""]
-    ports:
-      - "6380:6379"
-    healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep PONG"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   agent-server:
-    build:
-      context: ../..
-      dockerfile: deployments/docker/Dockerfile
-    image: sdkwork-kernel-agent-server:local
+    image: ${SDKWORK_AGENT_SERVER_IMAGE:?set an immutable agent-server image reference}
+    pull_policy: always
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     ports:
       - "18280:18280"
     env_file:
       - ../../configs/topology/cloud.production.env
     environment:
       SDKWORK_KERNEL_INGRESS_TOKEN: ${SDKWORK_KERNEL_INGRESS_TOKEN:?set SDKWORK_KERNEL_INGRESS_TOKEN}
-      SDKWORK_KERNEL_METRICS_TOKEN: ${SDKWORK_KERNEL_METRICS_TOKEN:-${SDKWORK_KERNEL_INGRESS_TOKEN}}
-      SDKWORK_CORS_ORIGINS: ${SDKWORK_CORS_ORIGINS:-http://127.0.0.1:5179,https://kernel.sdkwork.com,https://app.sdkwork.com}
-      SDKWORK_AGENT_RUNTIME_DATABASE_URL: postgresql://sdkwork:${SDKWORK_AGENT_RUNTIME_POSTGRES_PASSWORD:-sdkwork}@postgres:5432/sdkwork_agent_runtime
-      SDKWORK_RATE_LIMIT_REDIS_URL: redis://:${SDKWORK_AGENT_RUNTIME_REDIS_PASSWORD:-changeme}@redis:6379/0
+      SDKWORK_KERNEL_METRICS_TOKEN: ${SDKWORK_KERNEL_METRICS_TOKEN:?set a dedicated SDKWORK_KERNEL_METRICS_TOKEN}
+      SDKWORK_CORS_ORIGINS: ${SDKWORK_CORS_ORIGINS:?set an explicit SDKWORK_CORS_ORIGINS allowlist}
+      SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE: postgres
+      SDKWORK_AGENT_RUNTIME_DATABASE_URL: ${SDKWORK_AGENT_RUNTIME_DATABASE_URL:?set the managed PostgreSQL runtime URL}
+      SDKWORK_RATE_LIMIT_REDIS_URL: ${SDKWORK_RATE_LIMIT_REDIS_URL:?set the managed Redis rate-limit URL}
       SDKWORK_OTEL_EXPORTER_OTLP_ENDPOINT: ${SDKWORK_OTEL_EXPORTER_OTLP_ENDPOINT:-}
+    read_only: true
+    mem_limit: 2g
+    mem_reservation: 512m
+    cpus: 2.0
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m
+      - /var/lib/sdkwork:rw,nosuid,nodev,size=256m
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:18280/healthz"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18280/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3

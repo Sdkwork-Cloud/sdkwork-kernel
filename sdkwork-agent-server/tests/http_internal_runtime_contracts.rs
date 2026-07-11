@@ -95,24 +95,30 @@ fn list_items(payload: &Value) -> &[Value] {
         .expect("list response should expose data.items[]")
 }
 
-fn assert_offset_page_info(payload: &Value, expected_page: i64, expected_page_size: i64) {
+fn assert_cursor_page_info(payload: &Value, expected_page_size: i64) {
     let page_info = payload
         .get("data")
         .and_then(|data| data.get("pageInfo"))
         .expect("list response should expose data.pageInfo");
     assert_eq!(
         page_info.get("mode").and_then(Value::as_str),
-        Some("offset")
-    );
-    assert_eq!(
-        page_info.get("page").and_then(Value::as_i64),
-        Some(expected_page)
+        Some("cursor")
     );
     assert_eq!(
         page_info.get("pageSize").and_then(Value::as_i64),
         Some(expected_page_size)
     );
     assert!(page_info.get("hasMore").is_some());
+}
+
+fn next_cursor(payload: &Value) -> String {
+    payload
+        .get("data")
+        .and_then(|data| data.get("pageInfo"))
+        .and_then(|page_info| page_info.get("nextCursor"))
+        .and_then(Value::as_str)
+        .expect("cursor page should expose pageInfo.nextCursor")
+        .to_string()
 }
 
 fn item_value(payload: &Value) -> &Value {
@@ -370,7 +376,7 @@ async fn internal_runtime_session_roundtrip_uses_items_list_envelope() {
     assert_eq!(list.status(), StatusCode::OK);
     let sessions = read_json(list).await;
     let session_items = list_items(&sessions);
-    assert_offset_page_info(&sessions, 1, 20);
+    assert_cursor_page_info(&sessions, 20);
     assert!(session_items
         .iter()
         .any(|row| row["sessionId"] == session_id));
@@ -402,7 +408,7 @@ async fn internal_runtime_session_roundtrip_uses_items_list_envelope() {
     assert_eq!(messages.status(), StatusCode::OK);
     let payload = read_json(messages).await;
     let message_items = list_items(&payload);
-    assert_offset_page_info(&payload, 1, 20);
+    assert_cursor_page_info(&payload, 20);
     assert_eq!(message_items.len(), 2);
     assert_eq!(message_items[0]["role"], "user");
     assert_eq!(message_items[1]["role"], "assistant");
@@ -465,19 +471,20 @@ async fn internal_runtime_messages_support_cursor_pagination() {
     assert_eq!(first_page.status(), StatusCode::OK);
     let first_payload = read_json(first_page).await;
     let first_items = list_items(&first_payload);
-    assert_offset_page_info(&first_payload, 1, 1);
+    assert_cursor_page_info(&first_payload, 1);
     assert_eq!(first_items.len(), 1);
     let first_message_id = first_items[0]["messageId"]
         .as_str()
         .expect("messageId")
         .to_string();
+    let cursor = next_cursor(&first_payload);
 
     let cursor_page = app
         .clone()
         .oneshot(
             Request::builder()
                 .uri(runtime_path(&format!(
-                    "/sessions/{session_id}/messages?cursor={first_message_id}&page_size=1"
+                    "/sessions/{session_id}/messages?cursor={cursor}&page_size=1"
                 )))
                 .body(Body::empty())
                 .expect("cursor request should be built"),
@@ -543,19 +550,20 @@ async fn internal_runtime_sessions_support_cursor_pagination() {
     assert_eq!(first_page.status(), StatusCode::OK);
     let first_payload = read_json(first_page).await;
     let first_items = list_items(&first_payload);
-    assert_offset_page_info(&first_payload, 1, 1);
+    assert_cursor_page_info(&first_payload, 1);
     assert_eq!(first_items.len(), 1);
     let first_session_id = first_items[0]["sessionId"]
         .as_str()
         .expect("sessionId")
         .to_string();
+    let cursor = next_cursor(&first_payload);
 
     let cursor_page = app
         .clone()
         .oneshot(
             Request::builder()
                 .uri(runtime_path(&format!(
-                    "/sessions?cursor={first_session_id}&page_size=1"
+                    "/sessions?cursor={cursor}&page_size=1"
                 )))
                 .body(Body::empty())
                 .expect("cursor request should be built"),
@@ -671,19 +679,20 @@ async fn internal_runtime_tasks_support_cursor_pagination() {
     assert_eq!(first_page.status(), StatusCode::OK);
     let first_payload = read_json(first_page).await;
     let first_items = list_items(&first_payload);
-    assert_offset_page_info(&first_payload, 1, 1);
+    assert_cursor_page_info(&first_payload, 1);
     assert_eq!(first_items.len(), 1);
     let first_task_id = first_items[0]["taskId"]
         .as_str()
         .expect("taskId")
         .to_string();
+    let cursor = next_cursor(&first_payload);
 
     let cursor_page = app
         .clone()
         .oneshot(
             Request::builder()
                 .uri(runtime_path(&format!(
-                    "/sessions/{session_id}/tasks?cursor={first_task_id}&page_size=1"
+                    "/sessions/{session_id}/tasks?cursor={cursor}&page_size=1"
                 )))
                 .body(Body::empty())
                 .expect("cursor request should be built"),
@@ -706,28 +715,18 @@ async fn internal_runtime_tasks_support_cursor_pagination() {
 }
 
 #[tokio::test]
-async fn internal_runtime_list_rejects_page_and_cursor_together() {
+async fn internal_runtime_list_rejects_offset_page_parameter() {
     let app = open_test_app();
     let response = app
         .oneshot(
             Request::builder()
-                .uri(runtime_path("/sessions?page=1&cursor=session.1"))
+                .uri(runtime_path("/sessions?page=1"))
                 .body(Body::empty())
                 .expect("list request should be built"),
         )
         .await
         .expect("list request should complete");
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    let payload = read_json(response).await;
-    assert_eq!(payload.get("code").and_then(Value::as_i64), Some(40003));
-    assert!(
-        payload
-            .get("detail")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .contains("page and cursor cannot be combined"),
-        "problem detail should explain pagination conflict"
-    );
 }
 
 #[tokio::test]
@@ -1185,9 +1184,11 @@ async fn internal_runtime_send_message_persists_turn() {
         .await
         .expect("send request should succeed");
     assert_eq!(response.status(), StatusCode::CREATED);
-    let user_message_payload = read_json(response).await;
-    let user_message = item_value(&user_message_payload);
-    assert_eq!(user_message["role"], "user");
+    let turn_payload = read_json(response).await;
+    let turn = item_value(&turn_payload);
+    assert_eq!(turn["status"], "completed");
+    assert_eq!(turn["userMessage"]["role"], "user");
+    assert_eq!(turn["assistantMessage"]["role"], "assistant");
 
     let response = app
         .oneshot(

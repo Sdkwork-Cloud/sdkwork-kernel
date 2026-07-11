@@ -2,6 +2,7 @@ use super::provider::AgentBridgeProvider;
 use super::registry::AgentBridgePluginRegistry;
 use super::types::{AgentAuth, AgentBridgeMetadata, AgentProtocol, FallbackStrategy};
 use crate::chat::ChatClient;
+use crate::session::BridgeSessionQuery;
 use crate::sse::SseChatClient;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
 use std::sync::Arc;
@@ -285,6 +286,28 @@ impl ChatClient for AgentClient {
                 fallback_strategy,
                 |client| client.close_session(session_id),
                 |client| client.close_session(session_id),
+            ),
+        }
+    }
+
+    fn list_sessions(&self, query: &BridgeSessionQuery) -> Result<Vec<SessionInfo>, String> {
+        match &self.mode {
+            AgentClientMode::Remote { .. } => self
+                .remote_client
+                .as_ref()
+                .ok_or_else(|| "Remote client not initialized".to_string())?
+                .list_sessions(query),
+            AgentClientMode::Local { .. } => self
+                .local_provider
+                .as_ref()
+                .ok_or_else(|| "Local provider not initialized".to_string())?
+                .list_sessions(query),
+            AgentClientMode::Hybrid {
+                fallback_strategy, ..
+            } => self.dispatch_with_fallback(
+                fallback_strategy,
+                |client| client.list_sessions(query),
+                |client| client.list_sessions(query),
             ),
         }
     }

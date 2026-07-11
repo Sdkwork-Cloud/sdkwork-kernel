@@ -123,18 +123,22 @@ test('adapter-core and agent-server share canonical kernel runtime topology poli
   assert.match(agentRegistry, /active_hosted_agent/);
 });
 
-test('cloud production topology documents postgres and redis runtime deps', async () => {
+test('cloud production topology declares fail-closed external postgres and redis inputs', async () => {
   const profileEnv = await read('configs/topology/cloud.production.env');
   assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres/);
-  assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_URL/);
-  assert.match(profileEnv, /SDKWORK_RATE_LIMIT_REDIS_URL/);
+  assert.match(profileEnv, /^SDKWORK_AGENT_RUNTIME_DATABASE_URL=$/m);
+  assert.match(profileEnv, /^SDKWORK_RATE_LIMIT_REDIS_URL=$/m);
+  assert.match(profileEnv, /^SDKWORK_KERNEL_METRICS_TOKEN=$/m);
+  assert.doesNotMatch(profileEnv, /CHANGE_ME|postgresql:\/\/|redis:\/\//);
 });
 
-test('self-hosted production topology documents postgres and redis runtime deps', async () => {
+test('self-hosted production topology declares fail-closed external postgres and redis inputs', async () => {
   const profileEnv = await read('configs/topology/standalone.production.env');
   assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres/);
-  assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_URL/);
-  assert.match(profileEnv, /SDKWORK_RATE_LIMIT_REDIS_URL/);
+  assert.match(profileEnv, /^SDKWORK_AGENT_RUNTIME_DATABASE_URL=$/m);
+  assert.match(profileEnv, /^SDKWORK_RATE_LIMIT_REDIS_URL=$/m);
+  assert.match(profileEnv, /^SDKWORK_KERNEL_METRICS_TOKEN=$/m);
+  assert.doesNotMatch(profileEnv, /CHANGE_ME|postgresql:\/\/|redis:\/\//);
 });
 
 test('all production topology profiles enforce token ingress and scale-out deps', async () => {
@@ -148,7 +152,10 @@ test('all production topology profiles enforce token ingress and scale-out deps'
     assert.match(profileEnv, /SDKWORK_RATE_LIMIT_RPS=100/);
     assert.match(profileEnv, /SDKWORK_RATE_LIMIT_BURST=200/);
     assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres/);
-    assert.match(profileEnv, /SDKWORK_RATE_LIMIT_REDIS_URL=/);
+    assert.match(profileEnv, /^SDKWORK_AGENT_RUNTIME_DATABASE_URL=$/m);
+    assert.match(profileEnv, /^SDKWORK_RATE_LIMIT_REDIS_URL=$/m);
+    assert.match(profileEnv, /^SDKWORK_KERNEL_METRICS_TOKEN=$/m);
+    assert.doesNotMatch(profileEnv, /CHANGE_ME|postgresql:\/\/|redis:\/\//);
     assert.match(profileEnv, /SDKWORK_KERNEL_AGENT_PLUGIN=rig/);
   }
 });

@@ -1,7 +1,7 @@
 import { customApiPath } from './paths';
 import type { HttpClient } from '../http/client';
 
-import type { CreateSessionRequest, ExecuteToolRequest, ExecuteToolResponse, InvokeModelRequest, InvokeModelResponse, MessageResponse, ModelDescriptor, PermissionDecisionRequest, PermissionRequestResponse, RuntimeDiagnostics, RuntimeHealth, RuntimeManifest, RuntimeSnapshot, SdkWorkPageData, SdkWorkResourceData, SendMessageRequest, SessionItemResponse, SubmitTaskRequest, TaskItemResponse } from '../types';
+import type { CancelModelRequest, CancelModelResponse, CreateSessionRequest, ExecuteToolRequest, ExecuteToolResponse, InvokeModelRequest, InvokeModelResponse, MessageResponse, MessageTurnResponse, ModelDescriptor, PermissionDecisionRequest, PermissionRequest, RuntimeDiagnostics, RuntimeHealth, RuntimeManifest, RuntimeSnapshot, SdkWorkPageData, SdkWorkResourceData, SendMessageRequest, SessionResponse, StreamModelRequest, SubmitTaskRequest, TaskResponse, ToolDescriptor } from '../types';
 
 
 export interface IntelligenceRuntimeModelsListParams {
@@ -39,6 +39,7 @@ export interface IntelligenceRuntimeTasksRetrieveParams {
 }
 
 export interface IntelligenceRuntimeTasksCancelParams {
+  idempotencyKey: string;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
@@ -66,12 +67,13 @@ export class IntelligenceRuntimeTasksApi {
   }
 
 /** Cancel a task */
-  async cancel(taskId: string, params?: IntelligenceRuntimeTasksCancelParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
+  async cancel(taskId: string, params: IntelligenceRuntimeTasksCancelParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
-        'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
-        'x-sdkwork-user-id': { value: params?.xSdkworkUserId, style: 'simple', explode: false },
-        'x-sdkwork-identity-mac': { value: params?.xSdkworkIdentityMac, style: 'simple', explode: false },
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+        'x-sdkwork-tenant-id': { value: params.xSdkworkTenantId, style: 'simple', explode: false },
+        'x-sdkwork-user-id': { value: params.xSdkworkUserId, style: 'simple', explode: false },
+        'x-sdkwork-identity-mac': { value: params.xSdkworkIdentityMac, style: 'simple', explode: false },
       },
       {}
     );
@@ -120,6 +122,7 @@ export interface IntelligenceRuntimeSessionsToolsListParams {
 }
 
 export interface IntelligenceRuntimeSessionsToolsExecuteParams {
+  idempotencyKey: string;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
@@ -147,12 +150,13 @@ export class IntelligenceRuntimeSessionsToolsApi {
   }
 
 /** Execute a tool for a session */
-  async execute(sessionId: string, toolName: string, body: ExecuteToolRequest, params?: IntelligenceRuntimeSessionsToolsExecuteParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
+  async execute(sessionId: string, toolName: string, body: ExecuteToolRequest, params: IntelligenceRuntimeSessionsToolsExecuteParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
-        'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
-        'x-sdkwork-user-id': { value: params?.xSdkworkUserId, style: 'simple', explode: false },
-        'x-sdkwork-identity-mac': { value: params?.xSdkworkIdentityMac, style: 'simple', explode: false },
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+        'x-sdkwork-tenant-id': { value: params.xSdkworkTenantId, style: 'simple', explode: false },
+        'x-sdkwork-user-id': { value: params.xSdkworkUserId, style: 'simple', explode: false },
+        'x-sdkwork-identity-mac': { value: params.xSdkworkIdentityMac, style: 'simple', explode: false },
       },
       {}
     );
@@ -161,6 +165,7 @@ export class IntelligenceRuntimeSessionsToolsApi {
 }
 
 export interface IntelligenceRuntimeSessionsModelInvokeParams {
+  idempotencyKey: string;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
@@ -173,6 +178,7 @@ export interface IntelligenceRuntimeSessionsModelStreamParams {
 }
 
 export interface IntelligenceRuntimeSessionsModelCancelParams {
+  idempotencyKey: string;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
@@ -187,12 +193,13 @@ export class IntelligenceRuntimeSessionsModelApi {
 
 
 /** Invoke a model for a session */
-  async invoke(sessionId: string, body: InvokeModelRequest, params?: IntelligenceRuntimeSessionsModelInvokeParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
+  async invoke(sessionId: string, body: InvokeModelRequest, params: IntelligenceRuntimeSessionsModelInvokeParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
-        'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
-        'x-sdkwork-user-id': { value: params?.xSdkworkUserId, style: 'simple', explode: false },
-        'x-sdkwork-identity-mac': { value: params?.xSdkworkIdentityMac, style: 'simple', explode: false },
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+        'x-sdkwork-tenant-id': { value: params.xSdkworkTenantId, style: 'simple', explode: false },
+        'x-sdkwork-user-id': { value: params.xSdkworkUserId, style: 'simple', explode: false },
+        'x-sdkwork-identity-mac': { value: params.xSdkworkIdentityMac, style: 'simple', explode: false },
       },
       {}
     );
@@ -200,7 +207,7 @@ export class IntelligenceRuntimeSessionsModelApi {
   }
 
 /** Stream a model response via SSE */
-  async stream(sessionId: string, body: unknown, params?: IntelligenceRuntimeSessionsModelStreamParams): Promise<AsyncIterable<string>> {
+  async stream(sessionId: string, body: StreamModelRequest, params?: IntelligenceRuntimeSessionsModelStreamParams): Promise<AsyncIterable<string>> {
     const requestHeaders = buildRequestHeaders(
       {
         'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
@@ -213,28 +220,30 @@ export class IntelligenceRuntimeSessionsModelApi {
   }
 
 /** Cancel an in-flight model invocation */
-  async cancel(sessionId: string, body: unknown, params?: IntelligenceRuntimeSessionsModelCancelParams): Promise<unknown> {
+  async cancel(sessionId: string, body: CancelModelRequest, params: IntelligenceRuntimeSessionsModelCancelParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
-        'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
-        'x-sdkwork-user-id': { value: params?.xSdkworkUserId, style: 'simple', explode: false },
-        'x-sdkwork-identity-mac': { value: params?.xSdkworkIdentityMac, style: 'simple', explode: false },
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+        'x-sdkwork-tenant-id': { value: params.xSdkworkTenantId, style: 'simple', explode: false },
+        'x-sdkwork-user-id': { value: params.xSdkworkUserId, style: 'simple', explode: false },
+        'x-sdkwork-identity-mac': { value: params.xSdkworkIdentityMac, style: 'simple', explode: false },
       },
       {}
     );
-    return this.client.post<unknown>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/model/cancel`), body, undefined, requestHeaders, 'application/json');
+    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/model/cancel`), body, undefined, requestHeaders, 'application/json');
   }
 }
 
 export interface IntelligenceRuntimeSessionsTasksListParams {
-  page?: number;
   pageSize?: number;
+  cursor?: string;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
 }
 
 export interface IntelligenceRuntimeSessionsTasksSubmitParams {
+  idempotencyKey: string;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
@@ -251,8 +260,8 @@ export class IntelligenceRuntimeSessionsTasksApi {
 /** List session tasks */
   async list(sessionId: string, params?: IntelligenceRuntimeSessionsTasksListParams): Promise<SdkWorkPageData & Record<string, unknown>> {
     const query = buildQueryString([
-      { name: 'page', value: params?.page, style: 'form', explode: true, allowReserved: false },
       { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
+      { name: 'cursor', value: params?.cursor, style: 'form', explode: true, allowReserved: false },
     ]);
     const requestHeaders = buildRequestHeaders(
       {
@@ -266,12 +275,13 @@ export class IntelligenceRuntimeSessionsTasksApi {
   }
 
 /** Submit a session task */
-  async submit(sessionId: string, body: SubmitTaskRequest, params?: IntelligenceRuntimeSessionsTasksSubmitParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
+  async submit(sessionId: string, body: SubmitTaskRequest, params: IntelligenceRuntimeSessionsTasksSubmitParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
-        'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
-        'x-sdkwork-user-id': { value: params?.xSdkworkUserId, style: 'simple', explode: false },
-        'x-sdkwork-identity-mac': { value: params?.xSdkworkIdentityMac, style: 'simple', explode: false },
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+        'x-sdkwork-tenant-id': { value: params.xSdkworkTenantId, style: 'simple', explode: false },
+        'x-sdkwork-user-id': { value: params.xSdkworkUserId, style: 'simple', explode: false },
+        'x-sdkwork-identity-mac': { value: params.xSdkworkIdentityMac, style: 'simple', explode: false },
       },
       {}
     );
@@ -280,14 +290,15 @@ export class IntelligenceRuntimeSessionsTasksApi {
 }
 
 export interface IntelligenceRuntimeSessionsMessagesListParams {
-  page?: number;
   pageSize?: number;
+  cursor?: string;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
 }
 
 export interface IntelligenceRuntimeSessionsMessagesSendParams {
+  idempotencyKey: string;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
@@ -304,8 +315,8 @@ export class IntelligenceRuntimeSessionsMessagesApi {
 /** List session messages */
   async list(sessionId: string, params?: IntelligenceRuntimeSessionsMessagesListParams): Promise<SdkWorkPageData & Record<string, unknown>> {
     const query = buildQueryString([
-      { name: 'page', value: params?.page, style: 'form', explode: true, allowReserved: false },
       { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
+      { name: 'cursor', value: params?.cursor, style: 'form', explode: true, allowReserved: false },
     ]);
     const requestHeaders = buildRequestHeaders(
       {
@@ -319,12 +330,13 @@ export class IntelligenceRuntimeSessionsMessagesApi {
   }
 
 /** Send a session message */
-  async send(sessionId: string, body: SendMessageRequest, params?: IntelligenceRuntimeSessionsMessagesSendParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
+  async send(sessionId: string, body: SendMessageRequest, params: IntelligenceRuntimeSessionsMessagesSendParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
-        'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
-        'x-sdkwork-user-id': { value: params?.xSdkworkUserId, style: 'simple', explode: false },
-        'x-sdkwork-identity-mac': { value: params?.xSdkworkIdentityMac, style: 'simple', explode: false },
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+        'x-sdkwork-tenant-id': { value: params.xSdkworkTenantId, style: 'simple', explode: false },
+        'x-sdkwork-user-id': { value: params.xSdkworkUserId, style: 'simple', explode: false },
+        'x-sdkwork-identity-mac': { value: params.xSdkworkIdentityMac, style: 'simple', explode: false },
       },
       {}
     );
@@ -333,14 +345,15 @@ export class IntelligenceRuntimeSessionsMessagesApi {
 }
 
 export interface IntelligenceRuntimeSessionsListParams {
-  page?: number;
   pageSize?: number;
+  cursor?: string;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
 }
 
 export interface IntelligenceRuntimeSessionsCreateParams {
+  idempotencyKey: string;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
@@ -359,6 +372,7 @@ export interface IntelligenceRuntimeSessionsDeleteParams {
 }
 
 export interface IntelligenceRuntimeSessionsCloseParams {
+  idempotencyKey: string;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
@@ -385,8 +399,8 @@ export class IntelligenceRuntimeSessionsApi {
 /** List runtime sessions */
   async list(params?: IntelligenceRuntimeSessionsListParams): Promise<SdkWorkPageData & Record<string, unknown>> {
     const query = buildQueryString([
-      { name: 'page', value: params?.page, style: 'form', explode: true, allowReserved: false },
       { name: 'page_size', value: params?.pageSize, style: 'form', explode: true, allowReserved: false },
+      { name: 'cursor', value: params?.cursor, style: 'form', explode: true, allowReserved: false },
     ]);
     const requestHeaders = buildRequestHeaders(
       {
@@ -400,12 +414,13 @@ export class IntelligenceRuntimeSessionsApi {
   }
 
 /** Create a runtime session */
-  async create(body: CreateSessionRequest, params?: IntelligenceRuntimeSessionsCreateParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
+  async create(body: CreateSessionRequest, params: IntelligenceRuntimeSessionsCreateParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
-        'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
-        'x-sdkwork-user-id': { value: params?.xSdkworkUserId, style: 'simple', explode: false },
-        'x-sdkwork-identity-mac': { value: params?.xSdkworkIdentityMac, style: 'simple', explode: false },
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+        'x-sdkwork-tenant-id': { value: params.xSdkworkTenantId, style: 'simple', explode: false },
+        'x-sdkwork-user-id': { value: params.xSdkworkUserId, style: 'simple', explode: false },
+        'x-sdkwork-identity-mac': { value: params.xSdkworkIdentityMac, style: 'simple', explode: false },
       },
       {}
     );
@@ -439,12 +454,13 @@ export class IntelligenceRuntimeSessionsApi {
   }
 
 /** Close a runtime session */
-  async close(sessionId: string, params?: IntelligenceRuntimeSessionsCloseParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
+  async close(sessionId: string, params: IntelligenceRuntimeSessionsCloseParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
-        'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
-        'x-sdkwork-user-id': { value: params?.xSdkworkUserId, style: 'simple', explode: false },
-        'x-sdkwork-identity-mac': { value: params?.xSdkworkIdentityMac, style: 'simple', explode: false },
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+        'x-sdkwork-tenant-id': { value: params.xSdkworkTenantId, style: 'simple', explode: false },
+        'x-sdkwork-user-id': { value: params.xSdkworkUserId, style: 'simple', explode: false },
+        'x-sdkwork-identity-mac': { value: params.xSdkworkIdentityMac, style: 'simple', explode: false },
       },
       {}
     );
@@ -453,6 +469,7 @@ export class IntelligenceRuntimeSessionsApi {
 }
 
 export interface IntelligenceRuntimePermissionsDecideParams {
+  idempotencyKey: string;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
   xSdkworkIdentityMac?: string;
@@ -467,12 +484,13 @@ export class IntelligenceRuntimePermissionsApi {
 
 
 /** Decide a permission request */
-  async decide(permissionRequestId: string, body: PermissionDecisionRequest, params?: IntelligenceRuntimePermissionsDecideParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
+  async decide(permissionRequestId: string, body: PermissionDecisionRequest, params: IntelligenceRuntimePermissionsDecideParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
-        'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
-        'x-sdkwork-user-id': { value: params?.xSdkworkUserId, style: 'simple', explode: false },
-        'x-sdkwork-identity-mac': { value: params?.xSdkworkIdentityMac, style: 'simple', explode: false },
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+        'x-sdkwork-tenant-id': { value: params.xSdkworkTenantId, style: 'simple', explode: false },
+        'x-sdkwork-user-id': { value: params.xSdkworkUserId, style: 'simple', explode: false },
+        'x-sdkwork-identity-mac': { value: params.xSdkworkIdentityMac, style: 'simple', explode: false },
       },
       {}
     );

@@ -308,6 +308,25 @@ impl RuntimeState {
         self.with_bridge_write(|bridge| bridge.register_session(session_id, config))
     }
 
+    /// Register a persisted session and refresh its bounded message history.
+    pub fn register_session_with_history(
+        &self,
+        session_id: &str,
+        config: sdkwork_agent_api_bridge::BridgeSessionConfig,
+        history: Vec<sdkwork_agent_kernel::AgentMessage>,
+    ) -> KernelResult<sdkwork_agent_kernel::AgentSession> {
+        let turn_lock = self.session_turn_lock(session_id)?;
+        let _turn_guard =
+            turn_lock
+                .lock()
+                .map_err(|error| sdkwork_agent_kernel::KernelError::Internal {
+                    message: format!("runtime session turn lock poisoned: {error}"),
+                })?;
+        self.with_bridge_write(|bridge| {
+            bridge.register_session_with_history(session_id, config, history)
+        })
+    }
+
     /// List registered model descriptors (read-only — uses shared lock).
     pub fn list_models(&self) -> KernelResult<Vec<sdkwork_agent_kernel::ModelDescriptor>> {
         self.with_bridge_read(|bridge| bridge.list_models())

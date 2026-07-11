@@ -16,14 +16,14 @@
   },
   "canonicalSpecs": [
     {
-      "file": "AGENT_SDK_SPI_SPEC.md",
-      "path": "../specs/AGENT_SDK_SPI_SPEC.md",
-      "purpose": "External agent SDK adaptation SPI rules."
+      "file": "AGENT_PROVIDER_INTEGRATION_SPEC.md",
+      "path": "../specs/AGENT_PROVIDER_INTEGRATION_SPEC.md",
+      "purpose": "External agent provider integration and transport rules."
     },
     {
-      "file": "AGENT_SDK_BINDING_SPEC.md",
-      "path": "../specs/AGENT_SDK_BINDING_SPEC.md",
-      "purpose": "External agent SDK binding manifest rules."
+      "file": "AGENT_PROVIDER_BINDING_SPEC.md",
+      "path": "../specs/AGENT_PROVIDER_BINDING_SPEC.md",
+      "purpose": "External agent provider binding manifest rules."
     },
     {
       "file": "AGENT_KERNEL_SPEC.md",

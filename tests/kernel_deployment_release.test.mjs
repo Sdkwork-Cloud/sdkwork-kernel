@@ -165,18 +165,22 @@ test('production deployment and release evidence artifacts exist', () => {
   }
 });
 
-test('cloud compose provisions postgres and redis for agent-server', () => {
+test('cloud compose requires external managed dependencies and dedicated secrets', () => {
   const compose = fs.readFileSync(
     path.join(root, 'deployments/docker/docker-compose.cloud.yml'),
     'utf8',
   );
-  assert.match(compose, /^\s*postgres:/m);
-  assert.match(compose, /^\s*redis:/m);
   assert.match(compose, /env_file:/);
   assert.match(compose, /configs\/topology\/cloud\.production\.env/);
-  assert.match(compose, /SDKWORK_AGENT_RUNTIME_DATABASE_URL:/);
-  assert.match(compose, /SDKWORK_RATE_LIMIT_REDIS_URL:/);
-  assert.match(compose, /requirepass/);
+  assert.match(compose, /SDKWORK_AGENT_SERVER_IMAGE:\?set an immutable agent-server image reference/);
+  assert.match(compose, /SDKWORK_AGENT_RUNTIME_DATABASE_URL:\?set the managed PostgreSQL runtime URL/);
+  assert.match(compose, /SDKWORK_RATE_LIMIT_REDIS_URL:\?set the managed Redis rate-limit URL/);
+  assert.match(compose, /SDKWORK_KERNEL_METRICS_TOKEN:\?set a dedicated SDKWORK_KERNEL_METRICS_TOKEN/);
+  assert.match(compose, /SDKWORK_CORS_ORIGINS:\?set an explicit SDKWORK_CORS_ORIGINS allowlist/);
+  assert.doesNotMatch(compose, /^\s*postgres:/m);
+  assert.doesNotMatch(compose, /^\s*redis:/m);
+  assert.doesNotMatch(compose, /depends_on:|requirepass|CHANGE_ME|changeme|:-sdkwork/);
+  assert.doesNotMatch(compose, /SDKWORK_KERNEL_METRICS_TOKEN:\s*\$\{SDKWORK_KERNEL_INGRESS_TOKEN/);
   assert.doesNotMatch(compose, /SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL:\s*http:\/\/127\.0\.0\.1:18280/);
   assert.doesNotMatch(compose, /SDKWORK_KERNEL_HOSTING/);
   assert.doesNotMatch(compose, /SDKWORK_BIND_ADDRESS/);
@@ -188,8 +192,14 @@ test('production rollout runbook uses topology public HTTP env without hardcoded
     'utf8',
   );
   assert.match(runbook, /SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL/);
-  assert.match(runbook, /SDKWORK_KERNEL_AGENT_PLUGIN=rig/);
+  assert.match(runbook, /managed HA PostgreSQL/);
+  assert.match(runbook, /managed HA Redis/);
+  assert.match(runbook, /dedicated metrics credentials|must not reuse the ingress/i);
+  assert.match(runbook, /immutable OCI digest/);
+  assert.match(runbook, /NetworkPolicy overlay/);
+  assert.match(runbook, /does not provide HA/);
   assert.doesNotMatch(runbook, /http:\/\/127\.0\.0\.1:18280/);
+  assert.doesNotMatch(runbook, /defaults to ingress token/i);
 });
 
 test('production docker image defaults to cloud deployment profile', () => {
@@ -200,8 +210,33 @@ test('production docker image defaults to cloud deployment profile', () => {
   assert.match(dockerfile, /SDKWORK_KERNEL_DEPLOYMENT_PROFILE=cloud/);
   assert.match(dockerfile, /SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND=0\.0\.0\.0:18280/);
   assert.match(dockerfile, /SDKWORK_KERNEL_AGENT_PLUGIN=rig/);
+  assert.match(dockerfile, /FROM node:22-bookworm-slim AS node-runtime/);
+  assert.match(dockerfile, /generic-ts-sdk-worker\.mjs/);
+  assert.match(dockerfile, /provider-cli-live\.mjs/);
+  assert.match(dockerfile, /SDKWORK_AGENT_NODE_BINARY=\/usr\/local\/bin\/node/);
+  assert.match(dockerfile, /SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT=\/app\/provider-runtime/);
   assert.doesNotMatch(dockerfile, /SDKWORK_KERNEL_HOSTING/);
   assert.doesNotMatch(dockerfile, /SDKWORK_BIND_ADDRESS/);
+});
+
+test('release archives stage the provider worker runtime beside the server binary', () => {
+  const packager = fs.readFileSync(
+    path.join(root, 'scripts/release/package-kernel-artifact.mjs'),
+    'utf8',
+  );
+
+  for (const worker of [
+    'generic-ts-sdk-worker.mjs',
+    'engine-sdk-live.mjs',
+    'codex-cli-live.mjs',
+    'provider-cli-live.mjs',
+  ]) {
+    assert.match(packager, new RegExp(worker.replaceAll('.', '\\.'), 'u'));
+  }
+  assert.match(packager, /provider-runtime/);
+  assert.match(packager, /process\.execPath/);
+  assert.match(packager, /stageReleasePayload/);
+  assert.match(packager, /assertPathWithin/);
 });
 
 test('kubernetes configmap documents cloud deployment profile', () => {
@@ -228,6 +263,42 @@ test('kubernetes deployment injects runtime database and redis URLs from secrets
   assert.match(deployment, /runtime-database-url/);
   assert.match(deployment, /SDKWORK_RATE_LIMIT_REDIS_URL/);
   assert.match(deployment, /runtime-redis-url/);
+  assert.match(deployment, /SDKWORK_KERNEL_METRICS_TOKEN/);
+  assert.match(deployment, /key:\s*metrics-token/);
+  assert.doesNotMatch(deployment, /key:\s*metrics-token[\s\S]{0,80}optional:\s*true/);
+  assert.doesNotMatch(deployment, /image:\s*[^\n]*:latest/);
+  assert.match(deployment, /replicas:\s*3/);
+  assert.match(deployment, /requiredDuringSchedulingIgnoredDuringExecution/);
+  assert.match(deployment, /whenUnsatisfiable:\s*DoNotSchedule/);
+  assert.match(deployment, /automountServiceAccountToken:\s*false/);
+  assert.match(deployment, /readOnlyRootFilesystem:\s*true/);
+  assert.match(deployment, /allowPrivilegeEscalation:\s*false/);
+  assert.match(deployment, /type:\s*RuntimeDefault/);
+  assert.match(deployment, /ephemeral-storage:\s*1Gi/);
+});
+
+test('kubernetes availability and network policies are fail-closed production baselines', () => {
+  const hpa = fs.readFileSync(path.join(root, 'deployments/kubernetes/hpa.yaml'), 'utf8');
+  const pdb = fs.readFileSync(path.join(root, 'deployments/kubernetes/pdb.yaml'), 'utf8');
+  const networkPolicy = fs.readFileSync(
+    path.join(root, 'deployments/kubernetes/networkpolicy.yaml'),
+    'utf8',
+  );
+
+  assert.match(hpa, /minReplicas:\s*3/);
+  assert.match(hpa, /maxReplicas:\s*20/);
+  assert.match(hpa, /sdkwork_kernel_sse_active_connections/);
+  assert.match(pdb, /minAvailable:\s*2/);
+  assert.match(networkPolicy, /sdkwork\.com\/agent-server-ingress:\s*"true"/);
+  assert.match(networkPolicy, /sdkwork\.com\/agent-server-monitoring:\s*"true"/);
+  assert.match(networkPolicy, /runtime-data-service:\s*postgres/);
+  assert.match(networkPolicy, /runtime-data-service:\s*redis/);
+  assert.match(networkPolicy, /environment-owned exact-CIDR|provider\/CNI-specific egress policy/);
+  assert.doesNotMatch(
+    networkPolicy,
+    /cidr:\s*0\.0\.0\.0\/0[\s\S]{0,160}port:\s*(?:5432|6379)/,
+    'database ports must not be opened to the Internet',
+  );
 });
 
 test('kubernetes data dependency manifests are not presented as production HA databases', () => {
@@ -243,9 +314,9 @@ test('kubernetes data dependency manifests are not presented as production HA da
     path.join(root, 'deployments/runbooks/production-rollout.md'),
     'utf8',
   );
-  assert.match(runbook, /managed HA Postgres/);
+  assert.match(runbook, /managed HA PostgreSQL/);
   assert.match(runbook, /managed HA Redis/);
-  assert.match(runbook, /postgres-redis\.yaml.*local\/staging/i);
+  assert.match(runbook, /postgres-redis\.yaml[\s\S]{0,80}(?:local\s+or\s+|local\/)staging/i);
   assert.doesNotMatch(runbook, /Apply `deployments\/kubernetes\/postgres-redis\.yaml` \(or connect to managed Postgres\/Redis\)/);
 });
 
@@ -370,6 +441,8 @@ test('commercial release verification requires live dependencies explicitly', ()
   assert.match(verifier, /commercial release verification requires live runtime PostgreSQL/);
   assert.match(verifier, /check-agent-workflow-standard\.mjs/);
   assert.match(verifier, /generic-ts-sdk-worker\.test\.mjs/);
+  assert.match(verifier, /codex-cli-live\.test\.mjs/);
+  assert.match(verifier, /provider-cli-live\.test\.mjs/);
   assert.match(verifier, /generic-python-sdk-worker\.test\.mjs/);
   assert.match(verifier, /sdkwork-agent-provider-transport-ipc\/Cargo\.toml/);
   assert.match(verifier, /sdkwork-agent-provider-transport-node\/Cargo\.toml/);
@@ -407,13 +480,17 @@ test('commercial readiness docs distinguish merge and release dependency gates',
   assert.match(readiness, /Commercial release verification/);
   assert.match(readiness, /Production data plane HA/);
   assert.match(readiness, /Provider worker synthetic operation gate/);
-  assert.match(readiness, /Rust transport crate tests for IPC\/Node\/Python/);
+  assert.match(readiness, /Node\/Python\/Rust transport tests/);
   assert.match(readiness, /pnpm verify:commercial/);
   assert.match(readiness, /commercial release verification fails closed/i);
   assert.match(readiness, /live runtime PostgreSQL/);
   assert.match(readiness, /Hermes-specific staging gateway proof/);
-  assert.match(readiness, /managed HA Postgres/);
-  assert.match(readiness, /managed HA Redis/);
+  assert.match(readiness, /managed HA Postgres(?:SQL)?/i);
+  assert.match(readiness, /managed HA Redis/i);
+  assert.match(readiness, /not approved for production or GA/i);
+  assert.match(readiness, /immutable image digest/i);
+  assert.match(readiness, /NetworkPolicy/);
+  assert.doesNotMatch(readiness, /\*\*Green(?:\s|\()/);
   assert.doesNotMatch(
     readiness,
     /Enterprise GA readiness \| \*\*Pending\*\* \| REQ-2026-0001 artifact publishing \+ staging credential population/,

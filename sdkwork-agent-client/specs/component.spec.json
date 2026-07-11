@@ -9,108 +9,54 @@
     "root": "sdkwork-kernel/sdkwork-agent-client",
     "domain": "intelligence",
     "capability": "agent-client",
-    "surfaceNotRequiredReason": "This repository-internal Rust runtime crate exposes library or binary integration surfaces only and has no app, open-api, or backend-admin HTTP contract of its own.",
-    "languages": [
-      "rust"
-    ],
+    "surfaceNotRequiredReason": "This repository-internal Rust runtime crate exposes library integration surfaces only and has no app, open-api, or backend-admin HTTP contract of its own.",
+    "languages": ["rust"],
     "generated": false,
-    "manifests": [
-      "Cargo.toml"
-    ]
+    "manifests": ["Cargo.toml"]
   },
   "canonicalSpecs": [
-    {
-      "file": "AGENT_KERNEL_SPEC.md",
-      "path": "../specs/AGENT_KERNEL_SPEC.md",
-      "purpose": "Agent runtime, provider SPI, event, policy, and manifest authority."
-    },
-    {
-      "file": "AGENT_RUNTIME_SPEC.md",
-      "path": "../specs/AGENT_RUNTIME_SPEC.md",
-      "purpose": "Runtime lifecycle, execution, and host integration rules."
-    },
-    {
-      "file": "INTERNAL_API_SPEC.md",
-      "path": "../../sdkwork-specs/INTERNAL_API_SPEC.md",
-      "purpose": "Internal-api ingress surface, auth, and runtime route authority."
-    },
-    {
-      "file": "AGENT_SERVER_HTTP_SURFACE.md",
-      "path": "../sdkwork-agent-server/specs/AGENT_SERVER_HTTP_SURFACE.md",
-      "purpose": "Agent-server mounted HTTP routes and retired legacy prefixes."
-    },
-    {
-      "file": "COMPONENT_SPEC.md",
-      "path": "../../sdkwork-specs/COMPONENT_SPEC.md",
-      "purpose": "Component-local contract and discovery rules."
-    },
-    {
-      "file": "CODE_STYLE_SPEC.md",
-      "path": "../../sdkwork-specs/CODE_STYLE_SPEC.md",
-      "purpose": "Authored source structure and generated code boundaries."
-    },
-    {
-      "file": "NAMING_SPEC.md",
-      "path": "../../sdkwork-specs/NAMING_SPEC.md",
-      "purpose": "Canonical SDKWork naming rules."
-    },
-    {
-      "file": "RUST_CODE_SPEC.md",
-      "path": "../../sdkwork-specs/RUST_CODE_SPEC.md",
-      "purpose": "Rust crate and module rules."
-    },
-    {
-      "file": "TEST_SPEC.md",
-      "path": "../../sdkwork-specs/TEST_SPEC.md",
-      "purpose": "Verification and contract testing expectations."
-    }
+    {"file": "AGENT_KERNEL_SPEC.md", "path": "../specs/AGENT_KERNEL_SPEC.md", "purpose": "Agent runtime and provider authority."},
+    {"file": "AGENT_RUNTIME_SPEC.md", "path": "../specs/AGENT_RUNTIME_SPEC.md", "purpose": "Runtime lifecycle and host integration rules."},
+    {"file": "INTERNAL_API_SPEC.md", "path": "../../sdkwork-specs/INTERNAL_API_SPEC.md", "purpose": "Internal-api ingress and auth authority."},
+    {"file": "COMPONENT_SPEC.md", "path": "../../sdkwork-specs/COMPONENT_SPEC.md", "purpose": "Component contract authority."},
+    {"file": "CODE_STYLE_SPEC.md", "path": "../../sdkwork-specs/CODE_STYLE_SPEC.md", "purpose": "Authored source boundaries."},
+    {"file": "NAMING_SPEC.md", "path": "../../sdkwork-specs/NAMING_SPEC.md", "purpose": "Canonical naming rules."},
+    {"file": "RUST_CODE_SPEC.md", "path": "../../sdkwork-specs/RUST_CODE_SPEC.md", "purpose": "Rust crate and async rules."},
+    {"file": "TEST_SPEC.md", "path": "../../sdkwork-specs/TEST_SPEC.md", "purpose": "Verification requirements."}
   ],
   "contracts": {
     "publicExports": [
-      "AgentClient",
-      "AgentClientMode",
-      "AgentBridgePlugin",
-      "AgentBridgePluginRegistry",
-      "AgentBridgeProvider",
-      "ChatClient",
-      "compute_identity_mac",
-      "INGRESS_IDENTITY_MAC_HEADER",
-      "INGRESS_TENANT_HEADER",
-      "INGRESS_USER_HEADER",
-      "INTERNAL_RUNTIME_MOUNT_PREFIX",
-      "SseChatClient",
-      "WebSocketChatClient"
+      "AgentClient", "AgentClientMode", "AgentBridgePlugin", "AgentBridgePluginRegistry",
+      "AgentBridgeProvider", "ChatClient", "compute_identity_mac", "INGRESS_IDENTITY_MAC_HEADER",
+      "INGRESS_TENANT_HEADER", "INGRESS_USER_HEADER", "INTERNAL_RUNTIME_MOUNT_PREFIX",
+      "SseChatClient", "ModelStreamRequest", "ModelStreamEvent", "SessionEventStreamRequest",
+      "SessionRuntimeStreamEvent"
     ],
     "runtimeEntrypoints": [],
     "routeManifest": null,
     "sdkDependencies": [],
     "dependencyApiExports": [],
-    "dependencyApiSurfaces": [
-      {
-        "workspace": "sdkwork-kernel",
-        "sdkFamily": "@sdkwork/agent-internal-sdk",
-        "apiAuthority": "sdkwork-agent-internal-api",
-        "surface": "internal-api",
-        "apiPrefix": "/internal/v3/api/intelligence/runtime",
-        "runtimeMode": "external-service",
-        "sameOriginAllowed": false,
-        "requiredBaseUrlKey": "SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL",
-        "clientBaseUrlSource": "AgentClientMode::Remote.server_url / SseChatClient::new(base_url)",
-        "coverage": "verified",
-        "evidence": "sdkwork-agent-client/src/sse.rs#SseChatClient::runtime_url"
-      }
-    ],
+    "dependencyApiSurfaces": [{
+      "workspace": "sdkwork-kernel",
+      "sdkFamily": "@sdkwork/agent-internal-sdk",
+      "apiAuthority": "sdkwork-agent-internal-api",
+      "surface": "internal-api",
+      "apiPrefix": "/internal/v3/api/intelligence/runtime",
+      "runtimeMode": "external-service",
+      "sameOriginAllowed": false,
+      "requiredBaseUrlKey": "SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL",
+      "clientBaseUrlSource": "AgentClientMode::Remote.server_url / SseChatClient::new(base_url)",
+      "coverage": "verified",
+      "evidence": "sdkwork-agent-client/src/sse.rs#SseChatClient::runtime_endpoint"
+    }],
     "sdkClients": [],
-    "events": [],
-    "configKeys": [
-      "SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL",
-      "VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL",
-      "VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_WEBSOCKET_URL"
-    ]
+    "events": ["model.chunk", "model.done", "model.error"],
+    "configKeys": ["SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL", "VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_HTTP_URL"]
   },
   "verification": {
     "commands": [
-      "cargo test --manifest-path sdkwork-agent-client/Cargo.toml"
+      "cargo test --manifest-path sdkwork-agent-client/Cargo.toml",
+      "cargo check --manifest-path sdkwork-agent-client/Cargo.toml --all-features"
     ]
   }
 }

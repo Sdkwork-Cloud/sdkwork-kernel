@@ -1,9 +1,10 @@
+use std::future::IntoFuture;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 use sdkwork_agent_server::{
     api::internal_runtime, app, config::ServerConfig, health, persistence::PersistenceState,
-    preflight, shutdown,
+    preflight, runtime_cleanup_worker::RuntimeCleanupWorker, shutdown,
 };
 
 #[tokio::main]
@@ -43,8 +44,13 @@ async fn main() -> anyhow::Result<()> {
             .map_err(|error| anyhow::anyhow!("agent runtime bootstrap failed: {error}"))?,
     );
 
-    let app =
-        app::build_app_async(config.clone(), health_state, persistence, runtime_state).await?;
+    let app = app::build_app_async(
+        config.clone(),
+        health_state,
+        persistence.clone(),
+        runtime_state,
+    )
+    .await?;
 
     let bind_addr = config.bind_addr();
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
@@ -55,12 +61,40 @@ async fn main() -> anyhow::Result<()> {
     // Graceful shutdown: on signal, axum stops accepting new connections and
     // drains in-flight requests. `force_close_timer()` caps total drain time
     // from the signal — it must not start at process boot.
-    axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            shutdown::shutdown_signal().await;
-            shutdown::force_close_timer().await;
-        })
-        .await?;
+    let (shutdown_tx, mut graceful_rx) = tokio::sync::watch::channel(false);
+    let mut deadline_rx = shutdown_tx.subscribe();
+    let cleanup_worker =
+        RuntimeCleanupWorker::spawn(persistence.clone(), config.clone(), shutdown_tx.subscribe());
+    let signal_shutdown_tx = shutdown_tx.clone();
+    tokio::spawn(async move {
+        shutdown::shutdown_signal().await;
+        let _ = signal_shutdown_tx.send(true);
+    });
+
+    let graceful_trigger = async move {
+        if !*graceful_rx.borrow() {
+            let _ = graceful_rx.changed().await;
+        }
+    };
+    let hard_deadline = async move {
+        if !*deadline_rx.borrow() {
+            let _ = deadline_rx.changed().await;
+        }
+        shutdown::force_close_timer().await;
+    };
+
+    let server = axum::serve(listener, app)
+        .with_graceful_shutdown(graceful_trigger)
+        .into_future();
+    tokio::pin!(server);
+    tokio::select! {
+        result = &mut server => result?,
+        _ = hard_deadline => {
+            warn!("shutdown grace period elapsed; force-closing remaining connections");
+        }
+    }
+    let _ = shutdown_tx.send(true);
+    cleanup_worker.join().await;
 
     info!("Server shutdown complete");
 

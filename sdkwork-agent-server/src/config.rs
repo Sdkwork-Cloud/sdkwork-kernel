@@ -37,6 +37,12 @@ pub struct ServerConfig {
     pub database_path: String,
     /// Runtime session database engine: sqlite | postgres
     pub runtime_database_engine: String,
+    /// Retention window for transient sessions, messages, tasks, events, and permissions.
+    pub runtime_retention_days: u32,
+    /// Maximum rows selected per table in one cleanup transaction.
+    pub runtime_cleanup_batch_size: u32,
+    /// Interval between runtime cleanup cycles.
+    pub runtime_cleanup_interval_secs: u64,
     /// Topology deployment profile: `standalone` | `cloud`.
     pub deployment_profile: Option<String>,
     /// Runtime target (for example server, desktop).
@@ -73,6 +79,15 @@ pub struct ServerConfig {
     pub rate_limit_burst: u32,
     /// Redis URL for distributed rate limiting (`redis_cache` profile).
     pub rate_limit_redis_url: Option<String>,
+    /// Dedicated Redis URL for distributed HTTP idempotency records.
+    /// This credential is intentionally independent from rate-limit Redis.
+    pub idempotency_redis_url: Option<String>,
+    /// Completed idempotency response retention in seconds.
+    pub idempotency_ttl_secs: u64,
+    /// Maximum JSON response body retained for idempotent replay.
+    pub idempotency_max_cached_response_bytes: usize,
+    /// Require `Idempotency-Key` on retry-sensitive mutation routes.
+    pub idempotency_require_key: bool,
     /// Optional per-tenant rate limit overrides keyed by tenant id.
     pub tenant_rate_limit_overrides: HashMap<String, TenantRateLimitOverride>,
     /// Optional per-tenant daily model token quotas keyed by tenant id.
@@ -99,10 +114,13 @@ impl Default for ServerConfig {
                 "http://localhost:5173".to_string(),
             ],
             request_timeout_secs: 30,
-            max_body_size: 10 * 1024 * 1024, // 10MB
+            max_body_size: 1024 * 1024, // 1 MiB hard envelope; fields have stricter limits.
             health_path: "/healthz".to_string(),
             database_path: "./data/agent-server.sqlite".to_string(),
             runtime_database_engine: "sqlite".to_string(),
+            runtime_retention_days: 7,
+            runtime_cleanup_batch_size: 500,
+            runtime_cleanup_interval_secs: 300,
             deployment_profile: None,
             kernel_runtime_target: None,
             environment: "development".to_string(),
@@ -121,6 +139,10 @@ impl Default for ServerConfig {
             rate_limit_rps: 0,
             rate_limit_burst: 200,
             rate_limit_redis_url: None,
+            idempotency_redis_url: None,
+            idempotency_ttl_secs: 24 * 60 * 60,
+            idempotency_max_cached_response_bytes: 512 * 1024,
+            idempotency_require_key: false,
             tenant_rate_limit_overrides: HashMap::new(),
             tenant_token_quota_overrides: HashMap::new(),
             metrics_auth_mode: "open".to_string(),
@@ -159,6 +181,15 @@ impl ServerConfig {
         }
         if let Ok(engine) = std::env::var("SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE") {
             config.runtime_database_engine = engine;
+        }
+        if let Ok(days) = std::env::var("SDKWORK_AGENT_RUNTIME_RETENTION_DAYS") {
+            config.runtime_retention_days = days.parse()?;
+        }
+        if let Ok(batch_size) = std::env::var("SDKWORK_AGENT_RUNTIME_CLEANUP_BATCH_SIZE") {
+            config.runtime_cleanup_batch_size = batch_size.parse()?;
+        }
+        if let Ok(interval) = std::env::var("SDKWORK_AGENT_RUNTIME_CLEANUP_INTERVAL_SECS") {
+            config.runtime_cleanup_interval_secs = interval.parse()?;
         }
         if let Ok(profile) = std::env::var("SDKWORK_KERNEL_DEPLOYMENT_PROFILE") {
             let trimmed = profile.trim().to_string();
@@ -278,6 +309,21 @@ impl ServerConfig {
                 config.rate_limit_redis_url = Some(trimmed);
             }
         }
+        if let Ok(redis_url) = std::env::var("SDKWORK_IDEMPOTENCY_REDIS_URL") {
+            let trimmed = redis_url.trim().to_string();
+            if !trimmed.is_empty() {
+                config.idempotency_redis_url = Some(trimmed);
+            }
+        }
+        if let Ok(ttl_secs) = std::env::var("SDKWORK_IDEMPOTENCY_TTL_SECS") {
+            config.idempotency_ttl_secs = ttl_secs.parse()?;
+        }
+        if let Ok(max_bytes) = std::env::var("SDKWORK_IDEMPOTENCY_MAX_RESPONSE_BYTES") {
+            config.idempotency_max_cached_response_bytes = max_bytes.parse()?;
+        }
+        if let Ok(require_key) = std::env::var("SDKWORK_IDEMPOTENCY_REQUIRE_KEY") {
+            config.idempotency_require_key = require_key.parse()?;
+        }
         if let Ok(sse_timeout) = std::env::var("SDKWORK_SSE_REQUEST_TIMEOUT") {
             config.sse_request_timeout_secs = sse_timeout.parse()?;
         }
@@ -356,10 +402,12 @@ impl ServerConfig {
         {
             self.metrics_auth_mode = "token".to_string();
         }
-        // Metrics token must be configured independently from the ingress
-        // token to enforce least-privilege separation. When metrics auth is
-        // required but no dedicated metrics token is set, we log a warning at
-        // preflight time rather than silently reusing the ingress token.
+        if self.is_production_kernel_profile() || !self.is_loopback_bind() {
+            self.idempotency_require_key = true;
+        }
+        // Metrics credentials are intentionally independent from ingress
+        // credentials. Production must fail closed when the dedicated token
+        // is absent rather than widening the ingress token's privilege.
     }
 
     pub fn metrics_auth_required(&self) -> bool {
@@ -369,7 +417,6 @@ impl ServerConfig {
     pub fn effective_metrics_token(&self) -> Option<&str> {
         self.metrics_token
             .as_deref()
-            .or(self.ingress_token.as_deref())
             .filter(|token| !token.is_empty())
     }
 
@@ -388,6 +435,12 @@ impl ServerConfig {
 
     pub fn effective_rate_limit_redis_url(&self) -> Option<&str> {
         self.rate_limit_redis_url
+            .as_deref()
+            .filter(|url| !url.is_empty())
+    }
+
+    pub fn effective_idempotency_redis_url(&self) -> Option<&str> {
+        self.idempotency_redis_url
             .as_deref()
             .filter(|url| !url.is_empty())
     }
@@ -415,6 +468,10 @@ impl ServerConfig {
         if self.rate_limit_rps == 0 {
             return false;
         }
+        self.is_production_kernel_profile() && self.production_scaleout_profile()
+    }
+
+    pub fn requires_distributed_idempotency(&self) -> bool {
         self.is_production_kernel_profile() && self.production_scaleout_profile()
     }
 
@@ -529,6 +586,7 @@ mod tests {
         assert!(config.uses_postgres_runtime_database());
         assert!(config.requires_postgres_runtime_database());
         assert!(config.requires_distributed_rate_limit());
+        assert!(config.requires_distributed_idempotency());
     }
 
     #[test]

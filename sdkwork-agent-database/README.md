@@ -12,25 +12,42 @@ success. Runtime persistence and schema migration verification use SQLite or Pos
 
 ## Schema authority
 
-DDL for both backends lives in a single pair of migration files:
+Baseline DDL and ordered evolution migrations live under `migrations/`:
 
 - `migrations/agent_runtime.sqlite.sql`
 - `migrations/agent_runtime.postgres.sql`
+- `migrations/agent_runtime.postgres.v2.sql`
+- `migrations/agent_runtime.sqlite.v3.sql`
+- `migrations/agent_runtime.postgres.v3.sql`
+- `migrations/agent_runtime.sqlite.v4.sql`
+- `migrations/agent_runtime.postgres.v4.sql`
 
-`schema_migrations.rs` applies SQLite statements; `postgres.rs` applies the PostgreSQL batch. Parity is guarded by `schema_migrations` unit tests and backend contract tests under `tests/`.
+`schema_migrations.rs` is the migration authority. It records ordered versions and SHA-256 checksums in `agent_runtime_schema_migration_history`, rejects checksum drift, and commits all pending steps atomically. SQLite uses `BEGIN IMMEDIATE` to serialize concurrent startup; PostgreSQL uses a transaction-scoped advisory lock. The baseline and evolution scripts contain no destructive table drops.
 
-Session upserts use `ON CONFLICT ... DO UPDATE` on both backends (never SQLite `INSERT OR REPLACE`, which would cascade-delete child rows). Cross-table message append and message purge use `RuntimeSessionWrites` transactions (`append_message_with_event`, `delete_messages_and_reset_count`). Message identity is immutable: `save_message` accepts an exact duplicate row as an idempotent retry, rejects changed payloads or cross-session `message_id` reuse with `ConstraintViolation`, and preserves the original row. Message append is retry-safe: a duplicate `message_id` for the same session returns the current `message_count` without incrementing it again or writing another event, and a duplicate `message_id` for a different session fails with `ConstraintViolation` before writing an event.
+The SQLite v2 compatibility step repairs legacy `sessions` columns and missing child-table cascade foreign keys. Orphan child rows are preserved under explicit `orphaned` recovery sessions before constraints are installed. A rebuild fails closed when an unknown extension column or custom trigger is present, so migration cannot silently discard application-owned data. PostgreSQL performs the equivalent column, orphan, and foreign-key repair in v2. Fresh database creation, legacy upgrade, repeated migration, checksum drift, and concurrent SQLite startup are covered by migration contract tests.
+
+Session upserts use `ON CONFLICT ... DO UPDATE` on both backends (never SQLite `INSERT OR REPLACE`, which would cascade-delete child rows). `RuntimeSessionWrites` owns cross-table transactions for session state plus event, task state plus event, message append plus count plus event, and message purge plus count reset. Message identity is immutable: `save_message` accepts an exact duplicate row as an idempotent retry, rejects changed payloads or cross-session `message_id` reuse with `ConstraintViolation`, and preserves the original row. Message append is retry-safe: a duplicate `message_id` for the same session returns the current `message_count` without incrementing it again or writing another event, and a duplicate `message_id` for a different session fails with `ConstraintViolation` before writing an event.
 
 ## Pagination
 
 List queries use SQL `LIMIT`/`OFFSET` for offset mode and keyset predicates for continuation:
 
-- **Messages:** `MessageQuery.after_message_id` (HTTP `cursor` on `GET .../messages`)
-- **Sessions:** `SessionQuery.after_session_id` (HTTP `cursor` on `GET .../sessions`)
-- **Tasks:** `TaskQuery.after_task_id` (HTTP `cursor` on `GET .../sessions/{id}/tasks`)
-- **Events:** `EventQuery.after_event_id` (SSE `Last-Event-ID` / `lastEventId`)
+- **Messages:** internal `MessageQuery.after_message_id`, ordered by `(created_at, message_id)`
+- **Sessions:** internal `SessionQuery.after_session_id`, ordered by effective update time plus `session_id`
+- **Tasks:** internal `TaskQuery.after_task_id`, ordered by `(created_at, task_id)`
+- **Events:** internal `EventQuery.after_event_id`, ordered by `(created_at, event_id)`
 
-Unknown cursors return an empty page (strict replay), not a full rewind.
+These identifiers are repository continuation anchors, not public wire cursors. HTTP adapters must encode and validate opaque cursor tokens before mapping them to repository queries. Unknown internal anchors return an empty page (strict replay), not a full rewind.
+
+`MessageRepository::load_recent_messages` hydrates a session from a bounded SQL tail (`ORDER BY created_at DESC, message_id DESC LIMIT`) and returns chronological order. The limit is mandatory and restricted to `1..=512`; full-history hydration and deep offset scans are not supported.
+
+`EventQuery` and `PermissionQuery` accept optional tenant/user ownership scope. Scoped event reads validate ownership through `sessions` and exclude global events; scoped permission reads filter indexed ownership columns directly.
+
+## Runtime retention and lifecycle
+
+Runtime rows are transient and are cleaned by the server's bounded retention worker. The worker passes a UTC RFC-3339 cutoff to `RuntimeMaintenance::purge_expired`; each backend selects at most the configured batch size in SQL and commits one transaction. Closed/completed/failed/cancelled sessions, terminal tasks, and resolved permissions are eligible for deletion. Pending or running work is retained. Messages and events older than the cutoff are removed in bounded batches, and message counts are recomputed for affected sessions in the same transaction. Session cascades preserve foreign-key integrity; no backend performs an unbounded collect.
+
+SQLite enables WAL and incremental auto-vacuum for new files. After a successful purge it runs only a passive WAL checkpoint and `incremental_vacuum(1000)`; a one-time full vacuum belongs in an offline operator maintenance window. PostgreSQL delegates dead-row reclamation to autovacuum. `RuntimeMaintenance::schema_status` validates the migration version, required indexes, and foreign-key invariants so readiness fails closed on drift.
 
 ## Verification
 

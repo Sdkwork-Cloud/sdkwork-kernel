@@ -3,7 +3,7 @@
 Status: active
 Owner: SDKWork kernel maintainers
 Application: sdkwork-kernel
-Updated: 2026-07-07
+Updated: 2026-07-11
 Specs: [REQUIREMENTS_SPEC.md](../../../sdkwork-specs/REQUIREMENTS_SPEC.md), [DOCUMENTATION_SPEC.md](../../../sdkwork-specs/DOCUMENTATION_SPEC.md)
 
 Canon entry and index. Product depth lives in linked shards; normative contracts live in `specs/` and `sdkwork-specs/`.
@@ -72,9 +72,10 @@ Canonical product scenarios. Implementation detail: [TECH_ARCHITECTURE.md](../..
 
 1. Select `cloud.production` from `configs/topology/`.
 2. Set `SDKWORK_KERNEL_AGENT_PLUGIN` explicitly (default `rig`).
-3. Provision managed HA Postgres and managed HA Redis, then configure `SDKWORK_KERNEL_INGRESS_AUTH_MODE=token`.
-4. Keep `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS` unset in production.
-5. Run `pnpm verify:commercial` with `SDKWORK_AGENT_RUNTIME_POSTGRES_URI`, staging SDK credentials, and `SDKWORK_KERNEL_STAGING_HERMES_GATEWAY=1` before release promotion.
+3. Provision managed HA Postgres and managed HA Redis with restore/failover evidence and exact NetworkPolicy egress.
+4. Configure token ingress plus a separate metrics credential through the target secret manager; checked-in/default credentials are forbidden.
+5. Deploy only an immutable image digest, keep `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS` unset, and verify node/zone placement, PDB, HPA, and graceful drain.
+6. Run `pnpm verify:commercial` with live PostgreSQL, provider staging credentials/endpoints, and Hermes gateway proof before any commercial promotion.
 
 ## 6. Success Metrics
 

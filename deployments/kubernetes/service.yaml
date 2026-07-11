@@ -4,6 +4,7 @@ metadata:
   name: sdkwork-agent-server
   labels:
     app.kubernetes.io/name: sdkwork-agent-server
+    app.kubernetes.io/part-of: sdkwork-kernel
 spec:
   type: ClusterIP
   selector:

@@ -20,10 +20,7 @@ pub trait ChatClient: Send + Sync {
     fn close_session(&self, session_id: &str) -> Result<(), String>;
 
     /// List persisted sessions for this bridge provider.
-    fn list_sessions(&self, query: &BridgeSessionQuery) -> Result<Vec<SessionInfo>, String> {
-        let _ = query;
-        Ok(Vec::new())
-    }
+    fn list_sessions(&self, query: &BridgeSessionQuery) -> Result<Vec<SessionInfo>, String>;
 
     /// Health check
     fn health(&self) -> Result<bool, String>;

@@ -1,6 +1,7 @@
 use sdkwork_agent_database::{
-    EventRow, MessageRow, PermissionRepository, PermissionRow, PostgresDatabase, SessionRow,
-    SqliteDatabase, TaskRow,
+    EventRow, MessageRow, PermissionRepository, PermissionRow, PostgresDatabase,
+    RuntimeMaintenance, RuntimePurgeCounts, RuntimeSchemaStatus, SessionRow, SqliteDatabase,
+    TaskRow,
 };
 use sdkwork_agent_session::{MessageConfig, SessionConfig, SessionQuery, UnifiedSessionManager};
 use std::sync::Arc;
@@ -23,6 +24,39 @@ enum ManagerInner {
 enum PermissionDb {
     Sqlite(SqliteDatabase),
     Postgres(PostgresDatabase),
+}
+
+#[derive(Clone)]
+enum MaintenanceDb {
+    Sqlite(SqliteDatabase),
+    Postgres(PostgresDatabase),
+}
+
+impl RuntimeMaintenance for MaintenanceDb {
+    fn purge_expired(
+        &self,
+        cutoff: &str,
+        batch_size: i64,
+    ) -> Result<RuntimePurgeCounts, sdkwork_agent_database::DatabaseError> {
+        match self {
+            MaintenanceDb::Sqlite(db) => db.purge_expired(cutoff, batch_size),
+            MaintenanceDb::Postgres(db) => db.purge_expired(cutoff, batch_size),
+        }
+    }
+
+    fn schema_status(&self) -> Result<RuntimeSchemaStatus, sdkwork_agent_database::DatabaseError> {
+        match self {
+            MaintenanceDb::Sqlite(db) => db.schema_status(),
+            MaintenanceDb::Postgres(db) => db.schema_status(),
+        }
+    }
+
+    fn run_maintenance(&self) -> Result<(), sdkwork_agent_database::DatabaseError> {
+        match self {
+            MaintenanceDb::Sqlite(db) => db.run_maintenance(),
+            MaintenanceDb::Postgres(db) => db.run_maintenance(),
+        }
+    }
 }
 
 impl PermissionRepository for PermissionDb {
@@ -90,6 +124,7 @@ macro_rules! with_manager {
 pub struct PersistenceState {
     manager: ManagerInner,
     permission_db: PermissionDb,
+    maintenance_db: MaintenanceDb,
     event_bus: SessionEventBus,
     backend: PersistenceBackend,
 }
@@ -173,6 +208,7 @@ impl PersistenceState {
         Self {
             manager: ManagerInner::Sqlite(Arc::new(manager)),
             permission_db: PermissionDb::Sqlite(permission_db),
+            maintenance_db: MaintenanceDb::Sqlite(db),
             event_bus,
             backend: PersistenceBackend::Sqlite,
         }
@@ -186,6 +222,7 @@ impl PersistenceState {
         Self {
             manager: ManagerInner::Postgres(Arc::new(manager)),
             permission_db: PermissionDb::Postgres(permission_db),
+            maintenance_db: MaintenanceDb::Postgres(db),
             event_bus,
             backend: PersistenceBackend::Postgres,
         }
@@ -253,6 +290,15 @@ impl PersistenceState {
             .get_messages(session_id, limit, offset))
     }
 
+    pub fn load_recent_messages(
+        &self,
+        session_id: &str,
+        limit: i64,
+    ) -> Result<Vec<MessageRow>, String> {
+        with_manager!(self, |manager| manager
+            .load_recent_messages(session_id, limit))
+    }
+
     pub fn message_count(&self, session_id: &str) -> Result<i64, String> {
         with_manager!(self, |manager| manager.message_count(session_id))
     }
@@ -263,6 +309,42 @@ impl PersistenceState {
 
     pub fn health(&self) -> Result<bool, String> {
         with_manager!(self, |manager| manager.health())
+    }
+
+    pub fn schema_status(&self) -> Result<RuntimeSchemaStatus, String> {
+        self.maintenance_db
+            .schema_status()
+            .map_err(|error| format!("failed to inspect runtime schema: {error}"))
+    }
+
+    pub fn readiness(&self) -> Result<(), String> {
+        if !self.health()? {
+            return Err("runtime persistence health probe returned false".to_string());
+        }
+        let status = self.schema_status()?;
+        if !status.drift_free {
+            return Err(format!(
+                "runtime persistence schema is not current (version={}, expected={})",
+                status.version, status.expected_version
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn purge_expired(
+        &self,
+        cutoff: &str,
+        batch_size: i64,
+    ) -> Result<RuntimePurgeCounts, String> {
+        self.maintenance_db
+            .purge_expired(cutoff, batch_size)
+            .map_err(|error| format!("failed to purge expired runtime state: {error}"))
+    }
+
+    pub fn run_maintenance(&self) -> Result<(), String> {
+        self.maintenance_db
+            .run_maintenance()
+            .map_err(|error| format!("failed to run runtime database maintenance: {error}"))
     }
 
     pub fn create_task(&self, session_id: &str, instruction: &str) -> Result<TaskRow, String> {

@@ -60,13 +60,14 @@ impl ApiError {
     pub fn from_persistence(error: String, trace_id: impl Into<String>) -> Self {
         let trace_id = trace_id.into();
         let lower = error.to_lowercase();
+        tracing::error!(trace_id = %trace_id, error = %error, "persistence operation failed");
         if lower.contains("not found") {
-            return Self::not_found(error, trace_id);
+            return Self::not_found("resource not found", trace_id);
         }
         if lower.contains("is closed") || lower.contains("already closed") {
-            return Self::conflict(error, trace_id);
+            return Self::conflict("resource state conflict", trace_id);
         }
-        Self::internal(error, trace_id)
+        Self::internal("persistence operation failed", trace_id)
     }
 
     pub fn from_status(
@@ -83,58 +84,56 @@ impl ApiError {
 
     pub fn from_kernel(error: KernelError, trace_id: impl Into<String>) -> Self {
         let trace_id = trace_id.into();
+        tracing::error!(trace_id = %trace_id, error = %error, "kernel operation failed");
         match error {
             KernelError::Validation { message } => Self::invalid_parameter(message, trace_id),
-            KernelError::CapabilityMissing { capability_id } => {
-                Self::service_unavailable(format!("missing capability: {capability_id}"), trace_id)
+            KernelError::CapabilityMissing { .. } => {
+                Self::service_unavailable("required capability unavailable", trace_id)
             }
-            KernelError::ProviderUnavailable { provider_id } => {
-                Self::service_unavailable(format!("provider unavailable: {provider_id}"), trace_id)
+            KernelError::ProviderUnavailable { .. } => {
+                Self::service_unavailable("provider unavailable", trace_id)
             }
             KernelError::PolicyDenied { reason_code } => Self::forbidden(reason_code, trace_id),
-            KernelError::Internal { message } => Self::internal(message, trace_id),
-            KernelError::Structured { info } => {
-                let detail = if info.message.trim().is_empty() {
-                    info.kind.as_str().to_string()
-                } else {
-                    info.message.clone()
-                };
-                match info.kind {
-                    sdkwork_agent_kernel::KernelErrorKind::ValidationError => {
-                        Self::invalid_parameter(detail, trace_id)
-                    }
-                    sdkwork_agent_kernel::KernelErrorKind::PermissionRequired
-                    | sdkwork_agent_kernel::KernelErrorKind::PolicyDenied
-                    | sdkwork_agent_kernel::KernelErrorKind::SecurityViolation => {
-                        Self::forbidden(detail, trace_id)
-                    }
-                    sdkwork_agent_kernel::KernelErrorKind::Conflict => {
-                        Self::conflict(detail, trace_id)
-                    }
-                    sdkwork_agent_kernel::KernelErrorKind::CapabilityMissing
-                    | sdkwork_agent_kernel::KernelErrorKind::ProviderUnavailable
-                    | sdkwork_agent_kernel::KernelErrorKind::ResourceExhausted
-                    | sdkwork_agent_kernel::KernelErrorKind::RateLimited => {
-                        Self::service_unavailable(detail, trace_id)
-                    }
-                    _ => Self::internal(detail, trace_id),
+            KernelError::Internal { .. } => Self::internal("kernel operation failed", trace_id),
+            KernelError::Structured { info } => match info.kind {
+                sdkwork_agent_kernel::KernelErrorKind::ValidationError => {
+                    Self::invalid_parameter("request validation failed", trace_id)
                 }
-            }
+                sdkwork_agent_kernel::KernelErrorKind::PermissionRequired
+                | sdkwork_agent_kernel::KernelErrorKind::PolicyDenied
+                | sdkwork_agent_kernel::KernelErrorKind::SecurityViolation => {
+                    Self::forbidden("operation is not permitted", trace_id)
+                }
+                sdkwork_agent_kernel::KernelErrorKind::Conflict => {
+                    Self::conflict("resource state conflict", trace_id)
+                }
+                sdkwork_agent_kernel::KernelErrorKind::CapabilityMissing
+                | sdkwork_agent_kernel::KernelErrorKind::ProviderUnavailable
+                | sdkwork_agent_kernel::KernelErrorKind::ResourceExhausted
+                | sdkwork_agent_kernel::KernelErrorKind::RateLimited => {
+                    Self::service_unavailable("runtime dependency unavailable", trace_id)
+                }
+                _ => Self::internal("kernel operation failed", trace_id),
+            },
         }
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        let trace_id = self.trace_id.clone();
         let problem = SdkWorkProblemDetail::platform(self.code, self.detail, self.trace_id);
         let status =
             StatusCode::from_u16(problem.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        (
-            status,
-            [(header::CONTENT_TYPE, "application/problem+json")],
-            Json(problem),
+        with_trace_header(
+            (
+                status,
+                [(header::CONTENT_TYPE, "application/problem+json")],
+                Json(problem),
+            )
+                .into_response(),
+            &trace_id,
         )
-            .into_response()
     }
 }
 

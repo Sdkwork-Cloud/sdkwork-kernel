@@ -18,6 +18,8 @@
   "scripts": {
     "generate:dry-run": "node ../../workspace-agent-sdkgen.mjs --family internal --mode dry-run",
     "generate": "node ../../workspace-agent-sdkgen.mjs --family internal --mode apply",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+    "test:contract": "node --experimental-strip-types --test tests/sse-parser.test.mjs tests/streaming.test.mjs",
     "verify": "node ../bin/verify-sdk.mjs"
   },
   "publishConfig": {
@@ -36,5 +38,8 @@
   },
   "dependencies": {
     "@sdkwork/sdk-common": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
   }
 }

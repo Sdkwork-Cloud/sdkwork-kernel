@@ -11,17 +11,20 @@ metadata:
     # annotations document the custom metric names that can be referenced
     # in an external metrics block when the adapter is deployed.
     sdkwork.io/custom-metrics: |
-      http_requests_total, http_request_duration_seconds,
-      rate_limited_total, sse_active_connections,
-      model_invocation_total, model_token_usage_total,
-      tenant_token_quota_rejection_total
+      sdkwork_kernel_http_requests_total,
+      sdkwork_kernel_http_request_duration_seconds,
+      sdkwork_kernel_http_rate_limited_total,
+      sdkwork_kernel_sse_active_connections,
+      sdkwork_kernel_model_invocations_total,
+      sdkwork_kernel_model_tokens_total,
+      sdkwork_kernel_tenant_token_quota_rejected_total
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
     name: sdkwork-agent-server
-  minReplicas: 2
-  maxReplicas: 6
+  minReplicas: 3
+  maxReplicas: 20
   metrics:
     - type: Resource
       resource:
@@ -35,12 +38,12 @@ spec:
         target:
           type: Utilization
           averageUtilization: 80
-    # Scale based on active SSE connections when a metrics adapter
-    # is available. Uncomment after deploying prometheus-adapter.
+    # Scale based on active SSE connections only after the metrics adapter
+    # mapping and a target-environment load test have been verified.
     # - type: Pods
     #   pods:
     #     metric:
-    #       name: sse_active_connections
+    #       name: sdkwork_kernel_sse_active_connections
     #     target:
     #       type: AverageValue
     #       averageValue: "64"

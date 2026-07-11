@@ -301,6 +301,7 @@ fn live_postgres_permissions_roundtrip_when_uri_configured() {
             status: Some("pending".to_string()),
             limit: Some(20),
             offset: None,
+            ..Default::default()
         })
         .expect("list");
     assert!(listed

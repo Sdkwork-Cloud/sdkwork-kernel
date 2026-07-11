@@ -1,5 +1,36 @@
 use serde::{Deserialize, Serialize};
 
+/// Latest runtime schema migration version required by all supported stores.
+pub const CURRENT_SCHEMA_VERSION: i64 = 4;
+
+/// Bounded result returned by one runtime retention pass.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimePurgeCounts {
+    pub sessions: u64,
+    pub messages: u64,
+    pub tasks: u64,
+    pub events: u64,
+    pub permissions: u64,
+}
+
+impl RuntimePurgeCounts {
+    pub fn total(self) -> u64 {
+        self.sessions
+            .saturating_add(self.messages)
+            .saturating_add(self.tasks)
+            .saturating_add(self.events)
+            .saturating_add(self.permissions)
+    }
+}
+
+/// Schema state used by readiness checks and maintenance diagnostics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeSchemaStatus {
+    pub version: i64,
+    pub expected_version: i64,
+    pub drift_free: bool,
+}
+
 /// Session row for database persistence
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionRow {
@@ -106,6 +137,10 @@ pub struct MessageQuery {
 pub struct EventQuery {
     pub event_type: Option<String>,
     pub severity: Option<String>,
+    /// Restrict events to sessions owned by this tenant. Global events are excluded.
+    pub owner_tenant_id: Option<String>,
+    /// Restrict events to sessions owned by this user. Global events are excluded.
+    pub owner_user_ref: Option<String>,
     /// Return rows strictly after this event within the session (keyset continuation).
     pub after_event_id: Option<String>,
     pub limit: Option<i64>,
@@ -125,6 +160,8 @@ pub struct TaskQuery {
 #[derive(Debug, Clone, Default)]
 pub struct PermissionQuery {
     pub status: Option<String>,
+    pub owner_tenant_id: Option<String>,
+    pub owner_user_ref: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }

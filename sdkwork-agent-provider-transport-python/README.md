@@ -1,6 +1,8 @@
-# SDKWork Agent SDK Backend Python
+# SDKWork Agent Provider Transport Python
 
-Python subprocess JSON-RPC worker runtime for external agent SDK capabilities.
+Python subprocess JSON-RPC worker runtime for external agent provider capabilities. Managed calls
+use the bounded request-isolated worker pool from `sdkwork-agent-provider-transport-ipc`; configure
+its concurrency with `SDKWORK_PROVIDER_WORKER_MAX_CONCURRENCY` (`8` by default, maximum `64`).
 
 Verification:
 

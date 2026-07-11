@@ -6,12 +6,14 @@ title: Complete kernel commercial hardening for P4 release
 owner: SDKWork kernel maintainers
 status: in-progress
 source: platform
-problem: Kernel mechanism layer is green for merge verification, but enterprise rollout still lacks artifact publishing, strict commercial release verification, live runtime PostgreSQL evidence, Hermes-specific staging gateway proof, managed HA data-plane requirements, MiMo Code facade/live SDK proof, and IM agents-only consumption.
+problem: Kernel mechanism paths are under active verification, but enterprise rollout is not approved until artifact publishing, strict commercial release verification, live runtime PostgreSQL evidence, Hermes-specific staging gateway proof, managed HA data-plane controls, immutable secrets/images, MiMo Code facade/live SDK proof, and IM agents-only consumption are evidenced on the release revision.
 goals:
   - Publish kernel server binaries to artifact registry with checksum/SBOM evidence
   - Keep the default merge pipeline credential-free while making commercial release verification fail closed on missing live dependencies
   - Require `pnpm verify:commercial` to validate live runtime PostgreSQL, staging SDK credentials, and Hermes-specific staging gateway proof before release promotion
   - Require production deployments to use managed HA Postgres and managed HA Redis, not bundled single-node reference manifests
+  - Require production deployments to inject secrets externally, use a dedicated metrics credential, apply exact NetworkPolicy egress, and deploy immutable image digests
+  - Require target-environment load, memory, cancellation, failover, restore, and graceful-shutdown evidence before commercial promotion
   - Complete MiMo Code agents facade registration and staging live SDK proof
   - Route IM PC agent surfaces exclusively through sdkwork-agents SDK
 non_goals:
@@ -31,13 +33,14 @@ acceptance_criteria:
   - TypeScript and Python provider transport workers fail closed for synthetic `session_create`, `model_chat` probe fallbacks, `tool_invoke`, `skill_invoke`, and unknown operations in production when mock fallback is disabled
   - Rust IPC/Node/Python provider transport stubs and injected transports fail closed in production when mock fallback is disabled
   - Production runbooks require managed HA Postgres and managed HA Redis; `deployments/kubernetes/postgres-redis.yaml` is documented as local/staging reference only
+  - Production runbooks reject checked-in/default credentials, metrics-token reuse, mutable image tags, broad database egress, and unbounded deployment claims
   - bindings/agent-providers/mimo-code/provider-binding.manifest.json validates and MiMo Code registers in sdkwork-agents-runtime-facade
   - sdkwork-im has zero direct dependency on sdkwork-agent-provider-* crates
 non_functional_requirements:
   security: none beyond SECURITY_SPEC.md and production mock policy
   privacy: none beyond root standards
   performance: none beyond root standards
-  reliability: commercial release verification uses live runtime PostgreSQL plus Hermes-specific staging gateway proof, production uses managed HA Postgres and managed HA Redis, and artifact rollback is documented per RELEASE_SPEC.md
+  reliability: commercial release verification uses live runtime PostgreSQL plus Hermes-specific staging gateway proof, production uses managed HA Postgres and managed HA Redis, and artifact rollback, restore/failover, load, memory, and NetworkPolicy evidence is documented per RELEASE_SPEC.md and DEPLOYMENT_SPEC.md
 affected_surfaces:
   - api
   - sdk

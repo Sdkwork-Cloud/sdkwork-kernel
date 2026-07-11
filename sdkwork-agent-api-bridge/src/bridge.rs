@@ -70,6 +70,18 @@ impl AgentRuntimeBridge {
         self.session_bridge.register_session(session_id, config)
     }
 
+    /// Register a persisted session and atomically refresh its bounded history.
+    pub fn register_session_with_history(
+        &mut self,
+        session_id: &str,
+        config: BridgeSessionConfig,
+        history: Vec<AgentMessage>,
+    ) -> KernelResult<AgentSession> {
+        let session = self.session_bridge.register_session(session_id, config)?;
+        self.session_bridge.replace_history(session_id, history)?;
+        Ok(session)
+    }
+
     /// Create a new agent session
     pub fn create_session(&mut self, config: BridgeSessionConfig) -> KernelResult<AgentSession> {
         self.session_bridge.create_session(config)

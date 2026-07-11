@@ -8,6 +8,15 @@ Allowed content: Docker, Kubernetes, systemd, nginx, release handoff, deployment
 
 See also: [`topology-profiles.md`](./topology-profiles.md) for the kernel topology profile matrix and standard dev entrypoints.
 
+Production boundary: the cloud Compose file is a single-instance smoke/pilot
+handoff that requires external managed PostgreSQL/Redis and protected secret
+injection. Kubernetes production rollout requires an immutable image digest,
+managed HA PostgreSQL/Redis, target-environment NetworkPolicy egress, probes,
+PDB/HPA validation, restore/failover/load evidence, and the release gates in
+[`runbooks/production-rollout.md`](./runbooks/production-rollout.md). The
+bundled PostgreSQL/Redis and SQLite PVC manifests are local/staging references
+only.
+
 Forbidden content: live secrets, private keys, local override files, runtime user config, generated SDK output, logs, and caches.
 
 Related specs: `../sdkwork-specs/SDKWORK_WORKSPACE_SPEC.md`, `../sdkwork-specs/DEPLOYMENT_SPEC.md`, `../sdkwork-specs/RELEASE_SPEC.md`, and `../sdkwork-specs/SUPPLY_CHAIN_SECURITY_SPEC.md`.

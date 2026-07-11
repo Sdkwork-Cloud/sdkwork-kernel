@@ -165,12 +165,6 @@ impl BlockingPostgresPool {
     {
         self.runtime.block_on(future).map_err(map_sqlx_error)
     }
-
-    pub fn execute_batch_sql(&self, sql: &str) -> DatabaseResult<()> {
-        let pool = self.pool.clone();
-        let sql = sql.to_owned();
-        self.run(async move { sqlx::raw_sql(&sql).execute(&pool).await.map(|_| ()) })
-    }
 }
 
 fn build_runtime() -> DatabaseResult<Arc<Runtime>> {

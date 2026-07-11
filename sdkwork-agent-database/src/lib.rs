@@ -29,11 +29,13 @@ pub use memory::InMemoryDatabase;
 pub use schema::SchemaManager;
 pub use traits::{
     AgentDatabase, DatabaseParam, DatabaseRow, EventRepository, MessageRepository,
-    PermissionRepository, RuntimeSessionWrites, SessionRepository, TaskRepository,
+    PermissionRepository, RuntimeMaintenance, RuntimeSessionWrites, SessionRepository,
+    TaskRepository,
 };
 pub use types::{
     session_owner_fields_from_metadata_json, EventQuery, EventRow, MessageQuery, MessageRow,
-    PermissionQuery, PermissionRow, SessionQuery, SessionRow, TaskQuery, TaskRow,
+    PermissionQuery, PermissionRow, RuntimePurgeCounts, RuntimeSchemaStatus, SessionQuery,
+    SessionRow, TaskQuery, TaskRow, CURRENT_SCHEMA_VERSION,
 };
 
 #[cfg(feature = "sqlite")]

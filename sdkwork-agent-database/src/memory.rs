@@ -1,9 +1,10 @@
 use crate::error::{DatabaseError, DatabaseResult};
-use crate::pagination::{resolve_list_limit, resolve_list_offset};
+use crate::pagination::{resolve_history_limit, resolve_list_limit, resolve_list_offset};
 use crate::traits::*;
 use crate::types::*;
 use sdkwork_utils_rust::offset_limit_page_from_iter;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 /// In-memory database implementation for testing
@@ -53,6 +54,146 @@ impl AgentDatabase for InMemoryDatabase {
 
     fn health(&self) -> DatabaseResult<bool> {
         Ok(true)
+    }
+}
+
+fn is_terminal_state(value: &str) -> bool {
+    matches!(
+        value.to_ascii_lowercase().as_str(),
+        "closed"
+            | "completed"
+            | "complete"
+            | "failed"
+            | "cancelled"
+            | "canceled"
+            | "terminated"
+            | "expired"
+            | "orphaned"
+            | "rejected"
+            | "denied"
+            | "approved"
+    )
+}
+
+impl RuntimeMaintenance for InMemoryDatabase {
+    fn purge_expired(&self, cutoff: &str, batch_size: i64) -> DatabaseResult<RuntimePurgeCounts> {
+        if !(1..=10_000).contains(&batch_size) {
+            return Err(DatabaseError::Query(
+                "runtime purge batch_size must be between 1 and 10000".to_string(),
+            ));
+        }
+        let limit = batch_size as usize;
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut messages = self
+            .messages
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut tasks = self
+            .tasks
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut permissions = self
+            .permissions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+
+        let expired_sessions: Vec<String> = sessions
+            .values()
+            .filter(|row| {
+                row.created_at.as_str() < cutoff
+                    && row.updated_at.as_deref().unwrap_or(row.created_at.as_str()) < cutoff
+                    && is_terminal_state(&row.state)
+            })
+            .take(limit)
+            .map(|row| row.session_id.clone())
+            .collect();
+        let mut counts = RuntimePurgeCounts {
+            sessions: expired_sessions.len() as u64,
+            ..RuntimePurgeCounts::default()
+        };
+        for session_id in &expired_sessions {
+            sessions.remove(session_id);
+            messages.retain(|row| row.session_id != *session_id);
+            tasks.retain(|_, row| row.session_id != *session_id);
+            events.retain(|row| row.session_id.as_deref() != Some(session_id));
+            permissions.retain(|_, row| row.session_id.as_deref() != Some(session_id));
+        }
+
+        let mut affected_sessions = HashSet::new();
+        let mut removed_messages = 0usize;
+        messages.retain(|row| {
+            if removed_messages >= limit || row.created_at.as_str() >= cutoff {
+                return true;
+            }
+            removed_messages += 1;
+            affected_sessions.insert(row.session_id.clone());
+            false
+        });
+        counts.messages = removed_messages as u64;
+        for session_id in affected_sessions {
+            if let Some(session) = sessions.get_mut(&session_id) {
+                session.message_count = messages
+                    .iter()
+                    .filter(|row| row.session_id == session_id)
+                    .count() as i64;
+            }
+        }
+
+        let mut removed_tasks = 0usize;
+        tasks.retain(|_, row| {
+            if removed_tasks >= limit
+                || row.updated_at.as_deref().unwrap_or(row.created_at.as_str()) >= cutoff
+                || !is_terminal_state(&row.state)
+            {
+                return true;
+            }
+            removed_tasks += 1;
+            false
+        });
+        counts.tasks = removed_tasks as u64;
+
+        let mut removed_events = 0usize;
+        events.retain(|row| {
+            if removed_events >= limit || row.created_at.as_str() >= cutoff {
+                return true;
+            }
+            removed_events += 1;
+            false
+        });
+        counts.events = removed_events as u64;
+
+        let mut removed_permissions = 0usize;
+        permissions.retain(|_, row| {
+            if removed_permissions >= limit
+                || row.updated_at.as_deref().unwrap_or(row.created_at.as_str()) >= cutoff
+                || !is_terminal_state(&row.status)
+            {
+                return true;
+            }
+            removed_permissions += 1;
+            false
+        });
+        counts.permissions = removed_permissions as u64;
+        Ok(counts)
+    }
+
+    fn schema_status(&self) -> DatabaseResult<RuntimeSchemaStatus> {
+        Ok(RuntimeSchemaStatus {
+            version: CURRENT_SCHEMA_VERSION,
+            expected_version: CURRENT_SCHEMA_VERSION,
+            drift_free: true,
+        })
+    }
+
+    fn run_maintenance(&self) -> DatabaseResult<()> {
+        Ok(())
     }
 }
 
@@ -258,6 +399,32 @@ impl MessageRepository for InMemoryDatabase {
         Ok(offset_limit_page_from_iter(results.into_iter(), limit, offset).items)
     }
 
+    fn load_recent_messages(
+        &self,
+        session_id: &str,
+        limit: i64,
+    ) -> DatabaseResult<Vec<MessageRow>> {
+        let limit = resolve_history_limit(limit)? as usize;
+        let messages = self
+            .messages
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut recent = std::collections::BTreeMap::new();
+        for message in messages.iter().filter(|row| row.session_id == session_id) {
+            recent.insert(
+                (message.created_at.clone(), message.message_id.clone()),
+                message.clone(),
+            );
+            if recent.len() > limit {
+                let Some(oldest) = recent.keys().next().cloned() else {
+                    continue;
+                };
+                recent.remove(&oldest);
+            }
+        }
+        Ok(recent.into_values().collect())
+    }
+
     fn message_count(&self, session_id: &str) -> DatabaseResult<i64> {
         let messages = self
             .messages
@@ -358,6 +525,10 @@ impl EventRepository for InMemoryDatabase {
     }
 
     fn load_events(&self, session_id: &str, query: &EventQuery) -> DatabaseResult<Vec<EventRow>> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
         let events = self
             .events
             .lock()
@@ -367,13 +538,27 @@ impl EventRepository for InMemoryDatabase {
             .iter()
             .filter(|e| {
                 e.session_id.as_deref() == Some(session_id)
+                    && sessions.get(session_id).is_some_and(|session| {
+                        query
+                            .owner_tenant_id
+                            .as_ref()
+                            .is_none_or(|tenant| session.owner_tenant_id.as_ref() == Some(tenant))
+                            && query
+                                .owner_user_ref
+                                .as_ref()
+                                .is_none_or(|user| session.owner_user_ref.as_ref() == Some(user))
+                    })
                     && (query.event_type.is_none()
                         || e.event_type == *query.event_type.as_ref().unwrap())
                     && (query.severity.is_none() || e.severity == *query.severity.as_ref().unwrap())
             })
             .cloned()
             .collect();
-        results.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+        results.sort_by(|left, right| {
+            left.created_at
+                .cmp(&right.created_at)
+                .then_with(|| left.event_id.cmp(&right.event_id))
+        });
         if let Some(after_event_id) = query
             .after_event_id
             .as_deref()
@@ -393,6 +578,10 @@ impl EventRepository for InMemoryDatabase {
     }
 
     fn list_recent_events(&self, query: &EventQuery) -> DatabaseResult<Vec<EventRow>> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
         let events = self
             .events
             .lock()
@@ -405,10 +594,30 @@ impl EventRepository for InMemoryDatabase {
                     || event.event_type == *query.event_type.as_ref().unwrap())
                     && (query.severity.is_none()
                         || event.severity == *query.severity.as_ref().unwrap())
+                    && if query.owner_tenant_id.is_some() || query.owner_user_ref.is_some() {
+                        event
+                            .session_id
+                            .as_deref()
+                            .and_then(|session_id| sessions.get(session_id))
+                            .is_some_and(|session| {
+                                query.owner_tenant_id.as_ref().is_none_or(|tenant| {
+                                    session.owner_tenant_id.as_ref() == Some(tenant)
+                                }) && query.owner_user_ref.as_ref().is_none_or(|user| {
+                                    session.owner_user_ref.as_ref() == Some(user)
+                                })
+                            })
+                    } else {
+                        true
+                    }
             })
             .cloned()
             .collect();
-        results.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+        results.sort_by(|left, right| {
+            right
+                .created_at
+                .cmp(&left.created_at)
+                .then_with(|| right.event_id.cmp(&left.event_id))
+        });
         let limit = resolve_list_limit(query.limit) as usize;
         let offset = resolve_list_offset(query.offset) as usize;
         Ok(offset_limit_page_from_iter(results.into_iter(), limit, offset).items)
@@ -457,10 +666,23 @@ impl PermissionRepository for InMemoryDatabase {
                     .status
                     .as_deref()
                     .is_none_or(|status| p.status == status)
+                    && query
+                        .owner_tenant_id
+                        .as_ref()
+                        .is_none_or(|tenant| p.owner_tenant_id.as_ref() == Some(tenant))
+                    && query
+                        .owner_user_ref
+                        .as_ref()
+                        .is_none_or(|user| p.owner_user_ref.as_ref() == Some(user))
             })
             .cloned()
             .collect();
-        results.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+        results.sort_by(|left, right| {
+            right
+                .created_at
+                .cmp(&left.created_at)
+                .then_with(|| right.permission_request_id.cmp(&left.permission_request_id))
+        });
         let limit = resolve_list_limit(query.limit) as usize;
         let offset = resolve_list_offset(query.offset) as usize;
         Ok(offset_limit_page_from_iter(results.into_iter(), limit, offset).items)
@@ -484,6 +706,28 @@ impl PermissionRepository for InMemoryDatabase {
 }
 
 impl RuntimeSessionWrites for InMemoryDatabase {
+    fn save_session_with_event(
+        &self,
+        session: &SessionRow,
+        event: &EventRow,
+    ) -> DatabaseResult<()> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        sessions.insert(session.session_id.clone(), session.clone());
+        if let Some(existing) = events.iter_mut().find(|row| row.event_id == event.event_id) {
+            *existing = event.clone();
+        } else {
+            events.push(event.clone());
+        }
+        Ok(())
+    }
+
     fn append_message_with_event(
         &self,
         message: &MessageRow,
@@ -541,6 +785,34 @@ impl RuntimeSessionWrites for InMemoryDatabase {
         messages.retain(|row| row.session_id != session_id);
         session.message_count = 0;
         session.updated_at = Some(updated_at.to_string());
+        Ok(())
+    }
+
+    fn save_task_with_event(&self, task: &TaskRow, event: &EventRow) -> DatabaseResult<()> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        if !sessions.contains_key(&task.session_id) {
+            return Err(DatabaseError::NotFound(format!(
+                "session not found: {}",
+                task.session_id
+            )));
+        }
+        let mut tasks = self
+            .tasks
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        tasks.insert(task.task_id.clone(), task.clone());
+        if let Some(existing) = events.iter_mut().find(|row| row.event_id == event.event_id) {
+            *existing = event.clone();
+        } else {
+            events.push(event.clone());
+        }
         Ok(())
     }
 }

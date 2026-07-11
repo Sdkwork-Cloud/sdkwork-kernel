@@ -38,13 +38,39 @@ impl SqliteDatabase {
 }
 
 fn apply_file_pragmas(conn: &Connection) -> DatabaseResult<()> {
-    conn.execute_batch(
-        r#"
-        PRAGMA journal_mode=WAL;
-        PRAGMA synchronous=NORMAL;
-        "#,
-    )
-    .map_err(|e| DatabaseError::Connection(format!("failed to apply SQLite WAL pragmas: {e}")))?;
+    // Set the busy timeout before switching journal mode. Multiple processes
+    // can open the same file during a rolling deployment and WAL negotiation
+    // briefly takes an exclusive SQLite lock.
+    conn.execute_batch("PRAGMA busy_timeout=5000;")
+        .map_err(|e| {
+            DatabaseError::Connection(format!("failed to set SQLite busy timeout: {e}"))
+        })?;
+    let mut last_error = None;
+    for attempt in 0..6 {
+        match conn.execute_batch(
+            r#"
+            PRAGMA journal_mode=WAL;
+            PRAGMA synchronous=NORMAL;
+            PRAGMA auto_vacuum=INCREMENTAL;
+            "#,
+        ) {
+            Ok(()) => {
+                last_error = None;
+                break;
+            }
+            Err(error) => {
+                last_error = Some(error);
+                if attempt < 5 {
+                    std::thread::sleep(std::time::Duration::from_millis(25 * (attempt + 1)));
+                }
+            }
+        }
+    }
+    if let Some(error) = last_error {
+        return Err(DatabaseError::Connection(format!(
+            "failed to apply SQLite WAL pragmas after retries: {error}"
+        )));
+    }
     apply_common_pragmas(conn)
 }
 
@@ -133,6 +159,10 @@ impl AgentDatabase for SqliteDatabase {
             .map_err(|e| DatabaseError::Query(format!("health check failed: {}", e)))?;
 
         Ok(result == 1)
+    }
+
+    fn migrate_schema(&self) -> DatabaseResult<()> {
+        self.migrate()
     }
 }
 

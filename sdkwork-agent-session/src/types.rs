@@ -69,6 +69,7 @@ pub struct SessionQuery {
     pub owner_tenant_id: Option<String>,
     pub owner_user_ref: Option<String>,
     pub after_session_id: Option<String>,
+    pub after_session_sort_at: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }

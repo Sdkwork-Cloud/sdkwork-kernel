@@ -369,8 +369,57 @@ pub async fn middleware(
     let status = response.status();
 
     if !(200..300).contains(&status.as_u16()) {
-        if let Err(error) = state.store.release(&scope_key, &fingerprint).await {
-            warn!(error = ?error, "failed to release idempotency reservation after non-success response");
+        if status.as_u16() < 500 {
+            if let Err(error) = state.store.release(&scope_key, &fingerprint).await {
+                warn!(error = ?error, "failed to release idempotency reservation after client/redirection response");
+            }
+            guard.mark_completed();
+            return response;
+        }
+
+        // A server error may be returned after an external provider or a
+        // database transaction has committed an unknown side effect. Cache a
+        // bounded JSON error exactly as returned so retries replay the first
+        // result instead of executing the command again.
+        if !json_content_type(&response) {
+            warn!(status = %status, "retaining idempotency reservation after non-JSON server error");
+            guard.mark_completed();
+            return response;
+        }
+        let (response_parts, response_body) = response.into_parts();
+        let response_bytes = match to_bytes(response_body, state.max_request_bytes).await {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                guard.mark_completed();
+                return error_response(
+                    &context,
+                    SdkWorkResultCode::ServiceUnavailable,
+                    "idempotent server error could not be cached",
+                );
+            }
+        };
+        response = Response::from_parts(response_parts, Body::from(response_bytes.clone()));
+        if response_bytes.len() > state.max_cached_response_bytes {
+            warn!(status = %status, bytes = response_bytes.len(), "retaining idempotency reservation after oversized server error");
+            guard.mark_completed();
+            return response;
+        }
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        let record = IdempotencyResponseRecord {
+            status_code: status.as_u16(),
+            body: response_bytes.to_vec(),
+            content_type,
+        };
+        if let Err(error) = state
+            .store
+            .complete(&scope_key, &fingerprint, record, state.retention)
+            .await
+        {
+            warn!(error = ?error, "failed to persist idempotent server error response");
         }
         guard.mark_completed();
         return response;
@@ -378,24 +427,21 @@ pub async fn middleware(
 
     if !json_content_type(&response) {
         error!(status = %status, "idempotent mutation returned a non-JSON success response");
-        if let Err(error) = state.store.release(&scope_key, &fingerprint).await {
-            warn!(error = ?error, "failed to release idempotency reservation after non-JSON response");
-        }
+        // The handler has already reported success and may have committed a
+        // side effect. Keep the reservation fail-closed so a retry cannot run
+        // the mutation again, even though this contract-violating response
+        // cannot be replayed.
         guard.mark_completed();
-        return error_response(
-            &context,
-            SdkWorkResultCode::ServiceUnavailable,
-            "idempotent mutation response is not cacheable",
-        );
+        return response;
     }
 
     let (response_parts, response_body) = response.into_parts();
     let response_bytes = match to_bytes(response_body, state.max_cached_response_bytes).await {
         Ok(bytes) => bytes,
         Err(_) => {
-            if let Err(error) = state.store.release(&scope_key, &fingerprint).await {
-                warn!(error = ?error, "failed to release oversized idempotency reservation");
-            }
+            // The business response was successful, so releasing here could
+            // duplicate a committed side effect. The consumed oversized body
+            // cannot be returned, but the reservation remains fail-closed.
             guard.mark_completed();
             return error_response(
                 &context,
@@ -420,14 +466,13 @@ pub async fn middleware(
         .complete(&scope_key, &fingerprint, record, state.retention)
         .await
     {
-        // The business side effect may already have committed. Release only
-        // after returning a 5xx so a caller can retry once the store recovers.
+        // The business side effect may already have committed. Preserve the
+        // original success response and leave the reservation in progress;
+        // releasing it would allow a retry to duplicate the mutation.
         warn!(error = ?error, "failed to persist idempotency response");
-        if let Err(release_error) = state.store.release(&scope_key, &fingerprint).await {
-            warn!(error = ?release_error, "failed to release idempotency reservation after completion failure");
-        }
+        response = Response::from_parts(response_parts, Body::from(response_bytes));
         guard.mark_completed();
-        return store_error_response(&context, &error);
+        return response;
     }
 
     response = Response::from_parts(response_parts, Body::from(response_bytes));
@@ -548,5 +593,95 @@ mod tests {
             send("b").await.expect("response").status(),
             StatusCode::CONFLICT
         );
+    }
+
+    #[tokio::test]
+    async fn non_json_success_keeps_the_reservation_fail_closed() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_for_handler = calls.clone();
+        let state = Arc::new(IdempotencyState::memory_for_tests());
+        let app = Router::new()
+            .route(
+                "/internal/v3/api/intelligence/runtime/sessions",
+                post(move || {
+                    let calls = calls_for_handler.clone();
+                    async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        (StatusCode::CREATED, "created")
+                    }
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(state, middleware));
+
+        let request = || {
+            Request::builder()
+                .method(Method::POST)
+                .uri("/internal/v3/api/intelligence/runtime/sessions")
+                .header(IDEMPOTENCY_KEY_HEADER, "non-json-key")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"name":"demo"}"#))
+                .expect("request")
+        };
+
+        let first = app
+            .clone()
+            .oneshot(request())
+            .await
+            .expect("first response");
+        assert_eq!(first.status(), StatusCode::CREATED);
+        let replay = app.oneshot(request()).await.expect("replay response");
+        assert_eq!(replay.status(), StatusCode::CONFLICT);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn server_error_is_cached_and_replayed_fail_closed() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_for_handler = calls.clone();
+        let state = Arc::new(IdempotencyState::memory_for_tests());
+        let app = Router::new()
+            .route(
+                "/internal/v3/api/intelligence/runtime/sessions",
+                post(move || {
+                    let calls = calls_for_handler.clone();
+                    async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            [(header::CONTENT_TYPE, "application/json")],
+                            r#"{"code":50000,"traceId":"00000000-0000-0000-0000-000000000002"}"#,
+                        )
+                            .into_response()
+                    }
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(state, middleware));
+
+        let request = || {
+            Request::builder()
+                .method(Method::POST)
+                .uri("/internal/v3/api/intelligence/runtime/sessions")
+                .header(IDEMPOTENCY_KEY_HEADER, "server-error-key")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"name":"demo"}"#))
+                .expect("request")
+        };
+
+        let first = app
+            .clone()
+            .oneshot(request())
+            .await
+            .expect("first response");
+        assert_eq!(first.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let replay = app.oneshot(request()).await.expect("replay response");
+        assert_eq!(replay.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            replay
+                .headers()
+                .get(REPLAY_HEADER)
+                .and_then(|value| value.to_str().ok()),
+            Some("true")
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }

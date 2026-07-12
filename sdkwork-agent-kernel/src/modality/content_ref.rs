@@ -87,10 +87,13 @@ impl ContentReference {
         } else {
             format!("{SCHEME_HOST}://{path}")
         };
-        Self::parse(&uri).unwrap_or_else(|_| Self {
-            scheme: ContentReferenceScheme::Host,
-            uri,
-        })
+        match Self::parse(&uri) {
+            Ok(reference) => reference,
+            Err(_) => Self {
+                scheme: ContentReferenceScheme::Host,
+                uri,
+            },
+        }
     }
 
     pub fn artifact(artifact_id: impl Into<String>) -> Self {

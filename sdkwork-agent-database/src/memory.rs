@@ -282,13 +282,24 @@ impl SessionRepository for InMemoryDatabase {
             .as_deref()
             .filter(|value| !value.is_empty())
         {
-            let Some(cursor_index) = results
-                .iter()
-                .position(|row| row.session_id == after_session_id)
-            else {
-                return Ok(Vec::new());
-            };
-            results = results.into_iter().skip(cursor_index + 1).collect();
+            if let Some(after_sort_at) = query
+                .after_session_sort_at
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                results.retain(|row| {
+                    let row_sort_at = row.updated_at.as_deref().unwrap_or(&row.created_at);
+                    (row_sort_at, row.session_id.as_str()) < (after_sort_at, after_session_id)
+                });
+            } else {
+                let Some(cursor_index) = results
+                    .iter()
+                    .position(|row| row.session_id == after_session_id)
+                else {
+                    return Ok(Vec::new());
+                };
+                results = results.into_iter().skip(cursor_index + 1).collect();
+            }
         }
 
         let limit = resolve_list_limit(query.limit) as usize;
@@ -386,13 +397,24 @@ impl MessageRepository for InMemoryDatabase {
             .as_deref()
             .filter(|value| !value.is_empty())
         {
-            let Some(cursor_index) = results
-                .iter()
-                .position(|row| row.message_id == after_message_id)
-            else {
-                return Ok(Vec::new());
-            };
-            results = results.into_iter().skip(cursor_index + 1).collect();
+            if let Some(after_created_at) = query
+                .after_message_created_at
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                results.retain(|row| {
+                    (row.created_at.as_str(), row.message_id.as_str())
+                        > (after_created_at, after_message_id)
+                });
+            } else {
+                let Some(cursor_index) = results
+                    .iter()
+                    .position(|row| row.message_id == after_message_id)
+                else {
+                    return Ok(Vec::new());
+                };
+                results = results.into_iter().skip(cursor_index + 1).collect();
+            }
         }
         let limit = resolve_list_limit(query.limit) as usize;
         let offset = resolve_list_offset(query.offset) as usize;
@@ -484,11 +506,23 @@ impl TaskRepository for InMemoryDatabase {
             .as_deref()
             .filter(|value| !value.is_empty())
         {
-            let Some(cursor_index) = results.iter().position(|row| row.task_id == after_task_id)
-            else {
-                return Ok(Vec::new());
-            };
-            results = results.into_iter().skip(cursor_index + 1).collect();
+            if let Some(after_created_at) = query
+                .after_task_created_at
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                results.retain(|row| {
+                    (row.created_at.as_str(), row.task_id.as_str())
+                        > (after_created_at, after_task_id)
+                });
+            } else {
+                let Some(cursor_index) =
+                    results.iter().position(|row| row.task_id == after_task_id)
+                else {
+                    return Ok(Vec::new());
+                };
+                results = results.into_iter().skip(cursor_index + 1).collect();
+            }
         }
         let limit = resolve_list_limit(query.limit) as usize;
         let offset = resolve_list_offset(query.offset) as usize;
@@ -764,6 +798,68 @@ impl RuntimeSessionWrites for InMemoryDatabase {
         }
         let count = session.message_count;
         Ok(count)
+    }
+
+    fn append_message_turn_with_events(
+        &self,
+        turn_messages: &[MessageRow],
+        turn_events: &[EventRow],
+    ) -> DatabaseResult<i64> {
+        let session_id =
+            crate::message_identity::validate_message_turn(turn_messages, turn_events)?;
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut messages = self
+            .messages
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or_else(|| DatabaseError::NotFound(format!("session not found: {session_id}")))?;
+        if !session.state.eq_ignore_ascii_case("active") {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "session {session_id} is not active"
+            )));
+        }
+
+        let mut new_messages = Vec::with_capacity(turn_messages.len());
+        for message in turn_messages {
+            if let Some(existing) = messages
+                .iter()
+                .find(|row| row.message_id == message.message_id)
+            {
+                crate::message_identity::ensure_message_retry_matches(existing, message)?;
+            } else {
+                new_messages.push(message.clone());
+            }
+        }
+
+        if !new_messages.is_empty() {
+            let added = i64::try_from(new_messages.len()).map_err(|_| {
+                DatabaseError::ConstraintViolation("message turn size overflow".to_string())
+            })?;
+            session.message_count = session.message_count.checked_add(added).ok_or_else(|| {
+                DatabaseError::ConstraintViolation("session message count overflow".to_string())
+            })?;
+            session.updated_at = Some(chrono::Utc::now().to_rfc3339());
+            messages.extend(new_messages);
+            for event in turn_events {
+                if let Some(existing) = events.iter_mut().find(|row| row.event_id == event.event_id)
+                {
+                    *existing = event.clone();
+                } else {
+                    events.push(event.clone());
+                }
+            }
+        }
+
+        Ok(session.message_count)
     }
 
     fn delete_messages_and_reset_count(

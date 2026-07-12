@@ -9,7 +9,10 @@ mod types;
 pub use bridge::AgentRuntimeBridge;
 pub use context_bridge::ContextBridge;
 pub use event_bridge::EventBridge;
-pub use model_bridge::ModelBridge;
+pub use model_bridge::{
+    collect_model_stream_output, validate_model_stream_chunks, ModelBridge, MAX_MODEL_OUTPUT_BYTES,
+    MAX_MODEL_STREAM_CHUNKS, MAX_MODEL_STREAM_CHUNK_BYTES,
+};
 pub use session_bridge::SessionBridge;
 pub use tool_bridge::ToolBridge;
 pub use types::*;

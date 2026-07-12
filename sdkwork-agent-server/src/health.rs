@@ -1,14 +1,20 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::OnceCell;
 
 use crate::{config::ServerConfig, persistence::PersistenceState, runtime::RuntimeState};
 
 #[derive(Clone)]
 struct RedisDependency {
     name: &'static str,
+    state: Arc<RedisConnectionState>,
+}
+
+struct RedisConnectionState {
     client: redis::Client,
+    connection: OnceCell<redis::aio::ConnectionManager>,
 }
 
 /// Framework-owned readiness adapter for all required runtime dependencies.
@@ -27,24 +33,25 @@ impl RuntimeReadiness {
         runtime: RuntimeState,
     ) -> Result<Self, String> {
         let mut redis_dependencies = Vec::new();
+        let mut redis_connections = HashMap::new();
         if config.is_production_kernel_profile() && config.effective_deployment_profile() == "cloud"
         {
             let rate_limit_url = config.effective_rate_limit_redis_url().ok_or_else(|| {
                 "cloud production readiness requires rate-limit Redis configuration".to_string()
             })?;
-            redis_dependencies.push(RedisDependency {
-                name: "rate_limit_redis",
-                client: redis::Client::open(rate_limit_url)
-                    .map_err(|error| format!("invalid rate-limit Redis configuration: {error}"))?,
-            });
+            redis_dependencies.push(redis_dependency(
+                "rate_limit_redis",
+                rate_limit_url,
+                &mut redis_connections,
+            )?);
             let idempotency_url = config.effective_idempotency_redis_url().ok_or_else(|| {
                 "cloud production readiness requires idempotency Redis configuration".to_string()
             })?;
-            redis_dependencies.push(RedisDependency {
-                name: "idempotency_redis",
-                client: redis::Client::open(idempotency_url)
-                    .map_err(|error| format!("invalid idempotency Redis configuration: {error}"))?,
-            });
+            redis_dependencies.push(redis_dependency(
+                "idempotency_redis",
+                idempotency_url,
+                &mut redis_connections,
+            )?);
         }
         Ok(Self {
             persistence,
@@ -93,14 +100,39 @@ impl sdkwork_web_bootstrap::ReadinessCheck for RuntimeReadiness {
 
 async fn time_limited_redis_connection(
     dependency: &RedisDependency,
-) -> Result<redis::aio::MultiplexedConnection, String> {
-    tokio::time::timeout(
+) -> Result<redis::aio::ConnectionManager, String> {
+    let connection = tokio::time::timeout(
         Duration::from_secs(2),
-        dependency.client.get_multiplexed_async_connection(),
+        dependency.state.connection.get_or_try_init(|| async {
+            redis::aio::ConnectionManager::new(dependency.state.client.clone())
+                .await
+                .map_err(|error| error.to_string())
+        }),
     )
     .await
     .map_err(|_| format!("{} connection timed out", dependency.name))?
-    .map_err(|error| format!("{} connection failed: {error}", dependency.name))
+    .map_err(|error| format!("{} connection failed: {error}", dependency.name))?;
+    Ok(connection.clone())
+}
+
+fn redis_dependency(
+    name: &'static str,
+    redis_url: &str,
+    connections: &mut HashMap<String, Arc<RedisConnectionState>>,
+) -> Result<RedisDependency, String> {
+    let state = if let Some(state) = connections.get(redis_url) {
+        state.clone()
+    } else {
+        let client = redis::Client::open(redis_url)
+            .map_err(|error| format!("invalid {name} configuration: {error}"))?;
+        let state = Arc::new(RedisConnectionState {
+            client,
+            connection: OnceCell::new(),
+        });
+        connections.insert(redis_url.to_string(), state.clone());
+        state
+    };
+    Ok(RedisDependency { name, state })
 }
 
 fn validate_required_runtime(runtime: &RuntimeState) -> Result<(), String> {
@@ -227,12 +259,35 @@ mod tests {
 
     #[tokio::test]
     async fn standalone_readiness_checks_database_and_schema() {
-        let config = Arc::new(ServerConfig::default());
+        let config = Arc::new(ServerConfig {
+            kernel_profile_id: Some("standalone.development".to_string()),
+            ..Default::default()
+        });
         let persistence = Arc::new(PersistenceState::memory().expect("persistence"));
         let runtime = RuntimeState::try_for_config(config.as_ref()).expect("runtime");
         let readiness = RuntimeReadiness::new(persistence, config, runtime).expect("readiness");
         sdkwork_web_bootstrap::ReadinessCheck::check(&readiness)
             .await
             .expect("ready");
+    }
+
+    #[test]
+    fn readiness_dependencies_share_connection_state_by_url() {
+        let mut connections = HashMap::new();
+        let rate_limit = redis_dependency(
+            "rate_limit_redis",
+            "redis://127.0.0.1:6379",
+            &mut connections,
+        )
+        .expect("rate-limit dependency");
+        let idempotency = redis_dependency(
+            "idempotency_redis",
+            "redis://127.0.0.1:6379",
+            &mut connections,
+        )
+        .expect("idempotency dependency");
+
+        assert!(Arc::ptr_eq(&rate_limit.state, &idempotency.state));
+        assert_eq!(connections.len(), 1);
     }
 }

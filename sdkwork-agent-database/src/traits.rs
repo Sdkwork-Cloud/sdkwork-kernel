@@ -113,6 +113,13 @@ pub trait RuntimeSessionWrites: Send + Sync {
         event: &EventRow,
     ) -> DatabaseResult<i64>;
 
+    /// Atomically persist a completed user/assistant turn and all corresponding events.
+    fn append_message_turn_with_events(
+        &self,
+        messages: &[MessageRow],
+        events: &[EventRow],
+    ) -> DatabaseResult<i64>;
+
     /// Atomically delete all session messages and reset the cached message count.
     fn delete_messages_and_reset_count(
         &self,

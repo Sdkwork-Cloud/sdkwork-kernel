@@ -5,7 +5,8 @@ use std::sync::Arc;
 use axum::body::{to_bytes, Body};
 use axum::http::{header::CONTENT_TYPE, Request, StatusCode};
 use sdkwork_agent_server::{
-    app, config::ServerConfig, runtime_routes::INTERNAL_RUNTIME_MOUNT_PREFIX,
+    agent_registry::active_hosted_agent, app, config::ServerConfig,
+    runtime_routes::INTERNAL_RUNTIME_MOUNT_PREFIX,
 };
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -33,7 +34,7 @@ fn create_request(key: Option<&str>, title: &str) -> Request<Body> {
     builder
         .body(Body::from(
             json!({
-                "agentId": "agent.idempotency",
+                "agentId": active_hosted_agent().agent_id,
                 "title": title
             })
             .to_string(),

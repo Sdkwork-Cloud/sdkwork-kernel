@@ -185,15 +185,12 @@ impl AgentAuth {
 }
 
 /// Fallback strategy for hybrid mode
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum FallbackStrategy {
+    #[default]
     Immediate,
-    RetryThenFallback { max_retries: u32 },
+    RetryThenFallback {
+        max_retries: u32,
+    },
     LocalOnly,
-}
-
-impl Default for FallbackStrategy {
-    fn default() -> Self {
-        Self::Immediate
-    }
 }

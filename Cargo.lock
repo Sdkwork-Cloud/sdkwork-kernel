@@ -2099,6 +2099,7 @@ dependencies = [
  "chrono",
  "sdkwork-agent-kernel",
  "sdkwork-code-kernel",
+ "sdkwork-utils-rust",
  "serde",
  "serde_json",
 ]
@@ -2383,6 +2384,7 @@ dependencies = [
  "chrono",
  "sdkwork-agent-database",
  "sdkwork-agent-kernel",
+ "sdkwork-utils-rust",
  "serde",
  "serde_json",
 ]

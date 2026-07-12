@@ -57,7 +57,7 @@ enum QuotaBackend {
         counters: Mutex<HashMap<String, u64>>,
     },
     Redis {
-        connection: ConnectionManager,
+        connection: Box<ConnectionManager>,
         reserve_script: redis::Script,
         adjust_script: redis::Script,
     },
@@ -170,7 +170,7 @@ impl TenantTokenQuotaState {
                     return Ok(Self {
                         overrides,
                         backend: QuotaBackend::Redis {
-                            connection,
+                            connection: Box::new(connection),
                             reserve_script: redis::Script::new(REDIS_RESERVE_SCRIPT),
                             adjust_script: redis::Script::new(REDIS_ADJUST_SCRIPT),
                         },
@@ -212,7 +212,7 @@ impl TenantTokenQuotaState {
                     return Ok(Self {
                         overrides,
                         backend: QuotaBackend::Redis {
-                            connection,
+                            connection: Box::new(connection),
                             reserve_script: redis::Script::new(REDIS_RESERVE_SCRIPT),
                             adjust_script: redis::Script::new(REDIS_ADJUST_SCRIPT),
                         },
@@ -280,7 +280,7 @@ impl TenantTokenQuotaState {
             } => {
                 let key = Self::redis_key_for_date(tenant_id, &date);
                 self.try_consume_redis(
-                    connection.clone(),
+                    connection.as_ref().clone(),
                     reserve_script,
                     tenant_id,
                     &key,
@@ -334,7 +334,7 @@ impl TenantTokenQuotaState {
                 ..
             } => {
                 self.try_consume_redis(
-                    connection.clone(),
+                    connection.as_ref().clone(),
                     reserve_script,
                     tenant_id,
                     &Self::redis_key(tenant_id),
@@ -367,7 +367,7 @@ impl TenantTokenQuotaState {
                 ..
             } => {
                 self.adjust_usage_redis(
-                    connection.clone(),
+                    connection.as_ref().clone(),
                     adjust_script,
                     tenant_id,
                     &Self::redis_key(tenant_id),
@@ -407,7 +407,7 @@ impl TenantTokenQuotaState {
                 self.record_usage_memory(counters, tenant_id, tokens);
             }
             QuotaBackend::Redis { connection, .. } => {
-                self.record_usage_redis(connection.clone(), tenant_id, tokens)
+                self.record_usage_redis(connection.as_ref().clone(), tenant_id, tokens)
                     .await;
             }
         }
@@ -419,7 +419,7 @@ impl TenantTokenQuotaState {
         match &self.backend {
             QuotaBackend::Memory { counters } => Ok(self.current_usage_memory(counters, tenant_id)),
             QuotaBackend::Redis { connection, .. } => {
-                self.current_usage_redis(connection.clone(), tenant_id)
+                self.current_usage_redis(connection.as_ref().clone(), tenant_id)
                     .await
             }
         }
@@ -509,7 +509,7 @@ impl TenantTokenQuotaState {
                 QuotaReservationKey::Redis(key),
             ) => {
                 self.adjust_usage_redis(
-                    connection.clone(),
+                    connection.as_ref().clone(),
                     adjust_script,
                     tenant_id,
                     key,

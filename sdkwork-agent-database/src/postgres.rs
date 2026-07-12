@@ -116,7 +116,7 @@ impl AgentDatabase for PostgresDatabase {
                 let mut values = HashMap::new();
                 for (index, column) in row.columns().iter().enumerate() {
                     let name = column.name().to_string();
-                    let value: Option<String> = row.try_get(index).ok();
+                    let value: Option<String> = row.try_get(index)?;
                     if let Some(value) = value {
                         values.insert(name, value);
                     }

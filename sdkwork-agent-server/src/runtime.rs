@@ -112,14 +112,14 @@ impl RuntimeState {
     }
 
     fn session_turn_lock(&self, session_id: &str) -> KernelResult<Arc<Mutex<()>>> {
-        let mut locks = self.message_turn_locks()?;
+        let mut locks = self.session_turn_lock_registry()?;
         Ok(locks
             .entry(session_id.to_string())
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone())
     }
 
-    fn message_turn_locks(
+    fn session_turn_lock_registry(
         &self,
     ) -> KernelResult<std::sync::MutexGuard<'_, HashMap<String, Arc<Mutex<()>>>>> {
         self.session_turn_locks.lock().map_err(|error| {
@@ -129,9 +129,50 @@ impl RuntimeState {
         })
     }
 
-    fn remove_session_turn_lock(&self, session_id: &str) -> KernelResult<()> {
-        self.message_turn_locks()?.remove(session_id);
+    fn cleanup_session_turn_lock(
+        &self,
+        session_id: &str,
+        turn_lock: &Arc<Mutex<()>>,
+    ) -> KernelResult<()> {
+        let mut locks = self.session_turn_lock_registry()?;
+        // The registry lock prevents new acquisitions while this count is checked.
+        // Two references means only the registry and this completed operation remain.
+        let can_remove = locks.get(session_id).is_some_and(|registered_lock| {
+            Arc::ptr_eq(registered_lock, turn_lock) && Arc::strong_count(turn_lock) == 2
+        });
+        if can_remove {
+            locks.remove(session_id);
+        }
         Ok(())
+    }
+
+    fn with_session_turn_lock<T>(
+        &self,
+        session_id: &str,
+        operation: impl FnOnce() -> KernelResult<T>,
+    ) -> KernelResult<T> {
+        let turn_lock = self.session_turn_lock(session_id)?;
+        let operation_result = match turn_lock.lock() {
+            Ok(turn_guard) => {
+                let result = operation();
+                drop(turn_guard);
+                result
+            }
+            Err(error) => Err(sdkwork_agent_kernel::KernelError::Internal {
+                message: format!("runtime session turn lock poisoned: {error}"),
+            }),
+        };
+        // Drop the per-session guard before taking the registry mutex. A waiter may
+        // now proceed, but its Arc reference prevents premature registry removal.
+        let cleanup_result = self.cleanup_session_turn_lock(session_id, &turn_lock);
+
+        match operation_result {
+            Err(error) => Err(error),
+            Ok(value) => {
+                cleanup_result?;
+                Ok(value)
+            }
+        }
     }
 
     /// Close a registered session and release all server-owned transient state for it.
@@ -139,40 +180,23 @@ impl RuntimeState {
         &self,
         session_id: &str,
     ) -> KernelResult<sdkwork_agent_kernel::AgentSession> {
-        let turn_lock = self.session_turn_lock(session_id)?;
-        let _turn_guard =
-            turn_lock
-                .lock()
-                .map_err(|error| sdkwork_agent_kernel::KernelError::Internal {
-                    message: format!("runtime session turn lock poisoned: {error}"),
-                })?;
-        let close_result = self.with_bridge_write(|bridge| {
-            let closed = bridge.close_session(session_id)?;
-            bridge.remove_session(session_id);
-            Ok(closed)
-        });
-        let cleanup_result = self.remove_session_turn_lock(session_id);
-        let closed = close_result?;
-        cleanup_result?;
-        Ok(closed)
+        self.with_session_turn_lock(session_id, || {
+            self.with_bridge_write(|bridge| {
+                let closed = bridge.close_session(session_id)?;
+                bridge.remove_session(session_id);
+                Ok(closed)
+            })
+        })
     }
 
     /// Release transient runtime state after a persisted session is deleted.
     pub fn release_session_state(&self, session_id: &str) -> KernelResult<()> {
-        let turn_lock = self.session_turn_lock(session_id)?;
-        let _turn_guard =
-            turn_lock
-                .lock()
-                .map_err(|error| sdkwork_agent_kernel::KernelError::Internal {
-                    message: format!("runtime session turn lock poisoned: {error}"),
-                })?;
-        let release_result = self.with_bridge_write(|bridge| {
-            bridge.remove_session(session_id);
-            Ok(())
-        });
-        let cleanup_result = self.remove_session_turn_lock(session_id);
-        release_result?;
-        cleanup_result
+        self.with_session_turn_lock(session_id, || {
+            self.with_bridge_write(|bridge| {
+                bridge.remove_session(session_id);
+                Ok(())
+            })
+        })
     }
 
     /// Invoke the model directly without holding the bridge lock during provider execution.
@@ -201,18 +225,15 @@ impl RuntimeState {
         session_id: &str,
         content: &str,
     ) -> KernelResult<sdkwork_agent_api_bridge::BridgeMessageResponse> {
-        let turn_lock = self.session_turn_lock(session_id)?;
-        let _turn_guard =
-            turn_lock
-                .lock()
-                .map_err(|error| sdkwork_agent_kernel::KernelError::Internal {
-                    message: format!("runtime session turn lock poisoned: {error}"),
+        self.with_session_turn_lock(session_id, || {
+            let (model_bridge, request, provider_id, user_message) =
+                self.with_bridge_write(|bridge| {
+                    bridge.prepare_send_message_turn(session_id, content)
                 })?;
-        let (model_bridge, request, provider_id, user_payload_len) =
-            self.with_bridge_write(|bridge| bridge.prepare_send_message_turn(session_id, content))?;
-        let model_result = model_bridge.invoke(&request, provider_id.as_deref())?;
-        self.with_bridge_write(|bridge| {
-            bridge.complete_user_message_turn(session_id, user_payload_len, model_result)
+            let model_result = model_bridge.invoke(&request, provider_id.as_deref())?;
+            self.with_bridge_write(|bridge| {
+                bridge.complete_user_message_turn(session_id, user_message, model_result)
+            })
         })
     }
 
@@ -223,20 +244,15 @@ impl RuntimeState {
         content: &str,
         model_override: Option<&str>,
     ) -> KernelResult<(String, Vec<sdkwork_agent_kernel::ModelStreamChunk>)> {
-        let turn_lock = self.session_turn_lock(session_id)?;
-        let _turn_guard =
-            turn_lock
-                .lock()
-                .map_err(|error| sdkwork_agent_kernel::KernelError::Internal {
-                    message: format!("runtime session turn lock poisoned: {error}"),
+        self.with_session_turn_lock(session_id, || {
+            let (model_bridge, request, provider_id, user_message) =
+                self.with_bridge_write(|bridge| {
+                    bridge.prepare_stream_message_turn(session_id, content, model_override)
                 })?;
-        let (model_bridge, request, provider_id, user_payload_len) =
+            let chunks = model_bridge.stream(&request, provider_id.as_deref())?;
             self.with_bridge_write(|bridge| {
-                bridge.prepare_stream_message_turn(session_id, content, model_override)
-            })?;
-        let chunks = model_bridge.stream(&request, provider_id.as_deref())?;
-        self.with_bridge_write(|bridge| {
-            bridge.complete_stream_message_turn(session_id, user_payload_len, chunks)
+                bridge.complete_stream_message_turn(session_id, user_message, chunks)
+            })
         })
     }
 
@@ -315,15 +331,29 @@ impl RuntimeState {
         config: sdkwork_agent_api_bridge::BridgeSessionConfig,
         history: Vec<sdkwork_agent_kernel::AgentMessage>,
     ) -> KernelResult<sdkwork_agent_kernel::AgentSession> {
-        let turn_lock = self.session_turn_lock(session_id)?;
-        let _turn_guard =
-            turn_lock
-                .lock()
-                .map_err(|error| sdkwork_agent_kernel::KernelError::Internal {
-                    message: format!("runtime session turn lock poisoned: {error}"),
-                })?;
-        self.with_bridge_write(|bridge| {
-            bridge.register_session_with_history(session_id, config, history)
+        self.with_session_turn_lock(session_id, || {
+            self.with_bridge_write(|bridge| {
+                bridge.register_session_with_history(session_id, config, history)
+            })
+        })
+    }
+
+    pub fn register_session_with_history_revision(
+        &self,
+        session_id: &str,
+        config: sdkwork_agent_api_bridge::BridgeSessionConfig,
+        history_revision: u64,
+        history: Vec<sdkwork_agent_kernel::AgentMessage>,
+    ) -> KernelResult<sdkwork_agent_kernel::AgentSession> {
+        self.with_session_turn_lock(session_id, || {
+            self.with_bridge_write(|bridge| {
+                bridge.register_session_with_history_revision(
+                    session_id,
+                    config,
+                    history_revision,
+                    history,
+                )
+            })
         })
     }
 
@@ -351,7 +381,7 @@ mod tests {
     };
     use std::sync::mpsc;
     use std::sync::Mutex;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     struct BlockingModelProvider {
         started_tx: Mutex<Option<mpsc::Sender<()>>>,
@@ -537,6 +567,31 @@ mod tests {
             .len()
     }
 
+    fn wait_for_session_turn_lock_references(
+        state: &RuntimeState,
+        session_id: &str,
+        minimum_references: usize,
+    ) {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let reference_count = state
+                .session_turn_locks
+                .lock()
+                .expect("turn lock registry")
+                .get(session_id)
+                .map(Arc::strong_count)
+                .unwrap_or_default();
+            if reference_count >= minimum_references {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "session turn lock did not acquire the expected waiter"
+            );
+            std::thread::yield_now();
+        }
+    }
+
     fn runtime_bridge_session_count(state: &RuntimeState) -> usize {
         state
             .with_bridge_read(|bridge| bridge.list_sessions().map(|sessions| sessions.len()))
@@ -554,11 +609,12 @@ mod tests {
                 test_session_config(Some("model.blocking")),
             )
             .expect("session registered");
-        let _turn_lock = state
+        let turn_lock = state
             .session_turn_lock("session.closed")
             .expect("turn lock created");
         assert_eq!(session_turn_lock_count(&state), 1);
         assert_eq!(runtime_bridge_session_count(&state), 1);
+        drop(turn_lock);
 
         state
             .close_session("session.closed")
@@ -592,6 +648,156 @@ mod tests {
     }
 
     #[test]
+    fn invalid_session_flood_does_not_grow_session_turn_lock_registry() {
+        let (started_tx, _started_rx) = mpsc::channel();
+        let (_release_tx, release_rx) = mpsc::channel();
+        let state = runtime_state_with_blocking_model(started_tx, release_rx);
+
+        for index in 0..1_024 {
+            let session_id = format!("session.missing.{index}");
+            state
+                .send_message(&session_id, "rejected message")
+                .expect_err("unknown session must be rejected");
+        }
+
+        assert_eq!(
+            session_turn_lock_count(&state),
+            0,
+            "rejected session identifiers must not accumulate lock registry entries"
+        );
+    }
+
+    #[test]
+    fn cleanup_session_turn_lock_does_not_remove_a_replacement_lock() {
+        let (started_tx, _started_rx) = mpsc::channel();
+        let (_release_tx, release_rx) = mpsc::channel();
+        let state = runtime_state_with_blocking_model(started_tx, release_rx);
+        let stale_lock = state
+            .session_turn_lock("session.replaced")
+            .expect("stale lock created");
+        let replacement_lock = Arc::new(Mutex::new(()));
+
+        state
+            .session_turn_lock_registry()
+            .expect("turn lock registry")
+            .insert("session.replaced".to_string(), replacement_lock.clone());
+        state
+            .cleanup_session_turn_lock("session.replaced", &stale_lock)
+            .expect("stale lock cleanup succeeds");
+
+        let registered_lock = state
+            .session_turn_lock_registry()
+            .expect("turn lock registry")
+            .get("session.replaced")
+            .cloned()
+            .expect("replacement lock remains registered");
+        assert!(Arc::ptr_eq(&registered_lock, &replacement_lock));
+        drop(registered_lock);
+        state
+            .cleanup_session_turn_lock("session.replaced", &replacement_lock)
+            .expect("replacement lock cleanup succeeds");
+        assert_eq!(session_turn_lock_count(&state), 0);
+    }
+
+    #[test]
+    fn session_turn_lock_serializes_waiters_and_drains_registry() {
+        let (started_tx, _started_rx) = mpsc::channel();
+        let (_release_tx, release_rx) = mpsc::channel();
+        let state = runtime_state_with_blocking_model(started_tx, release_rx);
+
+        let (first_entered_tx, first_entered_rx) = mpsc::channel();
+        let (release_first_tx, release_first_rx) = mpsc::channel();
+        let first_state = state.clone();
+        let first_thread = std::thread::spawn(move || {
+            first_state
+                .with_session_turn_lock("session.serialized", || {
+                    first_entered_tx.send(()).expect("first turn entered");
+                    release_first_rx
+                        .recv_timeout(Duration::from_secs(2))
+                        .expect("first turn released");
+                    Ok(())
+                })
+                .expect("first turn succeeds");
+        });
+        first_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("first turn started");
+
+        let (second_ready_tx, second_ready_rx) = mpsc::channel();
+        let (second_entered_tx, second_entered_rx) = mpsc::channel();
+        let (release_second_tx, release_second_rx) = mpsc::channel();
+        let second_state = state.clone();
+        let second_thread = std::thread::spawn(move || {
+            second_ready_tx.send(()).expect("second turn ready");
+            second_state
+                .with_session_turn_lock("session.serialized", || {
+                    second_entered_tx.send(()).expect("second turn entered");
+                    release_second_rx
+                        .recv_timeout(Duration::from_secs(2))
+                        .expect("second turn released");
+                    Ok(())
+                })
+                .expect("second turn succeeds");
+        });
+        second_ready_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("second turn scheduled");
+        wait_for_session_turn_lock_references(&state, "session.serialized", 3);
+        assert!(
+            second_entered_rx
+                .recv_timeout(Duration::from_millis(100))
+                .is_err(),
+            "a waiter must not overlap the active turn"
+        );
+
+        release_first_tx.send(()).expect("first turn released");
+        second_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("second turn entered after first turn");
+        first_thread.join().expect("first turn joins");
+        assert_eq!(
+            session_turn_lock_count(&state),
+            1,
+            "the registry must retain the shared lock while a waiter is active"
+        );
+
+        let (third_ready_tx, third_ready_rx) = mpsc::channel();
+        let (third_entered_tx, third_entered_rx) = mpsc::channel();
+        let third_state = state.clone();
+        let third_thread = std::thread::spawn(move || {
+            third_ready_tx.send(()).expect("third turn ready");
+            third_state
+                .with_session_turn_lock("session.serialized", || {
+                    third_entered_tx.send(()).expect("third turn entered");
+                    Ok(())
+                })
+                .expect("third turn succeeds");
+        });
+        third_ready_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("third turn scheduled");
+        wait_for_session_turn_lock_references(&state, "session.serialized", 3);
+        assert!(
+            third_entered_rx
+                .recv_timeout(Duration::from_millis(100))
+                .is_err(),
+            "a later turn must use the registered lock instead of a parallel replacement"
+        );
+
+        release_second_tx.send(()).expect("second turn released");
+        third_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("third turn entered after second turn");
+        second_thread.join().expect("second turn joins");
+        third_thread.join().expect("third turn joins");
+        assert_eq!(
+            session_turn_lock_count(&state),
+            0,
+            "the final turn must drain the unused lock registry entry"
+        );
+    }
+
+    #[test]
     fn release_session_state_releases_session_turn_lock() {
         let (started_tx, _started_rx) = mpsc::channel();
         let (_release_tx, release_rx) = mpsc::channel();
@@ -602,11 +808,12 @@ mod tests {
                 test_session_config(Some("model.blocking")),
             )
             .expect("session registered");
-        let _turn_lock = state
+        let turn_lock = state
             .session_turn_lock("session.deleted")
             .expect("turn lock created");
         assert_eq!(session_turn_lock_count(&state), 1);
         assert_eq!(runtime_bridge_session_count(&state), 1);
+        drop(turn_lock);
 
         state
             .release_session_state("session.deleted")
@@ -621,6 +828,27 @@ mod tests {
             runtime_bridge_session_count(&state),
             0,
             "deleting a persisted session must release bridge-owned session state"
+        );
+    }
+
+    #[test]
+    fn register_session_with_history_releases_session_turn_lock() {
+        let (started_tx, _started_rx) = mpsc::channel();
+        let (_release_tx, release_rx) = mpsc::channel();
+        let state = runtime_state_with_blocking_model(started_tx, release_rx);
+
+        state
+            .register_session_with_history(
+                "session.restored",
+                test_session_config(Some("model.blocking")),
+                Vec::new(),
+            )
+            .expect("session history restored");
+
+        assert_eq!(
+            session_turn_lock_count(&state),
+            0,
+            "successful history restoration must release its turn lock"
         );
     }
 
@@ -714,6 +942,11 @@ mod tests {
             registered_before_provider_release,
             "send_message must not hold the runtime bridge lock while the model provider runs"
         );
+        assert_eq!(
+            session_turn_lock_count(&state),
+            0,
+            "a successful message turn must release its session lock"
+        );
     }
 
     #[test]
@@ -759,6 +992,11 @@ mod tests {
         assert!(
             registered_before_provider_release,
             "stream_message must not hold the runtime bridge lock while the model provider runs"
+        );
+        assert_eq!(
+            session_turn_lock_count(&state),
+            0,
+            "a successful stream turn must release its session lock"
         );
     }
 }

@@ -209,9 +209,10 @@ mod tests {
 
     #[tokio::test]
     async fn build_app_async_returns_error_for_invalid_ingress_jwt_config() {
-        let mut config = ServerConfig::default();
-        config.ingress_auth_mode = "jwt".to_string();
-        let config = Arc::new(config);
+        let config = Arc::new(ServerConfig {
+            ingress_auth_mode: "jwt".to_string(),
+            ..Default::default()
+        });
         let health_state = Arc::new(health::HealthState::new());
         let persistence = Arc::new(PersistenceState::memory().expect("persistence"));
         let runtime_state = Arc::new(
@@ -225,7 +226,7 @@ mod tests {
             result.is_err(),
             "invalid JWT ingress config must fail startup"
         );
-        let message = result.err().expect("startup error").to_string();
+        let message = result.expect_err("startup error").to_string();
         assert!(
             message.contains("SDKWORK_KERNEL_INGRESS_JWT_SECRET"),
             "startup error should name the missing JWT secret: {message}"

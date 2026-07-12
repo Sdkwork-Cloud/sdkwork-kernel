@@ -442,22 +442,41 @@ impl SessionRepository for SqliteDatabase {
             .as_deref()
             .filter(|value| !value.is_empty())
         {
-            sql.push_str(
-                " AND EXISTS (
-                    SELECT 1 FROM sessions AS session_cursor
-                    WHERE session_cursor.session_id = ?
-                      AND (
-                        COALESCE(sessions.updated_at, sessions.created_at)
-                          < COALESCE(session_cursor.updated_at, session_cursor.created_at)
+            if let Some(after_sort_at) = query
+                .after_session_sort_at
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                sql.push_str(
+                    " AND (
+                        COALESCE(updated_at, created_at) < ?
                         OR (
-                          COALESCE(sessions.updated_at, sessions.created_at)
-                            = COALESCE(session_cursor.updated_at, session_cursor.created_at)
-                          AND sessions.session_id < session_cursor.session_id
+                            COALESCE(updated_at, created_at) = ?
+                            AND session_id < ?
                         )
-                      )
-                  )",
-            );
-            values.push(after_session_id.to_string());
+                    )",
+                );
+                values.push(after_sort_at.to_string());
+                values.push(after_sort_at.to_string());
+                values.push(after_session_id.to_string());
+            } else {
+                sql.push_str(
+                    " AND EXISTS (
+                        SELECT 1 FROM sessions AS session_cursor
+                        WHERE session_cursor.session_id = ?
+                          AND (
+                            COALESCE(sessions.updated_at, sessions.created_at)
+                              < COALESCE(session_cursor.updated_at, session_cursor.created_at)
+                            OR (
+                              COALESCE(sessions.updated_at, sessions.created_at)
+                                = COALESCE(session_cursor.updated_at, session_cursor.created_at)
+                              AND sessions.session_id < session_cursor.session_id
+                            )
+                          )
+                      )",
+                );
+                values.push(after_session_id.to_string());
+            }
         }
         sql.push_str(" ORDER BY COALESCE(updated_at, created_at) DESC, session_id DESC");
         let limit = resolve_list_limit(query.limit);
@@ -616,21 +635,37 @@ impl MessageRepository for SqliteDatabase {
             .as_deref()
             .filter(|value| !value.is_empty())
         {
-            sql.push_str(
-                " AND EXISTS (
-                    SELECT 1 FROM messages AS message_cursor
-                    WHERE message_cursor.message_id = ?
-                      AND message_cursor.session_id = messages.session_id
-                      AND (
-                        messages.created_at > message_cursor.created_at
-                        OR (
-                          messages.created_at = message_cursor.created_at
-                          AND messages.message_id > message_cursor.message_id
-                        )
-                      )
-                  )",
-            );
-            values.push(after_message_id.to_string());
+            if let Some(after_created_at) = query
+                .after_message_created_at
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                sql.push_str(
+                    " AND (
+                        created_at > ?
+                        OR (created_at = ? AND message_id > ?)
+                    )",
+                );
+                values.push(after_created_at.to_string());
+                values.push(after_created_at.to_string());
+                values.push(after_message_id.to_string());
+            } else {
+                sql.push_str(
+                    " AND EXISTS (
+                        SELECT 1 FROM messages AS message_cursor
+                        WHERE message_cursor.message_id = ?
+                          AND message_cursor.session_id = messages.session_id
+                          AND (
+                            messages.created_at > message_cursor.created_at
+                            OR (
+                              messages.created_at = message_cursor.created_at
+                              AND messages.message_id > message_cursor.message_id
+                            )
+                          )
+                      )",
+                );
+                values.push(after_message_id.to_string());
+            }
         }
         sql.push_str(" ORDER BY created_at ASC, message_id ASC");
         let limit = resolve_list_limit(query.limit);
@@ -767,21 +802,37 @@ impl TaskRepository for SqliteDatabase {
             .as_deref()
             .filter(|value| !value.is_empty())
         {
-            sql.push_str(
-                " AND EXISTS (
-                    SELECT 1 FROM tasks AS task_cursor
-                    WHERE task_cursor.task_id = ?
-                      AND task_cursor.session_id = tasks.session_id
-                      AND (
-                        tasks.created_at > task_cursor.created_at
-                        OR (
-                          tasks.created_at = task_cursor.created_at
-                          AND tasks.task_id > task_cursor.task_id
-                        )
-                      )
-                  )",
-            );
-            values.push(after_task_id.to_string());
+            if let Some(after_created_at) = query
+                .after_task_created_at
+                .as_deref()
+                .filter(|value| !value.is_empty())
+            {
+                sql.push_str(
+                    " AND (
+                        created_at > ?
+                        OR (created_at = ? AND task_id > ?)
+                    )",
+                );
+                values.push(after_created_at.to_string());
+                values.push(after_created_at.to_string());
+                values.push(after_task_id.to_string());
+            } else {
+                sql.push_str(
+                    " AND EXISTS (
+                        SELECT 1 FROM tasks AS task_cursor
+                        WHERE task_cursor.task_id = ?
+                          AND task_cursor.session_id = tasks.session_id
+                          AND (
+                            tasks.created_at > task_cursor.created_at
+                            OR (
+                              tasks.created_at = task_cursor.created_at
+                              AND tasks.task_id > task_cursor.task_id
+                            )
+                          )
+                      )",
+                );
+                values.push(after_task_id.to_string());
+            }
         }
         sql.push_str(" ORDER BY created_at ASC, task_id ASC");
         let limit = resolve_list_limit(query.limit);
@@ -1246,6 +1297,123 @@ impl RuntimeSessionWrites for SqliteDatabase {
         }
         tx.commit().map_err(|error| {
             DatabaseError::Transaction(format!("failed to commit transaction: {error}"))
+        })?;
+        Ok(count)
+    }
+
+    fn append_message_turn_with_events(
+        &self,
+        turn_messages: &[MessageRow],
+        turn_events: &[EventRow],
+    ) -> DatabaseResult<i64> {
+        let session_id =
+            crate::message_identity::validate_message_turn(turn_messages, turn_events)?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let tx = conn.unchecked_transaction().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to begin message turn: {error}"))
+        })?;
+        let (session_state, current_count): (String, i64) = tx
+            .query_row(
+                "SELECT state, message_count FROM sessions WHERE session_id = ?1",
+                params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    DatabaseError::NotFound(format!("session not found: {session_id}"))
+                }
+                other => DatabaseError::Query(format!(
+                    "failed to lock session for message turn: {other}"
+                )),
+            })?;
+        if !session_state.eq_ignore_ascii_case("active") {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "session {session_id} is not active"
+            )));
+        }
+
+        let mut inserted_count = 0_i64;
+        for message in turn_messages {
+            let inserted = tx
+                .execute(
+                    "INSERT INTO messages (
+                        message_id, session_id, role, content, created_at, metadata_json
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                    ON CONFLICT(message_id) DO NOTHING",
+                    params![
+                        message.message_id,
+                        message.session_id,
+                        message.role,
+                        message.content,
+                        message.created_at,
+                        message.metadata_json,
+                    ],
+                )
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to save message turn row: {error}"))
+                })?;
+            if inserted > 0 {
+                inserted_count = inserted_count.checked_add(1).ok_or_else(|| {
+                    DatabaseError::ConstraintViolation("message turn size overflow".to_string())
+                })?;
+            } else {
+                let existing = tx
+                    .query_row(
+                        "SELECT message_id, session_id, role, content, created_at, metadata_json
+                         FROM messages WHERE message_id = ?1",
+                        params![message.message_id],
+                        map_message_row,
+                    )
+                    .map_err(|error| {
+                        DatabaseError::Query(format!(
+                            "failed to load existing message turn row: {error}"
+                        ))
+                    })?;
+                crate::message_identity::ensure_message_retry_matches(&existing, message)?;
+            }
+        }
+
+        let count = if inserted_count > 0 {
+            let updated_at = chrono::Utc::now().to_rfc3339();
+            let count = tx
+                .query_row(
+                    "UPDATE sessions
+                     SET message_count = message_count + ?2, updated_at = ?3
+                     WHERE session_id = ?1 RETURNING message_count",
+                    params![session_id, inserted_count, updated_at],
+                    |row| row.get(0),
+                )
+                .map_err(|error| {
+                    DatabaseError::Query(format!(
+                        "failed to update completed turn message count: {error}"
+                    ))
+                })?;
+            for event in turn_events {
+                tx.execute(
+                    crate::upsert_sql::sqlite::SAVE_EVENT,
+                    params![
+                        event.event_id,
+                        event.session_id,
+                        event.event_type,
+                        event.severity,
+                        event.payload,
+                        event.created_at,
+                    ],
+                )
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to save completed turn event: {error}"))
+                })?;
+            }
+            count
+        } else {
+            current_count
+        };
+
+        tx.commit().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to commit message turn: {error}"))
         })?;
         Ok(count)
     }

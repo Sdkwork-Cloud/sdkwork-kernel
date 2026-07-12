@@ -1,9 +1,10 @@
 //! SQLite contract tests for agent runtime persistence.
 
 use sdkwork_agent_database::{
-    DatabaseError, EventQuery, EventRepository, EventRow, MessageQuery, MessageRepository,
-    MessageRow, PermissionQuery, PermissionRepository, PermissionRow, RuntimeMaintenance,
-    RuntimeSessionWrites, SessionRepository, SessionRow, SqliteDatabase, TaskRepository,
+    AgentDatabase, DatabaseError, EventQuery, EventRepository, EventRow, MessageQuery,
+    MessageRepository, MessageRow, PermissionQuery, PermissionRepository, PermissionRow,
+    RuntimeMaintenance, RuntimeSessionWrites, SessionRepository, SessionRow, SqliteDatabase,
+    TaskRepository,
 };
 
 fn migrated_sqlite() -> SqliteDatabase {
@@ -269,6 +270,22 @@ fn sqlite_message_list_after_message_id_is_strict() {
         .expect("missing cursor");
     assert!(missing_cursor.is_empty());
 
+    db.execute("DELETE FROM messages WHERE message_id = ?1", &[&"msg.1"])
+        .expect("delete cursor message");
+    let after_deleted_cursor = db
+        .load_messages(
+            &session_id,
+            &sdkwork_agent_database::MessageQuery {
+                after_message_id: Some("msg.1".to_string()),
+                after_message_created_at: Some("2026-06-23T00:00:01Z".to_string()),
+                limit: Some(10),
+                ..Default::default()
+            },
+        )
+        .expect("continue after deleted message cursor");
+    assert_eq!(after_deleted_cursor.len(), 2);
+    assert_eq!(after_deleted_cursor[0].message_id, "msg.2");
+
     db.delete_session_cascade(&session_id).expect("cascade");
 }
 
@@ -320,6 +337,19 @@ fn sqlite_session_list_after_session_id_is_strict() {
         })
         .expect("missing cursor");
     assert!(missing_cursor.is_empty());
+
+    db.delete_session("session.a")
+        .expect("delete cursor session");
+    let after_deleted_cursor = db
+        .list_sessions(&sdkwork_agent_database::SessionQuery {
+            after_session_id: Some("session.a".to_string()),
+            after_session_sort_at: Some("2026-06-23T00:00:03Z".to_string()),
+            limit: Some(10),
+            ..Default::default()
+        })
+        .expect("continue after deleted session cursor");
+    assert_eq!(after_deleted_cursor.len(), 2);
+    assert_eq!(after_deleted_cursor[0].session_id, "session.b");
 
     for session_id in ["session.a", "session.b", "session.c"] {
         db.delete_session_cascade(session_id).expect("cascade");
@@ -392,7 +422,22 @@ fn sqlite_task_list_after_task_id_is_strict() {
         .expect("missing cursor");
     assert!(missing_cursor.is_empty());
 
-    db.delete_session_cascade(&session_id).expect("cascade");
+    db.delete_task("task.1").expect("delete cursor task");
+    let after_deleted_cursor = db
+        .load_tasks(
+            session_id,
+            &sdkwork_agent_database::TaskQuery {
+                after_task_id: Some("task.1".to_string()),
+                after_task_created_at: Some("2026-06-23T00:00:01Z".to_string()),
+                limit: Some(10),
+                ..Default::default()
+            },
+        )
+        .expect("continue after deleted task cursor");
+    assert_eq!(after_deleted_cursor.len(), 2);
+    assert_eq!(after_deleted_cursor[0].task_id, "task.2");
+
+    db.delete_session_cascade(session_id).expect("cascade");
 }
 
 #[test]
@@ -978,6 +1023,90 @@ fn sqlite_session_and_task_event_writes_roll_back_together() {
     };
     assert!(db.save_task_with_event(&task, &invalid_event).is_err());
     assert!(db.load_task(&task.task_id).expect("task lookup").is_none());
+}
+
+#[test]
+fn sqlite_completed_turn_rolls_back_when_a_later_message_conflicts() {
+    let db = migrated_sqlite();
+    let session = scoped_session("session.turn.atomic", "tenant.a", "user.a");
+    db.save_session(&session).expect("parent session");
+
+    let existing_assistant = MessageRow {
+        message_id: "message.turn.conflict".to_string(),
+        session_id: session.session_id.clone(),
+        role: "assistant".to_string(),
+        content: "original".to_string(),
+        created_at: "2026-06-23T00:00:01Z".to_string(),
+        metadata_json: None,
+    };
+    db.append_message_with_event(
+        &existing_assistant,
+        &EventRow {
+            event_id: "event.turn.conflict.existing".to_string(),
+            session_id: Some(session.session_id.clone()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: Some("role=assistant".to_string()),
+            created_at: "2026-06-23T00:00:01Z".to_string(),
+        },
+    )
+    .expect("existing assistant");
+
+    let user = MessageRow {
+        message_id: "message.turn.user".to_string(),
+        session_id: session.session_id.clone(),
+        role: "user".to_string(),
+        content: "new user".to_string(),
+        created_at: "2026-06-23T00:00:02Z".to_string(),
+        metadata_json: None,
+    };
+    let conflicting_assistant = MessageRow {
+        content: "changed assistant".to_string(),
+        created_at: "2026-06-23T00:00:03Z".to_string(),
+        ..existing_assistant.clone()
+    };
+    let events = vec![
+        EventRow {
+            event_id: "event.turn.conflict.user".to_string(),
+            session_id: Some(session.session_id.clone()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: Some("role=user".to_string()),
+            created_at: "2026-06-23T00:00:02Z".to_string(),
+        },
+        EventRow {
+            event_id: "event.turn.conflict.assistant".to_string(),
+            session_id: Some(session.session_id.clone()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: Some("role=assistant".to_string()),
+            created_at: "2026-06-23T00:00:03Z".to_string(),
+        },
+        EventRow {
+            event_id: "event.turn.conflict.completed".to_string(),
+            session_id: Some(session.session_id.clone()),
+            event_type: "turn.completed".to_string(),
+            severity: "info".to_string(),
+            payload: Some("user_message_id=message.turn.user".to_string()),
+            created_at: "2026-06-23T00:00:04Z".to_string(),
+        },
+    ];
+
+    assert!(db
+        .append_message_turn_with_events(&[user, conflicting_assistant], &events)
+        .is_err());
+    let messages = db
+        .load_messages(&session.session_id, &MessageQuery::default())
+        .expect("messages");
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].content, "original");
+    assert_eq!(db.message_count(&session.session_id).expect("count"), 1);
+    assert_eq!(
+        db.load_events(&session.session_id, &EventQuery::default())
+            .expect("events")
+            .len(),
+        1
+    );
 }
 
 #[test]

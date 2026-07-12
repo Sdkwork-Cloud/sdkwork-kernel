@@ -515,6 +515,12 @@ impl InMemoryStreamProvider {
     }
 }
 
+impl Default for InMemoryStreamProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ModelStreamProvider for InMemoryStreamProvider {
     fn initiate_stream(&mut self, request: StreamRequest) -> Result<StreamStatus, StreamError> {
         if self.streams.len() >= self.max_concurrent {

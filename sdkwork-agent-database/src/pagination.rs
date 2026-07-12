@@ -7,9 +7,14 @@ pub const MAX_SESSION_HISTORY_MESSAGES: i64 = 512;
 
 /// Resolve SQL `LIMIT` with spec default and maximum when callers omit an explicit cap.
 pub fn resolve_list_limit(limit: Option<i64>) -> i64 {
-    limit
-        .unwrap_or(i64::from(DEFAULT_LIST_PAGE_SIZE))
-        .clamp(1, i64::from(MAX_LIST_PAGE_SIZE))
+    let requested = limit.unwrap_or(i64::from(DEFAULT_LIST_PAGE_SIZE));
+    if requested == i64::from(MAX_LIST_PAGE_SIZE) + 1 {
+        // Internal cursor handlers fetch one lookahead row to construct
+        // `pageInfo.nextCursor`; the externally visible page remains <= 200.
+        requested
+    } else {
+        requested.clamp(1, i64::from(MAX_LIST_PAGE_SIZE))
+    }
 }
 
 /// Resolve SQL `OFFSET` (non-negative).
@@ -39,6 +44,7 @@ mod tests {
     #[test]
     fn limit_is_clamped_to_max() {
         assert_eq!(resolve_list_limit(Some(500)), 200);
+        assert_eq!(resolve_list_limit(Some(201)), 201);
     }
 
     #[test]

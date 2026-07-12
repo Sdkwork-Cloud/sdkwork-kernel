@@ -59,8 +59,7 @@ impl CancellationToken {
 
     /// Create a child token.
     pub fn create_child(&self, child_id: impl Into<String>) -> CancellationToken {
-        let child = CancellationToken::with_parent(child_id, self.clone());
-        child
+        CancellationToken::with_parent(child_id, self.clone())
     }
 }
 
@@ -234,13 +233,7 @@ pub struct CancellationRequest {
 impl CancellationRequest {
     pub fn new(token_id: impl Into<String>, source: CancellationSource) -> Self {
         Self {
-            request_id: format!(
-                "req-{}",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            ),
+            request_id: format!("req-{}", sdkwork_utils_rust::uuid()),
             token_id: token_id.into(),
             source,
             propagate: true,
@@ -466,6 +459,12 @@ impl InMemoryCancellationProvider {
     pub fn with_max_tokens(mut self, max: usize) -> Self {
         self.max_tokens = max;
         self
+    }
+}
+
+impl Default for InMemoryCancellationProvider {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -705,6 +704,12 @@ mod tests {
         let request = CancellationRequest::new("token-1", source);
 
         assert_eq!(request.token_id, "token-1");
+        assert!(sdkwork_utils_rust::is_uuid(
+            request
+                .request_id
+                .strip_prefix("req-")
+                .expect("request id prefix")
+        ));
         assert!(request.propagate);
         assert!(!request.force);
     }

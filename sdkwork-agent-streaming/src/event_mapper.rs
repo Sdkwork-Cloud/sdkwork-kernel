@@ -56,7 +56,7 @@ impl EventMapper {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sdkwork_agent_kernel::{KernelEventSeverity, KernelEventSource};
+    use sdkwork_agent_kernel::KernelEventSeverity;
 
     #[test]
     fn map_event_to_stream_update() {

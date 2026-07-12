@@ -301,7 +301,7 @@ impl A2ATaskRequest {
 }
 
 /// A2A Task context.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct A2ATaskContext {
     /// Session ID.
     pub session_id: Option<String>,
@@ -313,18 +313,6 @@ pub struct A2ATaskContext {
     pub trace_id: Option<String>,
     /// Parent task ID (for nested tasks).
     pub parent_task_id: Option<String>,
-}
-
-impl Default for A2ATaskContext {
-    fn default() -> Self {
-        Self {
-            session_id: None,
-            conversation_id: None,
-            user_id: None,
-            trace_id: None,
-            parent_task_id: None,
-        }
-    }
 }
 
 impl A2ATaskContext {

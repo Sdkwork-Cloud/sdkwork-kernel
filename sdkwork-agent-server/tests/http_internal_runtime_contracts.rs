@@ -22,22 +22,26 @@ fn open_test_app() -> Router {
 }
 
 fn token_test_app(token: &str) -> Router {
-    let mut config = ServerConfig::default();
-    config.ingress_auth_mode = "token".to_string();
-    config.ingress_token = Some(token.to_string());
+    let config = ServerConfig {
+        ingress_auth_mode: "token".to_string(),
+        ingress_token: Some(token.to_string()),
+        ..Default::default()
+    };
     app::build_test_app(Arc::new(config))
 }
 
 fn quota_test_app(tenant_id: &str, daily_tokens: u64) -> Router {
-    let mut config = ServerConfig::default();
-    config.ingress_auth_mode = "token".to_string();
-    config.ingress_token = Some(TEST_INGRESS_TOKEN.to_string());
     let mut overrides = HashMap::new();
     overrides.insert(
         tenant_id.to_string(),
         TenantTokenQuotaOverride { daily_tokens },
     );
-    config.tenant_token_quota_overrides = overrides;
+    let config = ServerConfig {
+        ingress_auth_mode: "token".to_string(),
+        ingress_token: Some(TEST_INGRESS_TOKEN.to_string()),
+        tenant_token_quota_overrides: overrides,
+        ..Default::default()
+    };
     app::build_test_app(Arc::new(config))
 }
 
@@ -558,6 +562,19 @@ async fn internal_runtime_sessions_support_cursor_pagination() {
         .to_string();
     let cursor = next_cursor(&first_payload);
 
+    let deleted_anchor = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(runtime_path(&format!("/sessions/{first_session_id}")))
+                .body(Body::empty())
+                .expect("delete cursor anchor request should be built"),
+        )
+        .await
+        .expect("delete cursor anchor should succeed");
+    assert_eq!(deleted_anchor.status(), StatusCode::NO_CONTENT);
+
     let cursor_page = app
         .clone()
         .oneshot(
@@ -881,11 +898,13 @@ async fn legacy_health_probe_paths_are_not_mounted() {
 
 #[tokio::test]
 async fn metrics_requires_token_when_metrics_auth_mode_is_token() {
-    let mut config = ServerConfig::default();
-    config.ingress_auth_mode = "token".to_string();
-    config.ingress_token = Some(TEST_INGRESS_TOKEN.to_string());
-    config.metrics_auth_mode = "token".to_string();
-    config.metrics_token = Some(TEST_INGRESS_TOKEN.to_string());
+    let config = ServerConfig {
+        ingress_auth_mode: "token".to_string(),
+        ingress_token: Some(TEST_INGRESS_TOKEN.to_string()),
+        metrics_auth_mode: "token".to_string(),
+        metrics_token: Some(TEST_INGRESS_TOKEN.to_string()),
+        ..Default::default()
+    };
     let app = app::build_test_app(Arc::new(config));
 
     let denied = app
@@ -1485,9 +1504,10 @@ async fn token_mode_rejects_session_missing_owner_metadata() {
     );
     let health_state = Arc::new(sdkwork_agent_server::health::HealthState::new());
 
-    let mut open_config = ServerConfig::default();
-    open_config.ingress_auth_mode = "open".to_string();
-    let open_config = Arc::new(open_config);
+    let open_config = Arc::new(ServerConfig {
+        ingress_auth_mode: "open".to_string(),
+        ..Default::default()
+    });
     let open_runtime = Arc::new(
         sdkwork_agent_server::api::internal_runtime::InternalRuntimeApiState::new(
             persistence.clone(),
@@ -1526,10 +1546,11 @@ async fn token_mode_rejects_session_missing_owner_metadata() {
         .as_str()
         .expect("session id should be present");
 
-    let mut token_config = ServerConfig::default();
-    token_config.ingress_auth_mode = "token".to_string();
-    token_config.ingress_token = Some(TEST_INGRESS_TOKEN.to_string());
-    let token_config = Arc::new(token_config);
+    let token_config = Arc::new(ServerConfig {
+        ingress_auth_mode: "token".to_string(),
+        ingress_token: Some(TEST_INGRESS_TOKEN.to_string()),
+        ..Default::default()
+    });
     let token_runtime = Arc::new(
         sdkwork_agent_server::api::internal_runtime::InternalRuntimeApiState::new(
             persistence.clone(),
@@ -1636,11 +1657,13 @@ async fn metrics_endpoint_exposes_prometheus_families_without_auth() {
 }
 
 fn jwt_test_app(secret: &str) -> Router {
-    let mut config = ServerConfig::default();
-    config.ingress_auth_mode = "jwt".to_string();
-    config.ingress_jwt_secret = Some(secret.to_string());
-    config.ingress_jwt_issuer = Some("sdkwork-kernel".to_string());
-    config.ingress_jwt_audience = Some("internal-api".to_string());
+    let config = ServerConfig {
+        ingress_auth_mode: "jwt".to_string(),
+        ingress_jwt_secret: Some(secret.to_string()),
+        ingress_jwt_issuer: Some("sdkwork-kernel".to_string()),
+        ingress_jwt_audience: Some("internal-api".to_string()),
+        ..Default::default()
+    };
     app::build_test_app(Arc::new(config))
 }
 
@@ -1683,12 +1706,14 @@ async fn ingress_jwt_auth_accepts_bearer_jwt_without_identity_mac() {
 
 fn rs256_jwt_test_app() -> Router {
     let pem = include_str!("fixtures/ingress_jwt_rs256_public.pem");
-    let mut config = ServerConfig::default();
-    config.ingress_auth_mode = "jwt".to_string();
-    config.ingress_jwt_algorithm = "rs256".to_string();
-    config.ingress_jwt_rsa_public_key_pem = Some(pem.to_string());
-    config.ingress_jwt_issuer = Some("sdkwork-kernel".to_string());
-    config.ingress_jwt_audience = Some("internal-api".to_string());
+    let config = ServerConfig {
+        ingress_auth_mode: "jwt".to_string(),
+        ingress_jwt_algorithm: "rs256".to_string(),
+        ingress_jwt_rsa_public_key_pem: Some(pem.to_string()),
+        ingress_jwt_issuer: Some("sdkwork-kernel".to_string()),
+        ingress_jwt_audience: Some("internal-api".to_string()),
+        ..Default::default()
+    };
     app::build_test_app(Arc::new(config))
 }
 
@@ -1878,10 +1903,11 @@ async fn internal_runtime_model_stream_returns_sse_chunks() {
 
 #[tokio::test]
 async fn internal_runtime_model_stream_uses_sse_timeout_not_standard_timeout() {
-    let mut config = ServerConfig::default();
-    config.request_timeout_secs = 0;
-    config.sse_request_timeout_secs = 5;
-    let config = Arc::new(config);
+    let config = Arc::new(ServerConfig {
+        request_timeout_secs: 0,
+        sse_request_timeout_secs: 5,
+        ..Default::default()
+    });
     let persistence = Arc::new(
         sdkwork_agent_server::persistence::PersistenceState::memory()
             .expect("in-memory persistence should initialize for tests"),

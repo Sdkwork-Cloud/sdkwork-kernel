@@ -26,18 +26,18 @@ Baseline DDL and ordered evolution migrations live under `migrations/`:
 
 The SQLite v2 compatibility step repairs legacy `sessions` columns and missing child-table cascade foreign keys. Orphan child rows are preserved under explicit `orphaned` recovery sessions before constraints are installed. A rebuild fails closed when an unknown extension column or custom trigger is present, so migration cannot silently discard application-owned data. PostgreSQL performs the equivalent column, orphan, and foreign-key repair in v2. Fresh database creation, legacy upgrade, repeated migration, checksum drift, and concurrent SQLite startup are covered by migration contract tests.
 
-Session upserts use `ON CONFLICT ... DO UPDATE` on both backends (never SQLite `INSERT OR REPLACE`, which would cascade-delete child rows). `RuntimeSessionWrites` owns cross-table transactions for session state plus event, task state plus event, message append plus count plus event, and message purge plus count reset. Message identity is immutable: `save_message` accepts an exact duplicate row as an idempotent retry, rejects changed payloads or cross-session `message_id` reuse with `ConstraintViolation`, and preserves the original row. Message append is retry-safe: a duplicate `message_id` for the same session returns the current `message_count` without incrementing it again or writing another event, and a duplicate `message_id` for a different session fails with `ConstraintViolation` before writing an event.
+Session upserts use `ON CONFLICT ... DO UPDATE` on both backends (never SQLite `INSERT OR REPLACE`, which would cascade-delete child rows). `RuntimeSessionWrites` owns cross-table transactions for session state plus event, task state plus event, single-message append plus count plus event, completed user/assistant turn plus all turn events, and message purge plus count reset. A completed turn commits the user message, optional assistant message, each `message.sent` event, the single `turn.completed` event, and the final `message_count` in one transaction; a conflict in any later row rolls back the entire turn. Message identity is immutable: `save_message` accepts an exact duplicate row as an idempotent retry, rejects changed payloads or cross-session `message_id` reuse with `ConstraintViolation`, and preserves the original row. Message append is retry-safe: a duplicate `message_id` for the same session returns the current `message_count` without incrementing it again or writing another event, and a duplicate `message_id` for a different session fails with `ConstraintViolation` before writing an event.
 
 ## Pagination
 
 List queries use SQL `LIMIT`/`OFFSET` for offset mode and keyset predicates for continuation:
 
-- **Messages:** internal `MessageQuery.after_message_id`, ordered by `(created_at, message_id)`
-- **Sessions:** internal `SessionQuery.after_session_id`, ordered by effective update time plus `session_id`
-- **Tasks:** internal `TaskQuery.after_task_id`, ordered by `(created_at, task_id)`
+- **Messages:** `MessageQuery.after_message_created_at` plus `after_message_id`, ordered by `(created_at, message_id)`
+- **Sessions:** `SessionQuery.after_session_sort_at` plus `after_session_id`, ordered by `(COALESCE(updated_at, created_at), session_id)` descending
+- **Tasks:** `TaskQuery.after_task_created_at` plus `after_task_id`, ordered by `(created_at, task_id)`
 - **Events:** internal `EventQuery.after_event_id`, ordered by `(created_at, event_id)`
 
-These identifiers are repository continuation anchors, not public wire cursors. HTTP adapters must encode and validate opaque cursor tokens before mapping them to repository queries. Unknown internal anchors return an empty page (strict replay), not a full rewind.
+The session/message/task sort key and unique ID are carried inside a versioned, resource-scoped, HMAC-signed opaque HTTP cursor. Repositories seek directly on that tuple, so deleting the last row from a prior page does not truncate later pages. ID-only repository continuation remains available for internal compatibility and returns an empty page when its anchor cannot be resolved; it is not used by the public HTTP pagination path. Event replay intentionally remains ID-anchored because an unknown `Last-Event-ID` must not rewind a retained event stream.
 
 `MessageRepository::load_recent_messages` hydrates a session from a bounded SQL tail (`ORDER BY created_at DESC, message_id DESC LIMIT`) and returns chronological order. The limit is mandatory and restricted to `1..=512`; full-history hydration and deep offset scans are not supported.
 

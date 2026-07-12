@@ -67,14 +67,9 @@ impl<M: MessageRepository> ConversationManager<M> {
     }
 }
 
-/// Generate a simple unique ID
+/// Generate a collision-resistant runtime ID.
 fn generate_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{:x}", nanos)
+    sdkwork_utils_rust::uuid()
 }
 
 #[cfg(test)]

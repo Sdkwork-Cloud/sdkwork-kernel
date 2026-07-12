@@ -193,7 +193,7 @@ impl InMemoryProviderSessionStore {
 pub fn sort_sessions_by_updated_at(sessions: &mut [AgentSession]) {
     sessions.sort_by(|left, right| {
         session_sort_timestamp(right)
-            .cmp(&session_sort_timestamp(left))
+            .cmp(session_sort_timestamp(left))
             .then_with(|| right.session_id.cmp(&left.session_id))
     });
 }
@@ -206,13 +206,8 @@ fn session_sort_timestamp(session: &AgentSession) -> &str {
         .unwrap_or("")
 }
 
-use std::sync::atomic::{AtomicU64, Ordering};
-
-static SESSION_TOUCH_SEQ: AtomicU64 = AtomicU64::new(1);
-
 fn touch_session(session: &mut AgentSession) {
-    let seq = SESSION_TOUCH_SEQ.fetch_add(1, Ordering::Relaxed);
-    session.updated_at = Some(format!("{}{:012}", now_iso(), seq));
+    session.updated_at = Some(now_iso());
 }
 
 #[cfg(test)]

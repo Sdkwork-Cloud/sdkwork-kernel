@@ -803,6 +803,26 @@ mod tests {
     }
 
     #[test]
+    fn model_error_event_maps_the_server_safe_message() {
+        let mapped = map_model_event(SseEvent {
+            event: Some("model.error".to_string()),
+            data: serde_json::json!({
+                "code": "PROVIDER_STREAM_FAILED",
+                "message": "model provider stream failed"
+            })
+            .to_string(),
+            id: None,
+        })
+        .expect("model error mapped");
+        assert_eq!(
+            mapped,
+            ModelStreamEvent::Error {
+                message: "model provider stream failed".to_string()
+            }
+        );
+    }
+
+    #[test]
     fn pagination_rejects_empty_cursor_and_out_of_range_page_size() {
         let url = Url::parse("http://localhost/sessions").expect("url");
         assert!(apply_list_query(

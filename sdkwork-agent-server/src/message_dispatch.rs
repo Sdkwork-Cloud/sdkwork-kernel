@@ -1,7 +1,6 @@
-use sdkwork_agent_api_bridge::BridgeMessageResponse;
+use sdkwork_agent_api_bridge::{collect_model_stream_output, BridgeMessageResponse};
 use sdkwork_agent_database::{MessageRow, SessionRow};
 use sdkwork_agent_kernel::ModelStreamChunk;
-use sdkwork_agent_session::MessageConfig;
 
 use crate::api::internal_runtime::InternalRuntimeApiState;
 use crate::http_response::ApiError;
@@ -11,7 +10,8 @@ pub fn assistant_content_from_bridge(response: &BridgeMessageResponse) -> String
     response
         .model_response
         .as_ref()
-        .and_then(|model| model.messages.first().cloned())
+        .map(|model| model.messages.concat())
+        .filter(|content| !content.is_empty())
         .or_else(|| {
             response
                 .message
@@ -22,7 +22,7 @@ pub fn assistant_content_from_bridge(response: &BridgeMessageResponse) -> String
         .unwrap_or_default()
 }
 
-/// Persist the user message, run the runtime bridge turn, then persist the assistant reply.
+/// Run the runtime bridge turn, then atomically persist the completed message turn.
 pub async fn dispatch_user_message(
     state: &InternalRuntimeApiState,
     session_id: &str,
@@ -43,37 +43,25 @@ pub async fn dispatch_user_message(
             })?
             .map_err(|error| ApiError::from_kernel(error, trace_id))?;
 
+    let assistant_content = assistant_content_from_bridge(&bridge_response);
+    let assistant_content = if assistant_content.is_empty() {
+        None
+    } else {
+        Some(assistant_content)
+    };
     let session_key = session_id.to_string();
     let user_content = content.to_string();
-    let user_row = state
+    let (user_row, assistant_row) = state
         .persist(move |persistence| {
-            persistence.send_message(&session_key, MessageConfig::user(user_content))
+            persistence.append_completed_turn(&session_key, user_content, assistant_content)
         })
         .await
         .map_err(|error| ApiError::from_persistence(error, trace_id))?;
 
-    let assistant_content = assistant_content_from_bridge(&bridge_response);
-    let assistant_row = if !assistant_content.is_empty() {
-        let session_key = session_id.to_string();
-        Some(
-            state
-                .persist(move |persistence| {
-                    persistence
-                        .send_message(&session_key, MessageConfig::assistant(assistant_content))
-                })
-                .await
-                .map_err(|error| ApiError::from_persistence(error, trace_id))?,
-        )
-    } else {
-        None
-    };
-
-    emit_turn_completed(state, session_id, &user_row.message_id, trace_id).await?;
-
     Ok((user_row, assistant_row, bridge_response))
 }
 
-/// Persist the user message, stream a runtime bridge turn, then persist the assistant reply.
+/// Run the streaming bridge turn, then atomically persist the completed message turn.
 pub async fn dispatch_user_message_stream(
     state: &InternalRuntimeApiState,
     session_id: &str,
@@ -101,45 +89,23 @@ pub async fn dispatch_user_message_stream(
     })?
     .map_err(|error| ApiError::from_kernel(error, trace_id))?;
 
+    let assistant_content = collect_model_stream_output(&chunks)
+        .map_err(|error| ApiError::from_kernel(error, trace_id))?;
+    let assistant_content = if assistant_content.is_empty() {
+        None
+    } else {
+        Some(assistant_content)
+    };
     let session_key = session_id.to_string();
     let user_content = content.to_string();
-    let user_row = state
+    let (user_row, _) = state
         .persist(move |persistence| {
-            persistence.send_message(&session_key, MessageConfig::user(user_content))
+            persistence.append_completed_turn(&session_key, user_content, assistant_content)
         })
         .await
         .map_err(|error| ApiError::from_persistence(error, trace_id))?;
 
-    let assistant_content: String = chunks.iter().map(|chunk| chunk.content.as_str()).collect();
-    if !assistant_content.is_empty() {
-        let session_key = session_id.to_string();
-        state
-            .persist(move |persistence| {
-                persistence.send_message(&session_key, MessageConfig::assistant(assistant_content))
-            })
-            .await
-            .map_err(|error| ApiError::from_persistence(error, trace_id))?;
-    }
-
-    emit_turn_completed(state, session_id, &user_row.message_id, trace_id).await?;
-
     Ok((user_row, assistant_message_id, chunks))
-}
-
-async fn emit_turn_completed(
-    state: &InternalRuntimeApiState,
-    session_id: &str,
-    user_message_id: &str,
-    trace_id: &str,
-) -> Result<(), ApiError> {
-    let session_key = session_id.to_string();
-    let payload = format!("user_message_id={user_message_id}");
-    state
-        .persist(move |persistence| {
-            persistence.emit_session_event(&session_key, "turn.completed", "info", Some(&payload))
-        })
-        .await
-        .map_err(|error| ApiError::from_persistence(error, trace_id))
 }
 
 #[cfg(test)]
@@ -152,17 +118,21 @@ mod tests {
 
     #[tokio::test]
     async fn dispatch_persists_user_and_assistant_messages() {
-        let _lock = crate::testing::env::lock();
-        let _plugin = crate::testing::env::VarGuard::set(
-            crate::runtime_bootstrap::KERNEL_AGENT_PLUGIN_ENV,
-            None,
-        );
-        let config = Arc::new(ServerConfig::default());
-        let persistence = Arc::new(
-            PersistenceState::memory().expect("in-memory persistence should initialize for tests"),
-        );
-        let state = InternalRuntimeApiState::new(persistence.clone(), config)
-            .expect("runtime state should initialize for tests");
+        let (persistence, state) = {
+            let _lock = crate::testing::env::lock();
+            let _plugin = crate::testing::env::VarGuard::set(
+                crate::runtime_bootstrap::KERNEL_AGENT_PLUGIN_ENV,
+                None,
+            );
+            let config = Arc::new(ServerConfig::default());
+            let persistence = Arc::new(
+                PersistenceState::memory()
+                    .expect("in-memory persistence should initialize for tests"),
+            );
+            let state = InternalRuntimeApiState::new(persistence.clone(), config)
+                .expect("runtime state should initialize for tests");
+            (persistence, state)
+        };
         let session = persistence
             .create_session(SessionConfig::new("agent.1"))
             .expect("session should be created");

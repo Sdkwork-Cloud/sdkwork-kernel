@@ -13,18 +13,18 @@ fn map_session_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<SessionRow> {
         kind: row.try_get("kind").map_err(map_sqlx_error)?,
         source: row.try_get("source").map_err(map_sqlx_error)?,
         state: row.try_get("state").map_err(map_sqlx_error)?,
-        title: row.try_get("title").ok(),
-        model: row.try_get("model").ok(),
-        cwd: row.try_get("cwd").ok(),
-        provider_id: row.try_get("provider_id").ok(),
-        bridge_id: row.try_get("bridge_id").ok(),
-        token_usage_json: row.try_get("token_usage_json").ok(),
+        title: row.try_get("title").map_err(map_sqlx_error)?,
+        model: row.try_get("model").map_err(map_sqlx_error)?,
+        cwd: row.try_get("cwd").map_err(map_sqlx_error)?,
+        provider_id: row.try_get("provider_id").map_err(map_sqlx_error)?,
+        bridge_id: row.try_get("bridge_id").map_err(map_sqlx_error)?,
+        token_usage_json: row.try_get("token_usage_json").map_err(map_sqlx_error)?,
         message_count: row.try_get("message_count").map_err(map_sqlx_error)?,
-        owner_tenant_id: row.try_get("owner_tenant_id").ok(),
-        owner_user_ref: row.try_get("owner_user_ref").ok(),
+        owner_tenant_id: row.try_get("owner_tenant_id").map_err(map_sqlx_error)?,
+        owner_user_ref: row.try_get("owner_user_ref").map_err(map_sqlx_error)?,
         created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
-        updated_at: row.try_get("updated_at").ok(),
-        metadata_json: row.try_get("metadata_json").ok(),
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
+        metadata_json: row.try_get("metadata_json").map_err(map_sqlx_error)?,
     })
 }
 
@@ -35,7 +35,7 @@ fn map_message_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<MessageRow> {
         role: row.try_get("role").map_err(map_sqlx_error)?,
         content: row.try_get("content").map_err(map_sqlx_error)?,
         created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
-        metadata_json: row.try_get("metadata_json").ok(),
+        metadata_json: row.try_get("metadata_json").map_err(map_sqlx_error)?,
     })
 }
 
@@ -46,17 +46,17 @@ fn map_task_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<TaskRow> {
         instruction: row.try_get("instruction").map_err(map_sqlx_error)?,
         state: row.try_get("state").map_err(map_sqlx_error)?,
         created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
-        updated_at: row.try_get("updated_at").ok(),
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
     })
 }
 
 fn map_event_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<EventRow> {
     Ok(EventRow {
         event_id: row.try_get("event_id").map_err(map_sqlx_error)?,
-        session_id: row.try_get("session_id").ok(),
+        session_id: row.try_get("session_id").map_err(map_sqlx_error)?,
         event_type: row.try_get("event_type").map_err(map_sqlx_error)?,
         severity: row.try_get("severity").map_err(map_sqlx_error)?,
-        payload: row.try_get("payload").ok(),
+        payload: row.try_get("payload").map_err(map_sqlx_error)?,
         created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
     })
 }
@@ -385,24 +385,44 @@ impl SessionRepository for PostgresDatabase {
                 .as_deref()
                 .filter(|value| !value.is_empty())
             {
-                builder.push(
-                    " AND EXISTS (
-                        SELECT 1 FROM sessions AS session_cursor
-                        WHERE session_cursor.session_id = ",
-                );
-                builder.push_bind(after_session_id);
-                builder.push(
-                    " AND (
-                        COALESCE(sessions.updated_at, sessions.created_at)
-                          < COALESCE(session_cursor.updated_at, session_cursor.created_at)
-                        OR (
-                          COALESCE(sessions.updated_at, sessions.created_at)
-                            = COALESCE(session_cursor.updated_at, session_cursor.created_at)
-                          AND sessions.session_id < session_cursor.session_id
-                        )
-                      )
-                    )",
-                );
+                if let Some(after_sort_at) = query
+                    .after_session_sort_at
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                {
+                    builder.push(
+                        " AND (
+                            COALESCE(updated_at, created_at) < ",
+                    );
+                    builder.push_bind(after_sort_at);
+                    builder.push(
+                        " OR (
+                            COALESCE(updated_at, created_at) = ",
+                    );
+                    builder.push_bind(after_sort_at);
+                    builder.push(" AND session_id < ");
+                    builder.push_bind(after_session_id);
+                    builder.push(" ) )");
+                } else {
+                    builder.push(
+                        " AND EXISTS (
+                            SELECT 1 FROM sessions AS session_cursor
+                            WHERE session_cursor.session_id = ",
+                    );
+                    builder.push_bind(after_session_id);
+                    builder.push(
+                        " AND (
+                            COALESCE(sessions.updated_at, sessions.created_at)
+                              < COALESCE(session_cursor.updated_at, session_cursor.created_at)
+                            OR (
+                              COALESCE(sessions.updated_at, sessions.created_at)
+                                = COALESCE(session_cursor.updated_at, session_cursor.created_at)
+                              AND sessions.session_id < session_cursor.session_id
+                            )
+                          )
+                        )",
+                    );
+                }
             }
             builder.push(" ORDER BY COALESCE(updated_at, created_at) DESC, session_id DESC");
             let limit = resolve_list_limit(query.limit);
@@ -534,23 +554,37 @@ impl MessageRepository for PostgresDatabase {
                 .as_deref()
                 .filter(|value| !value.is_empty())
             {
-                builder.push(
-                    " AND EXISTS (
-                        SELECT 1 FROM messages AS message_cursor
-                        WHERE message_cursor.message_id = ",
-                );
-                builder.push_bind(after_message_id);
-                builder.push(
-                    " AND message_cursor.session_id = messages.session_id
-                      AND (
-                        messages.created_at > message_cursor.created_at
-                        OR (
-                          messages.created_at = message_cursor.created_at
-                          AND messages.message_id > message_cursor.message_id
-                        )
-                      )
-                    )",
-                );
+                if let Some(after_created_at) = query
+                    .after_message_created_at
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                {
+                    builder.push(" AND (created_at > ");
+                    builder.push_bind(after_created_at);
+                    builder.push(" OR (created_at = ");
+                    builder.push_bind(after_created_at);
+                    builder.push(" AND message_id > ");
+                    builder.push_bind(after_message_id);
+                    builder.push(" ) )");
+                } else {
+                    builder.push(
+                        " AND EXISTS (
+                            SELECT 1 FROM messages AS message_cursor
+                            WHERE message_cursor.message_id = ",
+                    );
+                    builder.push_bind(after_message_id);
+                    builder.push(
+                        " AND message_cursor.session_id = messages.session_id
+                          AND (
+                            messages.created_at > message_cursor.created_at
+                            OR (
+                              messages.created_at = message_cursor.created_at
+                              AND messages.message_id > message_cursor.message_id
+                            )
+                          )
+                        )",
+                    );
+                }
             }
             builder.push(" ORDER BY created_at ASC, message_id ASC");
             let limit = resolve_list_limit(query.limit);
@@ -676,23 +710,37 @@ impl TaskRepository for PostgresDatabase {
                 .as_deref()
                 .filter(|value| !value.is_empty())
             {
-                builder.push(
-                    " AND EXISTS (
-                        SELECT 1 FROM tasks AS task_cursor
-                        WHERE task_cursor.task_id = ",
-                );
-                builder.push_bind(after_task_id);
-                builder.push(
-                    " AND task_cursor.session_id = tasks.session_id
-                      AND (
-                        tasks.created_at > task_cursor.created_at
-                        OR (
-                          tasks.created_at = task_cursor.created_at
-                          AND tasks.task_id > task_cursor.task_id
-                        )
-                      )
-                    )",
-                );
+                if let Some(after_created_at) = query
+                    .after_task_created_at
+                    .as_deref()
+                    .filter(|value| !value.is_empty())
+                {
+                    builder.push(" AND (created_at > ");
+                    builder.push_bind(after_created_at);
+                    builder.push(" OR (created_at = ");
+                    builder.push_bind(after_created_at);
+                    builder.push(" AND task_id > ");
+                    builder.push_bind(after_task_id);
+                    builder.push(" ) )");
+                } else {
+                    builder.push(
+                        " AND EXISTS (
+                            SELECT 1 FROM tasks AS task_cursor
+                            WHERE task_cursor.task_id = ",
+                    );
+                    builder.push_bind(after_task_id);
+                    builder.push(
+                        " AND task_cursor.session_id = tasks.session_id
+                          AND (
+                            tasks.created_at > task_cursor.created_at
+                            OR (
+                              tasks.created_at = task_cursor.created_at
+                              AND tasks.task_id > task_cursor.task_id
+                            )
+                          )
+                        )",
+                    );
+                }
             }
             builder.push(" ORDER BY created_at ASC, task_id ASC");
             let limit = resolve_list_limit(query.limit);
@@ -884,16 +932,16 @@ fn map_permission_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<PermissionR
         permission_request_id: row
             .try_get("permission_request_id")
             .map_err(map_sqlx_error)?,
-        session_id: row.try_get("session_id").ok(),
+        session_id: row.try_get("session_id").map_err(map_sqlx_error)?,
         category: row.try_get("category").map_err(map_sqlx_error)?,
         resource: row.try_get("resource").map_err(map_sqlx_error)?,
         side_effect_level: row.try_get("side_effect_level").map_err(map_sqlx_error)?,
         reason: row.try_get("reason").map_err(map_sqlx_error)?,
         status: row.try_get("status").map_err(map_sqlx_error)?,
-        owner_tenant_id: row.try_get("owner_tenant_id").ok(),
-        owner_user_ref: row.try_get("owner_user_ref").ok(),
+        owner_tenant_id: row.try_get("owner_tenant_id").map_err(map_sqlx_error)?,
+        owner_user_ref: row.try_get("owner_user_ref").map_err(map_sqlx_error)?,
         created_at: row.try_get("created_at").map_err(map_sqlx_error)?,
-        updated_at: row.try_get("updated_at").ok(),
+        updated_at: row.try_get("updated_at").map_err(map_sqlx_error)?,
     })
 }
 
@@ -1173,6 +1221,112 @@ impl RuntimeSessionWrites for PostgresDatabase {
                 .await?;
             }
             tx.commit().await?;
+            Ok(count)
+        })
+    }
+
+    fn append_message_turn_with_events(
+        &self,
+        turn_messages: &[MessageRow],
+        turn_events: &[EventRow],
+    ) -> DatabaseResult<i64> {
+        let session_id =
+            crate::message_identity::validate_message_turn(turn_messages, turn_events)?.to_owned();
+        let messages = turn_messages.to_vec();
+        let events = turn_events.to_vec();
+        let pool = self.pool.pool().clone();
+        self.pool.run_db(async move {
+            let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            let (session_state, current_count) = sqlx::query_as::<_, (String, i64)>(
+                "SELECT state, message_count FROM sessions WHERE session_id = $1 FOR UPDATE",
+            )
+            .bind(&session_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?
+            .ok_or_else(|| DatabaseError::NotFound(format!("session not found: {session_id}")))?;
+            if !session_state.eq_ignore_ascii_case("active") {
+                return Err(DatabaseError::ConstraintViolation(format!(
+                    "session {session_id} is not active"
+                )));
+            }
+
+            let mut inserted_count = 0_i64;
+            for message in &messages {
+                let result = sqlx::query(
+                    "INSERT INTO messages (
+                        message_id, session_id, role, content, created_at, metadata_json
+                    ) VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (message_id) DO NOTHING",
+                )
+                .bind(&message.message_id)
+                .bind(&message.session_id)
+                .bind(&message.role)
+                .bind(&message.content)
+                .bind(&message.created_at)
+                .bind(&message.metadata_json)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_sqlx_error)?;
+                if result.rows_affected() > 0 {
+                    inserted_count = inserted_count.checked_add(1).ok_or_else(|| {
+                        DatabaseError::ConstraintViolation("message turn size overflow".to_string())
+                    })?;
+                } else {
+                    let existing = sqlx::query(
+                        "SELECT message_id, session_id, role, content, created_at, metadata_json
+                         FROM messages WHERE message_id = $1",
+                    )
+                    .bind(&message.message_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(map_sqlx_error)?;
+                    let existing = map_message_row(&existing)?;
+                    crate::message_identity::ensure_message_retry_matches(&existing, message)?;
+                }
+            }
+
+            let count = if inserted_count > 0 {
+                let updated_at = chrono::Utc::now().to_rfc3339();
+                let count = sqlx::query_scalar::<_, i64>(
+                    "UPDATE sessions
+                     SET message_count = message_count + $2, updated_at = $3
+                     WHERE session_id = $1 RETURNING message_count",
+                )
+                .bind(&session_id)
+                .bind(inserted_count)
+                .bind(&updated_at)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(map_sqlx_error)?;
+                for event in &events {
+                    sqlx::query(
+                        "INSERT INTO events (
+                            event_id, session_id, event_type, severity, payload, created_at
+                        ) VALUES ($1, $2, $3, $4, $5, $6)
+                        ON CONFLICT (event_id) DO UPDATE SET
+                            session_id = EXCLUDED.session_id,
+                            event_type = EXCLUDED.event_type,
+                            severity = EXCLUDED.severity,
+                            payload = EXCLUDED.payload,
+                            created_at = EXCLUDED.created_at",
+                    )
+                    .bind(&event.event_id)
+                    .bind(&event.session_id)
+                    .bind(&event.event_type)
+                    .bind(&event.severity)
+                    .bind(&event.payload)
+                    .bind(&event.created_at)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(map_sqlx_error)?;
+                }
+                count
+            } else {
+                current_count
+            };
+
+            tx.commit().await.map_err(map_sqlx_error)?;
             Ok(count)
         })
     }

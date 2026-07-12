@@ -187,7 +187,7 @@ mod tests {
             result.is_err(),
             "unreachable local postgres should return a connection error"
         );
-        let message = result.err().expect("connection error").to_string();
+        let message = result.expect_err("connection error").to_string();
         assert!(
             !message.contains("Cannot start a runtime from within a runtime"),
             "postgres startup must not create a nested Tokio runtime panic: {message}"

@@ -12,9 +12,10 @@ use super::policy::{AgentInputPolicy, UnsupportedInputModalityAction};
 use crate::KernelResult;
 
 /// How a modality reaches the model when native support is missing.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum ModelDeliveryStrategy {
     /// Pass through only when the selected model declares the modality.
+    #[default]
     Native,
     /// Run a named preprocessor (skill/tool) and deliver as another modality.
     Preprocess {
@@ -56,12 +57,6 @@ impl ModelDeliveryStrategy {
                 "unknown model delivery strategy: {kind}"
             ))),
         }
-    }
-}
-
-impl Default for ModelDeliveryStrategy {
-    fn default() -> Self {
-        Self::Native
     }
 }
 

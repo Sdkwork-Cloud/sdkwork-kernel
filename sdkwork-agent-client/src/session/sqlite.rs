@@ -169,6 +169,7 @@ impl SqliteBridgeSessionStore {
                 session_id,
                 &MessageQuery {
                     after_message_id: None,
+                    after_message_created_at: None,
                     limit: limit.map(i64::from),
                     offset: None,
                 },
@@ -236,6 +237,7 @@ impl SqliteBridgeSessionStore {
                 owner_tenant_id: None,
                 owner_user_ref: None,
                 after_session_id: None,
+                after_session_sort_at: None,
                 limit: query.limit.map(i64::from),
                 offset: None,
             })

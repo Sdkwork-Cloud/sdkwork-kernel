@@ -352,10 +352,9 @@ impl ServerConfig {
             && config
                 .runtime_database_engine
                 .eq_ignore_ascii_case("sqlite")
+            && std::env::var("SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE").is_err()
         {
-            if std::env::var("SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE").is_err() {
-                config.runtime_database_engine = "postgres".to_string();
-            }
+            config.runtime_database_engine = "postgres".to_string();
         }
         config.normalize_security();
 

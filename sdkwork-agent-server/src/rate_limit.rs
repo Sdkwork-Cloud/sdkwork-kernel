@@ -45,15 +45,17 @@ redis.call('EXPIRE', key, 3600)
 return 1
 "#;
 
+struct RedisRateLimitBackend {
+    connection: ConnectionManager,
+    script: Script,
+    fallback: Mutex<TokenBucketRateLimitProvider>,
+}
+
 enum RateLimitBackend {
     Memory {
-        provider: Mutex<TokenBucketRateLimitProvider>,
+        provider: Box<Mutex<TokenBucketRateLimitProvider>>,
     },
-    Redis {
-        connection: ConnectionManager,
-        script: Script,
-        fallback: Mutex<TokenBucketRateLimitProvider>,
-    },
+    Redis(Box<RedisRateLimitBackend>),
 }
 
 /// Shared token-bucket rate limiter keyed by tenant/user or client address.
@@ -89,11 +91,11 @@ impl RateLimitState {
                         default_burst,
                         tenant_overrides,
                         redis_fail_closed,
-                        backend: RateLimitBackend::Redis {
+                        backend: RateLimitBackend::Redis(Box::new(RedisRateLimitBackend {
                             connection,
                             script: Script::new(REDIS_TOKEN_BUCKET_SCRIPT),
                             fallback: Mutex::new(ingress_provider),
-                        },
+                        })),
                     });
                 }
                 Err(error) => {
@@ -122,7 +124,7 @@ impl RateLimitState {
             tenant_overrides,
             redis_fail_closed,
             backend: RateLimitBackend::Memory {
-                provider: Mutex::new(ingress_provider),
+                provider: Box::new(Mutex::new(ingress_provider)),
             },
         })
     }
@@ -145,11 +147,11 @@ impl RateLimitState {
                         default_burst,
                         tenant_overrides,
                         redis_fail_closed,
-                        backend: RateLimitBackend::Redis {
+                        backend: RateLimitBackend::Redis(Box::new(RedisRateLimitBackend {
                             connection,
                             script: Script::new(REDIS_TOKEN_BUCKET_SCRIPT),
                             fallback: Mutex::new(ingress_provider),
-                        },
+                        })),
                     });
                 }
                 Err(error) => {
@@ -178,7 +180,7 @@ impl RateLimitState {
             tenant_overrides,
             redis_fail_closed,
             backend: RateLimitBackend::Memory {
-                provider: Mutex::new(ingress_provider),
+                provider: Box::new(Mutex::new(ingress_provider)),
             },
         })
     }
@@ -188,7 +190,7 @@ impl RateLimitState {
     }
 
     pub fn uses_redis(&self) -> bool {
-        matches!(self.backend, RateLimitBackend::Redis { .. })
+        matches!(self.backend, RateLimitBackend::Redis(_))
     }
 
     fn limits_for_tenant(&self, tenant_id: Option<&str>) -> (u32, u32) {
@@ -211,13 +213,9 @@ impl RateLimitState {
                 let mut provider = provider.lock().unwrap_or_else(|error| error.into_inner());
                 provider.try_acquire_ingress(key, tenant_id)
             }
-            RateLimitBackend::Redis {
-                connection,
-                script,
-                fallback,
-            } => {
+            RateLimitBackend::Redis(redis) => {
                 let redis_result = self
-                    .try_acquire_redis(connection.clone(), script, key, rps, burst)
+                    .try_acquire_redis(redis.connection.clone(), &redis.script, key, rps, burst)
                     .await;
                 match redis_result {
                     Some(allowed) => allowed,
@@ -233,8 +231,10 @@ impl RateLimitState {
                             rate_limit_key = key,
                             "redis rate-limit failed; using kernel token-bucket fallback"
                         );
-                        let mut provider =
-                            fallback.lock().unwrap_or_else(|error| error.into_inner());
+                        let mut provider = redis
+                            .fallback
+                            .lock()
+                            .unwrap_or_else(|error| error.into_inner());
                         provider.try_acquire_ingress(key, tenant_id)
                     }
                 }
@@ -318,10 +318,8 @@ mod tests {
             tenant_overrides: HashMap::new(),
             redis_fail_closed: false,
             backend: RateLimitBackend::Memory {
-                provider: Mutex::new(TokenBucketRateLimitProvider::ingress_from_config(
-                    1,
-                    1,
-                    &HashMap::new(),
+                provider: Box::new(Mutex::new(
+                    TokenBucketRateLimitProvider::ingress_from_config(1, 1, &HashMap::new()),
                 )),
             },
         };
@@ -345,10 +343,12 @@ mod tests {
             tenant_overrides: tenant_override_limits(&overrides),
             redis_fail_closed: false,
             backend: RateLimitBackend::Memory {
-                provider: Mutex::new(TokenBucketRateLimitProvider::ingress_from_config(
-                    100,
-                    100,
-                    &tenant_override_limits(&overrides),
+                provider: Box::new(Mutex::new(
+                    TokenBucketRateLimitProvider::ingress_from_config(
+                        100,
+                        100,
+                        &tenant_override_limits(&overrides),
+                    ),
                 )),
             },
         };

@@ -23,13 +23,13 @@ enum ManagerInner {
 #[derive(Clone)]
 enum PermissionDb {
     Sqlite(SqliteDatabase),
-    Postgres(PostgresDatabase),
+    Postgres(Arc<PostgresDatabase>),
 }
 
 #[derive(Clone)]
 enum MaintenanceDb {
     Sqlite(SqliteDatabase),
-    Postgres(PostgresDatabase),
+    Postgres(Arc<PostgresDatabase>),
 }
 
 impl RuntimeMaintenance for MaintenanceDb {
@@ -215,14 +215,14 @@ impl PersistenceState {
     }
 
     fn from_postgres_database(db: PostgresDatabase, event_bus: SessionEventBus) -> Self {
-        let permission_db = db.clone();
         let mut manager = UnifiedSessionManager::new(db.clone());
+        let shared_db = Arc::new(db);
         let bus = event_bus.clone();
         manager.set_event_listener(Arc::new(move |event| bus.publish(event)));
         Self {
             manager: ManagerInner::Postgres(Arc::new(manager)),
-            permission_db: PermissionDb::Postgres(permission_db),
-            maintenance_db: MaintenanceDb::Postgres(db),
+            permission_db: PermissionDb::Postgres(shared_db.clone()),
+            maintenance_db: MaintenanceDb::Postgres(shared_db),
             event_bus,
             backend: PersistenceBackend::Postgres,
         }
@@ -258,6 +258,19 @@ impl PersistenceState {
         config: MessageConfig,
     ) -> Result<MessageRow, String> {
         with_manager!(self, |manager| manager.send_message(session_id, config))
+    }
+
+    pub fn append_completed_turn(
+        &self,
+        session_id: &str,
+        user_content: String,
+        assistant_content: Option<String>,
+    ) -> Result<(MessageRow, Option<MessageRow>), String> {
+        with_manager!(self, |manager| manager.append_completed_turn(
+            session_id,
+            user_content,
+            assistant_content
+        ))
     }
 
     pub fn emit_session_event(

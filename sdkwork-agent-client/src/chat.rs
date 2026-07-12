@@ -113,12 +113,7 @@ impl ChatClient for MockChatClient {
 }
 
 fn generate_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{:x}", nanos)
+    uuid::Uuid::new_v4().to_string()
 }
 
 fn chrono_now() -> String {

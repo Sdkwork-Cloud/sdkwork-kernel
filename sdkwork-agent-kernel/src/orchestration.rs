@@ -90,7 +90,7 @@ impl OrchestrationTask {
 }
 
 /// Agent graph representing agent relationships and capabilities.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AgentGraph {
     /// Agents in the graph.
     pub agents: HashMap<String, AgentNode>,
@@ -113,10 +113,7 @@ impl AgentGraph {
 
     pub fn add_edge(mut self, from: impl Into<String>, to: impl Into<String>) -> Self {
         let from = from.into();
-        self.edges
-            .entry(from)
-            .or_insert_with(Vec::new)
-            .push(to.into());
+        self.edges.entry(from).or_default().push(to.into());
         self
     }
 
@@ -143,7 +140,7 @@ impl AgentGraph {
         }
 
         // Calculate in-degree from edges
-        for (_, deps) in &self.edges {
+        for deps in self.edges.values() {
             for dep in deps {
                 if let Some(deg) = in_degree.get_mut(dep) {
                     *deg += 1;

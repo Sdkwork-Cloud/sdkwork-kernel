@@ -104,6 +104,7 @@ where
             owner_tenant_id: query.owner_tenant_id,
             owner_user_ref: query.owner_user_ref,
             after_session_id: query.after_session_id,
+            after_session_sort_at: query.after_session_sort_at,
             limit: query.limit,
             offset: query.offset,
         };
@@ -186,6 +187,74 @@ where
         }
 
         Ok(row)
+    }
+
+    /// Atomically persist a completed user turn, optional assistant reply, and lifecycle events.
+    pub fn append_completed_turn(
+        &self,
+        session_id: &str,
+        user_content: String,
+        assistant_content: Option<String>,
+    ) -> Result<(MessageRow, Option<MessageRow>), String> {
+        let session = self.get_session(session_id)?;
+        if !session.state.eq_ignore_ascii_case("active") {
+            return Err(format!("session {session_id} is not active"));
+        }
+
+        let turn_started = chrono::Utc::now();
+        let user_row = MessageRow {
+            message_id: format!("msg.{}", generate_id()),
+            session_id: session_id.to_string(),
+            role: "user".to_string(),
+            content: user_content,
+            created_at: turn_started.to_rfc3339(),
+            metadata_json: None,
+        };
+        let assistant_row = assistant_content.map(|content| MessageRow {
+            message_id: format!("msg.{}", generate_id()),
+            session_id: session_id.to_string(),
+            role: "assistant".to_string(),
+            content,
+            created_at: (turn_started + chrono::Duration::nanoseconds(1)).to_rfc3339(),
+            metadata_json: None,
+        });
+
+        let mut messages = vec![user_row.clone()];
+        if let Some(row) = &assistant_row {
+            messages.push(row.clone());
+        }
+        let mut events = Vec::with_capacity(messages.len() + 1);
+        for (index, message) in messages.iter().enumerate() {
+            events.push(EventRow {
+                event_id: format!("evt.{}", generate_id()),
+                session_id: Some(session_id.to_string()),
+                event_type: "message.sent".to_string(),
+                severity: "info".to_string(),
+                payload: Some(format!("role={}", message.role)),
+                created_at: (turn_started
+                    + chrono::Duration::nanoseconds(2 + i64::try_from(index).unwrap_or(0)))
+                .to_rfc3339(),
+            });
+        }
+        events.push(EventRow {
+            event_id: format!("evt.{}", generate_id()),
+            session_id: Some(session_id.to_string()),
+            event_type: "turn.completed".to_string(),
+            severity: "info".to_string(),
+            payload: Some(format!("user_message_id={}", user_row.message_id)),
+            created_at: (turn_started
+                + chrono::Duration::nanoseconds(2 + i64::try_from(messages.len()).unwrap_or(0)))
+            .to_rfc3339(),
+        });
+
+        self.db
+            .append_message_turn_with_events(&messages, &events)
+            .map_err(|e| format!("failed to append completed message turn: {e}"))?;
+        for event in events {
+            self.notify_event(event);
+        }
+
+        Ok((user_row, assistant_row))
     }
 
     /// Delete all messages in a session and reset the cached message count.
@@ -399,14 +468,9 @@ where
     }
 }
 
-/// Generate a simple unique ID
+/// Generate a collision-resistant runtime ID.
 fn generate_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{:x}", nanos)
+    sdkwork_utils_rust::uuid()
 }
 
 #[cfg(test)]
@@ -476,6 +540,59 @@ mod tests {
             .get_messages(&session.session_id, None, None)
             .expect("loaded");
         assert_eq!(messages.len(), 1);
+    }
+
+    #[test]
+    fn append_completed_turn_persists_messages_and_events_together() {
+        let manager = create_manager();
+        let session = manager
+            .create_session(SessionConfig::new("agent.1"))
+            .expect("created");
+
+        let (user, assistant) = manager
+            .append_completed_turn(
+                &session.session_id,
+                "Hello".to_string(),
+                Some("Hi".to_string()),
+            )
+            .expect("completed turn");
+        assert_eq!(user.role, "user");
+        assert_eq!(
+            assistant.as_ref().map(|row| row.role.as_str()),
+            Some("assistant")
+        );
+
+        let messages = manager
+            .get_messages(&session.session_id, None, None)
+            .expect("messages");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].message_id, user.message_id);
+        assert_eq!(
+            messages[1].message_id,
+            assistant.expect("assistant").message_id
+        );
+        assert_eq!(
+            manager.message_count(&session.session_id).expect("count"),
+            2
+        );
+
+        let events = manager
+            .load_session_events(&session.session_id, Some(20), None)
+            .expect("events");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event_type == "message.sent")
+                .count(),
+            2
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event_type == "turn.completed")
+                .count(),
+            1
+        );
     }
 
     #[test]

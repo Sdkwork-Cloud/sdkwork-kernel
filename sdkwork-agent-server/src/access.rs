@@ -33,7 +33,7 @@ pub fn stamp_session_ownership(
     let user = ctx
         .user_id
         .as_deref()
-        .or_else(|| ctx.subject_id.as_deref())
+        .or(ctx.subject_id.as_deref())
         .ok_or(StatusCode::BAD_REQUEST)?;
 
     metadata.insert("ownerTenantId".to_string(), tenant.to_string());
@@ -79,7 +79,7 @@ pub fn assert_session_access(
     let caller_user = ctx
         .user_id
         .as_deref()
-        .or_else(|| ctx.subject_id.as_deref())
+        .or(ctx.subject_id.as_deref())
         .ok_or(StatusCode::FORBIDDEN)?;
     if owner_user.is_some_and(|owner| owner != caller_user) {
         security_audit::log_access_denied(
@@ -111,7 +111,7 @@ pub fn assert_permission_access(
     let caller_user = ctx
         .user_id
         .as_deref()
-        .or_else(|| ctx.subject_id.as_deref())
+        .or(ctx.subject_id.as_deref())
         .ok_or(StatusCode::FORBIDDEN)?;
 
     if owner_tenant_id.is_some_and(|owner| owner != caller_tenant)

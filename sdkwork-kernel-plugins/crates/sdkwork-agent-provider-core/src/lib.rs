@@ -56,6 +56,8 @@ pub trait SessionAdapter {
 
     fn to_agent_session(&self, external: &Self::ExternalSession) -> KernelResult<AgentSession>;
 
+    // Keep the public bidirectional SPI name; reverse conversion may depend on adapter state.
+    #[allow(clippy::wrong_self_convention)]
     fn from_agent_session(&self, _session: &AgentSession) -> KernelResult<Self::ExternalSession> {
         Err(KernelError::validation("reverse conversion not supported"))
     }
@@ -116,6 +118,8 @@ pub trait MessageAdapter {
 
     fn to_agent_message(&self, external: &Self::ExternalMessage) -> KernelResult<AgentMessage>;
 
+    // Keep the public bidirectional SPI name; reverse conversion may depend on adapter state.
+    #[allow(clippy::wrong_self_convention)]
     fn from_agent_message(&self, _message: &AgentMessage) -> KernelResult<Self::ExternalMessage> {
         Err(KernelError::validation(
             "reverse message conversion not supported",
@@ -574,33 +578,92 @@ impl ConversationManager for InMemoryConversationManager {
 // ============================================================================
 
 pub fn uuid_simple() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let n = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{:x}", n)
+    sdkwork_utils_rust::uuid()
 }
 
 pub fn now_iso() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
-    let days = secs / 86400;
-    let remaining = secs % 86400;
-    let hours = remaining / 3600;
-    let minutes = (remaining % 3600) / 60;
-    let s = remaining % 60;
-    let year = 1970 + days / 365;
-    let day_of_year = days % 365;
-    let month = (day_of_year / 30) + 1;
-    let day = (day_of_year % 30) + 1;
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, month, day, hours, minutes, s
-    )
+    sdkwork_utils_rust::format_datetime(sdkwork_utils_rust::now(), Some("%Y-%m-%dT%H:%M:%S%.9fZ"))
+}
+
+/// Defines a provider lifecycle wrapper backed by [`InMemoryProviderSessionStore`].
+#[macro_export]
+macro_rules! define_provider_lifecycle_provider {
+    ($wrapper:ident, $provider_id:expr) => {
+        pub struct $wrapper {
+            store: $crate::InMemoryProviderSessionStore,
+        }
+
+        impl $wrapper {
+            pub fn new() -> Self {
+                Self {
+                    store: $crate::InMemoryProviderSessionStore::new($provider_id),
+                }
+            }
+
+            pub fn session_store(&self) -> &$crate::InMemoryProviderSessionStore {
+                &self.store
+            }
+        }
+
+        impl Default for $wrapper {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+
+        impl $crate::SessionLifecycleProvider for $wrapper {
+            fn create_session(
+                &self,
+                agent_id: &str,
+                user_ref: Option<&str>,
+                config: $crate::SessionConfig,
+            ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
+                self.store.create_session(agent_id, user_ref, config)
+            }
+
+            fn resume_session(
+                &self,
+                session_id: &str,
+            ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
+                self.store.resume_session(session_id)
+            }
+
+            fn close_session(
+                &self,
+                session_id: &str,
+            ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
+                self.store.close_session(session_id)
+            }
+
+            fn list_active_sessions(
+                &self,
+            ) -> sdkwork_agent_kernel::KernelResult<Vec<sdkwork_agent_kernel::AgentSession>> {
+                self.store.list_active_sessions()
+            }
+
+            fn list_sessions(
+                &self,
+                query: &$crate::SessionListQuery,
+            ) -> sdkwork_agent_kernel::KernelResult<Vec<sdkwork_agent_kernel::AgentSession>> {
+                self.store.list_sessions(query)
+            }
+
+            fn get_conversation_history(
+                &self,
+                session_id: &str,
+            ) -> sdkwork_agent_kernel::KernelResult<Vec<sdkwork_agent_kernel::AgentMessage>> {
+                self.store.get_conversation_history(session_id)
+            }
+
+            fn append_conversation_message(
+                &self,
+                session_id: &str,
+                message: sdkwork_agent_kernel::AgentMessage,
+            ) -> sdkwork_agent_kernel::KernelResult<()> {
+                self.store.append_conversation_message(session_id, message)
+            }
+        }
+    };
 }
 
 // ============================================================================
@@ -760,9 +823,10 @@ mod tests {
     }
 
     #[test]
-    fn uuid_simple_returns_non_empty() {
-        let id = uuid_simple();
-        assert!(!id.is_empty());
+    fn uuid_simple_returns_unique_uuids() {
+        let ids: std::collections::HashSet<_> = (0..1_024).map(|_| uuid_simple()).collect();
+        assert_eq!(ids.len(), 1_024);
+        assert!(ids.iter().all(|id| sdkwork_utils_rust::is_uuid(id)));
     }
 
     #[test]
@@ -770,87 +834,6 @@ mod tests {
         let ts = now_iso();
         assert!(ts.ends_with('Z'));
         assert!(ts.contains('T'));
-        assert_eq!(ts.len(), 20);
+        assert!(sdkwork_utils_rust::parse_datetime(&ts, None).is_some());
     }
-}
-
-/// Defines a provider lifecycle wrapper backed by [`InMemoryProviderSessionStore`].
-#[macro_export]
-macro_rules! define_provider_lifecycle_provider {
-    ($wrapper:ident, $provider_id:expr) => {
-        pub struct $wrapper {
-            store: $crate::InMemoryProviderSessionStore,
-        }
-
-        impl $wrapper {
-            pub fn new() -> Self {
-                Self {
-                    store: $crate::InMemoryProviderSessionStore::new($provider_id),
-                }
-            }
-
-            pub fn session_store(&self) -> &$crate::InMemoryProviderSessionStore {
-                &self.store
-            }
-        }
-
-        impl Default for $wrapper {
-            fn default() -> Self {
-                Self::new()
-            }
-        }
-
-        impl $crate::SessionLifecycleProvider for $wrapper {
-            fn create_session(
-                &self,
-                agent_id: &str,
-                user_ref: Option<&str>,
-                config: $crate::SessionConfig,
-            ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
-                self.store.create_session(agent_id, user_ref, config)
-            }
-
-            fn resume_session(
-                &self,
-                session_id: &str,
-            ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
-                self.store.resume_session(session_id)
-            }
-
-            fn close_session(
-                &self,
-                session_id: &str,
-            ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
-                self.store.close_session(session_id)
-            }
-
-            fn list_active_sessions(
-                &self,
-            ) -> sdkwork_agent_kernel::KernelResult<Vec<sdkwork_agent_kernel::AgentSession>> {
-                self.store.list_active_sessions()
-            }
-
-            fn list_sessions(
-                &self,
-                query: &$crate::SessionListQuery,
-            ) -> sdkwork_agent_kernel::KernelResult<Vec<sdkwork_agent_kernel::AgentSession>> {
-                self.store.list_sessions(query)
-            }
-
-            fn get_conversation_history(
-                &self,
-                session_id: &str,
-            ) -> sdkwork_agent_kernel::KernelResult<Vec<sdkwork_agent_kernel::AgentMessage>> {
-                self.store.get_conversation_history(session_id)
-            }
-
-            fn append_conversation_message(
-                &self,
-                session_id: &str,
-                message: sdkwork_agent_kernel::AgentMessage,
-            ) -> sdkwork_agent_kernel::KernelResult<()> {
-                self.store.append_conversation_message(session_id, message)
-            }
-        }
-    };
 }

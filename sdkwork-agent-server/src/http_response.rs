@@ -64,7 +64,12 @@ impl ApiError {
         if lower.contains("not found") {
             return Self::not_found("resource not found", trace_id);
         }
-        if lower.contains("is closed") || lower.contains("already closed") {
+        if lower.contains("constraint violation")
+            || lower.contains("unique constraint")
+            || lower.contains("is not active")
+            || lower.contains("is closed")
+            || lower.contains("already closed")
+        {
             return Self::conflict("resource state conflict", trace_id);
         }
         Self::internal("persistence operation failed", trace_id)
@@ -223,4 +228,32 @@ pub fn cursor_list_response<T: serde::Serialize>(
     };
     let page_data = cursor_list_page_data(items, page_size, next_cursor, has_more);
     api_success(page_data, trace_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn persistence_state_and_identity_conflicts_map_to_conflict() {
+        for message in [
+            "failed to append completed message turn: constraint violation: session session.1 is not active",
+            "query error: UNIQUE constraint failed: messages.message_id",
+            "session is closed",
+        ] {
+            let error = ApiError::from_persistence(message.to_string(), "trace.conflict");
+            assert_eq!(error.code, SdkWorkResultCode::Conflict, "{message}");
+            assert_eq!(error.detail, "resource state conflict");
+        }
+    }
+
+    #[test]
+    fn persistence_internal_errors_remain_sanitized() {
+        let error = ApiError::from_persistence(
+            "transaction error: password=secret host=internal".to_string(),
+            "trace.internal",
+        );
+        assert_eq!(error.code, SdkWorkResultCode::InternalError);
+        assert_eq!(error.detail, "persistence operation failed");
+    }
 }

@@ -315,11 +315,15 @@ classification of each operation.
 
 - Server: `SDKWORK_KERNEL_INGRESS_AUTH_MODE` via `sdkwork-agent-server`.
 - Client remote mode: `sdkwork-agent-client/src/ingress_auth.rs` aligned with server.
-- Request IDs use UUID v7 (time-ordered, collision-resistant) instead of
-  nanosecond timestamps.
+- Locally generated request, session, and message IDs use random UUID v4
+  values through `sdkwork-utils-rust` (or the Rust `uuid` crate in the client)
+  instead of nanosecond timestamps.
 - Infrastructure probes are mounted through
-  `sdkwork-web-bootstrap::service_router`; the persistence readiness adapter is
-  the current framework readiness dependency.
+  `sdkwork-web-bootstrap::service_router`. Readiness validates persistence and
+  schema drift for every profile, required typed provider health in production,
+  and live rate-limit/idempotency Redis in cloud production. Redis checks reuse
+  one lazily initialized connection manager per distinct URL and coalesce
+  concurrent first connections.
 - Permission decisions are persisted to the database `permissions` table,
   surviving server restarts.
 
@@ -367,8 +371,10 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
   `topology.kubernetes.io/zone` fails closed when the cluster cannot satisfy
   the declared zone distribution.
 - **Probes**: Startup, readiness, and liveness probes are all configured.
-  Framework readiness currently validates persistence connectivity; Redis and
-  provider-runtime failover remain explicit release-environment checks.
+  Framework readiness validates persistence connectivity and schema invariants,
+  required production provider health, and cloud-production Redis PINGs. Redis,
+  provider, database, pod, and zone failover drills remain release-environment
+  evidence because a probe cannot prove failover behavior.
 - **Graceful shutdown**: `shutdown_signal()` returns immediately on
   SIGTERM/SIGINT, allowing axum to start draining in-flight requests.
   A `select!` with `force_close_timer()` enforces a 25-second hard
@@ -419,20 +425,29 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
   `Arc<Mutex<...>>` — the session manager methods take `&self`, and
   underlying repositories handle their own concurrency (SQLite internal
   Mutex, Postgres connection pool). Blocking persistence operations
-  are offloaded via `spawn_blocking`. Cross-table message append is
-  transactional and idempotent across SQLite/PostgreSQL: retrying the same
-  `message_id` in one session does not double-increment `message_count` or
-  create a second persisted event, while changed duplicate payloads or a
-  duplicate `message_id` targeting another session are rejected before event
-  publication. Standalone `save_message` keeps the same immutable identity
-  rule across SQLite, PostgreSQL, and the typed in-memory test adapter.
+  are offloaded via `spawn_blocking`. Completed message turns are atomic across
+  SQLite/PostgreSQL: the user message, optional assistant message, all
+  `message.sent` events, one `turn.completed` event, and `message_count` commit
+  together, and any late conflict rolls back the entire turn. Retrying the same
+  single `message_id` in one session does not double-increment the count or
+  create a second event, while changed duplicate payloads or cross-session ID
+  reuse are rejected before event publication. Standalone `save_message` keeps
+  the same immutable identity rule across SQLite, PostgreSQL, and the typed
+  in-memory test adapter.
 - **Rate limiter**: O(1) LRU eviction via insertion-order queue instead of
   O(n) scan.
+- **Idempotency**: Production/non-loopback mutations use a distributed store
+  scoped by verified identity, route, query, key, and server-computed request
+  fingerprint. Bounded JSON success and 5xx responses are replayed exactly;
+  4xx reservations are released, while uncacheable or uncertain outcomes stay
+  fail-closed to prevent duplicate side effects.
 - **SSE events**: The handler subscribes before persistence replay, uses the
   process-local broadcast path for low latency, and polls the durable store in
   bounded batches to recover cross-pod and lagged events. Each connection has
-  a bounded output channel; clients use persisted `event_id` values, not the
-  connection-local sequence, for deduplication and reconnection.
+  a bounded output channel and a bounded recent-ID deduplication window, so
+  poll/broadcast overlap cannot replay the same persisted event. Clients use
+  persisted `event_id` values, not connection-local sequence numbers, for
+  reconnection.
 - **SSE connection cap**: `AtomicU32` counter enforces a per-server
   maximum of 256 concurrent streams with RAII decrement via
   `CountedStream`.
@@ -440,15 +455,19 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
   by `finalize_stream`, so completed streams do not keep occupying
   `max_concurrent` capacity in long-running runtimes.
 - **Token quota**: Atomic Lua-script-based reservation eliminates the TOCTOU
-  race. Reservations are released on provider failure/cancellation and
-  reconciled exactly once on completion or disconnect; provider-reported usage
-  is used when available, otherwise the conservative reservation is charged.
-  Zero-quota tenants fail before invocation.
+  race. Invoke paths await release/reconciliation. Streaming reservations are
+  owned by an async supervisor until the provider worker exits, including
+  slow-client disconnect; successful streams charge at least the conservative
+  reservation or the larger emitted-output estimate, while partial failures
+  reconcile emitted output before the unique terminal event. Zero-quota
+  tenants fail before invocation.
 - **List pagination**: Session/message/task lists are cursor-only. Clients omit
   `cursor` on the first request and pass through `data.pageInfo.nextCursor` for
   each continuation; `page` and offset pagination are not accepted by these
-  operations. HMAC-signed, versioned, resource-scoped cursors drive bounded SQL
-  keyset queries. `page_size` defaults to 20, rejects values outside `1..=200`,
+  operations. HMAC-signed, versioned, resource-scoped cursors carry the stable
+  sort key plus unique ID and drive bounded SQL keyset queries without looking
+  up the prior page's row, so retention or concurrent deletion cannot truncate
+  continuation. `page_size` defaults to 20, rejects values outside `1..=200`,
   and each query fetches at most `page_size + 1` rows to determine `hasMore`
   and `nextCursor` per `PAGINATION_SPEC.md`.
 - **sdkwork-utils-rust**: Shared utility library provides SHA-256,

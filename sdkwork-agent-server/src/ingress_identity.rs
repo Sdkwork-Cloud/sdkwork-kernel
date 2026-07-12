@@ -93,7 +93,7 @@ pub fn resolve_request_identity(
             let user_id = ctx
                 .user_id
                 .as_deref()
-                .or_else(|| ctx.subject_id.as_deref())
+                .or(ctx.subject_id.as_deref())
                 .filter(|value| !value.is_empty())
                 .ok_or(StatusCode::FORBIDDEN)?;
             let mac = extract_header(headers, IDENTITY_MAC_HEADER).ok_or(StatusCode::FORBIDDEN)?;

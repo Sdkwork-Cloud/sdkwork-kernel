@@ -493,6 +493,12 @@ impl InMemorySecretProvider {
     }
 }
 
+impl Default for InMemorySecretProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SecretProvider for InMemorySecretProvider {
     fn create_secret(
         &mut self,

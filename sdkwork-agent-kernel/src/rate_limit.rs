@@ -196,13 +196,7 @@ impl RateLimitRequest {
         requested_amount: u64,
     ) -> Self {
         Self {
-            request_id: format!(
-                "req-{}",
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
-            ),
+            request_id: format!("req-{}", sdkwork_utils_rust::uuid()),
             policy_id: policy_id.into(),
             resource_id: resource_id.into(),
             requester: requester.into(),
@@ -500,6 +494,12 @@ impl InMemoryRateLimitProvider {
     }
 }
 
+impl Default for InMemoryRateLimitProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RateLimitProvider for InMemoryRateLimitProvider {
     fn create_policy(&mut self, policy: RateLimitPolicy) -> Result<(), RateLimitError> {
         if self.policies.len() >= self.max_policies {
@@ -701,6 +701,12 @@ mod tests {
         let request = RateLimitRequest::new("policy-1", "resource-1", "agent-1", 10);
         assert_eq!(request.policy_id, "policy-1");
         assert_eq!(request.requested_amount, 10);
+        assert!(sdkwork_utils_rust::is_uuid(
+            request
+                .request_id
+                .strip_prefix("req-")
+                .expect("request id prefix")
+        ));
     }
 
     #[test]

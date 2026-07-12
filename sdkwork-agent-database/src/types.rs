@@ -119,6 +119,8 @@ pub struct SessionQuery {
     pub owner_user_ref: Option<String>,
     /// Return rows strictly after this session in `updated_at DESC, session_id DESC` order.
     pub after_session_id: Option<String>,
+    /// Persisted `COALESCE(updated_at, created_at)` key carried by an opaque cursor.
+    pub after_session_sort_at: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -128,6 +130,8 @@ pub struct SessionQuery {
 pub struct MessageQuery {
     /// Return rows strictly after this message within the session (keyset continuation).
     pub after_message_id: Option<String>,
+    /// Persisted `created_at` key carried by an opaque cursor.
+    pub after_message_created_at: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -152,6 +156,8 @@ pub struct EventQuery {
 pub struct TaskQuery {
     /// Return rows strictly after this task within the session (keyset continuation).
     pub after_task_id: Option<String>,
+    /// Persisted `created_at` key carried by an opaque cursor.
+    pub after_task_created_at: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }

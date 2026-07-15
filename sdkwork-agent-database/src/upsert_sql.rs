@@ -72,12 +72,7 @@ pub mod sqlite {
     pub const SAVE_EVENT: &str = "INSERT INTO events (
                 event_id, session_id, event_type, severity, payload, created_at
             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-            ON CONFLICT(event_id) DO UPDATE SET
-                session_id = excluded.session_id,
-                event_type = excluded.event_type,
-                severity = excluded.severity,
-                payload = excluded.payload,
-                created_at = excluded.created_at";
+            ON CONFLICT(event_id) DO NOTHING";
 
     pub const SAVE_PERMISSION: &str = "INSERT INTO permissions (
                 permission_request_id, session_id, category, resource,

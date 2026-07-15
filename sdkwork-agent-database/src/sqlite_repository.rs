@@ -5,7 +5,7 @@ use crate::traits::*;
 use crate::types::*;
 use crate::PermissionRow;
 use rusqlite::{
-    params, params_from_iter, OptionalExtension, Row, Transaction, TransactionBehavior,
+    params, params_from_iter, Connection, OptionalExtension, Row, Transaction, TransactionBehavior,
 };
 
 impl SqliteDatabase {
@@ -69,6 +69,43 @@ fn sqlite_delete_ids(
     );
     tx.execute(&sql, params_from_iter(ids.iter()))
         .map_err(|error| DatabaseError::Query(format!("failed to purge {table}: {error}")))
+}
+
+fn sqlite_save_event_idempotent(conn: &Connection, event: &EventRow) -> DatabaseResult<()> {
+    let inserted = conn
+        .execute(
+            crate::upsert_sql::sqlite::SAVE_EVENT,
+            params![
+                event.event_id,
+                event.session_id,
+                event.event_type,
+                event.severity,
+                event.payload,
+                event.created_at,
+            ],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to save event: {error}")))?;
+    if inserted == 0 {
+        let existing = conn
+            .query_row(
+                "SELECT event_id, session_id, event_type, severity, payload, created_at
+                 FROM events WHERE event_id = ?1",
+                params![event.event_id],
+                map_event_row,
+            )
+            .optional()
+            .map_err(|error| {
+                DatabaseError::Query(format!("failed to load existing event: {error}"))
+            })?
+            .ok_or_else(|| {
+                DatabaseError::Internal(format!(
+                    "event {} conflicted but could not be reloaded",
+                    event.event_id
+                ))
+            })?;
+        crate::event_identity::ensure_event_retry_matches(&existing, event)?;
+    }
+    Ok(())
 }
 
 impl RuntimeMaintenance for SqliteDatabase {
@@ -939,19 +976,7 @@ impl EventRepository for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        conn.execute(
-            crate::upsert_sql::sqlite::SAVE_EVENT,
-            params![
-                event.event_id,
-                event.session_id,
-                event.event_type,
-                event.severity,
-                event.payload,
-                event.created_at,
-            ],
-        )
-        .map_err(|error| DatabaseError::Query(format!("failed to save event: {error}")))?;
-        Ok(())
+        sqlite_save_event_idempotent(&conn, event)
     }
 
     fn load_events(&self, session_id: &str, query: &EventQuery) -> DatabaseResult<Vec<EventRow>> {
@@ -1276,6 +1301,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
         session: &SessionRow,
         event: &EventRow,
     ) -> DatabaseResult<()> {
+        crate::event_identity::ensure_event_session(
+            event,
+            &session.session_id,
+            "session write",
+        )?;
         let conn = self
             .conn
             .lock()
@@ -1313,18 +1343,7 @@ impl RuntimeSessionWrites for SqliteDatabase {
                 session.session_id
             )));
         }
-        tx.execute(
-            crate::upsert_sql::sqlite::SAVE_EVENT,
-            params![
-                event.event_id,
-                event.session_id,
-                event.event_type,
-                event.severity,
-                event.payload,
-                event.created_at,
-            ],
-        )
-        .map_err(|error| DatabaseError::Query(format!("failed to save event: {error}")))?;
+        sqlite_save_event_idempotent(&tx, event)?;
         tx.commit().map_err(|error| {
             DatabaseError::Transaction(format!("failed to commit session event: {error}"))
         })
@@ -1335,6 +1354,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
         session: &SessionRow,
         event: &EventRow,
     ) -> DatabaseResult<bool> {
+        crate::event_identity::ensure_event_session(
+            event,
+            &session.session_id,
+            "provider session synchronization",
+        )?;
         let conn = self
             .conn
             .lock()
@@ -1400,18 +1424,7 @@ impl RuntimeSessionWrites for SqliteDatabase {
             ],
         )? > 0;
         if applied {
-            tx.execute(
-                crate::upsert_sql::sqlite::SAVE_EVENT,
-                params![
-                    event.event_id,
-                    event.session_id,
-                    event.event_type,
-                    event.severity,
-                    event.payload,
-                    event.created_at,
-                ],
-            )
-            .map_err(|error| DatabaseError::Query(format!("failed to save event: {error}")))?;
+            sqlite_save_event_idempotent(&tx, event)?;
         }
         tx.commit().map_err(|error| {
             DatabaseError::Transaction(format!("failed to commit session event: {error}"))
@@ -1424,6 +1437,7 @@ impl RuntimeSessionWrites for SqliteDatabase {
         message: &MessageRow,
         event: &EventRow,
     ) -> DatabaseResult<i64> {
+        crate::event_identity::ensure_event_session(event, &message.session_id, "message append")?;
         let conn = self
             .conn
             .lock()
@@ -1508,18 +1522,7 @@ impl RuntimeSessionWrites for SqliteDatabase {
             })?
         };
         if inserted_rows > 0 {
-            tx.execute(
-                crate::upsert_sql::sqlite::SAVE_EVENT,
-                params![
-                    event.event_id,
-                    event.session_id,
-                    event.event_type,
-                    event.severity,
-                    event.payload,
-                    event.created_at,
-                ],
-            )
-            .map_err(|error| DatabaseError::Query(format!("failed to save event: {error}")))?;
+            sqlite_save_event_idempotent(&tx, event)?;
         }
         tx.commit().map_err(|error| {
             DatabaseError::Transaction(format!("failed to commit transaction: {error}"))
@@ -1616,22 +1619,9 @@ impl RuntimeSessionWrites for SqliteDatabase {
                     DatabaseError::Query(format!(
                         "failed to update completed turn message count: {error}"
                     ))
-                })?;
+            })?;
             for event in turn_events {
-                tx.execute(
-                    crate::upsert_sql::sqlite::SAVE_EVENT,
-                    params![
-                        event.event_id,
-                        event.session_id,
-                        event.event_type,
-                        event.severity,
-                        event.payload,
-                        event.created_at,
-                    ],
-                )
-                .map_err(|error| {
-                    DatabaseError::Query(format!("failed to save completed turn event: {error}"))
-                })?;
+                sqlite_save_event_idempotent(&tx, event)?;
             }
             count
         } else {
@@ -1681,6 +1671,7 @@ impl RuntimeSessionWrites for SqliteDatabase {
     }
 
     fn save_task_with_event(&self, task: &TaskRow, event: &EventRow) -> DatabaseResult<()> {
+        crate::event_identity::ensure_event_session(event, &task.session_id, "task write")?;
         let conn = self
             .conn
             .lock()
@@ -1700,18 +1691,7 @@ impl RuntimeSessionWrites for SqliteDatabase {
             ],
         )
         .map_err(|error| DatabaseError::Query(format!("failed to save task: {error}")))?;
-        tx.execute(
-            crate::upsert_sql::sqlite::SAVE_EVENT,
-            params![
-                event.event_id,
-                event.session_id,
-                event.event_type,
-                event.severity,
-                event.payload,
-                event.created_at,
-            ],
-        )
-        .map_err(|error| DatabaseError::Query(format!("failed to save event: {error}")))?;
+        sqlite_save_event_idempotent(&tx, event)?;
         tx.commit().map_err(|error| {
             DatabaseError::Transaction(format!("failed to commit task event: {error}"))
         })
@@ -1748,11 +1728,7 @@ impl RuntimeSessionWrites for SqliteDatabase {
                 "task {task_id} is not active"
             )));
         }
-        if event.session_id.as_deref() != Some(task.session_id.as_str()) {
-            return Err(DatabaseError::ConstraintViolation(
-                "task cancellation event session mismatch".to_string(),
-            ));
-        }
+        crate::event_identity::ensure_event_session(event, &task.session_id, "task cancellation")?;
         let changed = tx
             .execute(
                 "UPDATE tasks SET state = 'cancelled', updated_at = ?2
@@ -1765,18 +1741,7 @@ impl RuntimeSessionWrites for SqliteDatabase {
                 "task {task_id} state changed concurrently"
             )));
         }
-        tx.execute(
-            crate::upsert_sql::sqlite::SAVE_EVENT,
-            params![
-                event.event_id,
-                event.session_id,
-                event.event_type,
-                event.severity,
-                event.payload,
-                event.created_at,
-            ],
-        )
-        .map_err(|error| DatabaseError::Query(format!("failed to save event: {error}")))?;
+        sqlite_save_event_idempotent(&tx, event)?;
         tx.commit().map_err(|error| {
             DatabaseError::Transaction(format!("failed to commit task cancellation: {error}"))
         })?;

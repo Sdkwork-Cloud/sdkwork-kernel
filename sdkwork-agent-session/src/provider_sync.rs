@@ -181,10 +181,15 @@ impl ProviderSessionSynchronizer {
         }
         let mut previous_sequence = after_sequence;
         for change in &batch.changes {
-            if change.sequence <= previous_sequence {
+            let expected_sequence = previous_sequence.checked_add(1).ok_or_else(|| {
+                format!(
+                    "provider {provider_id} session change cursor exhausted at {previous_sequence}"
+                )
+            })?;
+            if change.sequence != expected_sequence {
                 return Err(format!(
-                    "provider {provider_id} returned non-increasing session change sequence {} after {}",
-                    change.sequence, previous_sequence
+                    "provider {provider_id} returned non-contiguous session change sequence {}, expected {expected_sequence}",
+                    change.sequence
                 ));
             }
             previous_sequence = change.sequence;
@@ -734,6 +739,11 @@ mod tests {
             sdkwork_agent_provider_core::ProviderSessionChangeBatch {
                 changes: vec![change(2), change(1)],
                 next_cursor: 1,
+                has_more: false,
+            },
+            sdkwork_agent_provider_core::ProviderSessionChangeBatch {
+                changes: vec![change(1), change(3)],
+                next_cursor: 3,
                 has_more: false,
             },
             sdkwork_agent_provider_core::ProviderSessionChangeBatch {

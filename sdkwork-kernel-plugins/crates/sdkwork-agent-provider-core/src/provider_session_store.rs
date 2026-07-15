@@ -455,7 +455,7 @@ impl InMemoryProviderSessionStore {
             )));
         }
         if let Some(oldest) = inner.changes.front() {
-            if after_sequence > 0 && after_sequence.saturating_add(1) < oldest.sequence {
+            if after_sequence.saturating_add(1) < oldest.sequence {
                 return Err(KernelError::validation(format!(
                     "session change cursor {after_sequence} expired; oldest available sequence is {}",
                     oldest.sequence
@@ -1262,7 +1262,11 @@ mod tests {
             store.read_inner().expect("inner").changes.len(),
             MAX_PROVIDER_SESSION_CHANGES
         );
-        assert!(store.changes_since(0, Some(1)).is_ok());
+        assert!(store
+            .changes_since(0, Some(1))
+            .expect_err("zero cursor must not hide an evicted change")
+            .to_string()
+            .contains("expired"));
 
         let mut extra = store.get_session(&session.session_id).expect("session");
         extra.title = Some("evict-again".to_string());

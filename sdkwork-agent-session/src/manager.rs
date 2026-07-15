@@ -48,7 +48,7 @@ where
 
     /// Create a new session
     pub fn create_session(&self, config: SessionConfig) -> Result<SessionRow, String> {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = sdkwork_agent_database::runtime_now_timestamp();
         let session_id = format!("session.{}", generate_id());
 
         let metadata_json = config
@@ -136,7 +136,7 @@ where
             ));
         }
         let mut session = session.clone();
-        session.updated_at = Some(chrono::Utc::now().to_rfc3339());
+        session.updated_at = Some(sdkwork_agent_database::runtime_now_timestamp());
         let event = self.build_event(&session.session_id, "session.updated", "info", None);
         self.db
             .save_session_with_event(&session, &event)
@@ -238,7 +238,7 @@ where
             ));
         }
         session.state = "closed".to_string();
-        session.updated_at = Some(chrono::Utc::now().to_rfc3339());
+        session.updated_at = Some(sdkwork_agent_database::runtime_now_timestamp());
 
         let event = self.build_event(session_id, "session.closed", "info", None);
         self.db
@@ -274,7 +274,7 @@ where
             ));
         }
 
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = sdkwork_agent_database::runtime_now_timestamp();
         let message_id = format!("msg.{}", generate_id());
 
         let row = MessageRow {
@@ -295,7 +295,7 @@ where
             event_type: "message.sent".to_string(),
             severity: "info".to_string(),
             payload: Some(format!("role={}", row.role)),
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: sdkwork_agent_database::runtime_now_timestamp(),
         };
 
         self.db
@@ -321,13 +321,13 @@ where
             return Err(format!("session {session_id} is not active"));
         }
 
-        let turn_started = chrono::Utc::now();
+        let turn_started = sdkwork_utils_rust::now();
         let user_row = MessageRow {
             message_id: format!("msg.{}", generate_id()),
             session_id: session_id.to_string(),
             role: "user".to_string(),
             content: user_content,
-            created_at: turn_started.to_rfc3339(),
+            created_at: sdkwork_agent_database::format_runtime_timestamp(turn_started),
             metadata_json: None,
         };
         let assistant_row = assistant_content.map(|content| MessageRow {
@@ -335,7 +335,9 @@ where
             session_id: session_id.to_string(),
             role: "assistant".to_string(),
             content,
-            created_at: (turn_started + chrono::Duration::nanoseconds(1)).to_rfc3339(),
+            created_at: sdkwork_agent_database::format_runtime_timestamp(
+                turn_started + chrono::Duration::nanoseconds(1),
+            ),
             metadata_json: None,
         });
 
@@ -351,9 +353,10 @@ where
                 event_type: "message.sent".to_string(),
                 severity: "info".to_string(),
                 payload: Some(format!("role={}", message.role)),
-                created_at: (turn_started
-                    + chrono::Duration::nanoseconds(2 + i64::try_from(index).unwrap_or(0)))
-                .to_rfc3339(),
+                created_at: sdkwork_agent_database::format_runtime_timestamp(
+                    turn_started
+                        + chrono::Duration::nanoseconds(2 + i64::try_from(index).unwrap_or(0)),
+                ),
             });
         }
         events.push(EventRow {
@@ -362,9 +365,10 @@ where
             event_type: "turn.completed".to_string(),
             severity: "info".to_string(),
             payload: Some(format!("user_message_id={}", user_row.message_id)),
-            created_at: (turn_started
-                + chrono::Duration::nanoseconds(2 + i64::try_from(messages.len()).unwrap_or(0)))
-            .to_rfc3339(),
+            created_at: sdkwork_agent_database::format_runtime_timestamp(
+                turn_started
+                    + chrono::Duration::nanoseconds(2 + i64::try_from(messages.len()).unwrap_or(0)),
+            ),
         });
 
         self.db
@@ -380,10 +384,18 @@ where
     /// Delete all messages in a session and reset the cached message count.
     pub fn delete_messages(&self, session_id: &str) -> Result<(), String> {
         self.get_session(session_id)?;
-        let updated_at = chrono::Utc::now().to_rfc3339();
+        let updated_at = sdkwork_agent_database::runtime_now_timestamp();
+        let event = self.build_event(
+            session_id,
+            "session.updated",
+            "info",
+            Some("messages_cleared=true"),
+        );
         self.db
-            .delete_messages_and_reset_count(session_id, &updated_at)
-            .map_err(|e| format!("failed to delete messages: {}", e))
+            .delete_messages_and_reset_count_with_event(session_id, &updated_at, &event)
+            .map_err(|e| format!("failed to delete messages: {}", e))?;
+        self.notify_event(event);
+        Ok(())
     }
 
     /// List messages with full query parameters (offset or keyset continuation).
@@ -434,7 +446,11 @@ where
 
     /// Get a conversation manager for a session
     pub fn conversation(&self) -> ConversationManager<DB> {
-        ConversationManager::new(self.db.clone())
+        let mut conversation = ConversationManager::new(self.db.clone());
+        if let Some(listener) = &self.event_listener {
+            conversation.set_event_listener(listener.clone());
+        }
+        conversation
     }
 
     /// Emit a persisted session event to storage and optional listeners.
@@ -456,6 +472,7 @@ where
         severity: &str,
         payload: Option<&str>,
     ) -> Result<(), String> {
+        self.get_session(session_id)?;
         let event = self.build_event(session_id, event_type, severity, payload);
 
         self.db
@@ -480,7 +497,7 @@ where
             event_type: event_type.to_string(),
             severity: severity.to_string(),
             payload: payload.map(str::to_string),
-            created_at: chrono::Utc::now().to_rfc3339(),
+            created_at: sdkwork_agent_database::runtime_now_timestamp(),
         }
     }
 
@@ -492,8 +509,14 @@ where
 
     /// Create a task in a session.
     pub fn create_task(&self, session_id: &str, instruction: &str) -> Result<TaskRow, String> {
-        let _session = self.get_session(session_id)?;
-        let now = chrono::Utc::now().to_rfc3339();
+        let session = self.get_session(session_id)?;
+        if sdkwork_agent_database::session_state_is_terminal(&session.state) {
+            return Err(format!(
+                "cannot create a task for terminal session {session_id} ({})",
+                session.state
+            ));
+        }
+        let now = sdkwork_agent_database::runtime_now_timestamp();
         let task = TaskRow {
             task_id: format!("task.{}", generate_id()),
             session_id: session_id.to_string(),
@@ -533,7 +556,7 @@ where
     /// Cancel a task.
     pub fn cancel_task(&self, task_id: &str) -> Result<TaskRow, String> {
         let task = self.get_task(task_id)?;
-        let updated_at = chrono::Utc::now().to_rfc3339();
+        let updated_at = sdkwork_agent_database::runtime_now_timestamp();
         let event = self.build_event(
             &task.session_id,
             "task.cancelled",
@@ -601,7 +624,7 @@ fn provider_session_to_row(
     session: &AgentSession,
     existing: Option<&SessionRow>,
 ) -> Result<SessionRow, String> {
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = sdkwork_agent_database::runtime_now_timestamp();
     let created_at = normalized_provider_timestamp(session.created_at.as_deref(), "created_at")?;
     let updated_at = normalized_provider_timestamp(session.updated_at.as_deref(), "updated_at")?;
     let mut metadata: HashMap<String, String> = session.metadata.iter().cloned().collect();
@@ -1078,6 +1101,10 @@ mod tests {
             .send_message(&session.session_id, MessageConfig::user("late"))
             .expect_err("terminal message")
             .contains("terminal"));
+        assert!(manager
+            .create_task(&session.session_id, "late task")
+            .expect_err("terminal task")
+            .contains("terminal session"));
     }
 
     #[test]

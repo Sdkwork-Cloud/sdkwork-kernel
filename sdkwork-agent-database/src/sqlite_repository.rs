@@ -108,6 +108,27 @@ fn sqlite_save_event_idempotent(conn: &Connection, event: &EventRow) -> Database
     Ok(())
 }
 
+fn sqlite_validate_event_retry_if_present(
+    conn: &Connection,
+    event: &EventRow,
+) -> DatabaseResult<()> {
+    if let Some(existing) = conn
+        .query_row(
+            "SELECT event_id, session_id, event_type, severity, payload, created_at
+             FROM events WHERE event_id = ?1",
+            params![event.event_id],
+            map_event_row,
+        )
+        .optional()
+        .map_err(|error| {
+            DatabaseError::Query(format!("failed to validate existing event: {error}"))
+        })?
+    {
+        crate::event_identity::ensure_event_retry_matches(&existing, event)?;
+    }
+    Ok(())
+}
+
 impl RuntimeMaintenance for SqliteDatabase {
     fn purge_expired(&self, cutoff: &str, batch_size: i64) -> DatabaseResult<RuntimePurgeCounts> {
         if !(1..=10_000).contains(&batch_size) {
@@ -661,23 +682,42 @@ impl SessionRepository for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let updated_at = chrono::Utc::now().to_rfc3339();
-        let count: i64 = conn
+        let updated_at = crate::types::runtime_now_timestamp();
+        let count = conn
             .query_row(
                 "UPDATE sessions SET message_count = message_count + 1, updated_at = ?2 \
-                 WHERE session_id = ?1 RETURNING message_count",
+                 WHERE session_id = ?1
+                   AND LOWER(state) NOT IN ('closed', 'failed', 'archived')
+                   AND message_count < 9223372036854775807
+                 RETURNING message_count",
                 params![session_id, updated_at],
                 |row| row.get(0),
             )
-            .map_err(|error| match error {
-                rusqlite::Error::QueryReturnedNoRows => {
-                    DatabaseError::NotFound(format!("session not found: {session_id}"))
-                }
-                other => {
-                    DatabaseError::Query(format!("failed to increment message count: {other}"))
-                }
+            .optional()
+            .map_err(|error| {
+                DatabaseError::Query(format!("failed to increment message count: {error}"))
             })?;
-        Ok(count)
+        if let Some(count) = count {
+            return Ok(count);
+        }
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sessions WHERE session_id = ?1)",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| {
+                DatabaseError::Query(format!("failed to check session existence: {error}"))
+            })?;
+        if exists {
+            Err(DatabaseError::ConstraintViolation(format!(
+                "session {session_id} is terminal or its message count is exhausted"
+            )))
+        } else {
+            Err(DatabaseError::NotFound(format!(
+                "session not found: {session_id}"
+            )))
+        }
     }
 }
 
@@ -857,19 +897,45 @@ impl TaskRepository for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        conn.execute(
-            crate::upsert_sql::sqlite::SAVE_TASK,
-            params![
-                task.task_id,
-                task.session_id,
-                task.instruction,
-                task.state,
-                task.created_at,
-                task.updated_at,
-            ],
-        )
-        .map_err(|error| DatabaseError::Query(format!("failed to save task: {error}")))?;
-        Ok(())
+        let tx = conn.unchecked_transaction().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to begin task transaction: {error}"))
+        })?;
+        let _session_state: String = tx
+            .query_row(
+                "SELECT state FROM sessions WHERE session_id = ?1",
+                params![task.session_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    DatabaseError::NotFound(format!("session not found: {}", task.session_id))
+                }
+                other => {
+                    DatabaseError::Query(format!("failed to load task session state: {other}"))
+                }
+            })?;
+        let changed = tx
+            .execute(
+                crate::upsert_sql::sqlite::SAVE_TASK,
+                params![
+                    task.task_id,
+                    task.session_id,
+                    task.instruction,
+                    task.state,
+                    task.created_at,
+                    task.updated_at,
+                ],
+            )
+            .map_err(|error| DatabaseError::Query(format!("failed to save task: {error}")))?;
+        if changed == 0 {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "task {} update conflicts with session ownership or terminal lifecycle",
+                task.task_id
+            )));
+        }
+        tx.commit().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to commit task transaction: {error}"))
+        })
     }
 
     fn load_task(&self, task_id: &str) -> DatabaseResult<Option<TaskRow>> {
@@ -1276,7 +1342,7 @@ impl PermissionRepository for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::types::runtime_now_timestamp();
         let changed = conn
             .execute(
                 "UPDATE permissions SET status = ?1, updated_at = ?2
@@ -1301,11 +1367,7 @@ impl RuntimeSessionWrites for SqliteDatabase {
         session: &SessionRow,
         event: &EventRow,
     ) -> DatabaseResult<()> {
-        crate::event_identity::ensure_event_session(
-            event,
-            &session.session_id,
-            "session write",
-        )?;
+        crate::event_identity::ensure_event_session(event, &session.session_id, "session write")?;
         let conn = self
             .conn
             .lock()
@@ -1445,11 +1507,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
         let tx = conn.unchecked_transaction().map_err(|error| {
             DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
         })?;
-        let session_state: String = tx
+        let (session_state, current_count): (String, i64) = tx
             .query_row(
-                "SELECT state FROM sessions WHERE session_id = ?1",
+                "SELECT state, message_count FROM sessions WHERE session_id = ?1",
                 params![message.session_id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .map_err(|error| match error {
                 rusqlite::Error::QueryReturnedNoRows => {
@@ -1482,11 +1544,14 @@ impl RuntimeSessionWrites for SqliteDatabase {
             )
             .map_err(|error| DatabaseError::Query(format!("failed to save message: {error}")))?;
         let count: i64 = if inserted_rows > 0 {
-            let updated_at = chrono::Utc::now().to_rfc3339();
+            let updated_at = crate::types::runtime_now_timestamp();
+            let next_count = current_count.checked_add(1).ok_or_else(|| {
+                DatabaseError::ConstraintViolation("session message count overflow".to_string())
+            })?;
             tx.query_row(
-                "UPDATE sessions SET message_count = message_count + 1, updated_at = ?2 \
+                "UPDATE sessions SET message_count = ?2, updated_at = ?3 \
                      WHERE session_id = ?1 RETURNING message_count",
-                params![message.session_id, updated_at],
+                params![message.session_id, next_count, updated_at],
                 |row| row.get(0),
             )
             .map_err(|error| match error {
@@ -1606,20 +1671,23 @@ impl RuntimeSessionWrites for SqliteDatabase {
         }
 
         let count = if inserted_count > 0 {
-            let updated_at = chrono::Utc::now().to_rfc3339();
+            let updated_at = crate::types::runtime_now_timestamp();
+            let next_count = current_count.checked_add(inserted_count).ok_or_else(|| {
+                DatabaseError::ConstraintViolation("session message count overflow".to_string())
+            })?;
             let count = tx
                 .query_row(
                     "UPDATE sessions
-                     SET message_count = message_count + ?2, updated_at = ?3
+                     SET message_count = ?2, updated_at = ?3
                      WHERE session_id = ?1 RETURNING message_count",
-                    params![session_id, inserted_count, updated_at],
+                    params![session_id, next_count, updated_at],
                     |row| row.get(0),
                 )
                 .map_err(|error| {
                     DatabaseError::Query(format!(
                         "failed to update completed turn message count: {error}"
                     ))
-            })?;
+                })?;
             for event in turn_events {
                 sqlite_save_event_idempotent(&tx, event)?;
             }
@@ -1670,6 +1738,44 @@ impl RuntimeSessionWrites for SqliteDatabase {
         Ok(())
     }
 
+    fn delete_messages_and_reset_count_with_event(
+        &self,
+        session_id: &str,
+        updated_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<()> {
+        crate::event_identity::ensure_event_session(event, session_id, "message deletion")?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let tx = conn.unchecked_transaction().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+        })?;
+        tx.execute(
+            "DELETE FROM messages WHERE session_id = ?1",
+            params![session_id],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to delete messages: {error}")))?;
+        let rows = tx
+            .execute(
+                "UPDATE sessions SET message_count = 0, updated_at = ?2 WHERE session_id = ?1",
+                params![session_id, updated_at],
+            )
+            .map_err(|error| {
+                DatabaseError::Query(format!("failed to reset session message count: {error}"))
+            })?;
+        if rows == 0 {
+            return Err(DatabaseError::NotFound(format!(
+                "session not found: {session_id}"
+            )));
+        }
+        sqlite_save_event_idempotent(&tx, event)?;
+        tx.commit().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to commit message deletion: {error}"))
+        })
+    }
+
     fn save_task_with_event(&self, task: &TaskRow, event: &EventRow) -> DatabaseResult<()> {
         crate::event_identity::ensure_event_session(event, &task.session_id, "task write")?;
         let conn = self
@@ -1679,18 +1785,45 @@ impl RuntimeSessionWrites for SqliteDatabase {
         let tx = conn.unchecked_transaction().map_err(|error| {
             DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
         })?;
-        tx.execute(
-            crate::upsert_sql::sqlite::SAVE_TASK,
-            params![
-                task.task_id,
-                task.session_id,
-                task.instruction,
-                task.state,
-                task.created_at,
-                task.updated_at,
-            ],
-        )
-        .map_err(|error| DatabaseError::Query(format!("failed to save task: {error}")))?;
+        let session_state: String = tx
+            .query_row(
+                "SELECT state FROM sessions WHERE session_id = ?1",
+                params![task.session_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    DatabaseError::NotFound(format!("session not found: {}", task.session_id))
+                }
+                other => {
+                    DatabaseError::Query(format!("failed to lock task session state: {other}"))
+                }
+            })?;
+        if crate::types::session_state_is_terminal(&session_state) {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "cannot create or update task {} for terminal session {}",
+                task.task_id, task.session_id
+            )));
+        }
+        let changed = tx
+            .execute(
+                crate::upsert_sql::sqlite::SAVE_TASK,
+                params![
+                    task.task_id,
+                    task.session_id,
+                    task.instruction,
+                    task.state,
+                    task.created_at,
+                    task.updated_at,
+                ],
+            )
+            .map_err(|error| DatabaseError::Query(format!("failed to save task: {error}")))?;
+        if changed == 0 {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "task {} update conflicts with session ownership or terminal lifecycle",
+                task.task_id
+            )));
+        }
         sqlite_save_event_idempotent(&tx, event)?;
         tx.commit().map_err(|error| {
             DatabaseError::Transaction(format!("failed to commit task event: {error}"))
@@ -1720,19 +1853,21 @@ impl RuntimeSessionWrites for SqliteDatabase {
             .optional()
             .map_err(|error| DatabaseError::Query(format!("failed to load task: {error}")))?
             .ok_or_else(|| DatabaseError::NotFound(format!("task not found: {task_id}")))?;
-        if task.state == "cancelled" {
+        crate::event_identity::ensure_event_session(event, &task.session_id, "task cancellation")?;
+        sqlite_validate_event_retry_if_present(&tx, event)?;
+        let normalized_state = task.state.to_ascii_lowercase();
+        if matches!(normalized_state.as_str(), "cancelled" | "canceled") {
             return Ok((task, false));
         }
-        if !matches!(task.state.as_str(), "created" | "pending" | "running") {
+        if !matches!(normalized_state.as_str(), "created" | "pending" | "running") {
             return Err(DatabaseError::ConstraintViolation(format!(
                 "task {task_id} is not active"
             )));
         }
-        crate::event_identity::ensure_event_session(event, &task.session_id, "task cancellation")?;
         let changed = tx
             .execute(
                 "UPDATE tasks SET state = 'cancelled', updated_at = ?2
-                 WHERE task_id = ?1 AND state IN ('created', 'pending', 'running')",
+                 WHERE task_id = ?1 AND LOWER(state) IN ('created', 'pending', 'running')",
                 params![task_id, updated_at],
             )
             .map_err(|error| DatabaseError::Query(format!("failed to cancel task: {error}")))?;

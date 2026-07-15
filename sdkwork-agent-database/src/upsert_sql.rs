@@ -67,7 +67,12 @@ pub mod sqlite {
                 instruction = excluded.instruction,
                 state = excluded.state,
                 created_at = excluded.created_at,
-                updated_at = excluded.updated_at";
+                updated_at = excluded.updated_at
+            WHERE tasks.session_id = excluded.session_id
+              AND (
+                LOWER(tasks.state) NOT IN ('completed', 'failed', 'cancelled', 'canceled')
+                OR LOWER(tasks.state) = LOWER(excluded.state)
+              )";
 
     pub const SAVE_EVENT: &str = "INSERT INTO events (
                 event_id, session_id, event_type, severity, payload, created_at

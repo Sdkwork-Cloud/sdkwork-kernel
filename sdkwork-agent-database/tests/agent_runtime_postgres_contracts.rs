@@ -3,6 +3,7 @@
 use sdkwork_agent_database::{
     EventQuery, EventRepository, EventRow, MessageRepository, MessageRow, PermissionRepository,
     PermissionRow, PostgresDatabase, RuntimeSessionWrites, SessionRepository, SessionRow,
+    TaskRepository, TaskRow,
 };
 
 fn runtime_postgres_uri() -> Option<String> {
@@ -302,6 +303,181 @@ fn live_postgres_session_message_roundtrip_when_uri_configured() {
     assert_eq!(messages.len(), 1);
 
     let _ = db.delete_session_cascade(&session_id);
+}
+
+#[test]
+fn live_postgres_event_identity_and_session_association_are_immutable_when_uri_configured() {
+    let Some(uri) = runtime_postgres_uri() else {
+        return;
+    };
+    let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
+    let session_id = format!("session.event.identity.pg.{}", uuid_like_suffix());
+    let session = SessionRow {
+        session_id: session_id.clone(),
+        agent_id: "agent.runtime".to_string(),
+        kind: "main".to_string(),
+        source: "contract-test".to_string(),
+        state: "active".to_string(),
+        title: None,
+        model: None,
+        cwd: None,
+        provider_id: None,
+        bridge_id: None,
+        token_usage_json: None,
+        message_count: 0,
+        owner_tenant_id: None,
+        owner_user_ref: None,
+        created_at: "2026-07-15T00:00:00Z".to_string(),
+        updated_at: None,
+        metadata_json: None,
+    };
+    db.save_session(&session).expect("session");
+    let original_event = EventRow {
+        event_id: format!("evt.identity.{session_id}"),
+        session_id: Some(session_id.clone()),
+        event_type: "session.created".to_string(),
+        severity: "info".to_string(),
+        payload: Some("original".to_string()),
+        created_at: "2026-07-15T00:00:00Z".to_string(),
+    };
+    db.save_event(&original_event).expect("event");
+    db.save_event(&original_event).expect("idempotent event");
+
+    let mut conflicting_event = original_event.clone();
+    conflicting_event.payload = Some("changed".to_string());
+    assert!(matches!(
+        db.save_event(&conflicting_event),
+        Err(sdkwork_agent_database::DatabaseError::ConstraintViolation(
+            _
+        ))
+    ));
+
+    let message = MessageRow {
+        message_id: format!("msg.identity.{session_id}"),
+        session_id: session_id.clone(),
+        role: "user".to_string(),
+        content: "must roll back".to_string(),
+        created_at: "2026-07-15T00:00:01Z".to_string(),
+        metadata_json: None,
+    };
+    let mut mismatched_event = original_event.clone();
+    mismatched_event.event_id = format!("evt.mismatch.{session_id}");
+    mismatched_event.session_id = Some("session.other".to_string());
+    assert!(matches!(
+        db.append_message_with_event(&message, &mismatched_event),
+        Err(sdkwork_agent_database::DatabaseError::ConstraintViolation(
+            _
+        ))
+    ));
+    assert!(matches!(
+        db.append_message_with_event(&message, &conflicting_event),
+        Err(sdkwork_agent_database::DatabaseError::ConstraintViolation(
+            _
+        ))
+    ));
+    assert!(db
+        .load_messages(
+            &session_id,
+            &sdkwork_agent_database::MessageQuery::default()
+        )
+        .expect("messages")
+        .is_empty());
+    assert_eq!(
+        db.load_session(&session_id)
+            .expect("load")
+            .expect("session")
+            .message_count,
+        0
+    );
+    let events = db
+        .load_events(
+            &session_id,
+            &EventQuery {
+                limit: Some(20),
+                ..EventQuery::default()
+            },
+        )
+        .expect("events");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].payload.as_deref(), Some("original"));
+    db.delete_session_cascade(&session_id).expect("cleanup");
+}
+
+#[test]
+fn live_postgres_message_count_overflow_is_rejected_atomically_when_uri_configured() {
+    let Some(uri) = runtime_postgres_uri() else {
+        return;
+    };
+    let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
+    let session_id = format!("session.message-count.max.pg.{}", uuid_like_suffix());
+    let session = SessionRow {
+        session_id: session_id.clone(),
+        agent_id: "agent.runtime".to_string(),
+        kind: "main".to_string(),
+        source: "contract-test".to_string(),
+        state: "active".to_string(),
+        title: None,
+        model: None,
+        cwd: None,
+        provider_id: None,
+        bridge_id: None,
+        token_usage_json: None,
+        message_count: i64::MAX,
+        owner_tenant_id: None,
+        owner_user_ref: None,
+        created_at: "2026-07-15T00:00:00Z".to_string(),
+        updated_at: None,
+        metadata_json: None,
+    };
+    db.save_session(&session).expect("session");
+    assert!(matches!(
+        db.increment_session_message_count(&session_id),
+        Err(sdkwork_agent_database::DatabaseError::ConstraintViolation(
+            _
+        ))
+    ));
+
+    let message = MessageRow {
+        message_id: format!("msg.message-count.max.{session_id}"),
+        session_id: session_id.clone(),
+        role: "user".to_string(),
+        content: "overflow".to_string(),
+        created_at: "2026-07-15T00:00:01Z".to_string(),
+        metadata_json: None,
+    };
+    let event = EventRow {
+        event_id: format!("evt.message-count.max.{session_id}"),
+        session_id: Some(session_id.clone()),
+        event_type: "message.sent".to_string(),
+        severity: "info".to_string(),
+        payload: None,
+        created_at: "2026-07-15T00:00:01Z".to_string(),
+    };
+    assert!(matches!(
+        db.append_message_with_event(&message, &event),
+        Err(sdkwork_agent_database::DatabaseError::ConstraintViolation(
+            _
+        ))
+    ));
+    assert!(db
+        .load_messages(
+            &session_id,
+            &sdkwork_agent_database::MessageQuery::default()
+        )
+        .expect("messages")
+        .is_empty());
+    assert!(db
+        .load_events(&session_id, &EventQuery::default())
+        .expect("events")
+        .is_empty());
+    assert_eq!(
+        db.load_session(&session_id)
+            .expect("load")
+            .expect("session")
+            .message_count,
+        i64::MAX
+    );
+    db.delete_session_cascade(&session_id).expect("cleanup");
 }
 
 #[test]
@@ -777,6 +953,165 @@ fn live_postgres_append_message_with_event_rejects_cross_session_duplicate_when_
 
     let _ = db.delete_session_cascade(&first_session_id);
     let _ = db.delete_session_cascade(&second_session_id);
+}
+
+#[test]
+fn live_postgres_task_ownership_terminal_and_cancel_contracts_when_uri_configured() {
+    let Some(uri) = runtime_postgres_uri() else {
+        return;
+    };
+    let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
+    let suffix = uuid_like_suffix();
+    let session_id = format!("session.task.pg.{suffix}");
+    let other_session_id = format!("session.task.other.pg.{suffix}");
+    for id in [&session_id, &other_session_id] {
+        db.save_session(&SessionRow {
+            session_id: id.clone(),
+            agent_id: "agent.runtime".to_string(),
+            kind: "main".to_string(),
+            source: "contract-test".to_string(),
+            state: "active".to_string(),
+            title: None,
+            model: None,
+            cwd: None,
+            provider_id: None,
+            bridge_id: None,
+            token_usage_json: None,
+            message_count: 0,
+            owner_tenant_id: None,
+            owner_user_ref: None,
+            created_at: "2026-07-15T00:00:00Z".to_string(),
+            updated_at: None,
+            metadata_json: None,
+        })
+        .expect("session");
+    }
+
+    let task = TaskRow {
+        task_id: format!("task.pg.{suffix}"),
+        session_id: session_id.clone(),
+        instruction: "run".to_string(),
+        state: "Running".to_string(),
+        created_at: "2026-07-15T00:00:01Z".to_string(),
+        updated_at: None,
+    };
+    db.save_task(&task).expect("task");
+    let foreign = TaskRow {
+        session_id: other_session_id.clone(),
+        ..task.clone()
+    };
+    assert!(db.save_task(&foreign).is_err());
+
+    let cancel_event = EventRow {
+        event_id: format!("evt.task.cancel.pg.{suffix}"),
+        session_id: Some(session_id.clone()),
+        event_type: "task.cancelled".to_string(),
+        severity: "info".to_string(),
+        payload: Some(task.task_id.clone()),
+        created_at: "2026-07-15T00:00:02Z".to_string(),
+    };
+    let (cancelled, changed) = db
+        .cancel_task_with_event(&task.task_id, "2026-07-15T00:00:02Z", &cancel_event)
+        .expect("cancel");
+    assert!(changed);
+    assert_eq!(cancelled.state, "cancelled");
+    assert!(
+        !db.cancel_task_with_event(&task.task_id, "2026-07-15T00:00:03Z", &cancel_event)
+            .expect("exact retry")
+            .1
+    );
+
+    let mut conflicting_event = cancel_event.clone();
+    conflicting_event.payload = Some("conflict".to_string());
+    assert!(db
+        .cancel_task_with_event(&task.task_id, "2026-07-15T00:00:03Z", &conflicting_event,)
+        .is_err());
+    let mut wrong_session_event = cancel_event.clone();
+    wrong_session_event.event_id = format!("evt.task.cancel.wrong.pg.{suffix}");
+    wrong_session_event.session_id = Some(other_session_id.clone());
+    assert!(db
+        .cancel_task_with_event(&task.task_id, "2026-07-15T00:00:03Z", &wrong_session_event,)
+        .is_err());
+
+    let reopened = TaskRow {
+        state: "running".to_string(),
+        ..cancelled
+    };
+    assert!(db.update_task(&reopened).is_err());
+    let already_canceled = TaskRow {
+        task_id: format!("task.already-canceled.pg.{suffix}"),
+        session_id: session_id.clone(),
+        instruction: "done".to_string(),
+        state: "CANCELED".to_string(),
+        created_at: "2026-07-15T00:00:02Z".to_string(),
+        updated_at: None,
+    };
+    db.save_task(&already_canceled)
+        .expect("already canceled task");
+    assert!(
+        !db.cancel_task_with_event(
+            &already_canceled.task_id,
+            "2026-07-15T00:00:03Z",
+            &EventRow {
+                event_id: format!("evt.task.already-canceled.pg.{suffix}"),
+                session_id: Some(session_id.clone()),
+                event_type: "task.cancelled".to_string(),
+                severity: "info".to_string(),
+                payload: Some(already_canceled.task_id.clone()),
+                created_at: "2026-07-15T00:00:03Z".to_string(),
+            },
+        )
+        .expect("already canceled")
+        .1
+    );
+    assert_eq!(
+        db.load_events(
+            &session_id,
+            &EventQuery {
+                event_type: Some("task.cancelled".to_string()),
+                limit: Some(20),
+                ..Default::default()
+            },
+        )
+        .expect("events")
+        .len(),
+        1
+    );
+
+    let mut closed = db
+        .load_session(&session_id)
+        .expect("load")
+        .expect("session");
+    closed.state = "closed".to_string();
+    db.update_session(&closed).expect("close");
+    let late_task = TaskRow {
+        task_id: format!("task.late.pg.{suffix}"),
+        session_id: session_id.clone(),
+        instruction: "late".to_string(),
+        state: "created".to_string(),
+        created_at: "2026-07-15T00:00:04Z".to_string(),
+        updated_at: None,
+    };
+    assert!(db
+        .save_task_with_event(
+            &late_task,
+            &EventRow {
+                event_id: format!("evt.task.late.pg.{suffix}"),
+                session_id: Some(session_id.clone()),
+                event_type: "task.created".to_string(),
+                severity: "info".to_string(),
+                payload: Some(late_task.task_id.clone()),
+                created_at: "2026-07-15T00:00:04Z".to_string(),
+            },
+        )
+        .is_err());
+    assert!(db
+        .load_task(&late_task.task_id)
+        .expect("late lookup")
+        .is_none());
+
+    let _ = db.delete_session_cascade(&session_id);
+    let _ = db.delete_session_cascade(&other_session_id);
 }
 
 fn uuid_like_suffix() -> String {

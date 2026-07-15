@@ -399,14 +399,32 @@ impl SessionRepository for InMemoryDatabase {
         let session = sessions
             .get_mut(session_id)
             .ok_or_else(|| DatabaseError::NotFound(format!("session not found: {session_id}")))?;
-        session.message_count += 1;
-        session.updated_at = Some(chrono::Utc::now().to_rfc3339());
+        if crate::types::session_state_is_terminal(&session.state) {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "session {session_id} is terminal ({})",
+                session.state
+            )));
+        }
+        session.message_count = session.message_count.checked_add(1).ok_or_else(|| {
+            DatabaseError::ConstraintViolation("session message count overflow".to_string())
+        })?;
+        session.updated_at = Some(crate::types::runtime_now_timestamp());
         Ok(session.message_count)
     }
 }
 
 impl MessageRepository for InMemoryDatabase {
     fn save_message(&self, message: &MessageRow) -> DatabaseResult<()> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        if !sessions.contains_key(&message.session_id) {
+            return Err(DatabaseError::NotFound(format!(
+                "session not found: {}",
+                message.session_id
+            )));
+        }
         let mut messages = self
             .messages
             .lock()
@@ -520,10 +538,26 @@ impl MessageRepository for InMemoryDatabase {
 
 impl TaskRepository for InMemoryDatabase {
     fn save_task(&self, task: &TaskRow) -> DatabaseResult<()> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        sessions.get(&task.session_id).ok_or_else(|| {
+            DatabaseError::NotFound(format!("session not found: {}", task.session_id))
+        })?;
         let mut tasks = self
             .tasks
             .lock()
             .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
+        if tasks
+            .get(&task.task_id)
+            .is_some_and(|existing| crate::types::task_update_conflicts(task, existing))
+        {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "task {} update conflicts with session ownership or terminal lifecycle",
+                task.task_id
+            )));
+        }
         tasks.insert(task.task_id.clone(), task.clone());
         Ok(())
     }
@@ -580,10 +614,26 @@ impl TaskRepository for InMemoryDatabase {
     }
 
     fn update_task(&self, task: &TaskRow) -> DatabaseResult<()> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        sessions.get(&task.session_id).ok_or_else(|| {
+            DatabaseError::NotFound(format!("session not found: {}", task.session_id))
+        })?;
         let mut tasks = self
             .tasks
             .lock()
             .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
+        let existing = tasks
+            .get(&task.task_id)
+            .ok_or_else(|| DatabaseError::NotFound(format!("task not found: {}", task.task_id)))?;
+        if crate::types::task_update_conflicts(task, existing) {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "task {} update conflicts with session ownership or terminal lifecycle",
+                task.task_id
+            )));
+        }
         tasks.insert(task.task_id.clone(), task.clone());
         Ok(())
     }
@@ -600,6 +650,17 @@ impl TaskRepository for InMemoryDatabase {
 
 impl EventRepository for InMemoryDatabase {
     fn save_event(&self, event: &EventRow) -> DatabaseResult<()> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        if let Some(session_id) = event.session_id.as_deref() {
+            if !sessions.contains_key(session_id) {
+                return Err(DatabaseError::NotFound(format!(
+                    "session not found: {session_id}"
+                )));
+            }
+        }
         let mut events = self
             .events
             .lock()
@@ -807,7 +868,7 @@ impl PermissionRepository for InMemoryDatabase {
         }
         if permission.status == "pending" {
             permission.status = status.to_string();
-            permission.updated_at = Some(chrono::Utc::now().to_rfc3339());
+            permission.updated_at = Some(crate::types::runtime_now_timestamp());
         }
         Ok(())
     }
@@ -819,11 +880,7 @@ impl RuntimeSessionWrites for InMemoryDatabase {
         session: &SessionRow,
         event: &EventRow,
     ) -> DatabaseResult<()> {
-        crate::event_identity::ensure_event_session(
-            event,
-            &session.session_id,
-            "session write",
-        )?;
+        crate::event_identity::ensure_event_session(event, &session.session_id, "session write")?;
         let mut sessions = self
             .sessions
             .lock()
@@ -940,7 +997,7 @@ impl RuntimeSessionWrites for InMemoryDatabase {
             save_event_idempotent(&mut events, event)?;
             messages.push(message.clone());
             session.message_count = next_count;
-            session.updated_at = Some(chrono::Utc::now().to_rfc3339());
+            session.updated_at = Some(crate::types::runtime_now_timestamp());
         }
         let count = session.message_count;
         Ok(count)
@@ -997,7 +1054,7 @@ impl RuntimeSessionWrites for InMemoryDatabase {
                 ensure_event_can_be_saved(&events, event)?;
             }
             session.message_count = next_count;
-            session.updated_at = Some(chrono::Utc::now().to_rfc3339());
+            session.updated_at = Some(crate::types::runtime_now_timestamp());
             messages.extend(new_messages);
             for event in turn_events {
                 if !events.iter().any(|row| row.event_id == event.event_id) {
@@ -1031,16 +1088,51 @@ impl RuntimeSessionWrites for InMemoryDatabase {
         Ok(())
     }
 
+    fn delete_messages_and_reset_count_with_event(
+        &self,
+        session_id: &str,
+        updated_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<()> {
+        crate::event_identity::ensure_event_session(event, session_id, "message deletion")?;
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut messages = self
+            .messages
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let session = sessions
+            .get_mut(session_id)
+            .ok_or_else(|| DatabaseError::NotFound(format!("session not found: {session_id}")))?;
+        ensure_event_can_be_saved(&events, event)?;
+        messages.retain(|row| row.session_id != session_id);
+        session.message_count = 0;
+        session.updated_at = Some(updated_at.to_string());
+        if !events.iter().any(|row| row.event_id == event.event_id) {
+            events.push(event.clone());
+        }
+        Ok(())
+    }
+
     fn save_task_with_event(&self, task: &TaskRow, event: &EventRow) -> DatabaseResult<()> {
         crate::event_identity::ensure_event_session(event, &task.session_id, "task write")?;
         let sessions = self
             .sessions
             .lock()
             .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
-        if !sessions.contains_key(&task.session_id) {
-            return Err(DatabaseError::NotFound(format!(
-                "session not found: {}",
-                task.session_id
+        let session = sessions.get(&task.session_id).ok_or_else(|| {
+            DatabaseError::NotFound(format!("session not found: {}", task.session_id))
+        })?;
+        if crate::types::session_state_is_terminal(&session.state) {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "cannot create or update task {} for terminal session {}",
+                task.task_id, task.session_id
             )));
         }
         let mut tasks = self
@@ -1051,6 +1143,15 @@ impl RuntimeSessionWrites for InMemoryDatabase {
             .events
             .lock()
             .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        if tasks
+            .get(&task.task_id)
+            .is_some_and(|existing| crate::types::task_update_conflicts(task, existing))
+        {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "task {} update conflicts with session ownership or terminal lifecycle",
+                task.task_id
+            )));
+        }
         ensure_event_can_be_saved(&events, event)?;
         tasks.insert(task.task_id.clone(), task.clone());
         if !events.iter().any(|row| row.event_id == event.event_id) {
@@ -1076,15 +1177,17 @@ impl RuntimeSessionWrites for InMemoryDatabase {
         let task = tasks
             .get_mut(task_id)
             .ok_or_else(|| DatabaseError::NotFound(format!("task not found: {task_id}")))?;
-        if task.state == "cancelled" {
+        crate::event_identity::ensure_event_session(event, &task.session_id, "task cancellation")?;
+        ensure_event_can_be_saved(&events, event)?;
+        let normalized_state = task.state.to_ascii_lowercase();
+        if matches!(normalized_state.as_str(), "cancelled" | "canceled") {
             return Ok((task.clone(), false));
         }
-        if !matches!(task.state.as_str(), "created" | "pending" | "running") {
+        if !matches!(normalized_state.as_str(), "created" | "pending" | "running") {
             return Err(DatabaseError::ConstraintViolation(format!(
                 "task {task_id} is not active"
             )));
         }
-        crate::event_identity::ensure_event_session(event, &task.session_id, "task cancellation")?;
         save_event_idempotent(&mut events, event)?;
         task.state = "cancelled".to_string();
         task.updated_at = Some(updated_at.to_string());
@@ -1095,6 +1198,264 @@ impl RuntimeSessionWrites for InMemoryDatabase {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_session(session_id: &str) -> SessionRow {
+        SessionRow {
+            session_id: session_id.to_string(),
+            agent_id: "agent.1".to_string(),
+            kind: "main".to_string(),
+            source: "test".to_string(),
+            state: "active".to_string(),
+            title: None,
+            model: None,
+            cwd: None,
+            provider_id: None,
+            bridge_id: None,
+            token_usage_json: None,
+            message_count: 0,
+            owner_tenant_id: None,
+            owner_user_ref: None,
+            created_at: "2026-07-15T00:00:00Z".to_string(),
+            updated_at: None,
+            metadata_json: None,
+        }
+    }
+
+    #[test]
+    fn event_identity_and_session_association_are_immutable() {
+        let db = InMemoryDatabase::new();
+        let session = sample_session("session.event.identity.memory");
+        db.save_session(&session).expect("session");
+        let original_event = EventRow {
+            event_id: "evt.identity.memory".to_string(),
+            session_id: Some(session.session_id.clone()),
+            event_type: "session.created".to_string(),
+            severity: "info".to_string(),
+            payload: Some("original".to_string()),
+            created_at: "2026-07-15T00:00:00Z".to_string(),
+        };
+        db.save_event(&original_event).expect("event");
+        db.save_event(&original_event).expect("idempotent event");
+
+        let mut conflicting_event = original_event.clone();
+        conflicting_event.payload = Some("changed".to_string());
+        assert!(matches!(
+            db.save_event(&conflicting_event),
+            Err(DatabaseError::ConstraintViolation(_))
+        ));
+
+        let message = MessageRow {
+            message_id: "msg.identity.memory".to_string(),
+            session_id: session.session_id.clone(),
+            role: "user".to_string(),
+            content: "must roll back".to_string(),
+            created_at: "2026-07-15T00:00:01Z".to_string(),
+            metadata_json: None,
+        };
+        let mut mismatched_event = original_event.clone();
+        mismatched_event.event_id = "evt.mismatch.memory".to_string();
+        mismatched_event.session_id = Some("session.other".to_string());
+        assert!(matches!(
+            db.append_message_with_event(&message, &mismatched_event),
+            Err(DatabaseError::ConstraintViolation(_))
+        ));
+        assert!(matches!(
+            db.append_message_with_event(&message, &conflicting_event),
+            Err(DatabaseError::ConstraintViolation(_))
+        ));
+
+        assert!(db
+            .load_messages(&session.session_id, &MessageQuery::default())
+            .expect("messages")
+            .is_empty());
+        assert_eq!(
+            db.load_session(&session.session_id)
+                .expect("load")
+                .expect("session")
+                .message_count,
+            0
+        );
+        let events = db
+            .load_events(&session.session_id, &EventQuery::default())
+            .expect("events");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].payload.as_deref(), Some("original"));
+    }
+
+    #[test]
+    fn message_count_overflow_is_rejected_atomically() {
+        let db = InMemoryDatabase::new();
+        let mut session = sample_session("session.message-count.max.memory");
+        session.message_count = i64::MAX;
+        db.save_session(&session).expect("session");
+        assert!(matches!(
+            db.increment_session_message_count(&session.session_id),
+            Err(DatabaseError::ConstraintViolation(_))
+        ));
+
+        let message = MessageRow {
+            message_id: "msg.message-count.max.memory".to_string(),
+            session_id: session.session_id.clone(),
+            role: "user".to_string(),
+            content: "overflow".to_string(),
+            created_at: "2026-07-15T00:00:01Z".to_string(),
+            metadata_json: None,
+        };
+        let event = EventRow {
+            event_id: "evt.message-count.max.memory".to_string(),
+            session_id: Some(session.session_id.clone()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: None,
+            created_at: "2026-07-15T00:00:01Z".to_string(),
+        };
+        assert!(matches!(
+            db.append_message_with_event(&message, &event),
+            Err(DatabaseError::ConstraintViolation(_))
+        ));
+        assert!(db
+            .load_messages(&session.session_id, &MessageQuery::default())
+            .expect("messages")
+            .is_empty());
+        assert!(db
+            .load_events(&session.session_id, &EventQuery::default())
+            .expect("events")
+            .is_empty());
+        assert_eq!(
+            db.load_session(&session.session_id)
+                .expect("load")
+                .expect("session")
+                .message_count,
+            i64::MAX
+        );
+    }
+
+    #[test]
+    fn task_session_ownership_and_terminal_lifecycle_are_immutable() {
+        let db = InMemoryDatabase::new();
+        let session = sample_session("session.task.memory");
+        let other_session = sample_session("session.task.other.memory");
+        db.save_session(&session).expect("session");
+        db.save_session(&other_session).expect("other session");
+        let task = TaskRow {
+            task_id: "task.identity.memory".to_string(),
+            session_id: session.session_id.clone(),
+            instruction: "run".to_string(),
+            state: "running".to_string(),
+            created_at: "2026-07-15T00:00:01Z".to_string(),
+            updated_at: None,
+        };
+        db.save_task(&task).expect("task");
+        let foreign = TaskRow {
+            session_id: other_session.session_id,
+            ..task.clone()
+        };
+        assert!(matches!(
+            db.save_task(&foreign),
+            Err(DatabaseError::ConstraintViolation(_))
+        ));
+        let cancel_event = EventRow {
+            event_id: "evt.task.identity.memory".to_string(),
+            session_id: Some(session.session_id.clone()),
+            event_type: "task.cancelled".to_string(),
+            severity: "info".to_string(),
+            payload: None,
+            created_at: "2026-07-15T00:00:02Z".to_string(),
+        };
+        let (cancelled, changed) = db
+            .cancel_task_with_event(&task.task_id, "2026-07-15T00:00:02Z", &cancel_event)
+            .expect("cancel");
+        assert!(changed);
+        assert!(
+            !db.cancel_task_with_event(&task.task_id, "2026-07-15T00:00:03Z", &cancel_event)
+                .expect("exact retry")
+                .1
+        );
+        let mut conflicting_event = cancel_event.clone();
+        conflicting_event.payload = Some("conflict".to_string());
+        assert!(matches!(
+            db.cancel_task_with_event(&task.task_id, "2026-07-15T00:00:03Z", &conflicting_event,),
+            Err(DatabaseError::ConstraintViolation(_))
+        ));
+        let mut wrong_session_event = cancel_event.clone();
+        wrong_session_event.event_id = "evt.task.identity.wrong-session.memory".to_string();
+        wrong_session_event.session_id = Some("session.task.other.memory".to_string());
+        assert!(matches!(
+            db.cancel_task_with_event(&task.task_id, "2026-07-15T00:00:03Z", &wrong_session_event,),
+            Err(DatabaseError::ConstraintViolation(_))
+        ));
+        let reopened = TaskRow {
+            state: "running".to_string(),
+            ..cancelled
+        };
+        assert!(matches!(
+            db.update_task(&reopened),
+            Err(DatabaseError::ConstraintViolation(_))
+        ));
+
+        let already_canceled = TaskRow {
+            task_id: "task.already-canceled.memory".to_string(),
+            session_id: session.session_id.clone(),
+            instruction: "done".to_string(),
+            state: "CANCELED".to_string(),
+            created_at: "2026-07-15T00:00:02Z".to_string(),
+            updated_at: None,
+        };
+        db.save_task(&already_canceled)
+            .expect("already canceled task");
+        let event_count = db
+            .load_events(&session.session_id, &EventQuery::default())
+            .expect("events")
+            .len();
+        assert!(
+            !db.cancel_task_with_event(
+                &already_canceled.task_id,
+                "2026-07-15T00:00:03Z",
+                &EventRow {
+                    event_id: "evt.task.already-canceled.memory".to_string(),
+                    session_id: Some(session.session_id.clone()),
+                    event_type: "task.cancelled".to_string(),
+                    severity: "info".to_string(),
+                    payload: None,
+                    created_at: "2026-07-15T00:00:03Z".to_string(),
+                },
+            )
+            .expect("already canceled")
+            .1
+        );
+        assert_eq!(
+            db.load_events(&session.session_id, &EventQuery::default())
+                .expect("events")
+                .len(),
+            event_count
+        );
+
+        let mut terminal_session = session;
+        terminal_session.state = "closed".to_string();
+        db.update_session(&terminal_session).expect("close session");
+        let late_task = TaskRow {
+            task_id: "task.after-close.memory".to_string(),
+            session_id: terminal_session.session_id,
+            instruction: "late".to_string(),
+            state: "created".to_string(),
+            created_at: "2026-07-15T00:00:03Z".to_string(),
+            updated_at: None,
+        };
+        assert!(matches!(
+            db.save_task_with_event(
+                &late_task,
+                &EventRow {
+                    event_id: "evt.task.after-close.memory".to_string(),
+                    session_id: Some(late_task.session_id.clone()),
+                    event_type: "task.created".to_string(),
+                    severity: "info".to_string(),
+                    payload: None,
+                    created_at: "2026-07-15T00:00:03Z".to_string(),
+                },
+            ),
+            Err(DatabaseError::ConstraintViolation(_))
+        ));
+    }
 
     #[test]
     fn save_and_load_session() {
@@ -1358,6 +1719,8 @@ mod tests {
     #[test]
     fn save_and_load_messages() {
         let db = InMemoryDatabase::new();
+        db.save_session(&sample_session("session.1"))
+            .expect("session");
         let message = MessageRow {
             message_id: "msg.1".to_string(),
             session_id: "session.1".to_string(),
@@ -1378,6 +1741,8 @@ mod tests {
     #[test]
     fn save_message_is_idempotent_for_same_row() {
         let db = InMemoryDatabase::new();
+        db.save_session(&sample_session("session.memory.save"))
+            .expect("session");
         let message = MessageRow {
             message_id: "msg.memory.save.idempotent".to_string(),
             session_id: "session.memory.save".to_string(),
@@ -1400,6 +1765,8 @@ mod tests {
     #[test]
     fn save_message_rejects_duplicate_message_id_with_different_content() {
         let db = InMemoryDatabase::new();
+        db.save_session(&sample_session("session.memory.save"))
+            .expect("session");
         let message = MessageRow {
             message_id: "msg.memory.save.conflict".to_string(),
             session_id: "session.memory.save".to_string(),

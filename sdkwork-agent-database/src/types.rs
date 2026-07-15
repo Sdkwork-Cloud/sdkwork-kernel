@@ -1,5 +1,15 @@
 use serde::{Deserialize, Serialize};
 
+pub const RUNTIME_TIMESTAMP_PATTERN: &str = "%Y-%m-%dT%H:%M:%S%.9fZ";
+
+pub fn format_runtime_timestamp(value: chrono::DateTime<chrono::Utc>) -> String {
+    sdkwork_utils_rust::format_datetime(value, Some(RUNTIME_TIMESTAMP_PATTERN))
+}
+
+pub fn runtime_now_timestamp() -> String {
+    format_runtime_timestamp(sdkwork_utils_rust::now())
+}
+
 /// Latest runtime schema migration version required by all supported stores.
 pub const CURRENT_SCHEMA_VERSION: i64 = 4;
 
@@ -98,6 +108,19 @@ pub fn session_state_regresses_from_terminal(incoming: &SessionRow, existing: &S
 pub fn ordinary_session_update_conflicts(incoming: &SessionRow, existing: &SessionRow) -> bool {
     session_provider_ownership_changes(incoming, existing)
         || session_state_regresses_from_terminal(incoming, existing)
+}
+
+pub fn task_state_is_terminal(state: &str) -> bool {
+    matches!(
+        state.to_ascii_lowercase().as_str(),
+        "completed" | "failed" | "cancelled" | "canceled"
+    )
+}
+
+pub fn task_update_conflicts(incoming: &TaskRow, existing: &TaskRow) -> bool {
+    incoming.session_id != existing.session_id
+        || (task_state_is_terminal(&existing.state)
+            && !incoming.state.eq_ignore_ascii_case(&existing.state))
 }
 
 pub fn timestamp_is_older(incoming: Option<&str>, existing: Option<&str>) -> bool {
@@ -253,5 +276,20 @@ mod tests {
             Some("2026-07-15T08:01:00+08:00"),
             Some("2026-07-15T00:02:00Z")
         ));
+    }
+
+    #[test]
+    fn runtime_timestamp_is_fixed_width_utc_and_lexically_ordered() {
+        let earlier = sdkwork_utils_rust::parse_datetime("2026-07-15T00:00:00.000000001Z", None)
+            .expect("earlier");
+        let later = sdkwork_utils_rust::parse_datetime("2026-07-15T00:00:00.000000010Z", None)
+            .expect("later");
+        let earlier = format_runtime_timestamp(earlier);
+        let later = format_runtime_timestamp(later);
+        assert_eq!(earlier.len(), 30);
+        assert_eq!(later.len(), 30);
+        assert!(earlier.ends_with('Z'));
+        assert!(earlier < later);
+        assert_eq!(runtime_now_timestamp().len(), 30);
     }
 }

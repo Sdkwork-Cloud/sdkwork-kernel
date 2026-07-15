@@ -34,11 +34,12 @@ pub use traits::{
     TaskRepository,
 };
 pub use types::{
-    ordinary_session_update_conflicts, session_owner_fields_from_metadata_json,
-    session_provider_ownership_changes, session_state_is_terminal,
-    session_state_regresses_from_terminal, EventQuery, EventRow, MessageQuery, MessageRow,
-    PermissionQuery, PermissionRow, RuntimePurgeCounts, RuntimeSchemaStatus, SessionQuery,
-    SessionRow, TaskQuery, TaskRow, CURRENT_SCHEMA_VERSION,
+    format_runtime_timestamp, ordinary_session_update_conflicts, runtime_now_timestamp,
+    session_owner_fields_from_metadata_json, session_provider_ownership_changes,
+    session_state_is_terminal, session_state_regresses_from_terminal, task_state_is_terminal,
+    task_update_conflicts, EventQuery, EventRow, MessageQuery, MessageRow, PermissionQuery,
+    PermissionRow, RuntimePurgeCounts, RuntimeSchemaStatus, SessionQuery, SessionRow, TaskQuery,
+    TaskRow, CURRENT_SCHEMA_VERSION, RUNTIME_TIMESTAMP_PATTERN,
 };
 
 #[cfg(feature = "sqlite")]

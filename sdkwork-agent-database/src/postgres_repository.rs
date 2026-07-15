@@ -61,10 +61,7 @@ fn map_event_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<EventRow> {
     })
 }
 
-async fn postgres_save_event_idempotent<'e, E>(
-    executor: E,
-    event: &EventRow,
-) -> DatabaseResult<()>
+async fn postgres_save_event_idempotent<'e, E>(executor: E, event: &EventRow) -> DatabaseResult<()>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
@@ -77,6 +74,43 @@ where
             RETURNING event_id
         )
         SELECT EXISTS(SELECT 1 FROM inserted)
+            OR EXISTS(
+                SELECT 1 FROM events
+                WHERE event_id = $1
+                  AND session_id IS NOT DISTINCT FROM $2
+                  AND event_type = $3
+                  AND severity = $4
+                  AND payload IS NOT DISTINCT FROM $5
+                  AND created_at = $6
+            )",
+    )
+    .bind(&event.event_id)
+    .bind(&event.session_id)
+    .bind(&event.event_type)
+    .bind(&event.severity)
+    .bind(&event.payload)
+    .bind(&event.created_at)
+    .fetch_one(executor)
+    .await
+    .map_err(map_sqlx_error)?;
+    if !accepted {
+        return Err(DatabaseError::ConstraintViolation(format!(
+            "event {} already exists with different identity or payload",
+            event.event_id
+        )));
+    }
+    Ok(())
+}
+
+async fn postgres_validate_event_retry_if_present<'e, E>(
+    executor: E,
+    event: &EventRow,
+) -> DatabaseResult<()>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let accepted = sqlx::query_scalar::<_, bool>(
+        "SELECT NOT EXISTS(SELECT 1 FROM events WHERE event_id = $1)
             OR EXISTS(
                 SELECT 1 FROM events
                 WHERE event_id = $1
@@ -587,17 +621,36 @@ impl SessionRepository for PostgresDatabase {
     fn increment_session_message_count(&self, session_id: &str) -> DatabaseResult<i64> {
         let pool = self.pool.pool().clone();
         let session_id = session_id.to_owned();
-        let updated_at = chrono::Utc::now().to_rfc3339();
+        let updated_at = crate::types::runtime_now_timestamp();
         self.pool.run_db(async move {
             let count = sqlx::query_scalar::<_, i64>(
                 "UPDATE sessions SET message_count = message_count + 1, updated_at = $2 \
-                 WHERE session_id = $1 RETURNING message_count",
+                 WHERE session_id = $1
+                   AND LOWER(state) NOT IN ('closed', 'failed', 'archived')
+                   AND message_count < 9223372036854775807
+                 RETURNING message_count",
             )
             .bind(&session_id)
             .bind(&updated_at)
             .fetch_optional(&pool)
             .await?;
-            count.ok_or_else(|| DatabaseError::NotFound(format!("session not found: {session_id}")))
+            if let Some(count) = count {
+                return Ok(count);
+            }
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sessions WHERE session_id = $1)")
+                    .bind(&session_id)
+                    .fetch_one(&pool)
+                    .await?;
+            if exists {
+                Err(DatabaseError::ConstraintViolation(format!(
+                    "session {session_id} is terminal or its message count is exhausted"
+                )))
+            } else {
+                Err(DatabaseError::NotFound(format!(
+                    "session not found: {session_id}"
+                )))
+            }
         })
     }
 }
@@ -759,7 +812,17 @@ impl TaskRepository for PostgresDatabase {
         let pool = self.pool.pool().clone();
         let task = task.clone();
         self.pool.run_db(async move {
-            sqlx::query(
+            let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            let _session_state = sqlx::query_scalar::<_, String>(
+                "SELECT state FROM sessions WHERE session_id = $1 FOR UPDATE",
+            )
+            .bind(&task.session_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                DatabaseError::NotFound(format!("session not found: {}", task.session_id))
+            })?;
+            let result = sqlx::query(
                 "INSERT INTO tasks (
                     task_id, session_id, instruction, state, created_at, updated_at
                 ) VALUES ($1, $2, $3, $4, $5, $6)
@@ -768,7 +831,12 @@ impl TaskRepository for PostgresDatabase {
                     instruction = EXCLUDED.instruction,
                     state = EXCLUDED.state,
                     created_at = EXCLUDED.created_at,
-                    updated_at = EXCLUDED.updated_at",
+                    updated_at = EXCLUDED.updated_at
+                WHERE tasks.session_id = EXCLUDED.session_id
+                  AND (
+                    LOWER(tasks.state) NOT IN ('completed', 'failed', 'cancelled', 'canceled')
+                    OR LOWER(tasks.state) = LOWER(EXCLUDED.state)
+                  )",
             )
             .bind(&task.task_id)
             .bind(&task.session_id)
@@ -776,8 +844,15 @@ impl TaskRepository for PostgresDatabase {
             .bind(&task.state)
             .bind(&task.created_at)
             .bind(&task.updated_at)
-            .execute(&pool)
+            .execute(&mut *tx)
             .await?;
+            if result.rows_affected() == 0 {
+                return Err(DatabaseError::ConstraintViolation(format!(
+                    "task {} update conflicts with session ownership or terminal lifecycle",
+                    task.task_id
+                )));
+            }
+            tx.commit().await?;
             Ok(())
         })
     }
@@ -1164,7 +1239,7 @@ impl PermissionRepository for PostgresDatabase {
         let permission_request_id = permission_request_id.to_owned();
         let status = status.to_owned();
         self.pool.run_db(async move {
-            let now = chrono::Utc::now().to_rfc3339();
+            let now = crate::types::runtime_now_timestamp();
             let result = sqlx::query(
                 "UPDATE permissions SET status = $1, updated_at = $2
                  WHERE permission_request_id = $3 AND (status = 'pending' OR status = $1)",
@@ -1190,6 +1265,7 @@ impl RuntimeSessionWrites for PostgresDatabase {
         session: &SessionRow,
         event: &EventRow,
     ) -> DatabaseResult<()> {
+        crate::event_identity::ensure_event_session(event, &session.session_id, "session write")?;
         let pool = self.pool.pool().clone();
         let session = session.clone();
         let event = event.clone();
@@ -1246,25 +1322,7 @@ impl RuntimeSessionWrites for PostgresDatabase {
                     session.session_id
                 )));
             }
-            sqlx::query(
-                "INSERT INTO events (
-                    event_id, session_id, event_type, severity, payload, created_at
-                ) VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (event_id) DO UPDATE SET
-                    session_id = EXCLUDED.session_id,
-                    event_type = EXCLUDED.event_type,
-                    severity = EXCLUDED.severity,
-                    payload = EXCLUDED.payload,
-                    created_at = EXCLUDED.created_at",
-            )
-            .bind(&event.event_id)
-            .bind(&event.session_id)
-            .bind(&event.event_type)
-            .bind(&event.severity)
-            .bind(&event.payload)
-            .bind(&event.created_at)
-            .execute(&mut *tx)
-            .await?;
+            postgres_save_event_idempotent(&mut *tx, &event).await?;
             tx.commit().await?;
             Ok(())
         })
@@ -1275,6 +1333,11 @@ impl RuntimeSessionWrites for PostgresDatabase {
         session: &SessionRow,
         event: &EventRow,
     ) -> DatabaseResult<bool> {
+        crate::event_identity::ensure_event_session(
+            event,
+            &session.session_id,
+            "provider session synchronization",
+        )?;
         let pool = self.pool.pool().clone();
         let session = session.clone();
         let event = event.clone();
@@ -1340,25 +1403,7 @@ impl RuntimeSessionWrites for PostgresDatabase {
             .rows_affected()
                 > 0;
             if applied {
-                sqlx::query(
-                    "INSERT INTO events (
-                        event_id, session_id, event_type, severity, payload, created_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6)
-                    ON CONFLICT (event_id) DO UPDATE SET
-                        session_id = EXCLUDED.session_id,
-                        event_type = EXCLUDED.event_type,
-                        severity = EXCLUDED.severity,
-                        payload = EXCLUDED.payload,
-                        created_at = EXCLUDED.created_at",
-                )
-                .bind(&event.event_id)
-                .bind(&event.session_id)
-                .bind(&event.event_type)
-                .bind(&event.severity)
-                .bind(&event.payload)
-                .bind(&event.created_at)
-                .execute(&mut *tx)
-                .await?;
+                postgres_save_event_idempotent(&mut *tx, &event).await?;
             }
             tx.commit().await?;
             Ok(applied)
@@ -1370,13 +1415,14 @@ impl RuntimeSessionWrites for PostgresDatabase {
         message: &MessageRow,
         event: &EventRow,
     ) -> DatabaseResult<i64> {
+        crate::event_identity::ensure_event_session(event, &message.session_id, "message append")?;
         let pool = self.pool.pool().clone();
         let message = message.clone();
         let event = event.clone();
         self.pool.run_db(async move {
             let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
-            let session_state = sqlx::query_scalar::<_, String>(
-                "SELECT state FROM sessions WHERE session_id = $1 FOR UPDATE",
+            let (session_state, current_count) = sqlx::query_as::<_, (String, i64)>(
+                "SELECT state, message_count FROM sessions WHERE session_id = $1 FOR UPDATE",
             )
             .bind(&message.session_id)
             .fetch_optional(&mut *tx)
@@ -1405,12 +1451,16 @@ impl RuntimeSessionWrites for PostgresDatabase {
             .execute(&mut *tx)
             .await?;
             let count = if insert_result.rows_affected() > 0 {
-                let updated_at = chrono::Utc::now().to_rfc3339();
+                let updated_at = crate::types::runtime_now_timestamp();
+                let next_count = current_count.checked_add(1).ok_or_else(|| {
+                    DatabaseError::ConstraintViolation("session message count overflow".to_string())
+                })?;
                 let count = sqlx::query_scalar::<_, i64>(
-                    "UPDATE sessions SET message_count = message_count + 1, updated_at = $2 \
+                    "UPDATE sessions SET message_count = $2, updated_at = $3 \
                      WHERE session_id = $1 RETURNING message_count",
                 )
                 .bind(&message.session_id)
+                .bind(next_count)
                 .bind(&updated_at)
                 .fetch_optional(&mut *tx)
                 .await?;
@@ -1439,25 +1489,7 @@ impl RuntimeSessionWrites for PostgresDatabase {
                 })?
             };
             if insert_result.rows_affected() > 0 {
-                sqlx::query(
-                    "INSERT INTO events (
-                        event_id, session_id, event_type, severity, payload, created_at
-                    ) VALUES ($1, $2, $3, $4, $5, $6)
-                    ON CONFLICT (event_id) DO UPDATE SET
-                        session_id = EXCLUDED.session_id,
-                        event_type = EXCLUDED.event_type,
-                        severity = EXCLUDED.severity,
-                        payload = EXCLUDED.payload,
-                        created_at = EXCLUDED.created_at",
-                )
-                .bind(&event.event_id)
-                .bind(&event.session_id)
-                .bind(&event.event_type)
-                .bind(&event.severity)
-                .bind(&event.payload)
-                .bind(&event.created_at)
-                .execute(&mut *tx)
-                .await?;
+                postgres_save_event_idempotent(&mut *tx, &event).await?;
             }
             tx.commit().await?;
             Ok(count)
@@ -1526,39 +1558,23 @@ impl RuntimeSessionWrites for PostgresDatabase {
             }
 
             let count = if inserted_count > 0 {
-                let updated_at = chrono::Utc::now().to_rfc3339();
+                let updated_at = crate::types::runtime_now_timestamp();
+                let next_count = current_count.checked_add(inserted_count).ok_or_else(|| {
+                    DatabaseError::ConstraintViolation("session message count overflow".to_string())
+                })?;
                 let count = sqlx::query_scalar::<_, i64>(
                     "UPDATE sessions
-                     SET message_count = message_count + $2, updated_at = $3
+                     SET message_count = $2, updated_at = $3
                      WHERE session_id = $1 RETURNING message_count",
                 )
                 .bind(&session_id)
-                .bind(inserted_count)
+                .bind(next_count)
                 .bind(&updated_at)
                 .fetch_one(&mut *tx)
                 .await
                 .map_err(map_sqlx_error)?;
                 for event in &events {
-                    sqlx::query(
-                        "INSERT INTO events (
-                            event_id, session_id, event_type, severity, payload, created_at
-                        ) VALUES ($1, $2, $3, $4, $5, $6)
-                        ON CONFLICT (event_id) DO UPDATE SET
-                            session_id = EXCLUDED.session_id,
-                            event_type = EXCLUDED.event_type,
-                            severity = EXCLUDED.severity,
-                            payload = EXCLUDED.payload,
-                            created_at = EXCLUDED.created_at",
-                    )
-                    .bind(&event.event_id)
-                    .bind(&event.session_id)
-                    .bind(&event.event_type)
-                    .bind(&event.severity)
-                    .bind(&event.payload)
-                    .bind(&event.created_at)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(map_sqlx_error)?;
+                    postgres_save_event_idempotent(&mut *tx, event).await?;
                 }
                 count
             } else {
@@ -1601,13 +1617,64 @@ impl RuntimeSessionWrites for PostgresDatabase {
         })
     }
 
+    fn delete_messages_and_reset_count_with_event(
+        &self,
+        session_id: &str,
+        updated_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<()> {
+        crate::event_identity::ensure_event_session(event, session_id, "message deletion")?;
+        let pool = self.pool.pool().clone();
+        let session_id = session_id.to_owned();
+        let updated_at = updated_at.to_owned();
+        let event = event.clone();
+        self.pool.run_db(async move {
+            let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            sqlx::query("DELETE FROM messages WHERE session_id = $1")
+                .bind(&session_id)
+                .execute(&mut *tx)
+                .await?;
+            let result = sqlx::query(
+                "UPDATE sessions SET message_count = 0, updated_at = $2 WHERE session_id = $1",
+            )
+            .bind(&session_id)
+            .bind(&updated_at)
+            .execute(&mut *tx)
+            .await?;
+            if result.rows_affected() == 0 {
+                return Err(DatabaseError::NotFound(format!(
+                    "session not found: {session_id}"
+                )));
+            }
+            postgres_save_event_idempotent(&mut *tx, &event).await?;
+            tx.commit().await?;
+            Ok(())
+        })
+    }
+
     fn save_task_with_event(&self, task: &TaskRow, event: &EventRow) -> DatabaseResult<()> {
+        crate::event_identity::ensure_event_session(event, &task.session_id, "task write")?;
         let pool = self.pool.pool().clone();
         let task = task.clone();
         let event = event.clone();
         self.pool.run_db(async move {
             let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
-            sqlx::query(
+            let session_state = sqlx::query_scalar::<_, String>(
+                "SELECT state FROM sessions WHERE session_id = $1 FOR UPDATE",
+            )
+            .bind(&task.session_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                DatabaseError::NotFound(format!("session not found: {}", task.session_id))
+            })?;
+            if crate::types::session_state_is_terminal(&session_state) {
+                return Err(DatabaseError::ConstraintViolation(format!(
+                    "cannot create or update task {} for terminal session {}",
+                    task.task_id, task.session_id
+                )));
+            }
+            let result = sqlx::query(
                 "INSERT INTO tasks (
                     task_id, session_id, instruction, state, created_at, updated_at
                 ) VALUES ($1, $2, $3, $4, $5, $6)
@@ -1616,7 +1683,12 @@ impl RuntimeSessionWrites for PostgresDatabase {
                     instruction = EXCLUDED.instruction,
                     state = EXCLUDED.state,
                     created_at = EXCLUDED.created_at,
-                    updated_at = EXCLUDED.updated_at",
+                    updated_at = EXCLUDED.updated_at
+                WHERE tasks.session_id = EXCLUDED.session_id
+                  AND (
+                    LOWER(tasks.state) NOT IN ('completed', 'failed', 'cancelled', 'canceled')
+                    OR LOWER(tasks.state) = LOWER(EXCLUDED.state)
+                  )",
             )
             .bind(&task.task_id)
             .bind(&task.session_id)
@@ -1626,25 +1698,13 @@ impl RuntimeSessionWrites for PostgresDatabase {
             .bind(&task.updated_at)
             .execute(&mut *tx)
             .await?;
-            sqlx::query(
-                "INSERT INTO events (
-                    event_id, session_id, event_type, severity, payload, created_at
-                ) VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (event_id) DO UPDATE SET
-                    session_id = EXCLUDED.session_id,
-                    event_type = EXCLUDED.event_type,
-                    severity = EXCLUDED.severity,
-                    payload = EXCLUDED.payload,
-                    created_at = EXCLUDED.created_at",
-            )
-            .bind(&event.event_id)
-            .bind(&event.session_id)
-            .bind(&event.event_type)
-            .bind(&event.severity)
-            .bind(&event.payload)
-            .bind(&event.created_at)
-            .execute(&mut *tx)
-            .await?;
+            if result.rows_affected() == 0 {
+                return Err(DatabaseError::ConstraintViolation(format!(
+                    "task {} update conflicts with session ownership or terminal lifecycle",
+                    task.task_id
+                )));
+            }
+            postgres_save_event_idempotent(&mut *tx, &event).await?;
             tx.commit().await?;
             Ok(())
         })
@@ -1671,23 +1731,25 @@ impl RuntimeSessionWrites for PostgresDatabase {
             .await?
             .ok_or_else(|| DatabaseError::NotFound(format!("task not found: {task_id}")))?;
             let mut task = map_task_row(&row)?;
-            if task.state == "cancelled" {
+            crate::event_identity::ensure_event_session(
+                &event,
+                &task.session_id,
+                "task cancellation",
+            )?;
+            postgres_validate_event_retry_if_present(&mut *tx, &event).await?;
+            let normalized_state = task.state.to_ascii_lowercase();
+            if matches!(normalized_state.as_str(), "cancelled" | "canceled") {
                 tx.commit().await?;
                 return Ok((task, false));
             }
-            if !matches!(task.state.as_str(), "created" | "pending" | "running") {
+            if !matches!(normalized_state.as_str(), "created" | "pending" | "running") {
                 return Err(DatabaseError::ConstraintViolation(format!(
                     "task {task_id} is not active"
                 )));
             }
-            if event.session_id.as_deref() != Some(task.session_id.as_str()) {
-                return Err(DatabaseError::ConstraintViolation(
-                    "task cancellation event session mismatch".to_string(),
-                ));
-            }
             let result = sqlx::query(
                 "UPDATE tasks SET state = 'cancelled', updated_at = $2
-                 WHERE task_id = $1 AND state IN ('created', 'pending', 'running')",
+                 WHERE task_id = $1 AND LOWER(state) IN ('created', 'pending', 'running')",
             )
             .bind(&task_id)
             .bind(&updated_at)
@@ -1698,20 +1760,7 @@ impl RuntimeSessionWrites for PostgresDatabase {
                     "task {task_id} state changed concurrently"
                 )));
             }
-            sqlx::query(
-                "INSERT INTO events (
-                    event_id, session_id, event_type, severity, payload, created_at
-                 ) VALUES ($1, $2, $3, $4, $5, $6)
-                 ON CONFLICT (event_id) DO NOTHING",
-            )
-            .bind(&event.event_id)
-            .bind(&event.session_id)
-            .bind(&event.event_type)
-            .bind(&event.severity)
-            .bind(&event.payload)
-            .bind(&event.created_at)
-            .execute(&mut *tx)
-            .await?;
+            postgres_save_event_idempotent(&mut *tx, &event).await?;
             tx.commit().await?;
             task.state = "cancelled".to_string();
             task.updated_at = Some(updated_at);

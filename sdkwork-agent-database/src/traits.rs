@@ -138,6 +138,15 @@ pub trait RuntimeSessionWrites: Send + Sync {
         updated_at: &str,
     ) -> DatabaseResult<()>;
 
+    /// Atomically delete all session messages, reset the cached count, and
+    /// persist the corresponding observable session event.
+    fn delete_messages_and_reset_count_with_event(
+        &self,
+        session_id: &str,
+        updated_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<()>;
+
     /// Atomically persist a task state and its corresponding event.
     fn save_task_with_event(&self, task: &TaskRow, event: &EventRow) -> DatabaseResult<()>;
 

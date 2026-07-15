@@ -7,11 +7,17 @@ use std::sync::RwLock;
 /// Maximum provider-local sessions retained in process memory per adapter.
 const MAX_PROVIDER_SESSIONS: usize = 10_000;
 
+/// Maximum provider-local session rows returned by one list page.
+const MAX_PROVIDER_SESSION_PAGE_SIZE: usize = 200;
+
 /// Maximum conversation messages retained per provider-local session.
 const MAX_PROVIDER_CONVERSATION_MESSAGES: usize = 10_000;
 
 /// Maximum number of incremental lifecycle changes retained for subscribers.
 const MAX_PROVIDER_SESSION_CHANGES: usize = 10_000;
+
+/// Maximum lifecycle changes copied into one incremental response page.
+const MAX_PROVIDER_SESSION_CHANGE_PAGE_SIZE: usize = 200;
 
 /// Filters for listing persisted provider sessions.
 #[derive(Debug, Clone, Default)]
@@ -73,8 +79,8 @@ pub fn finalize_provider_session_snapshot(
     if session.session_id.trim().is_empty() {
         return Err(KernelError::validation("session_id must not be empty"));
     }
-    validate_session_timestamp(&mut session.created_at, "created_at")?;
-    validate_session_timestamp(&mut session.updated_at, "updated_at")?;
+    normalize_session_timestamp(&mut session.created_at, "created_at")?;
+    normalize_session_timestamp(&mut session.updated_at, "updated_at")?;
     ensure_provider_metadata(&mut session, provider_id);
     Ok(session)
 }
@@ -82,6 +88,7 @@ pub fn finalize_provider_session_snapshot(
 struct ProviderSessionInner {
     sessions: HashMap<String, AgentSession>,
     conversations: HashMap<String, Vec<AgentMessage>>,
+    messages_by_id: HashMap<String, (String, AgentMessage)>,
     next_change_sequence: u64,
     changes: VecDeque<ProviderSessionChange>,
 }
@@ -93,6 +100,7 @@ impl InMemoryProviderSessionStore {
             inner: RwLock::new(ProviderSessionInner {
                 sessions: HashMap::new(),
                 conversations: HashMap::new(),
+                messages_by_id: HashMap::new(),
                 next_change_sequence: 1,
                 changes: VecDeque::new(),
             }),
@@ -129,6 +137,7 @@ impl InMemoryProviderSessionStore {
                 "provider session store capacity exceeded ({MAX_PROVIDER_SESSIONS})"
             )));
         }
+        ensure_change_sequence_available(&inner)?;
         inner.sessions.insert(session_id, session.clone());
         inner
             .conversations
@@ -147,13 +156,14 @@ impl InMemoryProviderSessionStore {
         Ok(self.read_inner()?.sessions.get(session_id).cloned())
     }
 
-    pub fn update_session(&self, mut session: AgentSession) -> KernelResult<AgentSession> {
+    pub fn update_session(&self, session: AgentSession) -> KernelResult<AgentSession> {
+        let mut session = finalize_provider_session_snapshot(&self.provider_id, session)?;
         let mut inner = self.write_inner()?;
         let existing = inner.sessions.get(&session.session_id).ok_or_else(|| {
             KernelError::validation(format!("session not found: {}", session.session_id))
         })?;
         reject_terminal_state_regression(existing.state, session.state)?;
-        ensure_provider_metadata(&mut session, &self.provider_id);
+        ensure_change_sequence_available(&inner)?;
         touch_session(&mut session);
         inner
             .sessions
@@ -165,8 +175,6 @@ impl InMemoryProviderSessionStore {
     /// Insert or refresh an externally discovered native provider session.
     pub fn synchronize_session(&self, session: AgentSession) -> KernelResult<AgentSession> {
         let mut session = finalize_provider_session_snapshot(&self.provider_id, session)?;
-        normalize_session_timestamp(&mut session.created_at, "created_at")?;
-        normalize_session_timestamp(&mut session.updated_at, "updated_at")?;
         let mut inner = self.write_inner()?;
         if let Some(existing) = inner.sessions.get(&session.session_id) {
             reject_terminal_state_regression(existing.state, session.state)?;
@@ -189,6 +197,7 @@ impl InMemoryProviderSessionStore {
                 "provider session store capacity exceeded ({MAX_PROVIDER_SESSIONS})"
             )));
         }
+        ensure_change_sequence_available(&inner)?;
         inner
             .sessions
             .insert(session.session_id.clone(), session.clone());
@@ -206,11 +215,21 @@ impl InMemoryProviderSessionStore {
 
     pub fn delete_session(&self, session_id: &str) -> KernelResult<AgentSession> {
         let mut inner = self.write_inner()?;
+        if !inner.sessions.contains_key(session_id) {
+            return Err(KernelError::validation(format!(
+                "session not found: {session_id}"
+            )));
+        }
+        ensure_change_sequence_available(&inner)?;
         let session = inner
             .sessions
             .remove(session_id)
-            .ok_or_else(|| KernelError::validation(format!("session not found: {session_id}")))?;
-        inner.conversations.remove(session_id);
+            .expect("session existence checked before deletion");
+        if let Some(messages) = inner.conversations.remove(session_id) {
+            for message in messages {
+                inner.messages_by_id.remove(&message.message_id);
+            }
+        }
         self.record_change(&mut inner, &session, ProviderSessionChangeKind::Deleted);
         Ok(session)
     }
@@ -239,6 +258,33 @@ impl InMemoryProviderSessionStore {
     }
 
     pub fn list_sessions(&self, query: &SessionListQuery) -> KernelResult<Vec<AgentSession>> {
+        if query.after_updated_at.is_some() != query.after_session_id.is_some() {
+            return Err(KernelError::validation(
+                "session list cursor requires both after_updated_at and after_session_id",
+            ));
+        }
+        if query
+            .after_session_id
+            .as_deref()
+            .is_some_and(|value| value.trim().is_empty())
+        {
+            return Err(KernelError::validation(
+                "after_session_id must not be empty",
+            ));
+        }
+        let cursor_at = query
+            .after_updated_at
+            .as_deref()
+            .map(|value| {
+                sdkwork_utils_rust::parse_datetime(value, None)
+                    .map(|parsed| {
+                        sdkwork_utils_rust::format_datetime(parsed, Some("%Y-%m-%dT%H:%M:%S%.9fZ"))
+                    })
+                    .ok_or_else(|| {
+                        KernelError::validation("after_updated_at must be an RFC 3339 timestamp")
+                    })
+            })
+            .transpose()?;
         let inner = self.read_inner()?;
         let mut sessions: Vec<AgentSession> = inner
             .sessions
@@ -259,9 +305,9 @@ impl InMemoryProviderSessionStore {
 
         sort_sessions_by_updated_at(&mut sessions);
 
-        if query.after_updated_at.is_some() || query.after_session_id.is_some() {
-            let after_at = query.after_updated_at.as_deref().unwrap_or("");
-            let after_id = query.after_session_id.as_deref().unwrap_or("");
+        if let (Some(after_at), Some(after_id)) =
+            (cursor_at.as_deref(), query.after_session_id.as_deref())
+        {
             sessions.retain(|session| {
                 let sort_at = session_sort_timestamp(session);
                 // Descending `(timestamp, id)` keyset continuation.
@@ -270,7 +316,10 @@ impl InMemoryProviderSessionStore {
             });
         }
 
-        let limit = query.limit.unwrap_or(DEFAULT_LIST_PAGE_SIZE as usize);
+        let limit = query
+            .limit
+            .unwrap_or(DEFAULT_LIST_PAGE_SIZE as usize)
+            .clamp(1, MAX_PROVIDER_SESSION_PAGE_SIZE);
         if sessions.len() > limit {
             sessions.truncate(limit);
         }
@@ -295,13 +344,42 @@ impl InMemoryProviderSessionStore {
     pub fn append_conversation_message(
         &self,
         session_id: &str,
-        message: AgentMessage,
+        mut message: AgentMessage,
     ) -> KernelResult<()> {
         let mut inner = self.write_inner()?;
         if !inner.sessions.contains_key(session_id) {
             return Err(KernelError::validation(format!(
                 "session not found: {session_id}"
             )));
+        }
+        if message.message_id.trim().is_empty() {
+            return Err(KernelError::validation("message_id must not be empty"));
+        }
+        if let Some(bound_session_id) = message.session_id.as_deref() {
+            if bound_session_id != session_id {
+                return Err(KernelError::validation(format!(
+                    "message {} belongs to session {bound_session_id}, expected {session_id}",
+                    message.message_id
+                )));
+            }
+        } else {
+            message.session_id = Some(session_id.to_string());
+        }
+        normalize_session_timestamp(&mut message.created_at, "message.created_at")?;
+        if let Some((owner_session_id, existing)) = inner.messages_by_id.get(&message.message_id) {
+            if owner_session_id != session_id {
+                return Err(KernelError::validation(format!(
+                    "message {} already belongs to session {owner_session_id}",
+                    message.message_id
+                )));
+            }
+            if existing != &message {
+                return Err(KernelError::validation(format!(
+                    "message {} already exists with different content",
+                    message.message_id
+                )));
+            }
+            return Ok(());
         }
         if inner
             .sessions
@@ -312,21 +390,39 @@ impl InMemoryProviderSessionStore {
                 "cannot append a message to terminal session {session_id}"
             )));
         }
+        let next_message_count = inner
+            .sessions
+            .get(session_id)
+            .expect("session existence checked before append")
+            .message_count
+            .checked_add(1)
+            .ok_or_else(|| KernelError::validation("session message count overflow"))?;
+        ensure_change_sequence_available(&inner)?;
         inner
             .conversations
             .entry(session_id.to_string())
             .or_default()
-            .push(message);
+            .push(message.clone());
         let conversation = inner
             .conversations
             .get_mut(session_id)
             .expect("conversation exists after push");
         if conversation.len() > MAX_PROVIDER_CONVERSATION_MESSAGES {
             let overflow = conversation.len() - MAX_PROVIDER_CONVERSATION_MESSAGES;
-            conversation.drain(0..overflow);
+            let evicted_message_ids: Vec<_> = conversation
+                .drain(0..overflow)
+                .map(|message| message.message_id)
+                .collect();
+            for message_id in evicted_message_ids {
+                inner.messages_by_id.remove(&message_id);
+            }
         }
+        inner.messages_by_id.insert(
+            message.message_id.clone(),
+            (session_id.to_string(), message),
+        );
         if let Some(session) = inner.sessions.get_mut(session_id) {
-            session.message_count = session.message_count.saturating_add(1);
+            session.message_count = next_message_count;
             touch_session(session);
         }
         let session = inner
@@ -364,7 +460,7 @@ impl InMemoryProviderSessionStore {
         }
         let limit = limit
             .unwrap_or(DEFAULT_LIST_PAGE_SIZE as usize)
-            .clamp(1, MAX_PROVIDER_SESSION_CHANGES);
+            .clamp(1, MAX_PROVIDER_SESSION_CHANGE_PAGE_SIZE);
         let mut matching = inner
             .changes
             .iter()
@@ -389,27 +485,35 @@ impl InMemoryProviderSessionStore {
         kind: ProviderSessionChangeKind,
     ) -> KernelResult<AgentSession> {
         let mut inner = self.write_inner()?;
-        let session = inner
+        let current_state = inner
             .sessions
-            .get_mut(session_id)
+            .get(session_id)
+            .map(|session| session.state)
             .ok_or_else(|| KernelError::validation(format!("session not found: {session_id}")))?;
-        if session.state == state {
-            return Ok(session.clone());
+        if current_state == state {
+            return inner.sessions.get(session_id).cloned().ok_or_else(|| {
+                KernelError::validation(format!("session not found: {session_id}"))
+            });
         }
-        if state == SessionState::Active && session.state.is_terminal() {
+        if state == SessionState::Active && current_state.is_terminal() {
             return Err(KernelError::validation(format!(
                 "cannot resume terminal session from state {:?}",
-                session.state
+                current_state
             )));
         }
         if state == SessionState::Closed
-            && matches!(session.state, SessionState::Failed | SessionState::Archived)
+            && matches!(current_state, SessionState::Failed | SessionState::Archived)
         {
             return Err(KernelError::validation(format!(
                 "cannot close terminal session from state {:?}",
-                session.state
+                current_state
             )));
         }
+        ensure_change_sequence_available(&inner)?;
+        let session = inner
+            .sessions
+            .get_mut(session_id)
+            .expect("session existence checked before transition");
         session.state = state;
         touch_session(session);
         let session = session.clone();
@@ -424,7 +528,10 @@ impl InMemoryProviderSessionStore {
         kind: ProviderSessionChangeKind,
     ) {
         let sequence = inner.next_change_sequence;
-        inner.next_change_sequence = inner.next_change_sequence.saturating_add(1);
+        inner.next_change_sequence = inner
+            .next_change_sequence
+            .checked_add(1)
+            .expect("change sequence availability checked before mutation");
         inner.changes.push_back(ProviderSessionChange {
             sequence,
             provider_id: self.provider_id.clone(),
@@ -483,6 +590,15 @@ fn reject_terminal_state_regression(
     Ok(())
 }
 
+fn ensure_change_sequence_available(inner: &ProviderSessionInner) -> KernelResult<()> {
+    if inner.next_change_sequence == u64::MAX {
+        return Err(KernelError::validation(
+            "provider session change sequence exhausted",
+        ));
+    }
+    Ok(())
+}
+
 fn ensure_provider_metadata(session: &mut AgentSession, provider_id: &str) {
     session
         .metadata
@@ -533,16 +649,6 @@ fn normalize_session_timestamp(value: &mut Option<String>, field: &str) -> Kerne
     Ok(())
 }
 
-fn validate_session_timestamp(value: &mut Option<String>, field: &str) -> KernelResult<()> {
-    let Some(raw) = value.as_deref().filter(|value| !value.trim().is_empty()) else {
-        *value = None;
-        return Ok(());
-    };
-    sdkwork_utils_rust::parse_datetime(raw, None)
-        .ok_or_else(|| KernelError::validation(format!("{field} must be an RFC 3339 timestamp")))?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -583,6 +689,63 @@ mod tests {
     }
 
     #[test]
+    fn session_list_is_bounded_and_rejects_partial_cursors() {
+        let store = InMemoryProviderSessionStore::new("bounded");
+        for index in 0..=MAX_PROVIDER_SESSION_PAGE_SIZE {
+            store
+                .create_session(
+                    "agent.bounded",
+                    None,
+                    SessionConfig::new().with_title(format!("Session {index}")),
+                )
+                .expect("session");
+        }
+        let listed = store
+            .list_sessions(&SessionListQuery {
+                limit: Some(usize::MAX),
+                ..SessionListQuery::default()
+            })
+            .expect("bounded list");
+        assert_eq!(listed.len(), MAX_PROVIDER_SESSION_PAGE_SIZE);
+        assert!(store
+            .list_sessions(&SessionListQuery {
+                after_session_id: Some("bounded.cursor".to_string()),
+                ..SessionListQuery::default()
+            })
+            .is_err());
+        assert!(store
+            .list_sessions(&SessionListQuery {
+                after_updated_at: Some("2026-07-15T00:00:00Z".to_string()),
+                ..SessionListQuery::default()
+            })
+            .is_err());
+    }
+
+    #[test]
+    fn session_list_normalizes_timezone_cursor_before_keyset_comparison() {
+        let store = InMemoryProviderSessionStore::new("cursor");
+        for (session_id, updated_at) in [
+            ("cursor.session.1", "2026-07-15T00:03:00Z"),
+            ("cursor.session.2", "2026-07-15T00:02:00Z"),
+            ("cursor.session.3", "2026-07-15T00:01:00Z"),
+        ] {
+            let mut session = AgentSession::new(session_id);
+            session.updated_at = Some(updated_at.to_string());
+            store.synchronize_session(session).expect("snapshot");
+        }
+        let next = store
+            .list_sessions(&SessionListQuery {
+                limit: Some(2),
+                after_updated_at: Some("2026-07-15T08:02:00+08:00".to_string()),
+                after_session_id: Some("cursor.session.2".to_string()),
+                ..SessionListQuery::default()
+            })
+            .expect("cursor page");
+        assert_eq!(next.len(), 1);
+        assert_eq!(next[0].session_id, "cursor.session.3");
+    }
+
+    #[test]
     fn conversation_history_roundtrip() {
         let store = InMemoryProviderSessionStore::new("hermes");
         let session = store
@@ -611,6 +774,192 @@ mod tests {
             .expect("history");
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].parts[0].text.as_deref(), Some("hello"));
+        assert_eq!(
+            history[0].session_id.as_deref(),
+            Some(session.session_id.as_str())
+        );
+    }
+
+    #[test]
+    fn conversation_append_is_idempotent_and_message_identity_is_immutable() {
+        let store = InMemoryProviderSessionStore::new("messages");
+        let first = store
+            .create_session("agent.messages", None, SessionConfig::new())
+            .expect("first session");
+        let second = store
+            .create_session("agent.messages", None, SessionConfig::new())
+            .expect("second session");
+        let message = AgentMessage::new(
+            "msg.identity",
+            AgentMessageRole::User,
+            vec![AgentPart::text("part.identity", "original")],
+        );
+        store
+            .append_conversation_message(&first.session_id, message.clone())
+            .expect("first append");
+        let change_count = store
+            .changes_since(0, Some(20))
+            .expect("changes")
+            .changes
+            .len();
+        store
+            .append_conversation_message(&first.session_id, message.clone())
+            .expect("exact retry");
+        assert_eq!(
+            store
+                .get_conversation_history(&first.session_id)
+                .expect("first history")
+                .len(),
+            1
+        );
+        assert_eq!(
+            store
+                .get_session(&first.session_id)
+                .expect("first")
+                .message_count,
+            1
+        );
+        assert_eq!(
+            store
+                .changes_since(0, Some(20))
+                .expect("changes after retry")
+                .changes
+                .len(),
+            change_count
+        );
+
+        let conflicting = AgentMessage::new(
+            "msg.identity",
+            AgentMessageRole::Agent,
+            vec![AgentPart::text("part.identity", "changed")],
+        );
+        assert!(store
+            .append_conversation_message(&first.session_id, conflicting)
+            .is_err());
+        assert!(store
+            .append_conversation_message(
+                &second.session_id,
+                message.clone().for_session(second.session_id.clone()),
+            )
+            .is_err());
+        assert!(store
+            .get_conversation_history(&second.session_id)
+            .expect("second history")
+            .is_empty());
+
+        store.close_session(&first.session_id).expect("close");
+        store
+            .append_conversation_message(&first.session_id, message)
+            .expect("exact retry remains idempotent after close");
+    }
+
+    #[test]
+    fn conversation_append_validates_message_binding_and_timestamp() {
+        let store = InMemoryProviderSessionStore::new("message-validation");
+        let session = store
+            .create_session("agent.messages", None, SessionConfig::new())
+            .expect("session");
+        let wrong_session = AgentMessage::new(
+            "msg.wrong-session",
+            AgentMessageRole::User,
+            vec![AgentPart::text("part.wrong-session", "wrong")],
+        )
+        .for_session("message-validation.other");
+        assert!(store
+            .append_conversation_message(&session.session_id, wrong_session)
+            .is_err());
+        let mut invalid_timestamp = AgentMessage::new(
+            "msg.invalid-time",
+            AgentMessageRole::User,
+            vec![AgentPart::text("part.invalid-time", "invalid")],
+        );
+        invalid_timestamp.created_at = Some("eventually".to_string());
+        assert!(store
+            .append_conversation_message(&session.session_id, invalid_timestamp)
+            .is_err());
+        assert!(store
+            .get_conversation_history(&session.session_id)
+            .expect("history")
+            .is_empty());
+    }
+
+    #[test]
+    fn message_count_overflow_rejects_append_without_partial_mutation() {
+        let store = InMemoryProviderSessionStore::new("overflow");
+        let session = store
+            .create_session("agent.overflow", None, SessionConfig::new())
+            .expect("created");
+        let mut maxed = session.clone();
+        maxed.message_count = u32::MAX;
+        store.update_session(maxed).expect("max count snapshot");
+        let change_count = store
+            .changes_since(0, Some(10))
+            .expect("changes before append")
+            .changes
+            .len();
+
+        let error = store
+            .append_conversation_message(
+                &session.session_id,
+                AgentMessage::new(
+                    "msg.overflow",
+                    AgentMessageRole::User,
+                    vec![AgentPart::text("part.overflow", "late")],
+                ),
+            )
+            .expect_err("overflow must fail");
+        assert!(error.to_string().contains("message count overflow"));
+        assert!(store
+            .get_conversation_history(&session.session_id)
+            .expect("history")
+            .is_empty());
+        assert_eq!(
+            store
+                .changes_since(0, Some(10))
+                .expect("changes after append")
+                .changes
+                .len(),
+            change_count
+        );
+    }
+
+    #[test]
+    fn exhausted_change_sequence_rejects_mutation_without_partial_state() {
+        let store = InMemoryProviderSessionStore::new("sequence");
+        store.write_inner().expect("inner").next_change_sequence = u64::MAX;
+
+        let error = store
+            .create_session("agent.sequence", None, SessionConfig::new())
+            .expect_err("sequence exhaustion must fail");
+        assert!(error.to_string().contains("change sequence exhausted"));
+        assert!(store
+            .list_sessions(&SessionListQuery::default())
+            .expect("sessions")
+            .is_empty());
+    }
+
+    #[test]
+    fn update_rejects_invalid_timestamp_without_overwriting_session() {
+        let store = InMemoryProviderSessionStore::new("timestamps");
+        let session = store
+            .create_session("agent.timestamps", None, SessionConfig::new())
+            .expect("created");
+        let mut invalid = session.clone();
+        invalid.created_at = Some("eventually".to_string());
+
+        assert!(store.update_session(invalid).is_err());
+        assert_eq!(
+            store.get_session(&session.session_id).expect("unchanged"),
+            session
+        );
+        assert_eq!(
+            store
+                .changes_since(0, Some(10))
+                .expect("changes")
+                .changes
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -806,7 +1155,7 @@ mod tests {
         let finalized = finalize_provider_session_snapshot("codex", snapshot).expect("finalized");
         assert_eq!(
             finalized.created_at.as_deref(),
-            Some("2026-07-15T08:00:00+08:00")
+            Some("2026-07-15T00:00:00.000000000Z")
         );
         assert_eq!(finalized.updated_at, None);
         assert_eq!(finalized.metadata_value("provider_id"), Some("codex"));
@@ -857,9 +1206,17 @@ mod tests {
         }
 
         let retained = store
-            .changes_since(1, Some(MAX_PROVIDER_SESSION_CHANGES))
+            .changes_since(1, Some(usize::MAX))
             .expect("oldest retained cursor remains valid");
-        assert_eq!(retained.changes.len(), MAX_PROVIDER_SESSION_CHANGES);
+        assert_eq!(
+            retained.changes.len(),
+            MAX_PROVIDER_SESSION_CHANGE_PAGE_SIZE
+        );
+        assert!(retained.has_more);
+        assert_eq!(
+            store.read_inner().expect("inner").changes.len(),
+            MAX_PROVIDER_SESSION_CHANGES
+        );
         assert!(store.changes_since(0, Some(1)).is_ok());
 
         let mut extra = store.get_session(&session.session_id).expect("session");

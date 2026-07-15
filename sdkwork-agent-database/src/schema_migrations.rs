@@ -175,7 +175,12 @@ fn record_sqlite_migration(
     tx.execute(
         "INSERT INTO agent_runtime_schema_migration_history \
          (version, name, checksum, applied_at) VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![version, name, checksum, chrono::Utc::now().to_rfc3339()],
+        rusqlite::params![
+            version,
+            name,
+            checksum,
+            crate::types::runtime_now_timestamp()
+        ],
     )
     .map_err(|error| migration_error("record SQLite migration history", error))?;
     Ok(())

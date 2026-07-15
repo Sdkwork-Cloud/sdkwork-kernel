@@ -231,6 +231,115 @@ fn scoped_session(session_id: &str, tenant: &str, user: &str) -> SessionRow {
 }
 
 #[test]
+fn sqlite_event_identity_and_session_association_are_immutable() {
+    let db = migrated_sqlite();
+    let session = scoped_session("session.event.identity.sqlite", "tenant.1", "user.1");
+    db.save_session(&session).expect("session");
+    let original_event = EventRow {
+        event_id: "evt.identity.sqlite".to_string(),
+        session_id: Some(session.session_id.clone()),
+        event_type: "session.created".to_string(),
+        severity: "info".to_string(),
+        payload: Some("original".to_string()),
+        created_at: "2026-07-15T00:00:00Z".to_string(),
+    };
+    db.save_event(&original_event).expect("event");
+    db.save_event(&original_event).expect("idempotent event");
+
+    let mut conflicting_event = original_event.clone();
+    conflicting_event.payload = Some("changed".to_string());
+    assert!(matches!(
+        db.save_event(&conflicting_event),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+
+    let message = MessageRow {
+        message_id: "msg.identity.sqlite".to_string(),
+        session_id: session.session_id.clone(),
+        role: "user".to_string(),
+        content: "must roll back".to_string(),
+        created_at: "2026-07-15T00:00:01Z".to_string(),
+        metadata_json: None,
+    };
+    let mut mismatched_event = original_event.clone();
+    mismatched_event.event_id = "evt.mismatch.sqlite".to_string();
+    mismatched_event.session_id = Some("session.other".to_string());
+    assert!(matches!(
+        db.append_message_with_event(&message, &mismatched_event),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+    assert!(matches!(
+        db.append_message_with_event(&message, &conflicting_event),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+
+    assert!(db
+        .load_messages(&session.session_id, &MessageQuery::default())
+        .expect("messages")
+        .is_empty());
+    assert_eq!(
+        db.load_session(&session.session_id)
+            .expect("load")
+            .expect("session")
+            .message_count,
+        0
+    );
+    let events = db
+        .load_events(&session.session_id, &EventQuery::default())
+        .expect("events");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].payload.as_deref(), Some("original"));
+}
+
+#[test]
+fn sqlite_message_count_overflow_is_rejected_atomically() {
+    let db = migrated_sqlite();
+    let mut session = scoped_session("session.message-count.max.sqlite", "tenant.1", "user.1");
+    session.message_count = i64::MAX;
+    db.save_session(&session).expect("session");
+    assert!(matches!(
+        db.increment_session_message_count(&session.session_id),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+
+    let message = MessageRow {
+        message_id: "msg.message-count.max.sqlite".to_string(),
+        session_id: session.session_id.clone(),
+        role: "user".to_string(),
+        content: "overflow".to_string(),
+        created_at: "2026-07-15T00:00:01Z".to_string(),
+        metadata_json: None,
+    };
+    let event = EventRow {
+        event_id: "evt.message-count.max.sqlite".to_string(),
+        session_id: Some(session.session_id.clone()),
+        event_type: "message.sent".to_string(),
+        severity: "info".to_string(),
+        payload: None,
+        created_at: "2026-07-15T00:00:01Z".to_string(),
+    };
+    assert!(matches!(
+        db.append_message_with_event(&message, &event),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+    assert!(db
+        .load_messages(&session.session_id, &MessageQuery::default())
+        .expect("messages")
+        .is_empty());
+    assert!(db
+        .load_events(&session.session_id, &EventQuery::default())
+        .expect("events")
+        .is_empty());
+    assert_eq!(
+        db.load_session(&session.session_id)
+            .expect("load")
+            .expect("session")
+            .message_count,
+        i64::MAX
+    );
+}
+
+#[test]
 fn sqlite_terminal_session_rejects_atomic_message_append() {
     let db = migrated_sqlite();
     let mut session = scoped_session("session.terminal.sqlite", "tenant.1", "user.1");
@@ -265,6 +374,110 @@ fn sqlite_terminal_session_rejects_atomic_message_append() {
         .load_events(&session.session_id, &EventQuery::default())
         .expect("events")
         .is_empty());
+}
+
+#[test]
+fn sqlite_message_clear_event_is_atomic_observable_and_conflict_safe() {
+    let db = migrated_sqlite();
+    let session = scoped_session("session.clear.sqlite", "tenant.1", "user.1");
+    db.save_session(&session).expect("session");
+    let message = MessageRow {
+        message_id: "msg.clear.sqlite.1".to_string(),
+        session_id: session.session_id.clone(),
+        role: "user".to_string(),
+        content: "clear me".to_string(),
+        created_at: "2026-07-15T00:00:01Z".to_string(),
+        metadata_json: None,
+    };
+    db.append_message_with_event(
+        &message,
+        &EventRow {
+            event_id: "evt.clear.sqlite.message.1".to_string(),
+            session_id: Some(session.session_id.clone()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: None,
+            created_at: "2026-07-15T00:00:01Z".to_string(),
+        },
+    )
+    .expect("message");
+    let clear_event = EventRow {
+        event_id: "evt.clear.sqlite.success".to_string(),
+        session_id: Some(session.session_id.clone()),
+        event_type: "session.updated".to_string(),
+        severity: "info".to_string(),
+        payload: Some("messages_cleared=true".to_string()),
+        created_at: "2026-07-15T00:00:02Z".to_string(),
+    };
+    db.delete_messages_and_reset_count_with_event(
+        &session.session_id,
+        "2026-07-15T00:00:02Z",
+        &clear_event,
+    )
+    .expect("clear");
+    assert!(db
+        .load_messages(&session.session_id, &MessageQuery::default())
+        .expect("messages")
+        .is_empty());
+    assert_eq!(
+        db.load_session(&session.session_id)
+            .expect("load")
+            .expect("session")
+            .message_count,
+        0
+    );
+
+    let second_message = MessageRow {
+        message_id: "msg.clear.sqlite.2".to_string(),
+        created_at: "2026-07-15T00:00:03Z".to_string(),
+        ..message
+    };
+    db.append_message_with_event(
+        &second_message,
+        &EventRow {
+            event_id: "evt.clear.sqlite.message.2".to_string(),
+            session_id: Some(session.session_id.clone()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: None,
+            created_at: "2026-07-15T00:00:03Z".to_string(),
+        },
+    )
+    .expect("second message");
+    let collision = EventRow {
+        event_id: "evt.clear.sqlite.collision".to_string(),
+        session_id: Some(session.session_id.clone()),
+        event_type: "session.updated".to_string(),
+        severity: "info".to_string(),
+        payload: Some("original".to_string()),
+        created_at: "2026-07-15T00:00:04Z".to_string(),
+    };
+    db.save_event(&collision).expect("collision seed");
+    let conflicting_clear = EventRow {
+        payload: Some("messages_cleared=true".to_string()),
+        ..collision
+    };
+    assert!(matches!(
+        db.delete_messages_and_reset_count_with_event(
+            &session.session_id,
+            "2026-07-15T00:00:05Z",
+            &conflicting_clear,
+        ),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+    assert_eq!(
+        db.load_messages(&session.session_id, &MessageQuery::default())
+            .expect("messages after rollback")
+            .len(),
+        1
+    );
+    assert_eq!(
+        db.load_session(&session.session_id)
+            .expect("load after rollback")
+            .expect("session")
+            .message_count,
+        1
+    );
 }
 
 #[test]
@@ -1360,6 +1573,19 @@ fn sqlite_task_cancellation_is_atomic_idempotent_and_state_checked() {
         .cancel_task_with_event(&task.task_id, "2026-06-23T00:00:03Z", &retry_event)
         .expect("idempotent retry");
     assert!(!changed);
+    let mut conflicting_event = first_event.clone();
+    conflicting_event.payload = Some("conflict".to_string());
+    assert!(matches!(
+        db.cancel_task_with_event(&task.task_id, "2026-06-23T00:00:03Z", &conflicting_event,),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+    let mut wrong_session_event = retry_event.clone();
+    wrong_session_event.event_id = "evt.task.cancel.wrong-session".to_string();
+    wrong_session_event.session_id = Some("session.task.other".to_string());
+    assert!(matches!(
+        db.cancel_task_with_event(&task.task_id, "2026-06-23T00:00:03Z", &wrong_session_event,),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
     let events = db
         .load_events(
             &session.session_id,
@@ -1371,6 +1597,57 @@ fn sqlite_task_cancellation_is_atomic_idempotent_and_state_checked() {
         )
         .expect("events");
     assert_eq!(events.len(), 1);
+
+    let already_canceled = sdkwork_agent_database::TaskRow {
+        task_id: "task.cancel.already".to_string(),
+        state: "CANCELED".to_string(),
+        ..task.clone()
+    };
+    db.save_task(&already_canceled)
+        .expect("already canceled task");
+    let (_, changed) = db
+        .cancel_task_with_event(
+            &already_canceled.task_id,
+            "2026-06-23T00:00:03Z",
+            &EventRow {
+                event_id: "evt.task.cancel.already".to_string(),
+                payload: Some(already_canceled.task_id.clone()),
+                ..retry_event
+            },
+        )
+        .expect("already canceled");
+    assert!(!changed);
+    assert_eq!(
+        db.load_events(
+            &session.session_id,
+            &EventQuery {
+                event_type: Some("task.cancelled".to_string()),
+                limit: Some(20),
+                ..Default::default()
+            },
+        )
+        .expect("events")
+        .len(),
+        1
+    );
+
+    let mut reopened = cancelled.clone();
+    reopened.state = "running".to_string();
+    assert!(matches!(
+        db.update_task(&reopened),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+    let other_session = scoped_session("session.task.other", "tenant.a", "user.a");
+    db.save_session(&other_session).expect("other session");
+    let foreign = sdkwork_agent_database::TaskRow {
+        session_id: other_session.session_id,
+        state: "running".to_string(),
+        ..cancelled.clone()
+    };
+    assert!(matches!(
+        db.save_task(&foreign),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
 
     let completed = sdkwork_agent_database::TaskRow {
         task_id: "task.cancel.completed".to_string(),
@@ -1389,6 +1666,39 @@ fn sqlite_task_cancellation_is_atomic_idempotent_and_state_checked() {
             },
         )
         .is_err());
+
+    let mut terminal_session = db
+        .load_session(&session.session_id)
+        .expect("load session")
+        .expect("session");
+    terminal_session.state = "closed".to_string();
+    db.update_session(&terminal_session).expect("close session");
+    let late_task = sdkwork_agent_database::TaskRow {
+        task_id: "task.after-close".to_string(),
+        session_id: session.session_id.clone(),
+        instruction: "late".to_string(),
+        state: "created".to_string(),
+        created_at: "2026-06-23T00:00:05Z".to_string(),
+        updated_at: None,
+    };
+    assert!(matches!(
+        db.save_task_with_event(
+            &late_task,
+            &EventRow {
+                event_id: "evt.task.after-close".to_string(),
+                session_id: Some(session.session_id.clone()),
+                event_type: "task.created".to_string(),
+                severity: "info".to_string(),
+                payload: Some(late_task.task_id.clone()),
+                created_at: "2026-06-23T00:00:05Z".to_string(),
+            },
+        ),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+    assert!(db
+        .load_task(&late_task.task_id)
+        .expect("late task lookup")
+        .is_none());
 }
 
 #[test]

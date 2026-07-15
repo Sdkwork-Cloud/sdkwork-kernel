@@ -4,9 +4,9 @@ use std::sync::Arc;
 use crate::types::{generate_id, BridgeEvent, BridgeEventSeverity, BridgeModelResult};
 use sdkwork_agent_kernel::{
     agent_messages_to_text_lines, AgentInputContract, AgentMessage, AgentRuntime, AgentSession,
-    ContextFrame, KernelResult, ModelCancellationRequest, ModelDescriptor, ModelExecutionRequest,
-    ModelExecutionService, ModelRequest, ModelResponse, ModelStatus, ModelStreamChunk,
-    ModelStreamSink, ModelUsage, TraceContext,
+    ContextFrame, KernelError, KernelErrorKind, KernelResult, ModelCancellationRequest,
+    ModelDescriptor, ModelExecutionRequest, ModelExecutionService, ModelRequest, ModelResponse,
+    ModelStatus, ModelStreamChunk, ModelStreamSink, ModelUsage, TraceContext,
 };
 
 /// Maximum UTF-8 bytes accepted from one model streaming chunk.
@@ -176,9 +176,7 @@ impl ModelBridge {
         let result = if let Some(runtime) = &self.agent_runtime {
             match self.invoke_typed(runtime, request, model_provider_id) {
                 Ok(result) => result,
-                Err(error) if self.allow_mock_fallback && error.retryable() => {
-                    self.invoke_mock(request)?
-                }
+                Err(error) if self.mock_fallback_eligible(&error) => self.invoke_mock(request)?,
                 Err(error) => return Err(error),
             }
         } else {
@@ -208,7 +206,7 @@ impl ModelBridge {
                         return Ok(collector.into_chunks());
                     }
                 }
-                Err(error) if self.allow_mock_fallback && error.retryable() => {}
+                Err(error) if self.mock_fallback_eligible(&error) => {}
                 Err(error) => return Err(error),
             }
             collector.clear();
@@ -241,9 +239,7 @@ impl ModelBridge {
         if let Some(runtime) = &self.agent_runtime {
             match self.stream_typed_into(runtime, request, model_provider_id, &mut bounded_sink) {
                 Ok(()) => return Ok(()),
-                Err(error)
-                    if self.allow_mock_fallback && bounded_sink.is_empty() && error.retryable() => {
-                }
+                Err(error) if bounded_sink.is_empty() && self.mock_fallback_eligible(&error) => {}
                 Err(error) => return Err(error),
             }
         } else if !self.allow_mock_fallback {
@@ -376,7 +372,13 @@ impl ModelBridge {
             }
         }
 
-        self.cancel_mock(model_request_id)
+        if self.allow_mock_fallback {
+            return Ok(self.cancel_mock(model_request_id));
+        }
+
+        Err(KernelError::ProviderUnavailable {
+            provider_id: model_provider_id.unwrap_or("provider.model").to_string(),
+        })
     }
 
     fn cancel_typed(
@@ -394,10 +396,16 @@ impl ModelBridge {
         Ok(response.model_response)
     }
 
-    fn cancel_mock(&self, _model_request_id: &str) -> KernelResult<ModelResponse> {
-        Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
-            provider_id: "provider.model".to_string(),
-        })
+    fn cancel_mock(&self, model_request_id: &str) -> ModelResponse {
+        let mut response = ModelResponse::text(model_request_id, "provider.model.mock", "");
+        response.status = ModelStatus::Cancelled;
+        response.finish_reason = Some("cancelled".to_string());
+        response
+    }
+
+    fn mock_fallback_eligible(&self, error: &KernelError) -> bool {
+        self.allow_mock_fallback
+            && (error.retryable() || error.kind() == KernelErrorKind::CapabilityMissing)
     }
 
     fn stream_mock(&self, request: &ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
@@ -828,6 +836,20 @@ mod tests {
         let chunks = bridge.stream(&request, None).expect("streamed");
         assert!(!chunks.is_empty());
         assert!(chunks.iter().all(|chunk| !chunk.content.is_empty()));
+    }
+
+    #[test]
+    fn cancel_returns_standard_mock_response_only_when_fallback_is_enabled() {
+        let enabled = ModelBridge::with_mock_fallback_enabled();
+        let response = enabled
+            .cancel("req.cancel", None)
+            .expect("development fallback cancels");
+        assert_eq!(response.model_request_id, "req.cancel");
+        assert_eq!(response.status, ModelStatus::Cancelled);
+        assert_eq!(response.finish_reason.as_deref(), Some("cancelled"));
+
+        let disabled = ModelBridge::new();
+        assert!(disabled.cancel("req.cancel", None).is_err());
     }
 
     #[test]

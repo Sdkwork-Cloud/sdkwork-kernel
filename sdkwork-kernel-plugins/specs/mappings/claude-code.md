@@ -22,8 +22,9 @@ Claude Code maps first to the Code Kernel process-adapter surface:
 `process-adapter`
 
 `sdkwork-agent-provider-claude-code` treats Claude Code as an external
-code-agent process and routes model/tool execution through the negotiated
-`@anthropic-ai/claude-agent-sdk` transport worker.
+code-agent process and routes model execution through the negotiated
+`@anthropic-ai/claude-agent-sdk` transport worker. Tool use remains within the
+official agent query stream and is projected as typed events.
 
 ## Capability Mapping
 
@@ -31,7 +32,7 @@ code-agent process and routes model/tool execution through the negotiated
 | --- | --- |
 | Coding tasks | `code.task.*` extension metadata |
 | File edits | `code.workspace.write`, `code.patch.*` |
-| Shell or tool execution | `code.terminal.run`, `tool.invoke` |
+| Shell or tool execution | `code.terminal.*`, `agent.tool.*` event observations |
 | Permission prompts | `agent.policy.*` |
 | Task transcript | `code.artifact.write` |
 
@@ -64,7 +65,7 @@ through `SDKWORK_KERNEL_AGENT_PLUGIN`.
 - SDK binding: `bindings/agent-providers/claude-code/provider-binding.manifest.json`
 - Server bootstrap: `SDKWORK_KERNEL_AGENT_PLUGIN=claude-code`
 - Runtime worker: `@anthropic-ai/claude-agent-sdk` via `NodeSdkBackendRuntime`
-- SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`, optional `sdk.model.stream`, optional `sdk.tool.invoke`
+- SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`; Claude tool-use remains inside the official agent query stream and is not exposed as an independent `ToolProvider`. Streaming is not declared until iterator events are forwarded incrementally rather than wrapped after completion.
 - Binding execution: `sdk.session.lifecycle` uses provider-local lifecycle
   state through provider-core and declares `execution_scope: provider_local`
   with `runtime_operations: ["ping"]`. Model and tool capabilities use

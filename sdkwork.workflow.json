@@ -81,6 +81,11 @@
     ],
     "package": [
       {
+        "name": "Run commercial release gate before packaging",
+        "shell": "pwsh",
+        "run": "$ErrorActionPreference = \"Stop\"\n$PSNativeCommandUseErrorActionPreference = $true\npnpm verify:commercial"
+      },
+      {
         "name": "Build agent server release package",
         "shell": "pwsh",
         "run": "$ErrorActionPreference = \"Stop\"\n$PSNativeCommandUseErrorActionPreference = $true\ncargo build -p sdkwork-agent-server --release\nnode scripts/release/package-kernel-artifact.mjs"

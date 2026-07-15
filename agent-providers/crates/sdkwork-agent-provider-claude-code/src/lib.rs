@@ -1,8 +1,7 @@
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
+    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult,
     ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
     ModelStreamChunk, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
-    SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
 use sdkwork_agent_provider_core::{
     create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
@@ -10,6 +9,8 @@ use sdkwork_agent_provider_core::{
 
 #[cfg(test)]
 use sdkwork_agent_kernel::SessionState;
+#[cfg(test)]
+use sdkwork_agent_kernel::KernelError;
 #[cfg(test)]
 use sdkwork_agent_provider_core::{
     ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
@@ -317,129 +318,6 @@ impl ModelProvider for ClaudeModelProvider {
 }
 
 // ============================================================================
-// Claude Tool Provider
-// ============================================================================
-
-pub struct ClaudeToolProvider;
-
-impl ClaudeToolProvider {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for ClaudeToolProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ToolProvider for ClaudeToolProvider {
-    fn provider_manifest(&self) -> ProviderManifest {
-        ProviderManifest::new(
-            "provider.tool.claude-code",
-            "tool",
-            "Claude Tool Provider",
-            "0.1.0",
-            vec!["tool.invoke".to_string()],
-        )
-    }
-
-    fn health(&self) -> ProviderHealth {
-        ProviderHealth::available()
-    }
-
-    fn list_tools(&self) -> Vec<ToolDescriptor> {
-        vec![
-            ToolDescriptor::new(
-                "claude.read",
-                "provider.tool.claude-code",
-                "Read",
-                SideEffectLevel::ReadOnly,
-            )
-            .with_name("Read")
-            .with_description("Read a file from the filesystem")
-            .with_input_schema(ToolSchema::json_schema("claude.read.input"))
-            .with_output_schema(ToolSchema::json_schema("claude.read.output")),
-            ToolDescriptor::new(
-                "claude.write",
-                "provider.tool.claude-code",
-                "Write",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("Write")
-            .with_description("Write content to a file")
-            .with_input_schema(ToolSchema::json_schema("claude.write.input"))
-            .with_output_schema(ToolSchema::json_schema("claude.write.output")),
-            ToolDescriptor::new(
-                "claude.bash",
-                "provider.tool.claude-code",
-                "Bash",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("Bash")
-            .with_description("Execute a bash command")
-            .with_input_schema(ToolSchema::json_schema("claude.bash.input"))
-            .with_output_schema(ToolSchema::json_schema("claude.bash.output")),
-            ToolDescriptor::new(
-                "claude.glob",
-                "provider.tool.claude-code",
-                "Glob",
-                SideEffectLevel::ReadOnly,
-            )
-            .with_name("Glob")
-            .with_description("Find files by glob pattern")
-            .with_input_schema(ToolSchema::json_schema("claude.glob.input"))
-            .with_output_schema(ToolSchema::json_schema("claude.glob.output")),
-            ToolDescriptor::new(
-                "claude.grep",
-                "provider.tool.claude-code",
-                "Grep",
-                SideEffectLevel::ReadOnly,
-            )
-            .with_name("Grep")
-            .with_description("Search file contents by regex")
-            .with_input_schema(ToolSchema::json_schema("claude.grep.input"))
-            .with_output_schema(ToolSchema::json_schema("claude.grep.output")),
-            ToolDescriptor::new(
-                "claude.edit",
-                "provider.tool.claude-code",
-                "Edit",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("Edit")
-            .with_description("Edit a file with string replacement")
-            .with_input_schema(ToolSchema::json_schema("claude.edit.input"))
-            .with_output_schema(ToolSchema::json_schema("claude.edit.output")),
-            ToolDescriptor::new(
-                "claude.webfetch",
-                "provider.tool.claude-code",
-                "WebFetch",
-                SideEffectLevel::ExternalSend,
-            )
-            .with_name("WebFetch")
-            .with_description("Fetch content from a URL")
-            .with_input_schema(ToolSchema::json_schema("claude.webfetch.input"))
-            .with_output_schema(ToolSchema::json_schema("claude.webfetch.output")),
-        ]
-    }
-
-    fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
-        match call.tool_id.as_str() {
-            "claude.read" | "claude.write" | "claude.bash" | "claude.glob" | "claude.grep"
-            | "claude.edit" | "claude.webfetch" => {
-                sdkwork_agent_provider_core::reject_in_process_tool_invoke(
-                    "provider.tool.claude-code",
-                )
-            }
-            _ => Err(KernelError::CapabilityMissing {
-                capability_id: call.tool_id.clone(),
-            }),
-        }
-    }
-}
-
-// ============================================================================
 // Claude Code Lifecycle Provider (existing, preserved)
 // ============================================================================
 
@@ -741,94 +619,6 @@ mod tests {
             .stream(request)
             .expect_err("in-process stream is forbidden");
         assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    // --- Tool Provider Tests ---
-
-    #[test]
-    fn tool_provider_manifest() {
-        let provider = ClaudeToolProvider::new();
-        let manifest = provider.provider_manifest();
-        assert_eq!(manifest.provider_id, "provider.tool.claude-code");
-        assert_eq!(manifest.provider_family, "tool");
-    }
-
-    #[test]
-    fn tool_provider_list_tools() {
-        let provider = ClaudeToolProvider::new();
-        let tools = provider.list_tools();
-        assert_eq!(tools.len(), 7);
-
-        let read = tools.iter().find(|t| t.tool_id == "claude.read").unwrap();
-        assert_eq!(read.display_name, "Read");
-        assert_eq!(read.side_effect_level, SideEffectLevel::ReadOnly);
-
-        let write = tools.iter().find(|t| t.tool_id == "claude.write").unwrap();
-        assert_eq!(write.side_effect_level, SideEffectLevel::SideEffectful);
-
-        let bash = tools.iter().find(|t| t.tool_id == "claude.bash").unwrap();
-        assert_eq!(bash.side_effect_level, SideEffectLevel::SideEffectful);
-
-        let glob = tools.iter().find(|t| t.tool_id == "claude.glob").unwrap();
-        assert_eq!(glob.side_effect_level, SideEffectLevel::ReadOnly);
-
-        let grep = tools.iter().find(|t| t.tool_id == "claude.grep").unwrap();
-        assert_eq!(grep.side_effect_level, SideEffectLevel::ReadOnly);
-
-        let edit = tools.iter().find(|t| t.tool_id == "claude.edit").unwrap();
-        assert_eq!(edit.side_effect_level, SideEffectLevel::SideEffectful);
-
-        let webfetch = tools
-            .iter()
-            .find(|t| t.tool_id == "claude.webfetch")
-            .unwrap();
-        assert_eq!(webfetch.side_effect_level, SideEffectLevel::ExternalSend);
-    }
-
-    #[test]
-    fn tool_provider_invoke_read_requires_transport_worker() {
-        let provider = ClaudeToolProvider::new();
-        let call = ToolCall::new("call.1", "claude.read", r#"{"path":"/tmp/test.txt"}"#);
-        let error = provider
-            .invoke_tool(call)
-            .expect_err("in-process tool invocation is forbidden");
-        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    #[test]
-    fn tool_provider_invoke_bash_requires_transport_worker() {
-        let provider = ClaudeToolProvider::new();
-        let call = ToolCall::new("call.2", "claude.bash", r#"{"command":"echo hello"}"#);
-        let error = provider
-            .invoke_tool(call)
-            .expect_err("in-process tool invocation is forbidden");
-        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    #[test]
-    fn tool_provider_invoke_glob_requires_transport_worker() {
-        let provider = ClaudeToolProvider::new();
-        let call = ToolCall::new("call.3", "claude.glob", r#"{"pattern":"**/*.rs"}"#);
-        let error = provider
-            .invoke_tool(call)
-            .expect_err("in-process tool invocation is forbidden");
-        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    #[test]
-    fn tool_provider_invoke_unknown_tool() {
-        let provider = ClaudeToolProvider::new();
-        let call = ToolCall::new("call.4", "claude.nonexistent", "{}");
-        let result = provider.invoke_tool(call);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn tool_provider_describe_tool() {
-        let provider = ClaudeToolProvider::new();
-        let desc = provider.describe_tool("claude.grep").unwrap();
-        assert_eq!(desc.display_name, "Grep");
-        assert_eq!(desc.side_effect_level, SideEffectLevel::ReadOnly);
     }
 
     // --- Conversation Manager Tests ---

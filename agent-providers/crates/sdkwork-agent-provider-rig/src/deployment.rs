@@ -34,7 +34,6 @@ impl RigProviderBindingSpec {
             capabilities: vec![
                 "model.catalog".to_string(),
                 "model.chat".to_string(),
-                "tool.invoke".to_string(),
                 "knowledge.search".to_string(),
                 "knowledge.read".to_string(),
                 "knowledge.list".to_string(),

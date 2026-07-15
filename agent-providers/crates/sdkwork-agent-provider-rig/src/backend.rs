@@ -1,9 +1,15 @@
 use sdkwork_agent_kernel::{
     AgentConfigValue, AgentConfiguration, KernelError, KernelResult, ModelRequest, ModelResponse,
-    PolicyCategory, ToolCall, ToolResult,
+    PolicyCategory,
 };
 
 use crate::ids;
+use std::fmt::{Debug, Formatter};
+use std::sync::Arc;
+
+pub trait RigBackendExecutor: Send + Sync {
+    fn invoke_model(&self, request: ModelRequest) -> KernelResult<ModelResponse>;
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RigBackendMode {
@@ -24,6 +30,7 @@ impl RigBackendMode {
 pub enum RigBackendExecutionState {
     FailClosed,
     LivePending,
+    Live,
 }
 
 impl RigBackendExecutionState {
@@ -31,6 +38,7 @@ impl RigBackendExecutionState {
         match self {
             Self::FailClosed => "fail_closed",
             Self::LivePending => "live_pending",
+            Self::Live => "live",
         }
     }
 }
@@ -47,6 +55,7 @@ pub struct RigBackendExecutionStatus {
 pub enum RigBackendBootstrapState {
     FailClosed,
     LivePending,
+    Live,
 }
 
 impl RigBackendBootstrapState {
@@ -54,6 +63,7 @@ impl RigBackendBootstrapState {
         match self {
             Self::FailClosed => "fail_closed",
             Self::LivePending => "live_pending",
+            Self::Live => "live",
         }
     }
 }
@@ -72,7 +82,7 @@ pub struct RigBackendBootstrapPlan {
 
 impl RigBackendBootstrapPlan {
     pub fn execution_status(&self) -> RigBackendExecutionStatus {
-        execution_status_for_mode(self.backend_mode)
+        execution_status_for_mode(self.backend_mode, false)
     }
 
     pub fn secret_ref_value(&self, field_key: &str) -> Option<&str> {
@@ -83,11 +93,33 @@ impl RigBackendBootstrapPlan {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct RigBackend {
     pub mode: RigBackendMode,
     config: RigBackendConfig,
+    executor: Option<Arc<dyn RigBackendExecutor>>,
 }
+
+impl Debug for RigBackend {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RigBackend")
+            .field("mode", &self.mode)
+            .field("config", &self.config)
+            .field("executor_attached", &self.executor.is_some())
+            .finish()
+    }
+}
+
+impl PartialEq for RigBackend {
+    fn eq(&self, other: &Self) -> bool {
+        self.mode == other.mode
+            && self.config == other.config
+            && self.executor.is_some() == other.executor.is_some()
+    }
+}
+
+impl Eq for RigBackend {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RigBackendConfig {
@@ -160,7 +192,7 @@ impl RigBackendConfig {
     }
 
     pub fn execution_status(&self) -> RigBackendExecutionStatus {
-        execution_status_for_mode(self.mode)
+        execution_status_for_mode(self.mode, false)
     }
 
     pub fn bootstrap_plan(&self) -> RigBackendBootstrapPlan {
@@ -196,6 +228,7 @@ impl RigBackend {
         Self {
             mode: config.mode,
             config,
+            executor: None,
         }
     }
 
@@ -203,48 +236,61 @@ impl RigBackend {
         Self {
             mode: config.mode,
             config,
+            executor: None,
+        }
+    }
+
+    pub fn with_executor(config: RigBackendConfig, executor: Arc<dyn RigBackendExecutor>) -> Self {
+        Self {
+            mode: config.mode,
+            config,
+            executor: Some(executor),
         }
     }
 
     pub fn execution_status(&self) -> RigBackendExecutionStatus {
-        execution_status_for_mode(self.mode)
+        execution_status_for_mode(self.mode, self.executor.is_some())
     }
 
     pub fn bootstrap_plan(&self) -> RigBackendBootstrapPlan {
-        self.config.bootstrap_plan()
+        let mut plan = self.config.bootstrap_plan();
+        if self.mode == RigBackendMode::Live && self.executor.is_some() {
+            plan.state = RigBackendBootstrapState::Live;
+            plan.fail_closed = false;
+            plan.safe_summary = "Rig official execution adapter is connected".to_string();
+        }
+        plan
     }
 
     pub fn invoke_model(&self, _request: ModelRequest) -> KernelResult<ModelResponse> {
-        match self.mode {
-            RigBackendMode::FailClosed => Err(KernelError::ProviderUnavailable {
+        match (&self.mode, &self.executor) {
+            (RigBackendMode::Live, Some(executor)) => executor.invoke_model(_request),
+            _ => Err(KernelError::ProviderUnavailable {
                 provider_id: ids::MODEL_PROVIDER_ID.to_string(),
             }),
-            RigBackendMode::Live => Err(KernelError::ProviderUnavailable {
-                provider_id: ids::MODEL_PROVIDER_ID.to_string(),
-            }),
-        }
-    }
-
-    pub fn invoke_tool(&self, call: ToolCall) -> ToolResult {
-        match self.mode {
-            RigBackendMode::FailClosed | RigBackendMode::Live => {
-                ToolResult::failed(call.tool_call_id, "rig backend is fail-closed")
-                    .with_status(sdkwork_agent_kernel::ToolCallStatus::Denied)
-            }
         }
     }
 }
 
-fn execution_status_for_mode(mode: RigBackendMode) -> RigBackendExecutionStatus {
-    match mode {
-        RigBackendMode::FailClosed => RigBackendExecutionStatus {
+fn execution_status_for_mode(
+    mode: RigBackendMode,
+    executor_attached: bool,
+) -> RigBackendExecutionStatus {
+    match (mode, executor_attached) {
+        (RigBackendMode::Live, true) => RigBackendExecutionStatus {
+            mode,
+            state: RigBackendExecutionState::Live,
+            fail_closed: false,
+            safe_reason: "Rig official execution adapter is connected".to_string(),
+        },
+        (RigBackendMode::FailClosed, _) => RigBackendExecutionStatus {
             mode,
             state: RigBackendExecutionState::FailClosed,
             fail_closed: true,
-            safe_reason: "Rig backend is fail-closed; no live model or tool execution adapter is connected"
+            safe_reason: "Rig backend is fail-closed; no live model execution adapter is connected"
                 .to_string(),
         },
-        RigBackendMode::Live => RigBackendExecutionStatus {
+        (RigBackendMode::Live, false) => RigBackendExecutionStatus {
             mode,
             state: RigBackendExecutionState::LivePending,
             fail_closed: true,

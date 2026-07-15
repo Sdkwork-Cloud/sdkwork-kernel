@@ -50,13 +50,12 @@ fn rig_default_binding_capabilities_follow_standard_contract() {
         RigProviderBindingSpec::try_default_local("binding.rig.default", "profile.rig.local")
             .expect("standard Rig binding should be accepted");
 
-    assert_eq!(binding.capabilities.len(), 7);
+    assert_eq!(binding.capabilities.len(), 6);
     assert_eq!(
         binding.capabilities,
         [
             "model.catalog",
             "model.chat",
-            "tool.invoke",
             "knowledge.search",
             "knowledge.read",
             "knowledge.list",
@@ -74,9 +73,9 @@ fn rig_kernel_plugin_manifest_lists_all_provider_ids() {
     assert!(manifest
         .provider_ids
         .contains(&ids::MODEL_PROVIDER_ID.to_string()));
-    assert!(manifest
+    assert!(!manifest
         .provider_ids
-        .contains(&ids::TOOL_PROVIDER_ID.to_string()));
+        .contains(&"provider.tool.rig-rust".to_string()));
     assert!(manifest
         .provider_ids
         .contains(&ids::KNOWLEDGE_PROVIDER_ID.to_string()));

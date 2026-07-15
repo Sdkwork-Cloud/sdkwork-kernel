@@ -1,11 +1,19 @@
 use sdkwork_agent_api_bridge::{AgentRuntimeBridge, ModelBridge};
 use sdkwork_agent_kernel::{AgentRuntime, KernelResult, ModelRequest};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::time::Duration;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError};
 
 use crate::backend_health_worker::BackendHealthWorker;
 use crate::config::ServerConfig;
+use crate::metrics::{MetricsRegistry, ProviderAdmissionRejection};
 use crate::runtime_bootstrap::bootstrap_agent_runtime;
+
+pub(crate) struct ProviderAdmissionLease {
+    _permit: OwnedSemaphorePermit,
+    _active_guard: Option<crate::metrics::ProviderAdmissionActiveGuard>,
+}
 
 /// Shared agent runtime bridge wired into HTTP handlers.
 ///
@@ -22,7 +30,11 @@ pub struct RuntimeState {
     agent_runtime: Arc<AgentRuntime>,
     allow_mock_fallback: bool,
     backend_health: Arc<BackendHealthWorker>,
-    session_turn_locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+    session_turn_locks: Arc<Mutex<HashMap<String, Weak<Mutex<()>>>>>,
+    provider_admission: Arc<Semaphore>,
+    provider_waiting_admission: Arc<Semaphore>,
+    provider_admission_timeout: Duration,
+    provider_metrics: Arc<RwLock<Option<Weak<MetricsRegistry>>>>,
 }
 
 impl RuntimeState {
@@ -45,7 +57,127 @@ impl RuntimeState {
             allow_mock_fallback,
             backend_health,
             session_turn_locks: Arc::new(Mutex::new(HashMap::new())),
+            provider_admission: Arc::new(Semaphore::new(config.provider_max_concurrency)),
+            provider_waiting_admission: Arc::new(Semaphore::new(config.provider_max_waiters)),
+            provider_admission_timeout: Duration::from_millis(config.provider_admission_timeout_ms),
+            provider_metrics: Arc::new(RwLock::new(None)),
         })
+    }
+
+    pub fn attach_metrics(&self, metrics: &Arc<MetricsRegistry>) {
+        let mut attached = self
+            .provider_metrics
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *attached = Some(Arc::downgrade(metrics));
+    }
+
+    fn provider_metrics(&self) -> Option<Arc<MetricsRegistry>> {
+        self.provider_metrics
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .and_then(Weak::upgrade)
+    }
+
+    pub(crate) async fn acquire_provider_admission(&self) -> KernelResult<ProviderAdmissionLease> {
+        let metrics = self.provider_metrics();
+        let wait_guard = metrics
+            .as_ref()
+            .map(MetricsRegistry::begin_provider_admission_wait);
+        let permit = match self.provider_admission.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(TryAcquireError::Closed) => {
+                if let Some(metrics) = &metrics {
+                    metrics.record_provider_admission_rejection(ProviderAdmissionRejection::Closed);
+                }
+                return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                    provider_id: "provider.execution_pool".to_string(),
+                });
+            }
+            Err(TryAcquireError::NoPermits) => {
+                let waiting_permit =
+                    match self.provider_waiting_admission.clone().try_acquire_owned() {
+                        Ok(permit) => permit,
+                        Err(error) => {
+                            if let Some(metrics) = &metrics {
+                                let reason = match error {
+                                    TryAcquireError::Closed => ProviderAdmissionRejection::Closed,
+                                    TryAcquireError::NoPermits => {
+                                        ProviderAdmissionRejection::QueueFull
+                                    }
+                                };
+                                metrics.record_provider_admission_rejection(reason);
+                            }
+                            return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                                provider_id: "provider.execution_pool".to_string(),
+                            });
+                        }
+                    };
+                let acquired = tokio::time::timeout(
+                    self.provider_admission_timeout,
+                    self.provider_admission.clone().acquire_owned(),
+                )
+                .await;
+                drop(waiting_permit);
+                match acquired {
+                    Ok(Ok(permit)) => permit,
+                    Ok(Err(_)) => {
+                        if let Some(metrics) = &metrics {
+                            metrics.record_provider_admission_rejection(
+                                ProviderAdmissionRejection::Closed,
+                            );
+                        }
+                        return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                            provider_id: "provider.execution_pool".to_string(),
+                        });
+                    }
+                    Err(_) => {
+                        if let Some(metrics) = &metrics {
+                            metrics.record_provider_admission_rejection(
+                                ProviderAdmissionRejection::Timeout,
+                            );
+                        }
+                        return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                            provider_id: "provider.execution_pool".to_string(),
+                        });
+                    }
+                }
+            }
+        };
+        Ok(ProviderAdmissionLease {
+            _permit: permit,
+            _active_guard: wait_guard.map(|guard| guard.acquired()),
+        })
+    }
+
+    pub(crate) async fn run_provider_admitted<T, F>(
+        &self,
+        lease: ProviderAdmissionLease,
+        operation: F,
+    ) -> KernelResult<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(RuntimeState) -> KernelResult<T> + Send + 'static,
+    {
+        let runtime = self.clone();
+        tokio::task::spawn_blocking(move || {
+            let _lease = lease;
+            operation(runtime)
+        })
+        .await
+        .map_err(|error| sdkwork_agent_kernel::KernelError::Internal {
+            message: format!("provider execution worker failed: {error}"),
+        })?
+    }
+
+    async fn run_provider_bounded<T, F>(&self, operation: F) -> KernelResult<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(RuntimeState) -> KernelResult<T> + Send + 'static,
+    {
+        let lease = self.acquire_provider_admission().await?;
+        self.run_provider_admitted(lease, operation).await
     }
 
     pub fn agent_runtime(&self) -> &AgentRuntime {
@@ -113,15 +245,17 @@ impl RuntimeState {
 
     fn session_turn_lock(&self, session_id: &str) -> KernelResult<Arc<Mutex<()>>> {
         let mut locks = self.session_turn_lock_registry()?;
-        Ok(locks
-            .entry(session_id.to_string())
-            .or_insert_with(|| Arc::new(Mutex::new(())))
-            .clone())
+        if let Some(turn_lock) = locks.get(session_id).and_then(Weak::upgrade) {
+            return Ok(turn_lock);
+        }
+        let turn_lock = Arc::new(Mutex::new(()));
+        locks.insert(session_id.to_string(), Arc::downgrade(&turn_lock));
+        Ok(turn_lock)
     }
 
     fn session_turn_lock_registry(
         &self,
-    ) -> KernelResult<std::sync::MutexGuard<'_, HashMap<String, Arc<Mutex<()>>>>> {
+    ) -> KernelResult<std::sync::MutexGuard<'_, HashMap<String, Weak<Mutex<()>>>>> {
         self.session_turn_locks.lock().map_err(|error| {
             sdkwork_agent_kernel::KernelError::Internal {
                 message: format!("runtime session turn lock registry poisoned: {error}"),
@@ -135,10 +269,11 @@ impl RuntimeState {
         turn_lock: &Arc<Mutex<()>>,
     ) -> KernelResult<()> {
         let mut locks = self.session_turn_lock_registry()?;
-        // The registry lock prevents new acquisitions while this count is checked.
-        // Two references means only the registry and this completed operation remain.
+        // The registry owns only a Weak reference. With the registry locked, one
+        // strong reference means this completed operation is the final user.
+        let completed_lock = Arc::downgrade(turn_lock);
         let can_remove = locks.get(session_id).is_some_and(|registered_lock| {
-            Arc::ptr_eq(registered_lock, turn_lock) && Arc::strong_count(turn_lock) == 2
+            registered_lock.ptr_eq(&completed_lock) && Arc::strong_count(turn_lock) == 1
         });
         if can_remove {
             locks.remove(session_id);
@@ -217,6 +352,20 @@ impl RuntimeState {
         let (model_bridge, request, provider_id) =
             self.prepare_model_request_for_session(session_id, model_id, None)?;
         model_bridge.invoke(&request, provider_id.as_deref())
+    }
+
+    /// Run a synchronous provider invocation on a bounded blocking pool so a
+    /// slow or stuck provider cannot consume an unbounded number of Tokio
+    /// worker threads. The permit is held until the blocking call returns.
+    pub async fn invoke_model_for_session_bounded(
+        &self,
+        session_id: String,
+        model_id: Option<String>,
+    ) -> KernelResult<sdkwork_agent_api_bridge::BridgeModelResult> {
+        self.run_provider_bounded(move |runtime| {
+            runtime.invoke_model_for_session(&session_id, model_id)
+        })
+        .await
     }
 
     /// Send a user message (write — uses exclusive lock).
@@ -312,7 +461,17 @@ impl RuntimeState {
         tool_name: &str,
         arguments: &str,
     ) -> KernelResult<sdkwork_agent_api_bridge::BridgeToolResult> {
-        self.with_bridge_write(|bridge| bridge.execute_tool(session_id, tool_name, arguments))
+        let tool_bridge = self.with_bridge_read(|bridge| Ok(bridge.tool_bridge().clone()))?;
+        let call = sdkwork_agent_kernel::ToolCall::new(
+            format!("call.{}", sdkwork_utils_rust::uuid()),
+            tool_name,
+            arguments,
+        )
+        .for_session(session_id);
+        let result = tool_bridge.execute(&call)?;
+        self.with_bridge_write(|bridge| {
+            Ok(bridge.commit_tool_execution(session_id, tool_name, call, result))
+        })
     }
 
     /// Register a session (write — uses exclusive lock).
@@ -377,7 +536,8 @@ mod tests {
     use sdkwork_agent_kernel::{
         AgentManifest, HealthMonitorConfig, ModelDescriptor, ModelProvider, ModelRequest,
         ModelResponse, ModelStreamChunk, PolicyDecision, PolicyProvider, PolicyRequest,
-        ProviderHealth, ProviderManifest, RuntimeBuilder,
+        ProviderHealth, ProviderManifest, RuntimeBuilder, SideEffectLevel, ToolCall,
+        ToolDescriptor, ToolProvider, ToolResult,
     };
     use std::sync::mpsc;
     use std::sync::Mutex;
@@ -386,6 +546,63 @@ mod tests {
     struct BlockingModelProvider {
         started_tx: Mutex<Option<mpsc::Sender<()>>>,
         release_rx: Mutex<mpsc::Receiver<()>>,
+    }
+
+    struct BlockingToolProvider {
+        started_tx: Mutex<Option<mpsc::Sender<()>>>,
+        release_rx: Mutex<mpsc::Receiver<()>>,
+    }
+
+    impl BlockingToolProvider {
+        fn new(started_tx: mpsc::Sender<()>, release_rx: mpsc::Receiver<()>) -> Self {
+            Self {
+                started_tx: Mutex::new(Some(started_tx)),
+                release_rx: Mutex::new(release_rx),
+            }
+        }
+    }
+
+    impl ToolProvider for BlockingToolProvider {
+        fn provider_manifest(&self) -> ProviderManifest {
+            ProviderManifest::new(
+                "provider.tool.blocking",
+                "tool",
+                "blocking-tool",
+                "0.1.0",
+                vec!["tool.invoke".to_string()],
+            )
+        }
+
+        fn list_tools(&self) -> Vec<ToolDescriptor> {
+            vec![ToolDescriptor::new(
+                "tool.blocking",
+                "provider.tool.blocking",
+                "blocking",
+                SideEffectLevel::SideEffectful,
+            )
+            .with_name("blocking")]
+        }
+
+        fn health(&self) -> ProviderHealth {
+            ProviderHealth::available()
+        }
+
+        fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
+            if call.session_id.as_deref() != Some("session.tool-blocked") {
+                return Err(sdkwork_agent_kernel::KernelError::validation(
+                    "tool call must carry its session scope",
+                ));
+            }
+            if let Some(sender) = self.started_tx.lock().expect("started lock").take() {
+                let _ = sender.send(());
+            }
+            self.release_rx
+                .lock()
+                .expect("release lock")
+                .recv_timeout(Duration::from_secs(2))
+                .expect("test released provider");
+            Ok(ToolResult::succeeded(&call.tool_call_id, "completed"))
+        }
     }
 
     impl BlockingModelProvider {
@@ -493,7 +710,7 @@ mod tests {
     fn test_session_config(model: Option<&str>) -> BridgeSessionConfig {
         BridgeSessionConfig {
             agent_id: "agent.runtime-lock-test".to_string(),
-            tenant_id: 100_001,
+            tenant_id: "tenant.100001".to_string(),
             user_ref: Some("user.lock-test".to_string()),
             model: model.map(str::to_string),
             instructions: None,
@@ -556,6 +773,55 @@ mod tests {
             allow_mock_fallback: false,
             backend_health,
             session_turn_locks: Arc::new(Mutex::new(HashMap::new())),
+            provider_admission: Arc::new(Semaphore::new(64)),
+            provider_waiting_admission: Arc::new(Semaphore::new(64)),
+            provider_admission_timeout: Duration::from_secs(5),
+            provider_metrics: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    fn runtime_state_with_blocking_tool(
+        started_tx: mpsc::Sender<()>,
+        release_rx: mpsc::Receiver<()>,
+    ) -> RuntimeState {
+        let (model_started_tx, _model_started_rx) = mpsc::channel();
+        let (_model_release_tx, model_release_rx) = mpsc::channel();
+        let agent_runtime = Arc::new(
+            RuntimeBuilder::new("runtime.tool-lock-test", test_agent_manifest())
+                .register_model_provider(
+                    "provider.model.blocking",
+                    "0.1.0",
+                    BlockingModelProvider::new(model_started_tx, model_release_rx),
+                )
+                .register_tool_provider(
+                    "provider.tool.blocking",
+                    "0.1.0",
+                    BlockingToolProvider::new(started_tx, release_rx),
+                )
+                .register_policy_provider("provider.policy.allow", "0.1.0", AllowPolicyProvider)
+                .bootstrap()
+                .expect("runtime bootstraps")
+                .runtime,
+        );
+        let backend_health = Arc::new(BackendHealthWorker::spawn(
+            agent_runtime.clone(),
+            HealthMonitorConfig::default().with_check_interval(Duration::from_millis(10)),
+        ));
+        let bridge = Arc::new(RwLock::new(AgentRuntimeBridge::with_agent_runtime(
+            agent_runtime.clone(),
+            false,
+        )));
+
+        RuntimeState {
+            bridge,
+            agent_runtime,
+            allow_mock_fallback: false,
+            backend_health,
+            session_turn_locks: Arc::new(Mutex::new(HashMap::new())),
+            provider_admission: Arc::new(Semaphore::new(64)),
+            provider_waiting_admission: Arc::new(Semaphore::new(64)),
+            provider_admission_timeout: Duration::from_secs(5),
+            provider_metrics: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -579,7 +845,7 @@ mod tests {
                 .lock()
                 .expect("turn lock registry")
                 .get(session_id)
-                .map(Arc::strong_count)
+                .map(Weak::strong_count)
                 .unwrap_or_default();
             if reference_count >= minimum_references {
                 return;
@@ -680,7 +946,10 @@ mod tests {
         state
             .session_turn_lock_registry()
             .expect("turn lock registry")
-            .insert("session.replaced".to_string(), replacement_lock.clone());
+            .insert(
+                "session.replaced".to_string(),
+                Arc::downgrade(&replacement_lock),
+            );
         state
             .cleanup_session_turn_lock("session.replaced", &stale_lock)
             .expect("stale lock cleanup succeeds");
@@ -689,8 +958,8 @@ mod tests {
             .session_turn_lock_registry()
             .expect("turn lock registry")
             .get("session.replaced")
-            .cloned()
-            .expect("replacement lock remains registered");
+            .and_then(Weak::upgrade)
+            .expect("replacement lock remains live and registered");
         assert!(Arc::ptr_eq(&registered_lock, &replacement_lock));
         drop(registered_lock);
         state
@@ -742,7 +1011,7 @@ mod tests {
         second_ready_rx
             .recv_timeout(Duration::from_secs(1))
             .expect("second turn scheduled");
-        wait_for_session_turn_lock_references(&state, "session.serialized", 3);
+        wait_for_session_turn_lock_references(&state, "session.serialized", 2);
         assert!(
             second_entered_rx
                 .recv_timeout(Duration::from_millis(100))
@@ -776,7 +1045,7 @@ mod tests {
         third_ready_rx
             .recv_timeout(Duration::from_secs(1))
             .expect("third turn scheduled");
-        wait_for_session_turn_lock_references(&state, "session.serialized", 3);
+        wait_for_session_turn_lock_references(&state, "session.serialized", 2);
         assert!(
             third_entered_rx
                 .recv_timeout(Duration::from_millis(100))
@@ -899,6 +1168,46 @@ mod tests {
     }
 
     #[test]
+    fn tool_invocation_does_not_hold_bridge_lock_and_carries_session_scope() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let state = runtime_state_with_blocking_tool(started_tx, release_rx);
+        state
+            .register_session(
+                "session.tool-blocked",
+                test_session_config(Some("model.blocking")),
+            )
+            .expect("initial session registered");
+
+        let tool_state = state.clone();
+        let tool_thread = std::thread::spawn(move || {
+            tool_state
+                .execute_tool("session.tool-blocked", "tool.blocking", "{}")
+                .expect("tool invocation succeeds")
+        });
+        started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("tool provider invocation started");
+
+        let (read_tx, read_rx) = mpsc::channel();
+        let read_state = state.clone();
+        let read_thread = std::thread::spawn(move || {
+            let _ = read_tx.send(read_state.list_models().is_ok());
+        });
+        let read_completed_while_tool_blocked = read_rx
+            .recv_timeout(Duration::from_millis(200))
+            .unwrap_or(false);
+
+        release_tx.send(()).expect("tool provider released");
+        let result = tool_thread.join().expect("tool thread joins");
+        read_thread.join().expect("read thread joins");
+
+        assert!(read_completed_while_tool_blocked);
+        assert_eq!(result.result.output, "completed");
+        assert_eq!(result.events.len(), 1);
+    }
+
+    #[test]
     fn send_message_does_not_hold_bridge_lock_while_provider_runs() {
         let (started_tx, started_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
@@ -998,5 +1307,169 @@ mod tests {
             0,
             "a successful stream turn must release its session lock"
         );
+    }
+
+    #[tokio::test]
+    async fn bounded_provider_execution_reports_active_waiting_and_release() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let mut state = runtime_state_with_blocking_model(started_tx, release_rx);
+        state.provider_admission = Arc::new(Semaphore::new(1));
+        state.provider_waiting_admission = Arc::new(Semaphore::new(1));
+        for session_id in ["session.admission.first", "session.admission.second"] {
+            state
+                .register_session(session_id, test_session_config(Some("model.blocking")))
+                .expect("session registered");
+        }
+        let config = ServerConfig {
+            provider_max_concurrency: 1,
+            provider_max_waiters: 1,
+            ..Default::default()
+        };
+        let metrics = MetricsRegistry::from_config(&config);
+        state.attach_metrics(&metrics);
+
+        let first_state = state.clone();
+        let first = tokio::spawn(async move {
+            first_state
+                .invoke_model_for_session_bounded("session.admission.first".to_string(), None)
+                .await
+        });
+        tokio::task::spawn_blocking(move || started_rx.recv_timeout(Duration::from_secs(1)))
+            .await
+            .expect("start observer joins")
+            .expect("first provider invocation started");
+
+        let second_state = state.clone();
+        let second = tokio::spawn(async move {
+            second_state
+                .invoke_model_for_session_bounded("session.admission.second".to_string(), None)
+                .await
+        });
+        tokio::task::yield_now().await;
+
+        let profile = crate::metrics::OperationalProfile::from_runtime("memory", false);
+        let body = metrics.render_prometheus(true, &profile);
+        assert!(metric_line_has_value(
+            &body,
+            "sdkwork_kernel_provider_admission_active",
+            1
+        ));
+        assert!(metric_line_has_value(
+            &body,
+            "sdkwork_kernel_provider_admission_waiting",
+            1
+        ));
+
+        let rejected = state
+            .invoke_model_for_session_bounded("session.admission.second".to_string(), None)
+            .await
+            .expect_err("full provider waiting queue must reject");
+        assert!(matches!(
+            rejected,
+            sdkwork_agent_kernel::KernelError::ProviderUnavailable { .. }
+        ));
+
+        release_tx.send(()).expect("first provider released");
+        first
+            .await
+            .expect("first task joins")
+            .expect("first succeeds");
+        release_tx.send(()).expect("second provider released");
+        second
+            .await
+            .expect("second task joins")
+            .expect("second succeeds");
+
+        let body = metrics.render_prometheus(true, &profile);
+        assert!(metric_line_has_value(
+            &body,
+            "sdkwork_kernel_provider_admission_active",
+            0
+        ));
+        assert!(metric_line_has_value(
+            &body,
+            "sdkwork_kernel_provider_admission_waiting",
+            0
+        ));
+        assert!(metric_line_has_value(
+            &body,
+            "sdkwork_kernel_provider_admission_acquire_duration_seconds_count",
+            2
+        ));
+        assert!(body.lines().any(|line| {
+            line.starts_with("sdkwork_kernel_provider_admission_rejected_total{")
+                && line.contains("reason=\"queue_full\"")
+                && line.ends_with("} 1")
+        }));
+    }
+
+    #[tokio::test]
+    async fn bounded_provider_wait_times_out_and_releases_waiting_capacity() {
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let mut state = runtime_state_with_blocking_model(started_tx, release_rx);
+        state.provider_admission = Arc::new(Semaphore::new(1));
+        state.provider_waiting_admission = Arc::new(Semaphore::new(1));
+        state.provider_admission_timeout = Duration::from_millis(20);
+        for session_id in ["session.timeout.first", "session.timeout.second"] {
+            state
+                .register_session(session_id, test_session_config(Some("model.blocking")))
+                .expect("session registered");
+        }
+        let config = ServerConfig {
+            provider_max_concurrency: 1,
+            provider_max_waiters: 1,
+            provider_admission_timeout_ms: 20,
+            ..Default::default()
+        };
+        let metrics = MetricsRegistry::from_config(&config);
+        state.attach_metrics(&metrics);
+
+        let first_state = state.clone();
+        let first = tokio::spawn(async move {
+            first_state
+                .invoke_model_for_session_bounded("session.timeout.first".to_string(), None)
+                .await
+        });
+        tokio::task::spawn_blocking(move || started_rx.recv_timeout(Duration::from_secs(1)))
+            .await
+            .expect("start observer joins")
+            .expect("first provider invocation started");
+
+        let error = state
+            .invoke_model_for_session_bounded("session.timeout.second".to_string(), None)
+            .await
+            .expect_err("provider admission wait must time out");
+        assert!(matches!(
+            error,
+            sdkwork_agent_kernel::KernelError::ProviderUnavailable { .. }
+        ));
+        release_tx.send(()).expect("first provider released");
+        first
+            .await
+            .expect("first task joins")
+            .expect("first succeeds");
+
+        let body = metrics.render_prometheus(
+            true,
+            &crate::metrics::OperationalProfile::from_runtime("memory", false),
+        );
+        assert!(metric_line_has_value(
+            &body,
+            "sdkwork_kernel_provider_admission_waiting",
+            0
+        ));
+        assert!(body.lines().any(|line| {
+            line.starts_with("sdkwork_kernel_provider_admission_rejected_total{")
+                && line.contains("reason=\"timeout\"")
+                && line.ends_with("} 1")
+        }));
+    }
+
+    fn metric_line_has_value(body: &str, metric_name: &str, value: u64) -> bool {
+        body.lines().any(|line| {
+            line.starts_with(&format!("{metric_name}{{")) && line.ends_with(&format!("}} {value}"))
+        })
     }
 }

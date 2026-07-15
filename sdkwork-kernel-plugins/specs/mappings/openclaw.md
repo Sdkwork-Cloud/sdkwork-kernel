@@ -10,7 +10,9 @@
 
 - Upstream: `https://github.com/openclaw/openclaw.git`
 
-- npm package: `openclaw`
+- Upstream SDK source: `external/openclaw/packages/sdk` (private/unpublished at the pinned revision; inspection only)
+
+- Runtime client: official `openai` JavaScript SDK against the OpenClaw OpenAI-compatible gateway
 
 - Gateway protocol: `packages/gateway-protocol`
 
@@ -25,8 +27,6 @@ OpenClaw maps first to the general Agent Kernel surface:
 
 
 - `AgentRuntime`
-
-- `ToolProvider`
 
 - `ContextProvider`
 
@@ -61,7 +61,7 @@ SDK binding manifest negotiation, TypeScript Node runtime routing, runtime-backe
 
 | Agent chat / embedded runner | `sdk.model.chat` |
 
-| Core tools (`message`, `sessions_spawn`, `web_search`, `cron`) | `sdk.tool.invoke` |
+| Core tools (`message`, `sessions_spawn`, `web_search`, `cron`) | `agent.tool.*` observations inside gateway agent execution; no independent kernel `ToolProvider` |
 
 | Agent lifecycle | `agent.runtime.*` |
 
@@ -139,15 +139,16 @@ kernel SDK authority.
 
 - Local source pin (2026-06-24, not a latest-registry claim): `external/openclaw` @ `7c56877eb1` with source `package.json` version `2026.6.10`
 
-- Runtime worker: `scripts/provider-transport-workers/generic-ts-sdk-worker.mjs` via `NodeSdkBackendRuntime`
+- Runtime worker: `scripts/provider-transport-workers/generic-ts-sdk-worker.mjs` via `NodeSdkBackendRuntime`; model calls use the official `openai` SDK with gateway `baseURL`
 
-- Live gateway path: `OPENCLAW_GATEWAY_URL` + optional `OPENCLAW_GATEWAY_TOKEN` in `engine-sdk-live.mjs`
+- Live gateway path: `OPENCLAW_GATEWAY_URL` + required `OPENCLAW_GATEWAY_TOKEN` in `engine-sdk-live.mjs`; unauthenticated remote execution is rejected
 
-- SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`, optional `sdk.tool.invoke`
+- SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`; gateway tool activity remains upstream-owned and is observed through agent events
+- Streaming is not declared because the current official SDK gateway call is non-streaming.
 
 - Binding execution: `sdk.session.lifecycle` uses provider-local lifecycle
   state through provider-core and declares `execution_scope: provider_local`
-  with `runtime_operations: ["ping"]`. Model and tool capabilities use
+  with `runtime_operations: ["ping"]`. Model capability uses
   `execution_scope: transport_runtime`; the runtime router rejects any
   operation not declared by the selected backend `runtime_operations` allowlist.
 
@@ -159,11 +160,12 @@ kernel SDK authority.
 
 - Release proof: `SDKWORK_KERNEL_STAGING_LIVE_SDK=1 SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1 node scripts/provider-transport-workers/engine-sdk-live-staging.mjs --framework openclaw`
   is the OpenClaw staging live gateway gate. OpenClaw proves the remote
-  `openclaw-gateway-open-api` compatible path through `OPENCLAW_GATEWAY_URL`;
-  it does not require a local `openclaw` npm package import. This gateway proof
-  does not satisfy local Node runtime SDK package health for the
-  `typescript_node` backend; local runtime health still requires an importable
-  SDK package when that backend is selected.
+  `openclaw-gateway-open-api` compatible path through `OPENCLAW_GATEWAY_URL`
+  using the installed official `openai` SDK. The gate requires both gateway URL
+  and token, and package resolution is part of the release proof. A successful
+  gateway proof does not prove that the private unpublished `@openclaw/sdk`
+  source tree is locally importable; that source remains inspection-only and
+  does not satisfy local Node runtime SDK package health.
 
 - Production safety: Node/Python SDK backends fail closed when workers cannot
   spawn, SDK packages or Python modules cannot be resolved to an importable

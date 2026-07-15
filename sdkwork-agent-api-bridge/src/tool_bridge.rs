@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use sdkwork_agent_kernel::{
-    AgentRuntime, KernelResult, SideEffectLevel, ToolCall, ToolCallStatus, ToolDescriptor,
-    ToolResult, ToolSchema,
+    AgentRuntime, KernelResult, SideEffectLevel, ToolCall, ToolDescriptor, ToolExecutionRequest,
+    ToolExecutionService, ToolResult, ToolSchema,
 };
 
 /// Handles tool registration, discovery, and execution
+#[derive(Clone)]
 pub struct ToolBridge {
     tools: Vec<ToolDescriptor>,
     agent_runtime: Option<Arc<AgentRuntime>>,
@@ -40,20 +41,13 @@ impl ToolBridge {
 
     /// List all available tools
     pub fn list_tools(&self) -> KernelResult<Vec<ToolDescriptor>> {
-        let mut tools = self.tools.clone();
-        if let Some(runtime) = &self.agent_runtime {
-            if let Ok(provider) = runtime.tool_provider() {
-                for descriptor in provider.list_tools() {
-                    let duplicate = tools.iter().any(|existing| {
-                        existing.tool_id == descriptor.tool_id || existing.name == descriptor.name
-                    });
-                    if !duplicate {
-                        tools.push(descriptor);
-                    }
-                }
-            }
+        if self.allow_mock_fallback && self.agent_runtime.is_none() {
+            return Ok(self.tools.clone());
         }
-        Ok(tools)
+        let Some(runtime) = self.agent_runtime.as_ref() else {
+            return Ok(Vec::new());
+        };
+        Ok(runtime.tool_provider()?.list_tools())
     }
 
     /// Get a tool descriptor by name
@@ -75,11 +69,11 @@ impl ToolBridge {
     /// Execute a tool call through typed providers with optional mock fallback.
     pub fn execute(&self, call: &ToolCall) -> KernelResult<ToolResult> {
         if let Some(runtime) = &self.agent_runtime {
-            let provider = runtime.tool_provider()?;
-            let result = provider.invoke_tool(call.clone())?;
-            if result.normalized_status == ToolCallStatus::Succeeded || !self.allow_mock_fallback {
-                return Ok(result);
-            }
+            let response = ToolExecutionService::new().invoke(
+                runtime,
+                ToolExecutionRequest::new(call.tool_call_id.clone(), call.clone()),
+            )?;
+            return Ok(response.result);
         } else if !self.allow_mock_fallback {
             return Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
                 provider_id: "provider.tool".to_string(),
@@ -182,14 +176,22 @@ mod tests {
 
     #[test]
     fn list_tools_returns_all() {
-        let bridge = ToolBridge::new();
+        let bridge = ToolBridge::with_mock_fallback_enabled();
         let tools = bridge.list_tools().expect("listed");
         assert_eq!(tools.len(), 5);
     }
 
     #[test]
+    fn list_tools_fails_closed_without_provider() {
+        assert!(ToolBridge::new()
+            .list_tools()
+            .expect("discovery remains available")
+            .is_empty());
+    }
+
+    #[test]
     fn get_tool_by_name() {
-        let bridge = ToolBridge::new();
+        let bridge = ToolBridge::with_mock_fallback_enabled();
         let tool = bridge.get_tool("bash").expect("found");
         assert_eq!(tool.name, Some("bash".to_string()));
     }
@@ -217,7 +219,7 @@ mod tests {
 
     #[test]
     fn requires_policy_for_dangerous_tools() {
-        let bridge = ToolBridge::new();
+        let bridge = ToolBridge::with_mock_fallback_enabled();
         assert!(bridge.requires_policy("bash"));
         assert!(bridge.requires_policy("write_file"));
         assert!(!bridge.requires_policy("read_file"));

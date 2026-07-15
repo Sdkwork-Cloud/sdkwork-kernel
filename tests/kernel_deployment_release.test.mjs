@@ -472,6 +472,16 @@ test('commercial release verification requires live dependencies explicitly', ()
   assert.doesNotMatch(runbook, /Live Postgres \(optional\)/);
 });
 
+test('Windows audit verification avoids parallel Cargo build-script races', () => {
+  const auditScript = fs.readFileSync(
+    path.join(root, 'scripts/verify-kernel-audit-remediation.mjs'),
+    'utf8'
+  );
+  assert.match(auditScript, /process\.platform === 'win32'/);
+  assert.match(auditScript, /CARGO_BUILD_JOBS \?\?= '1'/);
+  assert.match(auditScript, /CARGO_INCREMENTAL \?\?= '0'/);
+});
+
 test('commercial readiness docs distinguish merge and release dependency gates', () => {
   const readiness = fs.readFileSync(
     path.join(root, 'docs/product/prd/PRD-03-commercial-readiness-baseline.md'),

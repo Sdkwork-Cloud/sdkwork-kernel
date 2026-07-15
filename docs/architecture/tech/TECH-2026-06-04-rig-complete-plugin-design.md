@@ -11,7 +11,7 @@ Rig is the first implementation target because it is Rust-native. It must valida
 
 - `sdkwork-agent-kernel` and `sdkwork-code-kernel` must not depend on `external/` or any plugin crate.
 - `external/rig` remains a reference source tree unless an explicit feature-gated live backend is enabled in the Rig plugin crate.
-- Default Rig behavior must be deterministic and fail-closed for live model/tool execution when no live backend is configured.
+- Default Rig behavior must be deterministic and fail-closed for live model execution when no live backend is configured; unimplemented standalone tool capabilities must not be declared.
 - Plugin assembly belongs in `sdkwork-kernel-plugins`, not in kernel core.
 - Provider ids, agent ids, capability ids, and event families must be stable, lowercase, and namespaced.
 - Raw secrets must never appear in manifests, configuration profiles, events, diagnostics, or tests.
@@ -26,7 +26,7 @@ The implementation uses four layers.
 
 `sdkwork-kernel-plugins/crates/sdkwork-agent-plugin-core` defines SDKWork-owned plugin assembly contracts for external plugins. It introduces a small, typed `SdkworkKernelPlugin` interface plus manifest, profile, binding, and deployment snapshot helper types. It depends on `sdkwork-agent-kernel`, but kernel core does not depend on it.
 
-`agent-providers/crates/sdkwork-agent-provider-rig` implements the first complete plugin. It exposes Rig agent/package manifests, installer and configuration providers, model/tool/planning providers, diagnostics, and conformance evidence. Its default backend is fail-closed. A future feature-gated live backend may map SDKWork requests to Rig upstream APIs.
+`agent-providers/crates/sdkwork-agent-provider-rig` implements the first complete plugin. It exposes Rig agent/package manifests, installer and configuration providers, model/planning providers, diagnostics, and conformance evidence. Its default backend is fail-closed; the `rig-core-adapter` feature provides the official registry-crate model adapter. Standalone tool capability is intentionally absent until a stable registry bridge exists.
 
 `sdkwork-agents/sdkwork-agent-business` (sibling repository) tracks managed agent ownership, provider bindings, active binding selection, and deployments. It treats Rig as an implementation provider, not as special-case business logic.
 
@@ -89,7 +89,6 @@ Rig plugin ids:
 - Agent card: `agent_card.intelligence.rig-general`
 - Plugin: `plugin.intelligence.rig`
 - Model provider: `provider.model.rig-rust`
-- Tool provider: `provider.tool.rig-rust`
 - Planning provider: `provider.planning.rig-rust`
 - Installer provider: `provider.agent.installer.rig-rust`
 - Configuration provider: `provider.agent.configuration.rig-rust`
@@ -102,16 +101,13 @@ Required capabilities:
 - `agent.install`
 - `agent.configure`
 
-Optional capabilities:
+Optional capability:
 
-- `model.streaming`
-- `model.tool_call`
-- `tool.invoke`
 - `planning.create`
 
 The model provider must list at least one SDKWork model descriptor. Invocation must fail with a stable provider-unavailable error until a live backend is configured. Unknown model ids must fail with capability-missing behavior through the model catalog path.
 
-The tool provider must expose typed descriptors and policy metadata. Tool output is untrusted by default. Side-effectful tools must require policy categories.
+Agent-internal tool activity must remain observable as typed events. A future standalone tool provider may be added only when the Rig registry exposes an independently invocable, policy-controlled bridge.
 
 The planning provider must produce valid `Plan` values with at least one action. Any side-effectful action must include policy categories.
 
@@ -187,7 +183,6 @@ Rig completion requires these profiles:
 - `runtime-local`
 - `agent-installation`
 - `provider-model`
-- `provider-tool`
 - `security-baseline` for fail-closed behavior
 
 Verification commands:
@@ -204,4 +199,3 @@ node scripts/check-kernel-standards.mjs
 ## Decision
 
 Implement the complete Rig plugin path now. Keep other upstream plugins as mapping and manifest candidates until Rig proves the standard end to end.
-

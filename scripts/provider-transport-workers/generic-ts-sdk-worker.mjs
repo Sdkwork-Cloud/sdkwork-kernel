@@ -2,6 +2,7 @@
 import readline from 'node:readline';
 import {
   buildModelChatStreamResult,
+  invokeModelChatStreamLive,
   buildStubModelChatResult,
   invokeModelChatRuntime,
   mockProviderInvocationAllowed,
@@ -107,15 +108,41 @@ async function handleCapabilityInvoke(params) {
   }
 
   if (op === 'model_chat' || op === 'model_chat_stream') {
-    const handleResult = (result) =>
-      op === 'model_chat_stream' ? buildModelChatStreamResult(result) : result;
     const fallbackAllowed =
       mockProviderInvocationAllowed() && !operationRequiresLiveProvider(operation);
 
-    try {
-      return handleResult(await invokeModelChatRuntime(packageName, operation));
-    } catch (error) {
-      if (!fallbackAllowed) {
+    if (
+      op === 'model_chat_stream' &&
+      !fallbackAllowed &&
+      packageProbe.resolved &&
+      packageName.startsWith('@openai/codex')
+    ) {
+      try {
+        return await invokeModelChatStreamLive(packageName, operation);
+      } catch (error) {
+        if (!fallbackAllowed) {
+          return {
+            ok: false,
+            mode: 'sdk_live_failed',
+            package: packageName,
+            package_resolved: packageProbe.resolved,
+            cli_available: runtimeProbe.cli_available,
+            runtime_available: runtimeProbe.runtime_available,
+            runtime_mode: runtimeProbe.runtime_mode,
+            error: error instanceof Error ? error.message : String(error),
+            model_request_id: operation.model_request_id ?? null,
+          };
+        }
+      }
+    }
+
+    const handleResult = (result) =>
+      op === 'model_chat_stream' ? buildModelChatStreamResult(result) : result;
+
+    if (!fallbackAllowed) {
+      try {
+        return handleResult(await invokeModelChatRuntime(packageName, operation));
+      } catch (error) {
         return {
           ok: false,
           mode: 'sdk_live_failed',
@@ -145,48 +172,10 @@ async function handleCapabilityInvoke(params) {
     return handleResult(buildStubModelChatResult(packageName, operation, packageProbe));
   }
 
-  if (op === 'tool_invoke') {
-    if (!syntheticProviderOperationAllowed()) {
-      return failClosedSyntheticOperation(op, packageProbe);
-    }
-    return {
-      ok: true,
-      mode: packageProbe.resolved ? 'sdk_probe' : 'stub',
-      output: JSON.stringify({
-        tool_id: operation.tool_id ?? null,
-        arguments: operation.arguments ?? null,
-        package: packageName,
-      }),
-      package: packageName,
-      tool_call_id: operation.tool_call_id ?? null,
-    };
-  }
-
-  if (op === 'skill_invoke') {
-    if (!syntheticProviderOperationAllowed()) {
-      return failClosedSyntheticOperation(op, packageProbe);
-    }
-    return {
-      ok: true,
-      mode: packageProbe.resolved ? 'sdk_probe' : 'stub',
-      output: JSON.stringify({
-        skill_id: operation.skill_id ?? null,
-        arguments: operation.arguments ?? null,
-        package: packageName,
-      }),
-      package: packageName,
-    };
-  }
-
-  if (!syntheticProviderOperationAllowed()) {
-    return failClosedSyntheticOperation(op, packageProbe);
-  }
-
   return {
-    ok: true,
-    mode: 'unknown_operation',
-    operation: op,
-    package: packageName,
+    ...failClosedSyntheticOperation(op, packageProbe),
+    mode: 'unsupported_operation',
+    error: `operation is not implemented by the official provider SDK adapter: ${op}`,
   };
 }
 

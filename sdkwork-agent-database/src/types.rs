@@ -53,6 +53,40 @@ pub struct SessionRow {
     pub metadata_json: Option<String>,
 }
 
+/// Compares runtime session snapshots using parsed UTC timestamps where
+/// possible. Unknown timestamp formats remain writable for compatibility.
+pub fn session_snapshot_is_older(incoming: &SessionRow, existing: &SessionRow) -> bool {
+    timestamp_is_older(
+        incoming
+            .updated_at
+            .as_deref()
+            .or(Some(incoming.created_at.as_str())),
+        existing
+            .updated_at
+            .as_deref()
+            .or(Some(existing.created_at.as_str())),
+    )
+}
+
+/// Provider-owned rows may be claimed from an unowned runtime row, but one
+/// provider must never overwrite a row already owned by another provider.
+pub fn session_provider_conflicts(incoming: &SessionRow, existing: &SessionRow) -> bool {
+    matches!(
+        (incoming.provider_id.as_deref(), existing.provider_id.as_deref()),
+        (Some(incoming), Some(existing)) if incoming != existing
+    )
+}
+
+pub fn timestamp_is_older(incoming: Option<&str>, existing: Option<&str>) -> bool {
+    match (
+        incoming.and_then(|value| sdkwork_utils_rust::parse_datetime(value, None)),
+        existing.and_then(|value| sdkwork_utils_rust::parse_datetime(value, None)),
+    ) {
+        (Some(incoming), Some(existing)) => incoming < existing,
+        _ => false,
+    }
+}
+
 /// Message row for database persistence
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageRow {
@@ -184,4 +218,17 @@ pub struct PermissionRow {
     pub owner_user_ref: Option<String>,
     pub created_at: String,
     pub updated_at: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timestamp_comparison_normalizes_timezone_offsets() {
+        assert!(timestamp_is_older(
+            Some("2026-07-15T08:01:00+08:00"),
+            Some("2026-07-15T00:02:00Z")
+        ));
+    }
 }

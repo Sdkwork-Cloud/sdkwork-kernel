@@ -1,7 +1,7 @@
 use crate::OpenCodeSdkIntegration;
 use sdkwork_agent_kernel::{
     AgentDefinition, AgentManifest, AgentPackageManifest, ModelProvider, ProviderManifest,
-    RuntimeBuilder, ToolProvider,
+    RuntimeBuilder,
 };
 use sdkwork_agent_plugin_core::{
     KernelPluginConformanceProfile, KernelPluginManifest, ProcessAdapterConfigurationProvider,
@@ -29,13 +29,11 @@ pub fn opencode_kernel_plugin_manifest() -> KernelPluginManifest {
         .with_source_reference("external/opencode")
         .with_agent_id(ids::AGENT_ID)
         .with_provider_id(ids::MODEL_PROVIDER_ID)
-        .with_provider_id(ids::TOOL_PROVIDER_ID)
         .with_provider_id(ids::POLICY_PROVIDER_ID)
         .with_provider_id(ids::INSTALLER_PROVIDER_ID)
         .with_provider_id(ids::CONFIGURATION_PROVIDER_ID)
         .with_supported_profile("runtime-manifest")
         .with_supported_profile("provider-model")
-        .with_supported_profile("provider-tool")
         .with_supported_profile("security-baseline")
 }
 
@@ -43,7 +41,6 @@ pub fn opencode_provider_manifests() -> Vec<ProviderManifest> {
     let integration = OpenCodeSdkIntegration::bootstrap().expect("opencode sdk integration");
     vec![
         integration.model.provider_manifest(),
-        integration.tools.provider_manifest(),
         SdkStandardPolicyProvider::new(ids::POLICY_PROVIDER_ID).provider_manifest_for(),
     ]
 }
@@ -75,7 +72,6 @@ impl SdkworkKernelPlugin for OpenCodeKernelPlugin {
 
         builder
             .register_model_provider(ids::MODEL_PROVIDER_ID, "0.2.0", integration.model)
-            .register_tool_provider(ids::TOOL_PROVIDER_ID, "0.2.0", integration.tools)
             .register_policy_provider(
                 ids::POLICY_PROVIDER_ID,
                 "0.1.0",

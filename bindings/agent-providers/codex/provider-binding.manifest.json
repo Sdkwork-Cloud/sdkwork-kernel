@@ -99,19 +99,6 @@
           "crate": "codex-core"
         }
       ]
-    },
-    {
-      "capability_id": "sdk.tool.invoke",
-      "required": false,
-      "execution_scope": "transport_runtime",
-      "backends": [
-        {
-          "kind": "rust_native",
-          "driver_id": "driver.codex.tool.invoke.rust",
-          "runtime_operations": ["ping", "tool_invoke"],
-          "crate": "codex-core"
-        }
-      ]
     }
   ],
   "integration_sources": [

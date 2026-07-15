@@ -5,6 +5,7 @@ use std::fmt::Write as _;
 use std::hash::Hash;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use axum::{extract::State, http::StatusCode, response::IntoResponse};
 
@@ -132,7 +133,34 @@ pub struct MetricsRegistry {
     duration_series_overflow_total: AtomicU64,
     model_invocation_series_overflow_total: AtomicU64,
     model_token_usage_series_overflow_total: AtomicU64,
+    provider_admission_capacity: AtomicU64,
+    provider_admission_wait_capacity: AtomicU64,
+    provider_admission_active: AtomicU64,
+    provider_admission_waiting: AtomicU64,
+    provider_admission_queue_full_total: AtomicU64,
+    provider_admission_timeout_total: AtomicU64,
+    provider_admission_closed_total: AtomicU64,
+    provider_admission_acquire_duration: Mutex<DurationHistogram>,
     render_lock: Mutex<()>,
+}
+
+/// RAII observation for one request waiting on provider admission.
+pub struct ProviderAdmissionWaitGuard {
+    metrics: Arc<MetricsRegistry>,
+    started_at: Instant,
+    finished: bool,
+}
+
+/// RAII observation for one admitted provider invocation.
+pub struct ProviderAdmissionActiveGuard {
+    metrics: Arc<MetricsRegistry>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderAdmissionRejection {
+    QueueFull,
+    Timeout,
+    Closed,
 }
 
 impl MetricsRegistry {
@@ -155,8 +183,34 @@ impl MetricsRegistry {
             duration_series_overflow_total: AtomicU64::new(0),
             model_invocation_series_overflow_total: AtomicU64::new(0),
             model_token_usage_series_overflow_total: AtomicU64::new(0),
+            provider_admission_capacity: AtomicU64::new(config.provider_max_concurrency as u64),
+            provider_admission_wait_capacity: AtomicU64::new(config.provider_max_waiters as u64),
+            provider_admission_active: AtomicU64::new(0),
+            provider_admission_waiting: AtomicU64::new(0),
+            provider_admission_queue_full_total: AtomicU64::new(0),
+            provider_admission_timeout_total: AtomicU64::new(0),
+            provider_admission_closed_total: AtomicU64::new(0),
+            provider_admission_acquire_duration: Mutex::new(DurationHistogram::default()),
             render_lock: Mutex::new(()),
         })
+    }
+
+    pub fn begin_provider_admission_wait(self: &Arc<Self>) -> ProviderAdmissionWaitGuard {
+        saturating_atomic_add(&self.provider_admission_waiting, 1);
+        ProviderAdmissionWaitGuard {
+            metrics: self.clone(),
+            started_at: Instant::now(),
+            finished: false,
+        }
+    }
+
+    pub fn record_provider_admission_rejection(&self, reason: ProviderAdmissionRejection) {
+        let counter = match reason {
+            ProviderAdmissionRejection::QueueFull => &self.provider_admission_queue_full_total,
+            ProviderAdmissionRejection::Timeout => &self.provider_admission_timeout_total,
+            ProviderAdmissionRejection::Closed => &self.provider_admission_closed_total,
+        };
+        saturating_atomic_add(counter, 1);
     }
 
     pub fn record_request(
@@ -391,6 +445,83 @@ impl MetricsRegistry {
             SSE_ACTIVE_CONNECTIONS.load(Ordering::Relaxed)
         );
 
+        for (name, help, value) in [
+            (
+                "sdkwork_kernel_provider_admission_capacity",
+                "Configured provider admission capacity in this server process.",
+                self.provider_admission_capacity.load(Ordering::Relaxed),
+            ),
+            (
+                "sdkwork_kernel_provider_admission_active",
+                "Provider invocations currently holding an admission permit.",
+                self.provider_admission_active.load(Ordering::Relaxed),
+            ),
+            (
+                "sdkwork_kernel_provider_admission_wait_capacity",
+                "Configured provider admission waiting capacity in this server process.",
+                self.provider_admission_wait_capacity
+                    .load(Ordering::Relaxed),
+            ),
+            (
+                "sdkwork_kernel_provider_admission_waiting",
+                "Provider invocations currently waiting for an admission permit.",
+                self.provider_admission_waiting.load(Ordering::Relaxed),
+            ),
+        ] {
+            let _ = writeln!(output, "# HELP {name} {help}");
+            let _ = writeln!(output, "# TYPE {name} gauge");
+            let _ = writeln!(output, "{name}{{{base}}} {value}");
+        }
+
+        let _ = writeln!(
+            output,
+            "# HELP sdkwork_kernel_provider_admission_rejected_total Provider invocations rejected before provider execution."
+        );
+        let _ = writeln!(
+            output,
+            "# TYPE sdkwork_kernel_provider_admission_rejected_total counter"
+        );
+        for (reason, counter) in [
+            ("queue_full", &self.provider_admission_queue_full_total),
+            ("timeout", &self.provider_admission_timeout_total),
+            ("closed", &self.provider_admission_closed_total),
+        ] {
+            let _ = writeln!(
+                output,
+                "sdkwork_kernel_provider_admission_rejected_total{{{base},reason=\"{reason}\"}} {}",
+                counter.load(Ordering::Relaxed)
+            );
+        }
+
+        let _ = writeln!(
+            output,
+            "# HELP sdkwork_kernel_provider_admission_acquire_duration_seconds Provider admission permit acquisition duration histogram."
+        );
+        let _ = writeln!(
+            output,
+            "# TYPE sdkwork_kernel_provider_admission_acquire_duration_seconds histogram"
+        );
+        {
+            let histogram = lock_recover(&self.provider_admission_acquire_duration);
+            for (index, (_, le)) in DURATION_BUCKETS_SECS.iter().enumerate() {
+                let _ = writeln!(
+                    output,
+                    "sdkwork_kernel_provider_admission_acquire_duration_seconds_bucket{{{base},le=\"{le}\"}} {}",
+                    histogram.buckets[index]
+                );
+            }
+            let _ = writeln!(
+                output,
+                "sdkwork_kernel_provider_admission_acquire_duration_seconds_count{{{base}}} {}",
+                histogram.count
+            );
+            let _ = writeln!(
+                output,
+                "sdkwork_kernel_provider_admission_acquire_duration_seconds_sum{{{base}}} {}",
+                histogram.sum
+            );
+        }
+
         let _ = writeln!(
             output,
             "# HELP sdkwork_kernel_runtime_persistence_backend_info Active runtime persistence backend."
@@ -493,6 +624,36 @@ impl MetricsRegistry {
     }
 }
 
+impl ProviderAdmissionWaitGuard {
+    pub fn acquired(mut self) -> ProviderAdmissionActiveGuard {
+        saturating_atomic_sub(&self.metrics.provider_admission_waiting, 1);
+        let duration_secs = self.started_at.elapsed().as_secs_f64();
+        record_histogram_observation(
+            &mut lock_recover(&self.metrics.provider_admission_acquire_duration),
+            duration_secs,
+        );
+        saturating_atomic_add(&self.metrics.provider_admission_active, 1);
+        self.finished = true;
+        ProviderAdmissionActiveGuard {
+            metrics: self.metrics.clone(),
+        }
+    }
+}
+
+impl Drop for ProviderAdmissionWaitGuard {
+    fn drop(&mut self) {
+        if !self.finished {
+            saturating_atomic_sub(&self.metrics.provider_admission_waiting, 1);
+        }
+    }
+}
+
+impl Drop for ProviderAdmissionActiveGuard {
+    fn drop(&mut self) {
+        saturating_atomic_sub(&self.metrics.provider_admission_active, 1);
+    }
+}
+
 fn record_bounded_series<K>(
     series: &mut HashMap<K, u64>,
     key: K,
@@ -536,6 +697,11 @@ fn record_duration_histogram(
     };
     let target = if use_overflow { overflow_key } else { key };
     let histogram = histograms.entry(target).or_default();
+    record_histogram_observation(histogram, duration_secs);
+    use_overflow
+}
+
+fn record_histogram_observation(histogram: &mut DurationHistogram, duration_secs: f64) {
     let observed = if duration_secs.is_nan() || duration_secs.is_sign_negative() {
         0.0
     } else if duration_secs.is_infinite() {
@@ -555,7 +721,6 @@ fn record_duration_histogram(
             histogram.buckets[index] = histogram.buckets[index].saturating_add(1);
         }
     }
-    use_overflow
 }
 
 fn lock_recover<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -588,6 +753,12 @@ fn overflow_pair() -> (String, String) {
 fn saturating_atomic_add(counter: &AtomicU64, amount: u64) {
     let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
         Some(current.saturating_add(amount))
+    });
+}
+
+fn saturating_atomic_sub(counter: &AtomicU64, amount: u64) {
+    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+        Some(current.saturating_sub(amount))
     });
 }
 
@@ -690,7 +861,65 @@ mod tests {
         assert!(body.contains("sdkwork_kernel_runtime_persistence_backend_info"));
         assert!(body.contains("sdkwork_kernel_rate_limit_backend_info"));
         assert!(body.contains("sdkwork_kernel_model_invocations_total"));
+        assert!(body.contains("sdkwork_kernel_provider_admission_capacity"));
+        assert!(body.contains("sdkwork_kernel_provider_admission_wait_capacity"));
+        assert!(body.contains("sdkwork_kernel_provider_admission_active"));
+        assert!(body.contains("sdkwork_kernel_provider_admission_waiting"));
+        assert!(body.contains("sdkwork_kernel_provider_admission_rejected_total"));
+        assert!(body.contains("sdkwork_kernel_provider_admission_acquire_duration_seconds_bucket"));
         assert!(body.contains("sdkwork_kernel_metrics_series_overflow_total"));
+    }
+
+    #[test]
+    fn provider_admission_guards_track_wait_active_and_cancelled_lifecycles() {
+        let config = ServerConfig {
+            provider_max_concurrency: 3,
+            ..Default::default()
+        };
+        let registry = MetricsRegistry::from_config(&config);
+
+        let cancelled_wait = registry.begin_provider_admission_wait();
+        assert_eq!(
+            registry.provider_admission_waiting.load(Ordering::Relaxed),
+            1
+        );
+        drop(cancelled_wait);
+        assert_eq!(
+            registry.provider_admission_waiting.load(Ordering::Relaxed),
+            0
+        );
+
+        let active = registry.begin_provider_admission_wait().acquired();
+        assert_eq!(
+            registry.provider_admission_waiting.load(Ordering::Relaxed),
+            0
+        );
+        assert_eq!(
+            registry.provider_admission_active.load(Ordering::Relaxed),
+            1
+        );
+        assert_eq!(
+            lock_recover(&registry.provider_admission_acquire_duration).count,
+            1
+        );
+        drop(active);
+        assert_eq!(
+            registry.provider_admission_active.load(Ordering::Relaxed),
+            0
+        );
+
+        registry.record_provider_admission_rejection(ProviderAdmissionRejection::QueueFull);
+        registry.record_provider_admission_rejection(ProviderAdmissionRejection::Timeout);
+        registry.record_provider_admission_rejection(ProviderAdmissionRejection::Closed);
+        let body =
+            registry.render_prometheus(true, &OperationalProfile::from_runtime("sqlite", false));
+        assert!(body.contains("sdkwork_kernel_provider_admission_capacity{"));
+        assert!(body.contains("runtime_target=\"server\"} 3"));
+        assert!(body.contains("sdkwork_kernel_provider_admission_rejected_total{"));
+        assert!(body.contains("reason=\"queue_full\"} 1"));
+        assert!(body.contains("reason=\"timeout\"} 1"));
+        assert!(body.contains("reason=\"closed\"} 1"));
+        assert!(body.contains("sdkwork_kernel_provider_admission_acquire_duration_seconds_count{"));
     }
 
     #[test]

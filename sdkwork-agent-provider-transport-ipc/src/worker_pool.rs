@@ -1,7 +1,9 @@
-use crate::{SharedJsonRpcTransport, SpawnedWorker, TransportError};
+use crate::{JsonRpcTransport, SharedJsonRpcTransport, SpawnedWorker, TransportError};
+use serde_json::Value;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
+use std::thread;
 use std::time::{Duration, Instant};
 
 type WorkerFactory = dyn Fn() -> Result<SpawnedWorker, TransportError> + Send + Sync;
@@ -194,6 +196,79 @@ impl SpawnedWorkerLease {
 
     pub fn is_running(&self) -> bool {
         self.worker.is_running()
+    }
+
+    /// Executes one unary call with a hard process deadline.
+    ///
+    /// The stdio protocol is synchronous and cannot interrupt a blocked pipe
+    /// read. A dedicated watchdog therefore terminates and reaps only the
+    /// process leased to this request when the deadline expires.
+    pub fn call_with_timeout(
+        &self,
+        method: &str,
+        params: Option<Value>,
+        timeout: Duration,
+    ) -> Result<Value, TransportError> {
+        self.execute_with_timeout(timeout, || self.transport().call(method, params))
+    }
+
+    /// Executes one streaming call with the same hard process deadline as a
+    /// unary call. A timed-out or partially consumed worker is never reused.
+    pub fn call_streaming_with_timeout(
+        &self,
+        method: &str,
+        params: Option<Value>,
+        timeout: Duration,
+        sink: &mut dyn FnMut(Value) -> Result<bool, TransportError>,
+    ) -> Result<(), TransportError> {
+        self.execute_with_timeout(timeout, || {
+            self.transport().call_streaming(method, params, sink)
+        })
+    }
+
+    fn execute_with_timeout<T>(
+        &self,
+        timeout: Duration,
+        operation: impl FnOnce() -> Result<T, TransportError>,
+    ) -> Result<T, TransportError> {
+        if timeout.is_zero() {
+            return Err(TransportError::new(
+                "provider worker timeout must be greater than zero",
+            ));
+        }
+
+        let (completed_tx, completed_rx) = mpsc::sync_channel(1);
+        let worker = self.worker.clone();
+        let timed_out = Arc::new(AtomicBool::new(false));
+        let watchdog_timed_out = timed_out.clone();
+        let watchdog = thread::Builder::new()
+            .name("sdkwork-provider-worker-deadline".to_string())
+            .spawn(move || {
+                if matches!(
+                    completed_rx.recv_timeout(timeout),
+                    Err(mpsc::RecvTimeoutError::Timeout)
+                ) {
+                    watchdog_timed_out.store(true, Ordering::Release);
+                    let _ = worker.cancel_inflight();
+                }
+            })
+            .map_err(|error| {
+                TransportError::new(format!("provider worker watchdog spawn failed: {error}"))
+            })?;
+
+        let result = operation();
+        let _ = completed_tx.send(());
+        watchdog
+            .join()
+            .map_err(|_| TransportError::new("provider worker watchdog panicked"))?;
+
+        if timed_out.load(Ordering::Acquire) {
+            return Err(TransportError::new(format!(
+                "provider worker operation timed out after {} ms",
+                timeout.as_millis()
+            )));
+        }
+        result
     }
 }
 

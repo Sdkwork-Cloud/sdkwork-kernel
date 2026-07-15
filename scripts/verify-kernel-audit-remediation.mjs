@@ -6,6 +6,16 @@ import path from 'node:path';
 import process from 'node:process';
 
 const kernelRoot = process.cwd();
+const auditEnvironment = { ...process.env };
+
+// Cargo's parallel build-script alias creation is unreliable on Windows when
+// CARGO_TARGET_DIR is hosted on a filesystem without hard-link support (for
+// example exFAT). Keep the audit deterministic while preserving explicit
+// caller overrides and normal Linux CI parallelism.
+if (process.platform === 'win32') {
+  auditEnvironment.CARGO_BUILD_JOBS ??= '1';
+  auditEnvironment.CARGO_INCREMENTAL ??= '0';
+}
 
 function truthyEnv(name) {
   const value = process.env[name]?.trim().toLowerCase();
@@ -154,7 +164,7 @@ for (const [cmd, args, extraEnv] of commands) {
   const label = `${cmd} ${args.join(' ')}`;
   const result = spawnSync(cmd, args, {
     cwd: kernelRoot,
-    env: extraEnv ? { ...process.env, ...extraEnv } : process.env,
+    env: extraEnv ? { ...auditEnvironment, ...extraEnv } : auditEnvironment,
     stdio: 'inherit',
     shell: process.platform === 'win32'
   });

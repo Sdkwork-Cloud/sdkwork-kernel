@@ -45,20 +45,7 @@
         {
           "kind": "typescript_node",
           "driver_id": "driver.opencode.model.chat.ts",
-          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
-          "package": "@opencode-ai/sdk"
-        }
-      ]
-    },
-    {
-      "capability_id": "sdk.tool.invoke",
-      "required": false,
-      "execution_scope": "transport_runtime",
-      "backends": [
-        {
-          "kind": "typescript_node",
-          "driver_id": "driver.opencode.tool.invoke.ts",
-          "runtime_operations": ["ping", "tool_invoke"],
+          "runtime_operations": ["ping", "model_chat"],
           "package": "@opencode-ai/sdk"
         }
       ]

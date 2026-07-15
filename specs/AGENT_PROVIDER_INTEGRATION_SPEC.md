@@ -160,8 +160,17 @@ Operation dispatch rules:
   operation is absent from the selected backend `runtime_operations[]`.
 - Capabilities with `execution_scope: provider_local` are implemented through
   typed provider-core or local SPI paths. They may expose only `ping` through
-  runtime routing; lifecycle create/resume/close/list behavior must use the
-  provider-local lifecycle provider rather than a fake transport operation.
+  runtime routing; lifecycle create/get/update/resume/close/delete/list behavior
+  must use the provider-local lifecycle provider rather than a fake transport
+  operation.
+- Provider-local lifecycle implementations must expose ordered incremental
+  changes through a monotonically increasing cursor. Change retention must be
+  bounded, expired cursors must fail explicitly, and synchronization into
+  runtime persistence must collapse repeated changes for one session to the
+  latest snapshot before writing.
+- External session identities such as Codex threads, OpenCode sessions,
+  OpenClaw gateway sessions, Hermes sessions, and Rig executions must map to
+  `AgentSession` before they enter shared persistence or event streaming.
 - Capabilities with `execution_scope: transport_runtime` may execute through the
   selected transport only when the backend runtime is healthy and the requested
   operation is explicitly declared.

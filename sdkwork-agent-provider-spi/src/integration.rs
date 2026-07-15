@@ -10,6 +10,7 @@ pub const CODEX_BINDING_ID: &str = "binding.agent-provider.codex";
 pub const CLAUDE_CODE_BINDING_ID: &str = "binding.agent-provider.claude-code";
 pub const GEMINI_CLI_BINDING_ID: &str = "binding.agent-provider.gemini-cli";
 pub const HERMES_BINDING_ID: &str = "binding.agent-provider.hermes";
+pub const MIMO_CODE_BINDING_ID: &str = "binding.agent-provider.mimo-code";
 pub const OPENCLAW_BINDING_ID: &str = "binding.agent-provider.openclaw";
 pub const OPENCODE_BINDING_ID: &str = "binding.agent-provider.opencode";
 pub const RIG_BINDING_ID: &str = "binding.agent-provider.rig";

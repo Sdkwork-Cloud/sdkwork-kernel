@@ -501,7 +501,42 @@ impl SessionRepository for SqliteDatabase {
     }
 
     fn update_session(&self, session: &SessionRow) -> DatabaseResult<()> {
-        self.save_session(session)
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let changed = conn
+            .execute(
+                "UPDATE sessions SET
+                    agent_id = ?2, kind = ?3, source = ?4, state = ?5,
+                    title = ?6, model = ?7, cwd = ?8, provider_id = ?9,
+                    bridge_id = ?10, token_usage_json = ?11, updated_at = ?12,
+                    metadata_json = ?13
+                 WHERE session_id = ?1",
+                params![
+                    session.session_id,
+                    session.agent_id,
+                    session.kind,
+                    session.source,
+                    session.state,
+                    session.title,
+                    session.model,
+                    session.cwd,
+                    session.provider_id,
+                    session.bridge_id,
+                    session.token_usage_json,
+                    session.updated_at,
+                    session.metadata_json,
+                ],
+            )
+            .map_err(|error| DatabaseError::Query(format!("failed to update session: {error}")))?;
+        if changed != 1 {
+            return Err(DatabaseError::NotFound(format!(
+                "session not found: {}",
+                session.session_id
+            )));
+        }
+        Ok(())
     }
 
     fn delete_session(&self, session_id: &str) -> DatabaseResult<()> {
@@ -1046,6 +1081,39 @@ fn map_permission_row(row: &Row<'_>) -> rusqlite::Result<PermissionRow> {
 }
 
 impl PermissionRepository for SqliteDatabase {
+    fn create_permission_if_absent(&self, permission: &PermissionRow) -> DatabaseResult<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let changed = conn
+            .execute(
+                "INSERT INTO permissions (
+                    permission_request_id, session_id, category, resource,
+                    side_effect_level, reason, status, owner_tenant_id,
+                    owner_user_ref, created_at, updated_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                 ON CONFLICT(permission_request_id) DO NOTHING",
+                params![
+                    permission.permission_request_id,
+                    permission.session_id,
+                    permission.category,
+                    permission.resource,
+                    permission.side_effect_level,
+                    permission.reason,
+                    permission.status,
+                    permission.owner_tenant_id,
+                    permission.owner_user_ref,
+                    permission.created_at,
+                    permission.updated_at,
+                ],
+            )
+            .map_err(|error| {
+                DatabaseError::Query(format!("failed to create permission: {error}"))
+            })?;
+        Ok(changed == 1)
+    }
+
     fn save_permission(&self, permission: &PermissionRow) -> DatabaseResult<()> {
         let conn = self
             .conn
@@ -1146,16 +1214,30 @@ impl PermissionRepository for SqliteDatabase {
         permission_request_id: &str,
         status: &str,
     ) -> DatabaseResult<()> {
+        if !matches!(status, "allow" | "deny") {
+            return Err(DatabaseError::ConstraintViolation(
+                "permission status must be allow or deny".to_string(),
+            ));
+        }
         let conn = self
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
         let now = chrono::Utc::now().to_rfc3339();
-        conn.execute(
-            "UPDATE permissions SET status = ?1, updated_at = ?2 WHERE permission_request_id = ?3",
-            params![status, now, permission_request_id],
-        )
-        .map_err(|error| DatabaseError::Query(format!("failed to update permission: {error}")))?;
+        let changed = conn
+            .execute(
+                "UPDATE permissions SET status = ?1, updated_at = ?2
+             WHERE permission_request_id = ?3 AND (status = 'pending' OR status = ?1)",
+                params![status, now, permission_request_id],
+            )
+            .map_err(|error| {
+                DatabaseError::Query(format!("failed to update permission: {error}"))
+            })?;
+        if changed == 0 {
+            return Err(DatabaseError::ConstraintViolation(
+                "permission request state conflict or not found".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -1211,6 +1293,89 @@ impl RuntimeSessionWrites for SqliteDatabase {
         tx.commit().map_err(|error| {
             DatabaseError::Transaction(format!("failed to commit session event: {error}"))
         })
+    }
+
+    fn save_session_with_event_if_newer(
+        &self,
+        session: &SessionRow,
+        event: &EventRow,
+    ) -> DatabaseResult<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let tx =
+            Transaction::new_unchecked(&conn, TransactionBehavior::Immediate).map_err(|error| {
+                DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+            })?;
+        let existing: Option<(Option<String>, Option<String>)> = tx
+            .query_row(
+                "SELECT provider_id, updated_at FROM sessions WHERE session_id = ?1",
+                params![session.session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|error| {
+                DatabaseError::Query(format!("failed to load session timestamp: {error}"))
+            })?;
+        let provider_conflicts = existing
+            .as_ref()
+            .and_then(|(provider_id, _)| provider_id.as_deref())
+            .zip(session.provider_id.as_deref())
+            .is_some_and(|(existing, incoming)| existing != incoming);
+        let stale = existing.as_ref().is_some_and(|(_, existing_updated_at)| {
+            session.updated_at.is_none()
+                || crate::types::timestamp_is_older(
+                    session.updated_at.as_deref(),
+                    existing_updated_at.as_deref(),
+                )
+        });
+        if provider_conflicts || stale {
+            tx.commit().map_err(|error| {
+                DatabaseError::Transaction(format!("failed to commit stale session check: {error}"))
+            })?;
+            return Ok(false);
+        }
+        let applied = tx.execute(
+            crate::upsert_sql::sqlite::SAVE_PROVIDER_SESSION,
+            params![
+                session.session_id,
+                session.agent_id,
+                session.kind,
+                session.source,
+                session.state,
+                session.title,
+                session.model,
+                session.cwd,
+                session.provider_id,
+                session.bridge_id,
+                session.token_usage_json,
+                session.message_count,
+                session.owner_tenant_id,
+                session.owner_user_ref,
+                session.created_at,
+                session.updated_at,
+                session.metadata_json,
+            ],
+        )? > 0;
+        if applied {
+            tx.execute(
+                crate::upsert_sql::sqlite::SAVE_EVENT,
+                params![
+                    event.event_id,
+                    event.session_id,
+                    event.event_type,
+                    event.severity,
+                    event.payload,
+                    event.created_at,
+                ],
+            )
+            .map_err(|error| DatabaseError::Query(format!("failed to save event: {error}")))?;
+        }
+        tx.commit().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to commit session event: {error}"))
+        })?;
+        Ok(applied)
     }
 
     fn append_message_with_event(
@@ -1489,6 +1654,74 @@ impl RuntimeSessionWrites for SqliteDatabase {
         tx.commit().map_err(|error| {
             DatabaseError::Transaction(format!("failed to commit task event: {error}"))
         })
+    }
+
+    fn cancel_task_with_event(
+        &self,
+        task_id: &str,
+        updated_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<(TaskRow, bool)> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let tx = conn.unchecked_transaction().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+        })?;
+        let mut task = tx
+            .query_row(
+                "SELECT task_id, session_id, instruction, state, created_at, updated_at
+                 FROM tasks WHERE task_id = ?1",
+                params![task_id],
+                map_task_row,
+            )
+            .optional()
+            .map_err(|error| DatabaseError::Query(format!("failed to load task: {error}")))?
+            .ok_or_else(|| DatabaseError::NotFound(format!("task not found: {task_id}")))?;
+        if task.state == "cancelled" {
+            return Ok((task, false));
+        }
+        if !matches!(task.state.as_str(), "created" | "pending" | "running") {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "task {task_id} is not active"
+            )));
+        }
+        if event.session_id.as_deref() != Some(task.session_id.as_str()) {
+            return Err(DatabaseError::ConstraintViolation(
+                "task cancellation event session mismatch".to_string(),
+            ));
+        }
+        let changed = tx
+            .execute(
+                "UPDATE tasks SET state = 'cancelled', updated_at = ?2
+                 WHERE task_id = ?1 AND state IN ('created', 'pending', 'running')",
+                params![task_id, updated_at],
+            )
+            .map_err(|error| DatabaseError::Query(format!("failed to cancel task: {error}")))?;
+        if changed != 1 {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "task {task_id} state changed concurrently"
+            )));
+        }
+        tx.execute(
+            crate::upsert_sql::sqlite::SAVE_EVENT,
+            params![
+                event.event_id,
+                event.session_id,
+                event.event_type,
+                event.severity,
+                event.payload,
+                event.created_at,
+            ],
+        )
+        .map_err(|error| DatabaseError::Query(format!("failed to save event: {error}")))?;
+        tx.commit().map_err(|error| {
+            DatabaseError::Transaction(format!("failed to commit task cancellation: {error}"))
+        })?;
+        task.state = "cancelled".to_string();
+        task.updated_at = Some(updated_at.to_string());
+        Ok((task, true))
     }
 }
 

@@ -30,18 +30,23 @@ pub async fn dispatch_user_message(
     row: &SessionRow,
     trace_id: &str,
 ) -> Result<(MessageRow, Option<MessageRow>, BridgeMessageResponse), ApiError> {
-    state.register_persisted_session(row, trace_id).await?;
+    let lease = state
+        .runtime
+        .acquire_provider_admission()
+        .await
+        .map_err(|error| ApiError::from_kernel(error, trace_id))?;
+    state
+        .register_persisted_session(&lease, row, trace_id)
+        .await?;
     let runtime = state.runtime.clone();
     let session_key = session_id.to_string();
     let content_owned = content.to_string();
-    let bridge_response =
-        tokio::task::spawn_blocking(move || runtime.send_message(&session_key, &content_owned))
-            .await
-            .map_err(|error| {
-                tracing::error!(error = %error, trace_id, "message dispatch worker failed");
-                ApiError::internal("message dispatch worker failed", trace_id)
-            })?
-            .map_err(|error| ApiError::from_kernel(error, trace_id))?;
+    let bridge_response = runtime
+        .run_provider_admitted(lease, move |runtime| {
+            runtime.send_message(&session_key, &content_owned)
+        })
+        .await
+        .map_err(|error| ApiError::from_kernel(error, trace_id))?;
 
     let assistant_content = assistant_content_from_bridge(&bridge_response);
     let assistant_content = if assistant_content.is_empty() {
@@ -70,24 +75,28 @@ pub async fn dispatch_user_message_stream(
     model_override: Option<&str>,
     trace_id: &str,
 ) -> Result<(MessageRow, String, Vec<ModelStreamChunk>), ApiError> {
-    state.register_persisted_session(row, trace_id).await?;
+    let lease = state
+        .runtime
+        .acquire_provider_admission()
+        .await
+        .map_err(|error| ApiError::from_kernel(error, trace_id))?;
+    state
+        .register_persisted_session(&lease, row, trace_id)
+        .await?;
     let runtime = state.runtime.clone();
     let session_key = session_id.to_string();
     let content_owned = content.to_string();
     let model_override_owned = model_override.map(str::to_string);
-    let (assistant_message_id, chunks) = tokio::task::spawn_blocking(move || {
-        runtime.stream_message(
-            &session_key,
-            &content_owned,
-            model_override_owned.as_deref(),
-        )
-    })
-    .await
-    .map_err(|error| {
-        tracing::error!(error = %error, trace_id, "stream dispatch worker failed");
-        ApiError::internal("stream dispatch worker failed", trace_id)
-    })?
-    .map_err(|error| ApiError::from_kernel(error, trace_id))?;
+    let (assistant_message_id, chunks) = runtime
+        .run_provider_admitted(lease, move |runtime| {
+            runtime.stream_message(
+                &session_key,
+                &content_owned,
+                model_override_owned.as_deref(),
+            )
+        })
+        .await
+        .map_err(|error| ApiError::from_kernel(error, trace_id))?;
 
     let assistant_content = collect_model_stream_output(&chunks)
         .map_err(|error| ApiError::from_kernel(error, trace_id))?;

@@ -100,6 +100,12 @@ pub struct ServerConfig {
     pub otel_exporter_otlp_endpoint: Option<String>,
     /// SSE/streaming request timeout in seconds (long-lived connections).
     pub sse_request_timeout_secs: u64,
+    /// Maximum concurrent synchronous provider executions per server instance.
+    pub provider_max_concurrency: usize,
+    /// Maximum provider invocations allowed to wait for execution capacity.
+    pub provider_max_waiters: usize,
+    /// Maximum time a provider invocation may wait for execution capacity.
+    pub provider_admission_timeout_ms: u64,
 }
 
 impl Default for ServerConfig {
@@ -149,6 +155,9 @@ impl Default for ServerConfig {
             metrics_token: None,
             otel_exporter_otlp_endpoint: None,
             sse_request_timeout_secs: 3600,
+            provider_max_concurrency: 64,
+            provider_max_waiters: 64,
+            provider_admission_timeout_ms: 5_000,
         }
     }
 }
@@ -326,6 +335,24 @@ impl ServerConfig {
         }
         if let Ok(sse_timeout) = std::env::var("SDKWORK_SSE_REQUEST_TIMEOUT") {
             config.sse_request_timeout_secs = sse_timeout.parse()?;
+        }
+        if let Ok(concurrency) = std::env::var("SDKWORK_PROVIDER_MAX_CONCURRENCY") {
+            config.provider_max_concurrency = concurrency.parse()?;
+        }
+        if !(1..=1024).contains(&config.provider_max_concurrency) {
+            anyhow::bail!("SDKWORK_PROVIDER_MAX_CONCURRENCY must be between 1 and 1024");
+        }
+        if let Ok(waiters) = std::env::var("SDKWORK_PROVIDER_MAX_WAITERS") {
+            config.provider_max_waiters = waiters.parse()?;
+        }
+        if config.provider_max_waiters > 4096 {
+            anyhow::bail!("SDKWORK_PROVIDER_MAX_WAITERS must be between 0 and 4096");
+        }
+        if let Ok(timeout_ms) = std::env::var("SDKWORK_PROVIDER_ADMISSION_TIMEOUT_MS") {
+            config.provider_admission_timeout_ms = timeout_ms.parse()?;
+        }
+        if !(1..=60_000).contains(&config.provider_admission_timeout_ms) {
+            anyhow::bail!("SDKWORK_PROVIDER_ADMISSION_TIMEOUT_MS must be between 1 and 60000");
         }
         if let Ok(mode) = std::env::var("SDKWORK_KERNEL_METRICS_AUTH_MODE") {
             config.metrics_auth_mode = mode;
@@ -570,6 +597,31 @@ mod tests {
         assert_eq!(config.log_level, "info");
         assert!(config.cors_enabled);
         assert!(!config.cors_origins.iter().any(|origin| origin == "*"));
+        assert_eq!(config.provider_max_concurrency, 64);
+        assert_eq!(config.provider_max_waiters, 64);
+        assert_eq!(config.provider_admission_timeout_ms, 5_000);
+    }
+
+    #[test]
+    fn provider_admission_config_rejects_unbounded_waiters() {
+        let _lock = crate::testing::env::lock();
+        let _waiters =
+            crate::testing::env::VarGuard::set("SDKWORK_PROVIDER_MAX_WAITERS", Some("4097"));
+        let error = ServerConfig::from_env().expect_err("unbounded waiters must fail startup");
+        assert!(error
+            .to_string()
+            .contains("SDKWORK_PROVIDER_MAX_WAITERS must be between 0 and 4096"));
+    }
+
+    #[test]
+    fn provider_admission_config_rejects_invalid_timeout() {
+        let _lock = crate::testing::env::lock();
+        let _timeout =
+            crate::testing::env::VarGuard::set("SDKWORK_PROVIDER_ADMISSION_TIMEOUT_MS", Some("0"));
+        let error = ServerConfig::from_env().expect_err("zero admission timeout must fail startup");
+        assert!(error
+            .to_string()
+            .contains("SDKWORK_PROVIDER_ADMISSION_TIMEOUT_MS must be between 1 and 60000"));
     }
 
     #[test]

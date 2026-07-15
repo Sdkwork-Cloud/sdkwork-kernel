@@ -418,9 +418,55 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
   mutations. Message turns retain a per-session mutex so concurrent turns in
   the same session do not interleave user and assistant messages. Session close
   and delete paths release bridge-owned session/history/event state and the
-  per-session turn lock. Bridge event snapshots are bounded per session and
+  per-session turn lock. The turn-lock registry stores `Weak` references so it
+  cannot retain completed session locks; creation, upgrade, and cleanup remain
+  serialized by the registry mutex. Bridge event snapshots are bounded per session and
   globally, so high-churn short sessions do not leave unbounded transient
   runtime entries behind.
+- **Tool execution boundary**: Tool discovery returns only descriptors from a
+  registered provider in production/default construction. Synthetic built-ins
+  exist only behind the test-only mock constructor. Invocation delegates to
+  `ToolExecutionService`, which resolves the descriptor and obtains a policy
+  decision before calling the provider.
+- **Hydration and catalog bounds**: Runtime session hydration selects at most 64
+  recent rows and retains at most 16 MiB of newest message data. Model and tool
+  catalogs reject cardinality above 200 instead of building an unbounded HTTP
+  response. Provider-capable HTTP paths must hold a typed admission lease before
+  hydration; the hydration method requires that lease, so rejected requests
+  cannot load session history before capacity enforcement. Session `timeoutMs`
+  is validated, persisted, and propagated to the typed model request.
+- **Provider admission**: Synchronous model, tool, message-turn, and SSE model
+  provider invocations acquire one shared admission semaphore and run in
+  `spawn_blocking` workers. The default
+  limit is 64 and `SDKWORK_PROVIDER_MAX_CONCURRENCY` may set `1..=1024`. The
+  permit remains held until provider execution returns. When execution is
+  saturated, at most `SDKWORK_PROVIDER_MAX_WAITERS` requests wait (default 64,
+  range `0..=4096`) for at most `SDKWORK_PROVIDER_ADMISSION_TIMEOUT_MS`
+  milliseconds (default 5000, range `1..=60000`). Queue-full and timed-out
+  requests fail with the standard retryable provider-unavailable response,
+  preventing unbounded request-task and payload retention. Prometheus exposes
+  configured execution/wait capacity, active
+  permits, current waiters, rejection reasons, and permit-acquisition
+  latency. Lifecycle guards keep wait and active gauges correct across
+  cancellation, errors, and provider panic. Managed Node and Python stdio
+  workers enforce the request `timeoutMs` as a hard process deadline for unary
+  and streaming calls;
+  health probes use a two-second deadline. Expiry terminates and waits for the
+  request-scoped child, and the failed worker is never returned to the bounded
+  pool. Provider-specific cancellation-latency, long-running soak, and resource
+  ceiling evidence remain release-environment gates.
+- **Permission state transitions**: SQLite, PostgreSQL, and in-memory stores
+  atomically accept only `pending -> allow|deny`; repeating the same decision is
+  idempotent while a conflicting terminal decision fails. This protects the
+  approval record from concurrent overwrite. Permission-required tool errors
+  carry typed request details and the internal runtime creates the pending row
+  with an insert-if-absent operation before returning the standard permission
+  error. Approval-to-execution resume is still a separate runtime capability.
+- **Task cancellation transition**: Task cancellation uses a repository-owned
+  transaction that checks the current state and writes the `task.cancelled`
+  event together with the state change. Repeated cancellation returns the
+  already-cancelled row without another event; completed/failed tasks reject
+  cancellation. This is state consistency, not yet a durable task executor.
 - **PersistenceState**: Uses `Arc<UnifiedSessionManager>` instead of
   `Arc<Mutex<...>>` — the session manager methods take `&self`, and
   underlying repositories handle their own concurrency (SQLite internal
@@ -434,6 +480,11 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
   reuse are rejected before event publication. Standalone `save_message` keeps
   the same immutable identity rule across SQLite, PostgreSQL, and the typed
   in-memory test adapter.
+- **Session row ownership**: Session `message_count`, owner tenant/user, and
+  `created_at` are database-authoritative after insertion. Ordinary updates and
+  session-plus-event transactions update only mutable fields and cannot replace
+  those values from a stale in-memory row. Updating an unknown session returns
+  not-found instead of silently inserting it.
 - **Rate limiter**: O(1) LRU eviction via insertion-order queue instead of
   O(n) scan.
 - **Idempotency**: Production/non-loopback mutations use a distributed store

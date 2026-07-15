@@ -228,7 +228,7 @@ fn runtime_router_rejects_operations_not_declared_by_selected_backend() {
 }
 
 #[test]
-fn hermes_binding_manifest_declares_run_agent_module() {
+fn hermes_binding_manifest_excludes_unimplemented_skill_invocation() {
     let json = include_str!("../../bindings/agent-providers/hermes/provider-binding.manifest.json");
     let manifest = AgentSdkBindingManifest::from_json(json).expect("hermes manifest");
     let python = manifest
@@ -237,11 +237,12 @@ fn hermes_binding_manifest_declares_run_agent_module() {
         .and_then(|packages| packages.python.as_ref())
         .expect("python package ref");
     assert_eq!(python.module, "run_agent");
-    assert!(manifest.capability_binding("sdk.skill.invoke").is_some());
+    assert!(manifest.capability_binding("sdk.skill.invoke").is_none());
+    assert!(manifest.capability_binding("sdk.tool.invoke").is_none());
 }
 
 #[test]
-fn openclaw_binding_manifest_declares_typescript_package() {
+fn openclaw_binding_manifest_declares_official_openai_gateway_client() {
     let json =
         include_str!("../../bindings/agent-providers/openclaw/provider-binding.manifest.json");
     let manifest = AgentSdkBindingManifest::from_json(json).expect("openclaw manifest");
@@ -250,7 +251,7 @@ fn openclaw_binding_manifest_declares_typescript_package() {
         .as_ref()
         .and_then(|packages| packages.typescript.as_ref())
         .expect("typescript package ref");
-    assert_eq!(typescript.package, "openclaw");
+    assert_eq!(typescript.package, "openai");
 }
 
 #[test]

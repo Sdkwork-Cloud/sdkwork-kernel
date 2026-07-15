@@ -41,9 +41,9 @@ const FRAMEWORKS = {
     requirePackageResolution: true,
   },
   openclaw: {
-    packageName: 'openclaw',
-    credentialRequirements: [['OPENCLAW_GATEWAY_URL']],
-    requirePackageResolution: false,
+    packageName: 'openai',
+    credentialRequirements: [['OPENCLAW_GATEWAY_URL'], ['OPENCLAW_GATEWAY_TOKEN']],
+    requirePackageResolution: true,
   },
 };
 

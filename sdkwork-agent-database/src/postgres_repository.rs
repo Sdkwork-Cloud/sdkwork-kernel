@@ -293,10 +293,6 @@ impl SessionRepository for PostgresDatabase {
                     provider_id = EXCLUDED.provider_id,
                     bridge_id = EXCLUDED.bridge_id,
                     token_usage_json = EXCLUDED.token_usage_json,
-                    message_count = EXCLUDED.message_count,
-                    owner_tenant_id = EXCLUDED.owner_tenant_id,
-                    owner_user_ref = EXCLUDED.owner_user_ref,
-                    created_at = EXCLUDED.created_at,
                     updated_at = EXCLUDED.updated_at,
                     metadata_json = EXCLUDED.metadata_json",
             )
@@ -437,7 +433,40 @@ impl SessionRepository for PostgresDatabase {
     }
 
     fn update_session(&self, session: &SessionRow) -> DatabaseResult<()> {
-        self.save_session(session)
+        let pool = self.pool.pool().clone();
+        let session = session.clone();
+        self.pool.run_db(async move {
+            let result = sqlx::query(
+                "UPDATE sessions SET
+                    agent_id = $2, kind = $3, source = $4, state = $5,
+                    title = $6, model = $7, cwd = $8, provider_id = $9,
+                    bridge_id = $10, token_usage_json = $11, updated_at = $12,
+                    metadata_json = $13
+                 WHERE session_id = $1",
+            )
+            .bind(&session.session_id)
+            .bind(&session.agent_id)
+            .bind(&session.kind)
+            .bind(&session.source)
+            .bind(&session.state)
+            .bind(&session.title)
+            .bind(&session.model)
+            .bind(&session.cwd)
+            .bind(&session.provider_id)
+            .bind(&session.bridge_id)
+            .bind(&session.token_usage_json)
+            .bind(&session.updated_at)
+            .bind(&session.metadata_json)
+            .execute(&pool)
+            .await?;
+            if result.rows_affected() != 1 {
+                return Err(DatabaseError::NotFound(format!(
+                    "session not found: {}",
+                    session.session_id
+                )));
+            }
+            Ok(())
+        })
     }
 
     fn delete_session(&self, session_id: &str) -> DatabaseResult<()> {
@@ -946,6 +975,35 @@ fn map_permission_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<PermissionR
 }
 
 impl PermissionRepository for PostgresDatabase {
+    fn create_permission_if_absent(&self, permission: &PermissionRow) -> DatabaseResult<bool> {
+        let pool = self.pool.pool().clone();
+        let permission = permission.clone();
+        self.pool.run_db(async move {
+            let result = sqlx::query(
+                "INSERT INTO permissions (
+                    permission_request_id, session_id, category, resource,
+                    side_effect_level, reason, status, owner_tenant_id,
+                    owner_user_ref, created_at, updated_at
+                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                 ON CONFLICT (permission_request_id) DO NOTHING",
+            )
+            .bind(&permission.permission_request_id)
+            .bind(&permission.session_id)
+            .bind(&permission.category)
+            .bind(&permission.resource)
+            .bind(&permission.side_effect_level)
+            .bind(&permission.reason)
+            .bind(&permission.status)
+            .bind(&permission.owner_tenant_id)
+            .bind(&permission.owner_user_ref)
+            .bind(&permission.created_at)
+            .bind(&permission.updated_at)
+            .execute(&pool)
+            .await?;
+            Ok(result.rows_affected() == 1)
+        })
+    }
+
     fn save_permission(&self, permission: &PermissionRow) -> DatabaseResult<()> {
         let pool = self.pool.pool().clone();
         let permission = permission.clone();
@@ -1044,19 +1102,30 @@ impl PermissionRepository for PostgresDatabase {
         permission_request_id: &str,
         status: &str,
     ) -> DatabaseResult<()> {
+        if !matches!(status, "allow" | "deny") {
+            return Err(DatabaseError::ConstraintViolation(
+                "permission status must be allow or deny".to_string(),
+            ));
+        }
         let pool = self.pool.pool().clone();
         let permission_request_id = permission_request_id.to_owned();
         let status = status.to_owned();
         self.pool.run_db(async move {
             let now = chrono::Utc::now().to_rfc3339();
-            sqlx::query(
-                "UPDATE permissions SET status = $1, updated_at = $2 WHERE permission_request_id = $3",
+            let result = sqlx::query(
+                "UPDATE permissions SET status = $1, updated_at = $2
+                 WHERE permission_request_id = $3 AND (status = 'pending' OR status = $1)",
             )
             .bind(&status)
             .bind(&now)
             .bind(&permission_request_id)
             .execute(&pool)
             .await?;
+            if result.rows_affected() == 0 {
+                return Err(DatabaseError::ConstraintViolation(
+                    "permission request state conflict or not found".to_string(),
+                ));
+            }
             Ok(())
         })
     }
@@ -1091,10 +1160,6 @@ impl RuntimeSessionWrites for PostgresDatabase {
                     provider_id = EXCLUDED.provider_id,
                     bridge_id = EXCLUDED.bridge_id,
                     token_usage_json = EXCLUDED.token_usage_json,
-                    message_count = EXCLUDED.message_count,
-                    owner_tenant_id = EXCLUDED.owner_tenant_id,
-                    owner_user_ref = EXCLUDED.owner_user_ref,
-                    created_at = EXCLUDED.created_at,
                     updated_at = EXCLUDED.updated_at,
                     metadata_json = EXCLUDED.metadata_json",
             )
@@ -1138,6 +1203,97 @@ impl RuntimeSessionWrites for PostgresDatabase {
             .await?;
             tx.commit().await?;
             Ok(())
+        })
+    }
+
+    fn save_session_with_event_if_newer(
+        &self,
+        session: &SessionRow,
+        event: &EventRow,
+    ) -> DatabaseResult<bool> {
+        let pool = self.pool.pool().clone();
+        let session = session.clone();
+        let event = event.clone();
+        self.pool.run_db(async move {
+            let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            let applied = sqlx::query(
+                "INSERT INTO sessions (
+                    session_id, agent_id, kind, source, state, title, model, cwd,
+                    provider_id, bridge_id, token_usage_json, message_count,
+                    owner_tenant_id, owner_user_ref,
+                    created_at, updated_at, metadata_json
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                ON CONFLICT (session_id) DO UPDATE SET
+                    agent_id = EXCLUDED.agent_id,
+                    kind = EXCLUDED.kind,
+                    source = EXCLUDED.source,
+                    state = EXCLUDED.state,
+                    title = EXCLUDED.title,
+                    model = EXCLUDED.model,
+                    cwd = EXCLUDED.cwd,
+                    provider_id = EXCLUDED.provider_id,
+                    bridge_id = EXCLUDED.bridge_id,
+                    token_usage_json = EXCLUDED.token_usage_json,
+                    message_count = EXCLUDED.message_count,
+                    owner_tenant_id = EXCLUDED.owner_tenant_id,
+                    owner_user_ref = EXCLUDED.owner_user_ref,
+                    updated_at = EXCLUDED.updated_at,
+                    metadata_json = EXCLUDED.metadata_json
+                WHERE EXCLUDED.updated_at IS NOT NULL
+                  AND (
+                      sessions.provider_id IS NULL
+                      OR EXCLUDED.provider_id IS NULL
+                      OR sessions.provider_id = EXCLUDED.provider_id
+                  )
+                  AND (
+                      sessions.updated_at IS NULL
+                      OR EXCLUDED.updated_at::timestamptz >= sessions.updated_at::timestamptz
+                  )",
+            )
+            .bind(&session.session_id)
+            .bind(&session.agent_id)
+            .bind(&session.kind)
+            .bind(&session.source)
+            .bind(&session.state)
+            .bind(&session.title)
+            .bind(&session.model)
+            .bind(&session.cwd)
+            .bind(&session.provider_id)
+            .bind(&session.bridge_id)
+            .bind(&session.token_usage_json)
+            .bind(session.message_count)
+            .bind(&session.owner_tenant_id)
+            .bind(&session.owner_user_ref)
+            .bind(&session.created_at)
+            .bind(&session.updated_at)
+            .bind(&session.metadata_json)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected()
+                > 0;
+            if applied {
+                sqlx::query(
+                    "INSERT INTO events (
+                        event_id, session_id, event_type, severity, payload, created_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (event_id) DO UPDATE SET
+                        session_id = EXCLUDED.session_id,
+                        event_type = EXCLUDED.event_type,
+                        severity = EXCLUDED.severity,
+                        payload = EXCLUDED.payload,
+                        created_at = EXCLUDED.created_at",
+                )
+                .bind(&event.event_id)
+                .bind(&event.session_id)
+                .bind(&event.event_type)
+                .bind(&event.severity)
+                .bind(&event.payload)
+                .bind(&event.created_at)
+                .execute(&mut *tx)
+                .await?;
+            }
+            tx.commit().await?;
+            Ok(applied)
         })
     }
 
@@ -1408,6 +1564,75 @@ impl RuntimeSessionWrites for PostgresDatabase {
             .await?;
             tx.commit().await?;
             Ok(())
+        })
+    }
+
+    fn cancel_task_with_event(
+        &self,
+        task_id: &str,
+        updated_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<(TaskRow, bool)> {
+        let pool = self.pool.pool().clone();
+        let task_id = task_id.to_owned();
+        let updated_at = updated_at.to_owned();
+        let event = event.clone();
+        self.pool.run_db(async move {
+            let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            let row = sqlx::query(
+                "SELECT task_id, session_id, instruction, state, created_at, updated_at
+                 FROM tasks WHERE task_id = $1 FOR UPDATE",
+            )
+            .bind(&task_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| DatabaseError::NotFound(format!("task not found: {task_id}")))?;
+            let mut task = map_task_row(&row)?;
+            if task.state == "cancelled" {
+                tx.commit().await?;
+                return Ok((task, false));
+            }
+            if !matches!(task.state.as_str(), "created" | "pending" | "running") {
+                return Err(DatabaseError::ConstraintViolation(format!(
+                    "task {task_id} is not active"
+                )));
+            }
+            if event.session_id.as_deref() != Some(task.session_id.as_str()) {
+                return Err(DatabaseError::ConstraintViolation(
+                    "task cancellation event session mismatch".to_string(),
+                ));
+            }
+            let result = sqlx::query(
+                "UPDATE tasks SET state = 'cancelled', updated_at = $2
+                 WHERE task_id = $1 AND state IN ('created', 'pending', 'running')",
+            )
+            .bind(&task_id)
+            .bind(&updated_at)
+            .execute(&mut *tx)
+            .await?;
+            if result.rows_affected() != 1 {
+                return Err(DatabaseError::ConstraintViolation(format!(
+                    "task {task_id} state changed concurrently"
+                )));
+            }
+            sqlx::query(
+                "INSERT INTO events (
+                    event_id, session_id, event_type, severity, payload, created_at
+                 ) VALUES ($1, $2, $3, $4, $5, $6)
+                 ON CONFLICT (event_id) DO NOTHING",
+            )
+            .bind(&event.event_id)
+            .bind(&event.session_id)
+            .bind(&event.event_type)
+            .bind(&event.severity)
+            .bind(&event.payload)
+            .bind(&event.created_at)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            task.state = "cancelled".to_string();
+            task.updated_at = Some(updated_at);
+            Ok((task, true))
         })
     }
 }

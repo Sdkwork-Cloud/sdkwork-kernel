@@ -110,6 +110,7 @@ fn try_build_app_with_rate_limit(
         config.as_ref(),
     )?);
     let metrics_registry = metrics::MetricsRegistry::from_config(config.as_ref());
+    runtime_state.runtime.attach_metrics(&metrics_registry);
     let operational_profile = metrics::OperationalProfile::from_runtime(
         persistence.persistence_backend_label(),
         rate_limit.uses_redis(),

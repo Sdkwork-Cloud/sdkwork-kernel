@@ -51,33 +51,7 @@
         {
           "kind": "typescript_node",
           "driver_id": "driver.claude-code.model.chat.ts",
-          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
-          "package": "@anthropic-ai/claude-agent-sdk"
-        }
-      ]
-    },
-    {
-      "capability_id": "sdk.model.stream",
-      "required": false,
-      "execution_scope": "transport_runtime",
-      "backends": [
-        {
-          "kind": "typescript_node",
-          "driver_id": "driver.claude-code.model.stream.ts",
-          "runtime_operations": ["ping", "model_chat_stream"],
-          "package": "@anthropic-ai/claude-agent-sdk"
-        }
-      ]
-    },
-    {
-      "capability_id": "sdk.tool.invoke",
-      "required": false,
-      "execution_scope": "transport_runtime",
-      "backends": [
-        {
-          "kind": "typescript_node",
-          "driver_id": "driver.claude-code.tool.invoke.ts",
-          "runtime_operations": ["ping", "tool_invoke"],
+          "runtime_operations": ["ping", "model_chat"],
           "package": "@anthropic-ai/claude-agent-sdk"
         }
       ]

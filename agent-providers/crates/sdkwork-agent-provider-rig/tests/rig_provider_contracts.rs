@@ -1,21 +1,32 @@
 use sdkwork_agent_kernel::{
     AgentExecutionRequest, AgentExecutionService, AgentExecutionStatus, KernelErrorKind,
-    KnowledgeDocumentFilter, KnowledgeDocumentKind, KnowledgeProvider, KnowledgeRetrievalMethod,
-    KnowledgeSearchRequest, McpProvider, McpToolExecutionRequest, McpToolExecutionService,
-    MemoryProvider, MemoryRecord, MemoryScope, ModelExecutionRequest, ModelExecutionService,
-    ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, PlanningProvider,
-    PolicyCategory, PolicyDecisionValue, PolicyProvider, PolicyRequest, ProtocolAdapterRequest,
-    ProtocolFamily, ProtocolObjectKind, RedactionClassification, RuntimeBuilder, SideEffectLevel,
-    ToolCall, ToolExecutionRequest, ToolExecutionService, ToolProvider, TrustLevel,
+    KernelResult, KnowledgeDocumentFilter, KnowledgeDocumentKind, KnowledgeProvider,
+    KnowledgeRetrievalMethod, KnowledgeSearchRequest, McpProvider, MemoryProvider, MemoryRecord,
+    MemoryScope, ModelExecutionRequest, ModelExecutionService, ModelProvider, ModelRequest,
+    ModelResponse, ModelResponseFormat, PlanningProvider, PolicyCategory, PolicyDecisionValue,
+    PolicyProvider, PolicyRequest, ProtocolAdapterRequest, ProtocolFamily, ProtocolObjectKind,
+    RedactionClassification, RuntimeBuilder, SideEffectLevel, TrustLevel,
 };
 use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
 use sdkwork_agent_provider_rig::{
     ids, RigAgentInstaller, RigBackend, RigBackendBootstrapState, RigBackendConfig,
-    RigBackendExecutionState, RigBackendMode, RigConfigurationProvider, RigKernelPlugin,
-    RigKnowledgeProvider, RigMcpProvider, RigMemoryProvider, RigModelProvider, RigPlanningProvider,
-    RigToolProvider,
+    RigBackendExecutionState, RigBackendExecutor, RigBackendMode, RigConfigurationProvider,
+    RigKernelPlugin, RigKnowledgeProvider, RigMcpProvider, RigMemoryProvider, RigModelProvider,
+    RigPlanningProvider,
 };
 use std::sync::{Arc, Mutex};
+
+struct TestRigExecutor;
+
+impl RigBackendExecutor for TestRigExecutor {
+    fn invoke_model(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
+        Ok(ModelResponse::text(
+            request.model_request_id,
+            ids::MODEL_PROVIDER_ID,
+            "official-adapter-result",
+        ))
+    }
+}
 
 #[test]
 fn rig_model_provider_exposes_catalog_and_fails_closed_without_live_backend() {
@@ -56,75 +67,26 @@ fn rig_model_provider_exposes_catalog_and_fails_closed_without_live_backend() {
 }
 
 #[test]
-fn rig_tool_provider_describes_policy_aware_tools() {
-    let provider = RigToolProvider::fail_closed();
-    assert_ne!(
-        provider.health().status,
-        "available",
-        "fail-closed Rig tool provider must not report side-effectful tool invocation as healthy"
-    );
-    let tools = provider.list_tools();
-
-    assert!(!tools.is_empty());
-    assert_eq!(tools[0].provider_id, ids::TOOL_PROVIDER_ID);
-    assert!(tools[0].requires_policy());
-
-    let request = tools[0].policy_request(
-        "policy.tool.1",
-        &ToolCall::new("tool.call.1", tools[0].tool_id.clone(), "{}"),
-    );
-    assert_eq!(request.category, "tool.invoke");
-}
-
-#[test]
-fn rig_tool_invocation_fails_closed_without_live_backend() {
-    let provider = RigToolProvider::fail_closed();
-    let tool = provider.list_tools()[0].clone();
-
-    let result = provider
-        .invoke_tool(ToolCall::new("tool.call.1", tool.tool_id, "{}"))
-        .expect("fail-closed tool calls return normalized denied result");
-
-    assert_eq!(result.status, "denied");
-    assert!(result.error.unwrap().contains("fail-closed"));
-}
-
-#[test]
-fn rig_mcp_provider_exposes_tools_resources_and_prompts_without_leaking_transport() {
+fn rig_mcp_provider_exposes_only_implemented_resources_and_prompts() {
     let provider = RigMcpProvider::fail_closed();
 
     let manifest = provider.provider_manifest();
     assert_eq!(manifest.provider_id, ids::MCP_PROVIDER_ID);
     assert_eq!(manifest.provider_family, "mcp");
-    assert_eq!(
-        manifest.capabilities,
-        ["mcp.tools", "mcp.resources", "mcp.prompts"]
-    );
+    assert_eq!(manifest.capabilities, ["mcp.resources", "mcp.prompts"]);
     assert_eq!(provider.health().status, "degraded");
 
     let server = provider.list_servers().expect("list_servers")[0].clone();
     assert_eq!(server.provider_id, ids::MCP_PROVIDER_ID);
     assert_eq!(server.transport, "sdkwork.rig.adapter");
-    assert!(server.capabilities.contains(&"mcp.tools".to_string()));
+    assert!(!server.capabilities.contains(&"mcp.tools".to_string()));
     assert!(server.capabilities.contains(&"mcp.resources".to_string()));
     assert!(server.capabilities.contains(&"mcp.prompts".to_string()));
 
     let tools = provider
         .list_tools(&server.server_id)
         .expect("Rig MCP tools are discoverable");
-    assert_eq!(tools[0].provider_id, ids::MCP_PROVIDER_ID);
-    assert_eq!(tools[0].side_effect_level, SideEffectLevel::SideEffectful);
-    assert!(tools[0].requires_policy());
-
-    let tool_result = provider
-        .invoke_tool(
-            &server.server_id,
-            ToolCall::new("mcp.tool.call.1", tools[0].tool_id.clone(), "{}")
-                .with_provider(ids::MCP_PROVIDER_ID),
-        )
-        .expect("Rig MCP tool invocation returns normalized fail-closed result");
-    assert_eq!(tool_result.status, "denied");
-    assert!(tool_result.error.unwrap().contains("fail-closed"));
+    assert!(tools.is_empty());
 
     let resource = provider
         .read_resource(&server.server_id, "rig://knowledge/adapter")
@@ -167,18 +129,30 @@ fn rig_live_backend_configuration_remains_fail_closed_until_adapter_is_connected
         .expect_err("configured live backend must fail closed until upstream adapter is connected");
     assert_eq!(error.kind(), KernelErrorKind::ProviderUnavailable);
     assert_eq!(error.provider_id(), Some(ids::MODEL_PROVIDER_ID));
+}
 
-    let tool_provider = RigToolProvider::with_backend_config(config);
-    assert_eq!(tool_provider.health().status, "degraded");
-    let result = tool_provider
-        .invoke_tool(ToolCall::new(
-            "tool.call.live-pending",
-            ids::DEFAULT_TOOL_ID,
-            "{}",
+#[test]
+fn rig_live_backend_executes_only_after_adapter_injection() {
+    let config = RigBackendConfig {
+        mode: RigBackendMode::Live,
+        provider_id: Some("openai".to_string()),
+        api_key_secret_ref: Some("secret://rig/openai".to_string()),
+    };
+    let provider = RigModelProvider::with_executor(config, Arc::new(TestRigExecutor));
+
+    assert_eq!(provider.health().status, "available");
+    assert_eq!(
+        provider.backend_execution_status().state,
+        RigBackendExecutionState::Live
+    );
+    assert!(!provider.backend_execution_status().fail_closed);
+    let response = provider
+        .invoke(ModelRequest::new(
+            "model.request.live",
+            vec!["hello".to_string()],
         ))
-        .expect("configured live tool backend returns normalized fail-closed result");
-    assert_eq!(result.status, "denied");
-    assert!(result.error.unwrap().contains("fail-closed"));
+        .expect("injected live adapter must execute");
+    assert_eq!(response.messages, vec!["official-adapter-result"]);
 }
 
 #[test]
@@ -225,12 +199,6 @@ fn rig_backend_execution_status_distinguishes_live_pending_from_fail_closed() {
     assert_eq!(
         models[0].metadata_value("sdkwork.backend.fail_closed"),
         Some("true")
-    );
-
-    let tool_provider = RigToolProvider::with_backend_config(config);
-    assert_eq!(
-        tool_provider.backend_execution_status(),
-        live_pending_status
     );
 }
 
@@ -281,15 +249,6 @@ fn rig_providers_expose_secret_safe_backend_bootstrap_plan() {
     assert_eq!(
         models[0].metadata_value("sdkwork.backend.safe_summary"),
         Some(model_plan.safe_summary.as_str())
-    );
-
-    let tool_provider = RigToolProvider::with_backend_config(config);
-    let tool_plan = tool_provider.backend_bootstrap_plan();
-    assert_eq!(tool_plan.state, RigBackendBootstrapState::LivePending);
-    assert_eq!(tool_plan.provider_id.as_deref(), Some("openai"));
-    assert_eq!(
-        tool_plan.secret_ref_value("llm.rig.api_key"),
-        Some("secret://rig/openai")
     );
 }
 
@@ -536,7 +495,7 @@ fn rig_policy_provider_requires_approval_for_side_effectful_requests() {
             PolicyRequest::new(
                 "policy.rig.tool.invoke",
                 "tool.invoke",
-                ids::DEFAULT_TOOL_ID,
+                "tool.rig.policy-test",
             )
             .with_category(PolicyCategory::ToolInvoke)
             .with_side_effect_level(SideEffectLevel::SideEffectful),
@@ -611,20 +570,6 @@ fn rig_plugin_model_provider_can_be_selected_by_provider_id() {
             .len(),
         1
     );
-
-    let tool_provider = report
-        .runtime
-        .tool_provider_by_id(ids::TOOL_PROVIDER_ID)
-        .expect("rig tool provider is registered by id");
-    let tool = tool_provider
-        .describe_tool(ids::DEFAULT_TOOL_ID)
-        .expect("registered Rig tool provider describes the default tool");
-    assert!(tool.requires_policy());
-    let result = tool_provider
-        .invoke_tool(ToolCall::new("tool.runtime.1", tool.tool_id, "{}"))
-        .expect("registered Rig tool provider returns fail-closed normalized result");
-    assert_eq!(result.status, "denied");
-    assert!(result.error.unwrap().contains("fail-closed"));
 
     let knowledge_provider = report
         .runtime
@@ -707,60 +652,7 @@ fn rig_runtime_agent_execution_service_reports_fail_closed_model_backend() {
 }
 
 #[test]
-fn rig_runtime_tool_execution_service_stops_before_backend_when_policy_requires_approval() {
-    let plugin = RigKernelPlugin::fail_closed();
-    let runtime = plugin
-        .configure_runtime(RuntimeBuilder::new(
-            "runtime.rig.tool.execution",
-            plugin.agent_manifest(),
-        ))
-        .bootstrap()
-        .expect("rig tool execution runtime bootstraps")
-        .runtime;
-
-    let error = ToolExecutionService::new()
-        .invoke(
-            &runtime,
-            ToolExecutionRequest::new(
-                "tool.execution.rig",
-                ToolCall::new("tool.call.rig", ids::DEFAULT_TOOL_ID, "{}")
-                    .with_provider(ids::TOOL_PROVIDER_ID),
-            ),
-        )
-        .expect_err("Rig policy requires approval before tool backend invocation");
-
-    assert_eq!(error.kind(), KernelErrorKind::PermissionRequired);
-}
-
-#[test]
-fn rig_runtime_mcp_tool_execution_service_stops_before_backend_when_policy_requires_approval() {
-    let plugin = RigKernelPlugin::fail_closed();
-    let runtime = plugin
-        .configure_runtime(RuntimeBuilder::new(
-            "runtime.rig.mcp.execution",
-            plugin.agent_manifest(),
-        ))
-        .bootstrap()
-        .expect("rig mcp execution runtime bootstraps")
-        .runtime;
-
-    let error = McpToolExecutionService::new()
-        .invoke(
-            &runtime,
-            McpToolExecutionRequest::new(
-                "mcp.execution.rig",
-                ids::DEFAULT_MCP_SERVER_ID,
-                ToolCall::new("mcp.tool.call.rig", ids::DEFAULT_MCP_TOOL_ID, "{}")
-                    .with_provider(ids::MCP_PROVIDER_ID),
-            ),
-        )
-        .expect_err("Rig policy requires approval before MCP tool backend invocation");
-
-    assert_eq!(error.kind(), KernelErrorKind::PermissionRequired);
-}
-
-#[test]
-fn rig_runtime_chat_rpc_enriches_model_requests_with_tool_and_memory_context() {
+fn rig_runtime_chat_rpc_enriches_model_requests_with_memory_and_knowledge() {
     let captured_model_requests = Arc::new(Mutex::new(Vec::new()));
     let mut memory_provider = RigMemoryProvider::new();
     memory_provider
@@ -783,11 +675,6 @@ fn rig_runtime_chat_rpc_enriches_model_requests_with_tool_and_memory_context() {
         ids::MODEL_PROVIDER_ID,
         "0.1.0",
         RecordingRigChatModelProvider::new(captured_model_requests.clone()),
-    )
-    .register_tool_provider(
-        ids::TOOL_PROVIDER_ID,
-        "0.1.0",
-        RigToolProvider::fail_closed(),
     )
     .register_memory_provider(ids::MEMORY_PROVIDER_ID, "0.1.0", memory_provider)
     .register_knowledge_provider(
@@ -828,10 +715,9 @@ fn rig_runtime_chat_rpc_enriches_model_requests_with_tool_and_memory_context() {
                 "chat-rpc.rig.enriched",
                 ProtocolFamily::Rpc,
                 "agent.chat.create",
-                "use Rig tools and memory",
+                "use Rig memory and knowledge",
             )
             .with_metadata("sdkwork.chat.provider_id", ids::MODEL_PROVIDER_ID)
-            .with_metadata("sdkwork.chat.include_tools", "true")
             .with_metadata("sdkwork.memory.scope", "session")
             .with_metadata("sdkwork.memory.owner_context", "session.rig.chat")
             .with_metadata("sdkwork.memory.provider_id", ids::MEMORY_PROVIDER_ID)
@@ -848,11 +734,7 @@ fn rig_runtime_chat_rpc_enriches_model_requests_with_tool_and_memory_context() {
     assert_eq!(envelope.object_kind, ProtocolObjectKind::ExtensionObject);
     let model_requests = captured_model_requests.lock().unwrap();
     assert_eq!(model_requests.len(), 1);
-    assert_eq!(model_requests[0].tool_descriptors.len(), 1);
-    assert_eq!(
-        model_requests[0].tool_descriptors[0].provider_id,
-        ids::TOOL_PROVIDER_ID
-    );
+    assert!(model_requests[0].tool_descriptors.is_empty());
     assert_eq!(model_requests[0].context_frames.len(), 2);
     assert_eq!(
         model_requests[0].context_frames[0].content,

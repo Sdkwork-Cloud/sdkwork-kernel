@@ -50,40 +50,14 @@
         {
           "kind": "python_process",
           "driver_id": "driver.hermes.model.chat.python",
-          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
+          "runtime_operations": ["ping", "model_chat"],
           "python_module": "run_agent"
         },
         {
           "kind": "ipc_protocol",
           "driver_id": "driver.hermes.model.chat.ipc",
-          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
+          "runtime_operations": ["ping", "model_chat"],
           "transport": "jsonrpc_stdio"
-        }
-      ]
-    },
-    {
-      "capability_id": "sdk.tool.invoke",
-      "required": false,
-      "execution_scope": "transport_runtime",
-      "backends": [
-        {
-          "kind": "python_process",
-          "driver_id": "driver.hermes.tool.invoke.python",
-          "runtime_operations": ["ping", "tool_invoke"],
-          "python_module": "model_tools"
-        }
-      ]
-    },
-    {
-      "capability_id": "sdk.skill.invoke",
-      "required": false,
-      "execution_scope": "transport_runtime",
-      "backends": [
-        {
-          "kind": "python_process",
-          "driver_id": "driver.hermes.skill.invoke.python",
-          "runtime_operations": ["ping", "skill_invoke"],
-          "python_module": "agent.skill_commands"
         }
       ]
     }

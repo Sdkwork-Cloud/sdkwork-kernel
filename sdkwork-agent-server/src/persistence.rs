@@ -60,6 +60,16 @@ impl RuntimeMaintenance for MaintenanceDb {
 }
 
 impl PermissionRepository for PermissionDb {
+    fn create_permission_if_absent(
+        &self,
+        permission: &PermissionRow,
+    ) -> Result<bool, sdkwork_agent_database::DatabaseError> {
+        match self {
+            PermissionDb::Sqlite(db) => db.create_permission_if_absent(permission),
+            PermissionDb::Postgres(db) => db.create_permission_if_absent(permission),
+        }
+    }
+
     fn save_permission(
         &self,
         permission: &PermissionRow,
@@ -399,6 +409,12 @@ impl PersistenceState {
     }
 
     // -- Permission persistence --
+
+    pub fn create_permission_if_absent(&self, permission: &PermissionRow) -> Result<bool, String> {
+        self.permission_db
+            .create_permission_if_absent(permission)
+            .map_err(|error| format!("failed to create permission: {error}"))
+    }
 
     pub fn save_permission(&self, permission: &PermissionRow) -> Result<(), String> {
         self.permission_db

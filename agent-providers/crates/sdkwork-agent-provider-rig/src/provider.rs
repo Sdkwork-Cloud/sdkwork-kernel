@@ -6,13 +6,21 @@ use sdkwork_agent_kernel::{
     ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, Plan,
     PlanningProvider, PolicyCategory, PolicyDecision, PolicyProvider, PolicyRequest,
     ProviderHealth, ProviderManifest, RedactionClassification, SideEffectLevel, ToolCall,
-    ToolDescriptor, ToolProvider, ToolResult, TrustLevel,
+    ToolDescriptor, ToolResult, TrustLevel,
 };
 
+#[cfg(feature = "rig-core-adapter")]
+use crate::rig_core_adapter::RigCoreOpenAiExecutor;
 use crate::{
-    backend::{RigBackend, RigBackendBootstrapPlan, RigBackendConfig, RigBackendExecutionStatus},
+    backend::{
+        RigBackend, RigBackendBootstrapPlan, RigBackendConfig, RigBackendExecutionStatus,
+        RigBackendExecutor,
+    },
     ids,
 };
+#[cfg(feature = "rig-core-adapter")]
+use sdkwork_agent_kernel::HostProvider;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct RigModelProvider {
@@ -30,6 +38,43 @@ impl RigModelProvider {
         Self {
             backend: RigBackend::from_config(config),
         }
+    }
+
+    pub fn with_executor(config: RigBackendConfig, executor: Arc<dyn RigBackendExecutor>) -> Self {
+        Self {
+            backend: RigBackend::with_executor(config, executor),
+        }
+    }
+
+    #[cfg(feature = "rig-core-adapter")]
+    pub fn with_rig_core_openai(
+        config: RigBackendConfig,
+        host: Arc<dyn HostProvider + Send + Sync>,
+        default_model_id: impl Into<String>,
+    ) -> KernelResult<Self> {
+        if config.mode != crate::backend::RigBackendMode::Live {
+            return Err(KernelError::validation(
+                "Rig official adapter requires live backend mode",
+            ));
+        }
+        if config.provider_id.as_deref() != Some("openai") {
+            return Err(KernelError::validation(
+                "Rig official OpenAI adapter requires llm.rig.provider_id=openai",
+            ));
+        }
+        let secret_ref = config.api_key_secret_ref.clone().ok_or_else(|| {
+            KernelError::validation(
+                "Rig official OpenAI adapter requires llm.rig.api_key secret reference",
+            )
+        })?;
+        Ok(Self::with_executor(
+            config,
+            Arc::new(RigCoreOpenAiExecutor::new(
+                host,
+                secret_ref,
+                default_model_id,
+            )?),
+        ))
     }
 
     pub fn backend_execution_status(&self) -> RigBackendExecutionStatus {
@@ -59,7 +104,11 @@ impl ModelProvider for RigModelProvider {
     }
 
     fn health(&self) -> ProviderHealth {
-        fail_closed_health()
+        if self.backend.execution_status().fail_closed {
+            fail_closed_health()
+        } else {
+            ProviderHealth::available()
+        }
     }
 
     fn list_models(&self) -> Vec<ModelDescriptor> {
@@ -117,68 +166,6 @@ impl ModelProvider for RigModelProvider {
 }
 
 #[derive(Debug, Clone)]
-pub struct RigToolProvider {
-    backend: RigBackend,
-}
-
-impl RigToolProvider {
-    pub fn fail_closed() -> Self {
-        Self {
-            backend: RigBackend::fail_closed(),
-        }
-    }
-
-    pub fn with_backend_config(config: RigBackendConfig) -> Self {
-        Self {
-            backend: RigBackend::from_config(config),
-        }
-    }
-
-    pub fn backend_execution_status(&self) -> RigBackendExecutionStatus {
-        self.backend.execution_status()
-    }
-
-    pub fn backend_bootstrap_plan(&self) -> RigBackendBootstrapPlan {
-        self.backend.bootstrap_plan()
-    }
-
-    pub fn provider_manifest(&self) -> ProviderManifest {
-        ProviderManifest::new(
-            ids::TOOL_PROVIDER_ID,
-            "tool",
-            "rig-rust-tools",
-            "0.1.0",
-            vec!["tool.invoke".to_string()],
-        )
-    }
-}
-
-impl ToolProvider for RigToolProvider {
-    fn provider_manifest(&self) -> ProviderManifest {
-        RigToolProvider::provider_manifest(self)
-    }
-
-    fn list_tools(&self) -> Vec<ToolDescriptor> {
-        vec![ToolDescriptor::new(
-            ids::DEFAULT_TOOL_ID,
-            ids::TOOL_PROVIDER_ID,
-            "Rig Tool Bridge",
-            SideEffectLevel::SideEffectful,
-        )
-        .with_policy_categories(vec![PolicyCategory::ToolInvoke.as_str().to_string()])
-        .require_audit()]
-    }
-
-    fn health(&self) -> ProviderHealth {
-        fail_closed_health()
-    }
-
-    fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
-        Ok(self.backend.invoke_tool(call))
-    }
-}
-
-#[derive(Debug, Clone)]
 pub struct RigMcpProvider {
     backend: RigBackend,
 }
@@ -210,11 +197,7 @@ impl RigMcpProvider {
             "mcp",
             "rig-rust-mcp",
             "0.1.0",
-            vec![
-                "mcp.tools".to_string(),
-                "mcp.resources".to_string(),
-                "mcp.prompts".to_string(),
-            ],
+            vec!["mcp.resources".to_string(), "mcp.prompts".to_string()],
         )
     }
 
@@ -244,28 +227,20 @@ impl McpProvider for RigMcpProvider {
             ids::MCP_PROVIDER_ID,
             "sdkwork.rig.adapter",
         )
-        .with_capability("mcp.tools")
         .with_capability("mcp.resources")
         .with_capability("mcp.prompts")])
     }
 
     fn list_tools(&self, server_id: &str) -> KernelResult<Vec<ToolDescriptor>> {
         Self::ensure_server(server_id)?;
-        Ok(vec![ToolDescriptor::new(
-            ids::DEFAULT_MCP_TOOL_ID,
-            ids::MCP_PROVIDER_ID,
-            "Rig MCP Tool Bridge",
-            SideEffectLevel::SideEffectful,
-        )
-        .with_name("rig_mcp_tool_invoke")
-        .with_description("Expose Rig tool invocation through the SDKWork MCP provider SPI.")
-        .with_policy_categories(vec![PolicyCategory::ToolInvoke.as_str().to_string()])
-        .require_audit()])
+        Ok(Vec::new())
     }
 
     fn invoke_tool(&self, server_id: &str, call: ToolCall) -> KernelResult<ToolResult> {
         Self::ensure_server(server_id)?;
-        Ok(self.backend.invoke_tool(call))
+        Err(KernelError::CapabilityMissing {
+            capability_id: call.tool_id,
+        })
     }
 
     fn list_resources(&self, server_id: &str) -> KernelResult<Vec<McpResourceDescriptor>> {

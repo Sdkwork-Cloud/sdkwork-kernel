@@ -1,12 +1,10 @@
 use crate::{
     ClaudeCodeAdapter, ClaudeCodeLifecycleProvider, ClaudeMessageAdapter, ClaudeModelProvider,
-    ClaudeToolProvider,
 };
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
-    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
-    SdkRuntimeBackedToolProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
-    CLAUDE_CODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_TOOL_INVOKE,
+    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider, SdkRuntimeRequest,
+    SdkRuntimeResponse, SdkRuntimeRouter, CLAUDE_CODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -29,7 +27,6 @@ pub struct ClaudeCodeSdkIntegration {
     pub runtime: Arc<SdkRuntimeRouter>,
     pub lifecycle: ClaudeCodeLifecycleProvider,
     pub model: SdkRuntimeBackedModelProvider,
-    pub tools: SdkRuntimeBackedToolProvider,
     pub session_adapter: ClaudeCodeAdapter,
     pub message_adapter: ClaudeMessageAdapter,
 }
@@ -52,17 +49,11 @@ impl ClaudeCodeSdkIntegration {
         let (transports, runtime) = bootstrap.finalize_pair(negotiation.clone())?;
 
         let inner_model = Arc::new(ClaudeModelProvider::new());
-        let inner_tools = Arc::new(ClaudeToolProvider::new());
         let model = SdkRuntimeBackedModelProvider::new(
             runtime.clone(),
             inner_model,
             SDK_CAPABILITY_MODEL_CHAT,
             "provider.model.claude-code",
-        );
-        let tools = SdkRuntimeBackedToolProvider::new(
-            runtime.clone(),
-            inner_tools,
-            SDK_CAPABILITY_TOOL_INVOKE,
         );
 
         Ok(Self {
@@ -71,7 +62,6 @@ impl ClaudeCodeSdkIntegration {
             runtime,
             lifecycle: ClaudeCodeLifecycleProvider::new(),
             model,
-            tools,
             session_adapter: ClaudeCodeAdapter::new(),
             message_adapter: ClaudeMessageAdapter::new(),
         })

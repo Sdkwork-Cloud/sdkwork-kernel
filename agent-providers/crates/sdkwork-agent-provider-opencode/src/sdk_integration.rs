@@ -1,12 +1,11 @@
 use crate::{
     OpenCodeAdapter, OpenCodeLifecycleProvider, OpenCodeMessageAdapter, OpenCodeModelProvider,
-    OpenCodeToolProvider,
 };
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
     DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
-    SdkRuntimeBackedToolProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
-    OPENCODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_TOOL_INVOKE,
+    SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter, OPENCODE_BINDING_ID,
+    SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -29,7 +28,6 @@ pub struct OpenCodeSdkIntegration {
     pub runtime: Arc<SdkRuntimeRouter>,
     pub lifecycle: OpenCodeLifecycleProvider,
     pub model: SdkRuntimeBackedModelProvider,
-    pub tools: SdkRuntimeBackedToolProvider,
     pub session_adapter: OpenCodeAdapter,
     pub message_adapter: OpenCodeMessageAdapter,
 }
@@ -52,17 +50,11 @@ impl OpenCodeSdkIntegration {
         let (transports, runtime) = bootstrap.finalize_pair(negotiation.clone())?;
 
         let inner_model = Arc::new(OpenCodeModelProvider::new());
-        let inner_tools = Arc::new(OpenCodeToolProvider::new());
         let model = SdkRuntimeBackedModelProvider::new(
             runtime.clone(),
             inner_model,
             SDK_CAPABILITY_MODEL_CHAT,
             "provider.model.opencode",
-        );
-        let tools = SdkRuntimeBackedToolProvider::new(
-            runtime.clone(),
-            inner_tools,
-            SDK_CAPABILITY_TOOL_INVOKE,
         );
 
         Ok(Self {
@@ -71,7 +63,6 @@ impl OpenCodeSdkIntegration {
             runtime,
             lifecycle: OpenCodeLifecycleProvider::new(),
             model,
-            tools,
             session_adapter: OpenCodeAdapter::new(),
             message_adapter: OpenCodeMessageAdapter::new(),
         })

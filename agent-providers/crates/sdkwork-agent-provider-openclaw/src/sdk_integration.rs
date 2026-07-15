@@ -1,12 +1,10 @@
 use crate::{
     OpenClawAdapter, OpenClawLifecycleProvider, OpenClawMessageAdapter, OpenClawModelProvider,
-    OpenClawToolProvider,
 };
 use sdkwork_agent_provider_spi::{
-    bootstrap_binding, wire_runtime_providers, AgentSdkBindingManifest, AgentSdkIntegration,
-    BindingRegistry, DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
-    SdkRuntimeBackedToolProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
-    OPENCLAW_BINDING_ID,
+    bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
+    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider, SdkRuntimeRequest,
+    SdkRuntimeResponse, SdkRuntimeRouter, OPENCLAW_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     HttpOpenApiTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -18,8 +16,8 @@ use std::sync::Arc;
 const OPENCLAW_BINDING_MANIFEST_JSON: &str =
     include_str!("../../../../bindings/agent-providers/openclaw/provider-binding.manifest.json");
 
-/// npm package name negotiated by the OpenClaw provider binding manifest.
-pub const OPENCLAW_NPM_PACKAGE: &str = "openclaw";
+/// Official OpenAI SDK used for the OpenClaw OpenAI-compatible gateway protocol.
+pub const OPENCLAW_NPM_PACKAGE: &str = "openai";
 
 pub fn openclaw_binding_manifest() -> AgentSdkBindingManifest {
     AgentSdkBindingManifest::from_json(OPENCLAW_BINDING_MANIFEST_JSON)
@@ -32,7 +30,6 @@ pub struct OpenClawSdkIntegration {
     pub runtime: Arc<SdkRuntimeRouter>,
     pub lifecycle: OpenClawLifecycleProvider,
     pub model: SdkRuntimeBackedModelProvider,
-    pub tools: SdkRuntimeBackedToolProvider,
     pub session_adapter: OpenClawAdapter,
     pub message_adapter: OpenClawMessageAdapter,
 }
@@ -55,10 +52,10 @@ impl OpenClawSdkIntegration {
             OPENCLAW_NPM_PACKAGE,
         )));
         let (transports, runtime) = bootstrap.finalize_pair(negotiation.clone())?;
-        let providers = wire_runtime_providers(
+        let model = SdkRuntimeBackedModelProvider::new(
             runtime.clone(),
             Arc::new(OpenClawModelProvider::new()),
-            Arc::new(OpenClawToolProvider::new()),
+            SDK_CAPABILITY_MODEL_CHAT,
             "provider.model.openclaw",
         );
 
@@ -67,8 +64,7 @@ impl OpenClawSdkIntegration {
             transports,
             runtime,
             lifecycle: OpenClawLifecycleProvider::new(),
-            model: providers.model,
-            tools: providers.tools,
+            model,
             session_adapter: OpenClawAdapter::new(),
             message_adapter: OpenClawMessageAdapter::new(),
         })
@@ -121,9 +117,10 @@ mod tests {
             .model
             .invoke(ModelRequest::new("req-kernel-1", vec!["hello".to_string()]))
             .expect("model invoke should succeed");
+        assert!(!response.messages.is_empty());
         assert!(response
-            .messages
+            .diagnostics
             .iter()
-            .any(|message| message.contains("openclaw")));
+            .any(|diagnostic| diagnostic.contains("sdk_runtime_mode=")));
     }
 }

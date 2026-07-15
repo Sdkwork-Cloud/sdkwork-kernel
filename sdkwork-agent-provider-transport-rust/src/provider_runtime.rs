@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 pub struct ProviderBackedRustHandler {
     model: Arc<dyn ModelProvider + Send + Sync>,
-    tools: Arc<dyn ToolProvider + Send + Sync>,
+    tools: Option<Arc<dyn ToolProvider + Send + Sync>>,
     default_model: String,
 }
 
@@ -20,7 +20,18 @@ impl ProviderBackedRustHandler {
     ) -> Self {
         Self {
             model,
-            tools,
+            tools: Some(tools),
+            default_model: default_model.into(),
+        }
+    }
+
+    pub fn model_only(
+        model: Arc<dyn ModelProvider + Send + Sync>,
+        default_model: impl Into<String>,
+    ) -> Self {
+        Self {
+            model,
+            tools: None,
             default_model: default_model.into(),
         }
     }
@@ -59,8 +70,14 @@ impl ProviderBackedRustHandler {
                 tool_id,
                 arguments,
             } => {
+                let tools = self.tools.as_ref().ok_or_else(|| {
+                    SdkRuntimeError::new(
+                        "operation_not_supported",
+                        "tool_invoke is not configured for this Rust provider runtime",
+                    )
+                })?;
                 let call = ToolCall::new(tool_call_id, tool_id, arguments);
-                let result = self.tools.invoke_tool(call).map_err(map_kernel_error)?;
+                let result = tools.invoke_tool(call).map_err(map_kernel_error)?;
                 Ok(SdkRuntimeResponse::success(
                     SdkBackendKind::RustNative,
                     &request.capability_id,

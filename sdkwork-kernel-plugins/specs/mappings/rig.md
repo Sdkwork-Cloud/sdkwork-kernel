@@ -12,7 +12,6 @@ Rig maps first to a complete SDKWork typed plugin:
 
 - `AgentDefinition` with explicit provider bindings
 - `ModelProvider`
-- `ToolProvider`
 - `MemoryProvider`
 - `KnowledgeProvider`
 - `PlanningProvider`
@@ -33,7 +32,7 @@ kernel SPI contracts, not on `sdkwork-agent-kernel` depending on Rig.
 
 The Rig adapter exposes `rig_agent_definition()` as the executable standard
 definition. It binds `provider.model.rig-rust`,
-`provider.tool.rig-rust`, `provider.memory.rig-rust`,
+`provider.memory.rig-rust`,
 `provider.knowledge.rig-rust`, `provider.planning.rig-rust`,
 `provider.policy.rig-standard`, `adapter.rpc.agent-chat`,
 `provider.agent.installer.rig-rust`, and
@@ -44,17 +43,17 @@ compatibility, while its provider manifest name is
 explicit.
 
 Its `model_selection` uses the Rig model provider as the non-fallback default.
-Its `tool_call_policy` requires policy before tool execution and only claims
-`tool.invoke` until a live `ToolServer` bridge implements streaming or
-cancellation. Its `memory_strategy` uses `provider.memory.rig-rust` as an
+It does not declare a standalone tool provider or MCP tool surface; Rig agent
+tool activity remains inside model execution until an independently invocable,
+policy-controlled registry adapter exists. Its `memory_strategy` uses `provider.memory.rig-rust` as an
 optional default for session and agent memory scopes.
 `RigBackendConfig` is the current typed boundary between agent configuration and
-model/tool backend construction. It parses `runtime.rig.backend_mode`,
+model backend construction. It parses `runtime.rig.backend_mode`,
 `llm.rig.provider_id`, and the `llm.rig.api_key` secret reference without
-accepting raw API keys. `live` mode is intentionally live-pending: providers can
-be constructed from the config, but model and tool execution still report
-fail-closed unavailable/denied results until an upstream Rig backend adapter is
-connected and verified.
+accepting raw API keys. `live` mode remains fail-closed until a host injects an
+execution adapter. The `rig-core-adapter` feature supplies an official
+`rig-core` OpenAI executor; model execution becomes available only after that
+executor and the SDKWork `HostProvider` secret resolver are explicitly connected.
 The Rust crate exposes this distinction through `RigBackendExecutionStatus`:
 `fail_closed` reports the default local safety mode, while `live_pending`
 reports that live configuration exists but execution still fails closed. The Rig
@@ -66,8 +65,9 @@ backend.
 future upstream Rig adapter. In `live` mode it records the selected provider id,
 the required `llm.rig.api_key` secret-reference field, and the policy categories
 needed for host secret resolution and model invocation, while the plan remains
-`live_pending` and fail-closed. Safe summaries never echo raw secrets or secret
-reference values.
+`live_pending` and fail-closed when no executor is attached. An attached
+executor reports `live` and is the only state in which model calls are allowed.
+Safe summaries never echo raw secrets or secret reference values.
 Rig model providers expose this bootstrap plan through a typed provider method
 and mirror only secret-safe summary fields into model catalog metadata, such as
 bootstrap state, selected provider id, required secret-reference field names,
@@ -96,15 +96,17 @@ feature-gated live Rig `ConversationMemory` backend.
 
 Rig source inspection also shows vector store and embedding-oriented retrieval
 surfaces in `rig-core`. SDKWork maps those surfaces to `KnowledgeProvider`
-requests and results. The optional `rig-core-adapter` Cargo feature wraps
-`rig-core` inside the Rig plugin crate only and returns SDKWork-owned plan
-objects, so Rig types do not leak into `sdkwork-agent-kernel`. Non-vector RAG
+requests and results. The optional `rig-core-adapter` Cargo feature consumes the
+registry `rig-core` crate inside the Rig plugin crate only. Its OpenAI executor
+resolves credentials through `HostProvider` and returns SDKWork-owned model
+responses, so Rig types do not leak into `sdkwork-agent-kernel`. Non-vector RAG
 approaches such as llm-wiki, keyword, structured, graph, or external lookup
 also map to `knowledge.search` with the matching retrieval method.
 
 Rig source inspection also shows first-class custom tool support through
-`Tool`, `ToolSet`, dynamic tools, and `ToolServer`. SDKWork maps that surface to
-`ToolProvider` and policy-aware `ToolDescriptor` values.
+`Tool`, `ToolSet`, dynamic tools, and `ToolServer`. The current adapter does not
+claim this as a standalone SDKWork capability because no independently
+invocable registry bridge is connected.
 
 Rig core does not expose an SDKWork-equivalent first-class Agent Skill SPI.
 Skill-like behavior in Rig-based systems should be modeled in SDKWork as a
@@ -117,7 +119,7 @@ adapter therefore does not claim `skill.discover` or `skill.invoke` today.
 | Upstream area | SDKWork capability family |
 | --- | --- |
 | Model abstraction | `model.chat`; `model.tool_call` only after the model catalog and backend return typed tool-call output; `model.streaming` only after the adapter implements `ModelProvider::stream` |
-| Tool composition | `tool.invoke` |
+| Tool composition | `agent.tool.*` observations within model execution; standalone `tool.invoke` is not declared |
 | Conversation memory | `memory.query`, `memory.write`, `memory.delete`, `memory.export` |
 | Retrieval/RAG | `knowledge.search`, `knowledge.read`, `knowledge.list` |
 | Agent orchestration | `planning.*` |
@@ -154,10 +156,12 @@ Unknown model maps to `capability_missing`. Provider setup failure maps to
 
 ## Conformance
 
-Implemented target: local-runtime profile with typed model, tool, memory,
+Implemented target: local-runtime profile with typed model, memory,
 knowledge, planning, policy, installer, and configuration providers. Live
-upstream Rig model and tool execution remains fail-closed until a feature-gated
-backend is deliberately configured. Memory and knowledge are executable through
+upstream Rig model execution is available through the feature-gated official
+`rig-core` adapter only when deliberately configured. Standalone tool execution
+is not declared, and the MCP surface exposes only implemented resources and
+prompts. Memory and knowledge are executable through
 SDKWork SPI today and are kept provider-neutral so they can be backed by Rig
 `ConversationMemory`, Rig vector-store surfaces, or non-vector knowledge-base
 implementations without changing kernel contracts.
@@ -168,10 +172,11 @@ Reference source is declared at `external/rig` for upstream inspection, while
 the binding's Rust source-tree evidence points to
 `external/rig/crates/rig-core`. SDKWork adapter code is implemented as a local plugin with
 manifests, package lifecycle, configuration, memory SPI, knowledge SPI,
-deployment snapshots, diagnostics, and conformance contract tests. Model and
-tool execution are fail-closed even when `RigBackendConfig` selects live mode,
-because the upstream Rig execution adapter is not connected yet. That state is
-reported as `live_pending`, not as `available`; memory, knowledge, planning,
+deployment snapshots, diagnostics, and conformance contract tests. Model
+execution uses the official `rig-core` adapter when injected; otherwise the
+state is reported as `live_pending`, not as `available`. Standalone tool
+execution is absent until a stable tool registry adapter exists;
+memory, knowledge, planning,
 installer, and configuration contracts are executable through SDKWork SPI, while
 policy is executable as a local approval gate rather than a production policy
 engine.

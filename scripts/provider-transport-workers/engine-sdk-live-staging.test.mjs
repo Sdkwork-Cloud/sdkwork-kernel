@@ -42,8 +42,8 @@ assert.deepEqual(
 );
 assert.deepEqual(
   missingCredentialRequirements('openclaw', { OPENCLAW_GATEWAY_URL: 'http://127.0.0.1:43190' }),
-  [],
-  'OpenClaw gateway token is optional; staging preflight must not reject an unauthenticated private gateway',
+  ['OPENCLAW_GATEWAY_TOKEN'],
+  'OpenClaw staging preflight must reject unauthenticated gateway execution',
 );
 assert.equal(
   frameworkRequiresPackageResolution('codex'),
@@ -52,8 +52,8 @@ assert.equal(
 );
 assert.equal(
   frameworkRequiresPackageResolution('openclaw'),
-  false,
-  'OpenClaw staging proof uses the gateway HTTP authority and must not require a local npm package import',
+  true,
+  'OpenClaw staging proof uses the official openai package against the gateway authority',
 );
 
 delete process.env.SDKWORK_KERNEL_STAGING_LIVE_SDK;

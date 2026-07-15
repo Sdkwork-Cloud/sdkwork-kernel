@@ -214,6 +214,7 @@ impl DriveObjectStore for FakeDriveObjectStore {
             bucket: request.bucket,
             prefix: request.prefix,
             items: Vec::new(),
+            prefixes: Vec::new(),
             next_continuation_token: None,
             is_truncated: false,
         })

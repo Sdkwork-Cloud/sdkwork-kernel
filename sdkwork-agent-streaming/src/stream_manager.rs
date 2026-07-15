@@ -232,9 +232,7 @@ impl StreamManager {
             entry.connection.state = StreamState::Streaming;
             Ok(())
         } else {
-            Err(KernelError::validation(format!(
-                "stream connection not found"
-            )))
+            Err(KernelError::validation("stream connection not found"))
         }
     }
 
@@ -249,9 +247,7 @@ impl StreamManager {
             entry.connection.state = StreamState::Paused;
             Ok(())
         } else {
-            Err(KernelError::validation(format!(
-                "stream connection not found"
-            )))
+            Err(KernelError::validation("stream connection not found"))
         }
     }
 
@@ -283,9 +279,7 @@ impl StreamManager {
                 entry.buffered_bytes
             }
             None => {
-                return Err(KernelError::validation(format!(
-                    "stream connection not found"
-                )));
+                return Err(KernelError::validation("stream connection not found"));
             }
         };
 
@@ -347,9 +341,7 @@ impl StreamManager {
                 update
             }
             None => {
-                return Err(KernelError::validation(format!(
-                    "stream connection not found"
-                )));
+                return Err(KernelError::validation("stream connection not found"));
             }
         };
 
@@ -383,9 +375,7 @@ impl StreamManager {
                 (updates, buffered_bytes)
             }
             None => {
-                return Err(KernelError::validation(format!(
-                    "stream connection not found"
-                )));
+                return Err(KernelError::validation("stream connection not found"));
             }
         };
 

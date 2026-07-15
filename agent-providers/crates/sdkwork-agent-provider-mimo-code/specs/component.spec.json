@@ -59,13 +59,19 @@
     "publicExports": [
       "."
     ],
-    "runtimeEntrypoints": [],
+    "runtimeEntrypoints": [
+      "MiMoCodeSdkIntegration::bootstrap",
+      "MiMoCodeLifecycleProvider",
+      "MiMoCodeAdapter"
+    ],
     "routeManifest": null,
     "sdkDependencies": [],
     "dependencyApiExports": [],
     "dependencyApiSurfaces": [],
     "sdkClients": [],
-    "events": [],
+    "events": [
+      "agent.session.*"
+    ],
     "configKeys": []
   },
   "verification": {

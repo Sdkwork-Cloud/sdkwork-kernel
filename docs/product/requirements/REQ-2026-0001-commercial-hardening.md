@@ -30,7 +30,22 @@ acceptance_criteria:
   - Commercial release verification fails closed when `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` is missing, staging SDK credentials are not available, or `SDKWORK_KERNEL_STAGING_HERMES_GATEWAY=1` is not set
   - Commercial release verification forces `SDKWORK_KERNEL_STAGING_LIVE_SDK=1` and `SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1` for the staging SDK gate
   - Commercial release verification runs `scripts/provider-transport-workers/hermes-gateway-staging.mjs` for the Hermes TUI gateway JSON-RPC proof
-  - TypeScript and Python provider transport workers fail closed for synthetic `session_create`, `model_chat` probe fallbacks, `tool_invoke`, `skill_invoke`, and unknown operations in production when mock fallback is disabled
+  - Release packaging invokes `pnpm verify:commercial` before building target artifacts, so missing live evidence cannot produce a promotable package
+  - Tool discovery exposes only registered provider capabilities and every tool invocation passes through kernel policy evaluation before side effects
+  - Session `timeoutMs` is range-validated, persisted, and propagated into typed provider requests
+  - Synchronous model, tool, message-turn, and SSE provider calls use one bounded blocking admission executor and cannot create unbounded Tokio blocking workers
+  - Provider admission exports fixed-series execution/wait capacity, active, waiting, rejection-reason, and acquisition-latency metrics with cancellation-safe lifecycle accounting
+  - Provider admission bounds queued requests independently from active executions and fails queue-full or admission-timeout requests with retryable provider-unavailable errors
+  - Provider-capable HTTP paths acquire a typed admission lease before bounded session-history hydration, and hydration cannot be called without that lease
+  - Managed Node/Python stdio unary, streaming, and health calls enforce hard process deadlines; timeout kills and reaps the request-scoped child and prevents worker reuse
+  - Provider blocking admission is configurable through `SDKWORK_PROVIDER_MAX_CONCURRENCY` with a strict `1..=1024` startup bound
+  - SQLite, PostgreSQL, and memory permission stores enforce atomic `pending -> allow|deny` transitions with same-value idempotency
+  - Permission-required tool calls persist typed pending requests through insert-if-absent storage before returning the standard permission error
+  - Task cancellation is idempotent, emits one cancellation event, and rejects completed/failed terminal states
+  - Task cancellation state change and cancellation event commit atomically in SQLite, PostgreSQL, and memory implementations
+  - Session updates cannot overwrite database-owned message counts, owner identity, or creation time from stale rows, and unknown-session updates fail closed
+  - Task submission is not considered complete until a durable scheduler/run/step worker, retry/recovery, fencing, and real in-flight cancellation are implemented
+  - TypeScript and Python provider transport workers never synthesize successful `tool_invoke`, `skill_invoke`, or unknown-operation results in any profile; production additionally fails closed for unavailable live session/model execution
   - Rust IPC/Node/Python provider transport stubs and injected transports fail closed in production when mock fallback is disabled
   - Production runbooks require managed HA Postgres and managed HA Redis; `deployments/kubernetes/postgres-redis.yaml` is documented as local/staging reference only
   - Production runbooks reject checked-in/default credentials, metrics-token reuse, mutable image tags, broad database egress, and unbounded deployment claims
@@ -85,3 +100,4 @@ Parent PRD: [PRD.md](../prd/PRD.md) · Readiness shard: [PRD-03-commercial-readi
 6. Complete MiMo Code agents facade registration and staging live SDK proof.
 7. IM PC agent module exclusively via `sdkwork-agents` SDK.
 8. Multi-region runtime DB failover runbook (product-owned; kernel documents session recovery SPI only).
+9. Implement and prove the durable runtime task worker, distributed session lease/fencing, and cross-node cancellation channel; task persistence alone is not execution evidence.

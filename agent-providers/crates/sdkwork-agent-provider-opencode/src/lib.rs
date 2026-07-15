@@ -1,13 +1,14 @@
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
+    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult,
     ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
     ModelStreamChunk, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
-    SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
 use sdkwork_agent_provider_core::{
     create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
 };
 
+#[cfg(test)]
+use sdkwork_agent_kernel::KernelError;
 #[cfg(test)]
 use sdkwork_agent_provider_core::{
     ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
@@ -244,86 +245,6 @@ impl ModelProvider for OpenCodeModelProvider {
 }
 
 // ============================================================================
-// OpenCode Tool Provider
-// ============================================================================
-
-pub struct OpenCodeToolProvider;
-
-impl OpenCodeToolProvider {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for OpenCodeToolProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ToolProvider for OpenCodeToolProvider {
-    fn provider_manifest(&self) -> ProviderManifest {
-        ProviderManifest::new(
-            "provider.tool.opencode",
-            "tool",
-            "OpenCode Tool Provider",
-            "0.1.0",
-            vec!["tool.invoke".to_string()],
-        )
-    }
-
-    fn health(&self) -> ProviderHealth {
-        ProviderHealth::available()
-    }
-
-    fn list_tools(&self) -> Vec<ToolDescriptor> {
-        vec![
-            ToolDescriptor::new(
-                "opencode.code_edit",
-                "provider.tool.opencode",
-                "Code Edit",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("code_edit")
-            .with_description("Edit code files")
-            .with_input_schema(ToolSchema::json_schema("opencode.code_edit.input"))
-            .with_output_schema(ToolSchema::json_schema("opencode.code_edit.output")),
-            ToolDescriptor::new(
-                "opencode.terminal",
-                "provider.tool.opencode",
-                "Terminal",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("terminal")
-            .with_description("Execute terminal commands")
-            .with_input_schema(ToolSchema::json_schema("opencode.terminal.input"))
-            .with_output_schema(ToolSchema::json_schema("opencode.terminal.output")),
-            ToolDescriptor::new(
-                "opencode.search",
-                "provider.tool.opencode",
-                "Search",
-                SideEffectLevel::ReadOnly,
-            )
-            .with_name("search")
-            .with_description("Search code")
-            .with_input_schema(ToolSchema::json_schema("opencode.search.input"))
-            .with_output_schema(ToolSchema::json_schema("opencode.search.output")),
-        ]
-    }
-
-    fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
-        match call.tool_id.as_str() {
-            "opencode.code_edit" | "opencode.terminal" | "opencode.search" => {
-                sdkwork_agent_provider_core::reject_in_process_tool_invoke("provider.tool.opencode")
-            }
-            _ => Err(KernelError::CapabilityMissing {
-                capability_id: call.tool_id.clone(),
-            }),
-        }
-    }
-}
-
-// ============================================================================
 // OpenCode Lifecycle Provider (existing, preserved)
 // ============================================================================
 
@@ -553,57 +474,6 @@ mod tests {
             .stream(request)
             .expect_err("in-process model streaming is forbidden");
         assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    // --- Tool Provider Tests ---
-
-    #[test]
-    fn tool_provider_manifest() {
-        let provider = OpenCodeToolProvider::new();
-        let manifest = provider.provider_manifest();
-        assert_eq!(manifest.provider_id, "provider.tool.opencode");
-        assert_eq!(manifest.provider_family, "tool");
-    }
-
-    #[test]
-    fn tool_provider_list_tools() {
-        let provider = OpenCodeToolProvider::new();
-        let tools = provider.list_tools();
-        assert_eq!(tools.len(), 3);
-        assert!(tools.iter().any(|t| t.tool_id == "opencode.code_edit"));
-        assert!(tools.iter().any(|t| t.tool_id == "opencode.terminal"));
-        assert!(tools.iter().any(|t| t.tool_id == "opencode.search"));
-
-        let search = tools
-            .iter()
-            .find(|t| t.tool_id == "opencode.search")
-            .unwrap();
-        assert_eq!(search.side_effect_level, SideEffectLevel::ReadOnly);
-    }
-
-    #[test]
-    fn tool_provider_invoke_requires_transport_worker() {
-        let provider = OpenCodeToolProvider::new();
-        let call = ToolCall::new("c.1", "opencode.terminal", r#"{"cmd":"echo hello"}"#);
-        let error = provider
-            .invoke_tool(call)
-            .expect_err("in-process tool invocation is forbidden");
-        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    #[test]
-    fn tool_provider_invoke_unknown() {
-        let provider = OpenCodeToolProvider::new();
-        let call = ToolCall::new("c.2", "opencode.nonexistent", "{}");
-        assert!(provider.invoke_tool(call).is_err());
-    }
-
-    #[test]
-    fn tool_provider_describe_tool() {
-        let provider = OpenCodeToolProvider::new();
-        let desc = provider.describe_tool("opencode.code_edit").unwrap();
-        assert_eq!(desc.display_name, "Code Edit");
-        assert_eq!(desc.side_effect_level, SideEffectLevel::SideEffectful);
     }
 
     // --- Conversation Manager Tests ---

@@ -61,6 +61,11 @@ const MAX_METADATA_KEY_BYTES: usize = 128;
 const MAX_METADATA_VALUE_BYTES: usize = 4096;
 const MAX_WORKSPACE_ROOTS: usize = 32;
 const MAX_WORKSPACE_ROOT_BYTES: usize = 4096;
+const MIN_SESSION_TIMEOUT_MS: u64 = 100;
+const MAX_SESSION_TIMEOUT_MS: u64 = 3_600_000;
+const MAX_HYDRATED_MESSAGES: i64 = 64;
+const MAX_HYDRATED_HISTORY_BYTES: usize = 16 * 1024 * 1024;
+const MAX_CATALOG_ITEMS: usize = 200;
 /// Count-bounded backpressure keeps worst-case queued model payloads near 1 MiB per stream.
 const MODEL_STREAM_CHANNEL_CAPACITY: usize = 4;
 
@@ -714,10 +719,10 @@ impl InternalRuntimeApiState {
 
     pub(crate) async fn register_persisted_session(
         &self,
+        _admission_lease: &crate::runtime::ProviderAdmissionLease,
         row: &SessionRow,
         trace_id: &str,
     ) -> Result<(), ApiError> {
-        const MAX_HYDRATED_MESSAGES: i64 = 512;
         let session_id = row.session_id.clone();
         let messages = self
             .persist(move |persistence| {
@@ -725,11 +730,30 @@ impl InternalRuntimeApiState {
             })
             .await
             .map_err(|error| ApiError::from_persistence(error, trace_id))?;
-        let history = messages
-            .into_iter()
-            .map(message_row_to_agent_message)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| {
+        // Keep the newest messages while enforcing a cumulative byte budget. The
+        // SQL window is already bounded, so this second bound caps transient
+        // deserialization memory even when individual rows are large.
+        let mut history = Vec::with_capacity(messages.len());
+        let mut history_bytes = 0usize;
+        for message_row in messages.into_iter().rev() {
+            let message_bytes = message_row
+                .content
+                .len()
+                .saturating_add(message_row.metadata_json.as_deref().map_or(0, str::len))
+                .saturating_add(256);
+            if history.is_empty() && message_bytes > MAX_HYDRATED_HISTORY_BYTES {
+                return Err(ApiError::from_kernel(
+                    sdkwork_agent_kernel::KernelError::resource_exhausted(
+                        "latest persisted message exceeds hydration memory budget",
+                    ),
+                    trace_id,
+                ));
+            }
+            if history_bytes.saturating_add(message_bytes) > MAX_HYDRATED_HISTORY_BYTES {
+                break;
+            }
+            history_bytes = history_bytes.saturating_add(message_bytes);
+            let message = message_row_to_agent_message(message_row).map_err(|error| {
                 tracing::error!(
                     session_id = %row.session_id,
                     error = %error,
@@ -738,6 +762,9 @@ impl InternalRuntimeApiState {
                 );
                 ApiError::internal("persisted message history is invalid", trace_id)
             })?;
+            history.push(message);
+        }
+        history.reverse();
         let runtime = self.runtime.clone();
         let session_id_for_runtime = row.session_id.clone();
         let history_revision = u64::try_from(row.message_count).map_err(|_| {
@@ -826,6 +853,14 @@ fn validate_create_session_request(
         MAX_WORKSPACE_ROOT_BYTES,
         trace_id,
     )?;
+    if let Some(timeout_ms) = request.timeout_ms {
+        if !(MIN_SESSION_TIMEOUT_MS..=MAX_SESSION_TIMEOUT_MS).contains(&timeout_ms) {
+            return Err(ApiError::invalid_parameter(
+                "timeoutMs must be between 100 and 3600000",
+                trace_id,
+            ));
+        }
+    }
     if let Some(roots) = request.workspace_roots.as_ref() {
         if roots.len() > MAX_WORKSPACE_ROOTS {
             return Err(ApiError::invalid_parameter(
@@ -1053,6 +1088,9 @@ fn message_row_to_agent_message(row: MessageRow) -> Result<AgentMessage, String>
     .created_at(row.created_at);
     for (key, value) in parse_metadata_map(row.metadata_json.as_deref()) {
         message = message.with_metadata(key, value);
+    }
+    if message.role == AgentMessageRole::User {
+        message = message.mark_untrusted();
     }
     Ok(message)
 }
@@ -1284,6 +1322,7 @@ fn model_chunk_to_event(chunk: &sdkwork_agent_kernel::ModelStreamChunk) -> Event
 
 fn spawn_model_sse_stream(
     runtime: RuntimeState,
+    admission_lease: crate::runtime::ProviderAdmissionLease,
     session_id: String,
     model_id: Option<String>,
     override_messages: Option<Vec<String>>,
@@ -1294,20 +1333,24 @@ fn spawn_model_sse_stream(
     let estimated_tokens = Arc::new(AtomicU64::new(0));
     let worker_estimated_tokens = estimated_tokens.clone();
     let worker_tx = tx.clone();
-    let worker = tokio::task::spawn_blocking(move || {
-        let mut sink = MpscModelStreamSink {
-            tx: worker_tx,
-            estimated_tokens: worker_estimated_tokens,
-            emitted_chunks: 0,
-            emitted_bytes: 0,
-        };
-        runtime.stream_model_for_session_into(&session_id, model_id, override_messages, &mut sink)
-    });
     tokio::spawn(async move {
-        let outcome = match worker.await {
-            Ok(result) => result.map_err(|error| error.to_string()),
-            Err(error) => Err(format!("model stream worker failed: {error}")),
-        };
+        let outcome = runtime
+            .run_provider_admitted(admission_lease, move |runtime| {
+                let mut sink = MpscModelStreamSink {
+                    tx: worker_tx,
+                    estimated_tokens: worker_estimated_tokens,
+                    emitted_chunks: 0,
+                    emitted_bytes: 0,
+                };
+                runtime.stream_model_for_session_into(
+                    &session_id,
+                    model_id,
+                    override_messages,
+                    &mut sink,
+                )
+            })
+            .await
+            .map_err(|error| error.to_string());
         let emitted_tokens = estimated_tokens.load(Ordering::Relaxed);
         if let Some(reservation) = reservation {
             let actual_tokens = if outcome.is_ok() {
@@ -1541,6 +1584,9 @@ fn apply_create_session_metadata(
     if let Some(instructions) = &request.instructions {
         metadata.insert("instructions".to_string(), instructions.clone());
     }
+    if let Some(timeout_ms) = request.timeout_ms {
+        metadata.insert("timeoutMs".to_string(), timeout_ms.to_string());
+    }
     if let Some(roots) = &request.workspace_roots {
         if let Ok(encoded) = serde_json::to_string(roots) {
             metadata.insert("workspaceRoots".to_string(), encoded);
@@ -1592,15 +1638,9 @@ pub fn bridge_config_from_row(row: &SessionRow) -> Result<BridgeSessionConfig, S
     let metadata = parse_metadata_map(row.metadata_json.as_deref());
     let tenant_id = row
         .owner_tenant_id
-        .as_deref()
-        .or_else(|| metadata.get("tenantId").map(String::as_str))
-        .map(|value| {
-            value
-                .parse::<u64>()
-                .map_err(|_| "persisted tenant identity is invalid".to_string())
-        })
-        .transpose()?
-        .unwrap_or(0);
+        .clone()
+        .or_else(|| metadata.get("tenantId").cloned())
+        .unwrap_or_default();
     Ok(BridgeSessionConfig {
         agent_id: row.agent_id.clone(),
         tenant_id,
@@ -2223,6 +2263,14 @@ pub async fn list_models(
         .runtime
         .list_models()
         .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
+    if models.len() > MAX_CATALOG_ITEMS {
+        return Err(ApiError::from_kernel(
+            sdkwork_agent_kernel::KernelError::resource_exhausted(
+                "model catalog exceeds the bounded response contract",
+            ),
+            &trace_id,
+        ));
+    }
     let items = models
         .into_iter()
         .map(|model| ModelDescriptorJson {
@@ -2257,7 +2305,14 @@ pub async fn invoke_model(
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
     ensure_session_active_api(&row, &trace_id)?;
-    state.register_persisted_session(&row, &trace_id).await?;
+    let admission_lease = state
+        .runtime
+        .acquire_provider_admission()
+        .await
+        .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
+    state
+        .register_persisted_session(&admission_lease, &row, &trace_id)
+        .await?;
 
     let mut quota_reservation = if let Some(tenant_id) = ctx.tenant_id.as_deref() {
         match state.tenant_token_quota.clone().reserve(tenant_id).await {
@@ -2284,9 +2339,13 @@ pub async fn invoke_model(
     };
 
     let model_id = request.model_id.clone();
-    let result = match state
-        .runtime
-        .invoke_model_for_session(&session_id, model_id)
+    let runtime = state.runtime.clone();
+    let model_session_id = session_id.clone();
+    let result = match runtime
+        .run_provider_admitted(admission_lease, move |runtime| {
+            runtime.invoke_model_for_session(&model_session_id, model_id)
+        })
+        .await
     {
         Ok(result) => result,
         Err(error) => {
@@ -2368,6 +2427,14 @@ pub async fn list_tools(
         .runtime
         .list_tools()
         .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
+    if tools.len() > MAX_CATALOG_ITEMS {
+        return Err(ApiError::from_kernel(
+            sdkwork_agent_kernel::KernelError::resource_exhausted(
+                "tool catalog exceeds the bounded response contract",
+            ),
+            &trace_id,
+        ));
+    }
     let items = tools
         .into_iter()
         .map(|tool| ToolDescriptorJson {
@@ -2399,12 +2466,70 @@ pub async fn execute_tool(
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
     ensure_session_active_api(&row, &trace_id)?;
-    state.register_persisted_session(&row, &trace_id).await?;
-
-    let result = state
+    let admission_lease = state
         .runtime
-        .execute_tool(&session_id, &tool_name, &request.input)
+        .acquire_provider_admission()
+        .await
         .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
+    state
+        .register_persisted_session(&admission_lease, &row, &trace_id)
+        .await?;
+
+    let runtime = state.runtime.clone();
+    let tool_session_id = session_id.clone();
+    let tool_name_for_execution = tool_name.clone();
+    let tool_input = request.input.clone();
+    let result = match runtime
+        .run_provider_admitted(admission_lease, move |runtime| {
+            runtime.execute_tool(&tool_session_id, &tool_name_for_execution, &tool_input)
+        })
+        .await
+    {
+        Ok(result) => result,
+        Err(error) if error.kind() == sdkwork_agent_kernel::KernelErrorKind::PermissionRequired => {
+            let permission_request_id = error
+                .detail_value("permission_request_id")
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| {
+                    ApiError::internal("permission request identity is missing", &trace_id)
+                })?
+                .to_string();
+            let permission = PermissionRow {
+                permission_request_id,
+                session_id: Some(session_id.clone()),
+                category: error
+                    .detail_value("policy_category")
+                    .unwrap_or("tool.invoke")
+                    .to_string(),
+                resource: error
+                    .detail_value("resource")
+                    .unwrap_or(&tool_name)
+                    .to_string(),
+                side_effect_level: error
+                    .detail_value("side_effect_level")
+                    .unwrap_or("side_effectful")
+                    .to_string(),
+                reason: error.safe_message().to_string(),
+                status: "pending".to_string(),
+                owner_tenant_id: row.owner_tenant_id.clone(),
+                owner_user_ref: row.owner_user_ref.clone(),
+                created_at: chrono::Utc::now().to_rfc3339(),
+                updated_at: None,
+            };
+            state
+                .persist(move |persistence| {
+                    persistence
+                        .create_permission_if_absent(&permission)
+                        .map(|_| ())
+                })
+                .await
+                .map_err(|persistence_error| {
+                    ApiError::from_persistence(persistence_error, &trace_id)
+                })?;
+            return Err(ApiError::from_kernel(error, &trace_id));
+        }
+        Err(error) => return Err(ApiError::from_kernel(error, &trace_id)),
+    };
 
     Ok(api_item(
         ToolCallJson {
@@ -2442,12 +2567,18 @@ pub async fn stream_model(
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &row, &trace_id)?;
     ensure_session_active_api(&row, &trace_id)?;
-    state.register_persisted_session(&row, &trace_id).await?;
-
     let permit =
         SseConnectionPermit::acquire(state.sse_connection_count.clone()).ok_or_else(|| {
             ApiError::service_unavailable("too many concurrent SSE streams", &trace_id)
         })?;
+    let admission_lease = state
+        .runtime
+        .acquire_provider_admission()
+        .await
+        .map_err(|error| ApiError::from_kernel(error, &trace_id))?;
+    state
+        .register_persisted_session(&admission_lease, &row, &trace_id)
+        .await?;
 
     let quota_reservation = if let Some(tenant_id) = ctx.tenant_id.as_deref() {
         match state.tenant_token_quota.clone().reserve(tenant_id).await {
@@ -2477,6 +2608,7 @@ pub async fn stream_model(
     let override_messages = request.messages;
     let stream = spawn_model_sse_stream(
         state.runtime.clone(),
+        admission_lease,
         session_id,
         model_id,
         override_messages,

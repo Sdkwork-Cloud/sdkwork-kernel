@@ -5,6 +5,8 @@ use sdkwork_agent_database::{
     MessageRepository, MessageRow, RuntimeSessionWrites, SessionRepository, SessionRow,
     TaskRepository, TaskRow,
 };
+use sdkwork_agent_kernel::AgentSession;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Unified session manager backed by one database type implementing all runtime repositories.
@@ -87,10 +89,14 @@ where
 
     /// Get a session by ID
     pub fn get_session(&self, session_id: &str) -> Result<SessionRow, String> {
+        self.find_session(session_id)?
+            .ok_or_else(|| format!("session not found: {}", session_id))
+    }
+
+    pub(crate) fn find_session(&self, session_id: &str) -> Result<Option<SessionRow>, String> {
         self.db
             .load_session(session_id)
-            .map_err(|e| format!("failed to load session: {}", e))?
-            .ok_or_else(|| format!("session not found: {}", session_id))
+            .map_err(|e| format!("failed to load session: {}", e))
     }
 
     /// List sessions with optional filters
@@ -116,14 +122,96 @@ where
 
     /// Update a session
     pub fn update_session(&self, session: &SessionRow) -> Result<(), String> {
+        let mut session = session.clone();
+        session.updated_at = Some(chrono::Utc::now().to_rfc3339());
+        let event = self.build_event(&session.session_id, "session.updated", "info", None);
         self.db
-            .update_session(session)
-            .map_err(|e| format!("failed to update session: {}", e))
+            .save_session_with_event(&session, &event)
+            .map_err(|e| format!("failed to update session: {}", e))?;
+        self.notify_event(event);
+        Ok(())
+    }
+
+    /// Atomically upsert a provider-native session snapshot into unified runtime state.
+    pub fn synchronize_provider_session(
+        &self,
+        provider_id: &str,
+        bridge_id: Option<&str>,
+        session: &AgentSession,
+    ) -> Result<SessionRow, String> {
+        if provider_id.trim().is_empty() {
+            return Err("provider_id must not be empty".to_string());
+        }
+        if session.session_id.trim().is_empty() {
+            return Err("session_id must not be empty".to_string());
+        }
+
+        let existing = self
+            .db
+            .load_session(&session.session_id)
+            .map_err(|e| format!("failed to load provider session: {e}"))?;
+        if let Some(existing_provider) =
+            existing.as_ref().and_then(|row| row.provider_id.as_deref())
+        {
+            if existing_provider != provider_id {
+                return Err(format!(
+                    "session {} already belongs to provider {}",
+                    session.session_id, existing_provider
+                ));
+            }
+        }
+
+        let row = provider_session_to_row(provider_id, bridge_id, session, existing.as_ref())?;
+        if let Some(existing) = existing.as_ref() {
+            if session_row_is_older(&row, existing) {
+                return Ok(existing.clone());
+            }
+            if session_rows_equivalent(&row, existing) {
+                return Ok(existing.clone());
+            }
+        }
+        let event = self.build_event(
+            &row.session_id,
+            "session.synchronized",
+            "info",
+            Some(provider_id),
+        );
+        let applied = self
+            .db
+            .save_session_with_event_if_newer(&row, &event)
+            .map_err(|e| format!("failed to synchronize provider session: {e}"))?;
+        if applied {
+            self.notify_event(event);
+            Ok(row)
+        } else {
+            let current = self.get_session(&row.session_id)?;
+            if let Some(existing_provider) = current.provider_id.as_deref() {
+                if existing_provider != provider_id {
+                    return Err(format!(
+                        "session {} already belongs to provider {}",
+                        row.session_id, existing_provider
+                    ));
+                }
+            }
+            Ok(current)
+        }
     }
 
     /// Close a session
     pub fn close_session(&self, session_id: &str) -> Result<SessionRow, String> {
         let mut session = self.get_session(session_id)?;
+        if session.state.eq_ignore_ascii_case("closed") {
+            return Ok(session);
+        }
+        if matches!(
+            session.state.to_ascii_lowercase().as_str(),
+            "failed" | "archived"
+        ) {
+            return Err(format!(
+                "cannot close terminal session {} from state {}",
+                session_id, session.state
+            ));
+        }
         session.state = "closed".to_string();
         session.updated_at = Some(chrono::Utc::now().to_rfc3339());
 
@@ -138,9 +226,13 @@ where
 
     /// Delete a session and all associated data
     pub fn delete_session(&self, session_id: &str) -> Result<(), String> {
+        self.get_session(session_id)?;
+        let event = self.build_event(session_id, "session.deleted", "info", None);
         self.db
             .delete_session_cascade(session_id)
-            .map_err(|e| format!("failed to delete session: {}", e))
+            .map_err(|e| format!("failed to delete session: {}", e))?;
+        self.notify_event(event);
+        Ok(())
     }
 
     /// Send a message in a session
@@ -412,19 +504,21 @@ where
 
     /// Cancel a task.
     pub fn cancel_task(&self, task_id: &str) -> Result<TaskRow, String> {
-        let mut task = self.get_task(task_id)?;
-        task.state = "cancelled".to_string();
-        task.updated_at = Some(chrono::Utc::now().to_rfc3339());
+        let task = self.get_task(task_id)?;
+        let updated_at = chrono::Utc::now().to_rfc3339();
         let event = self.build_event(
             &task.session_id,
             "task.cancelled",
             "info",
             Some(&task.task_id),
         );
-        self.db
-            .save_task_with_event(&task, &event)
+        let (task, changed) = self
+            .db
+            .cancel_task_with_event(task_id, &updated_at, &event)
             .map_err(|e| format!("failed to cancel task: {e}"))?;
-        self.notify_event(event);
+        if changed {
+            self.notify_event(event);
+        }
         Ok(task)
     }
 
@@ -473,10 +567,191 @@ fn generate_id() -> String {
     sdkwork_utils_rust::uuid()
 }
 
+fn provider_session_to_row(
+    provider_id: &str,
+    bridge_id: Option<&str>,
+    session: &AgentSession,
+    existing: Option<&SessionRow>,
+) -> Result<SessionRow, String> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let created_at = normalized_provider_timestamp(session.created_at.as_deref(), "created_at")?;
+    let updated_at = normalized_provider_timestamp(session.updated_at.as_deref(), "updated_at")?;
+    let mut metadata: HashMap<String, String> = session.metadata.iter().cloned().collect();
+    metadata.insert("providerId".to_string(), provider_id.to_string());
+    metadata.insert("providerSessionId".to_string(), session.session_id.clone());
+    insert_optional(
+        &mut metadata,
+        "parentSessionId",
+        session.parent_session_id.as_deref(),
+    );
+    insert_optional(
+        &mut metadata,
+        "forkedFromId",
+        session.forked_from_id.as_deref(),
+    );
+    insert_optional(&mut metadata, "userRef", session.user_ref.as_deref());
+    insert_optional(&mut metadata, "tenantId", session.tenant_id.as_deref());
+    insert_optional(&mut metadata, "ownerUserRef", session.user_ref.as_deref());
+    insert_optional(&mut metadata, "ownerTenantId", session.tenant_id.as_deref());
+    insert_optional(&mut metadata, "goal", session.goal.as_deref());
+    insert_optional(
+        &mut metadata,
+        "modelProvider",
+        session.model_provider.as_deref(),
+    );
+    insert_optional(
+        &mut metadata,
+        "instructions",
+        session.instructions.as_deref(),
+    );
+    if !session.workspace_roots.is_empty() {
+        metadata.insert(
+            "workspaceRoots".to_string(),
+            serde_json::to_string(&session.workspace_roots)
+                .map_err(|e| format!("failed to serialize workspace roots: {e}"))?,
+        );
+    }
+    if !session.child_session_ids.is_empty() {
+        metadata.insert(
+            "childSessionIds".to_string(),
+            serde_json::to_string(&session.child_session_ids)
+                .map_err(|e| format!("failed to serialize child sessions: {e}"))?,
+        );
+    }
+    metadata.insert(
+        "toolCallCount".to_string(),
+        session.tool_call_count.to_string(),
+    );
+    metadata.insert(
+        "compressionCount".to_string(),
+        session.compression_count.to_string(),
+    );
+    metadata.insert(
+        "changeSummary".to_string(),
+        serde_json::json!({
+            "additions": session.change_summary.additions,
+            "deletions": session.change_summary.deletions,
+            "filesChanged": session.change_summary.files_changed,
+        })
+        .to_string(),
+    );
+
+    let metadata_json = serde_json::to_string(&metadata)
+        .map_err(|e| format!("failed to serialize provider session metadata: {e}"))?;
+    let token_usage_json = serde_json::json!({
+        "inputTokens": session.token_usage.input_tokens,
+        "outputTokens": session.token_usage.output_tokens,
+        "cachedTokens": session.token_usage.cached_tokens,
+        "reasoningTokens": session.token_usage.reasoning_tokens,
+        "totalTokens": session.token_usage.total_tokens,
+    })
+    .to_string();
+    let (owner_tenant_id, owner_user_ref) =
+        session_owner_fields_from_metadata_json(&Some(metadata_json.clone()));
+
+    Ok(SessionRow {
+        session_id: session.session_id.clone(),
+        agent_id: session
+            .agent_id
+            .clone()
+            .or_else(|| existing.map(|row| row.agent_id.clone()))
+            .unwrap_or_else(|| format!("agent.{provider_id}")),
+        kind: session.kind.as_str().to_string(),
+        source: session.source.as_str().to_string(),
+        state: session.state.as_str().to_string(),
+        title: session.title.clone(),
+        model: session.model.clone(),
+        cwd: session.cwd.clone(),
+        provider_id: Some(provider_id.to_string()),
+        bridge_id: bridge_id
+            .map(str::to_string)
+            .or_else(|| existing.and_then(|row| row.bridge_id.clone())),
+        token_usage_json: Some(token_usage_json),
+        message_count: i64::from(session.message_count)
+            .max(existing.map(|row| row.message_count).unwrap_or(0)),
+        owner_tenant_id,
+        owner_user_ref,
+        created_at: created_at
+            .or_else(|| existing.map(|row| row.created_at.clone()))
+            .unwrap_or_else(|| now.clone()),
+        updated_at: updated_at
+            .or_else(|| existing.and_then(|row| row.updated_at.clone()))
+            .or(Some(now)),
+        metadata_json: Some(metadata_json),
+    })
+}
+
+fn insert_optional(metadata: &mut HashMap<String, String>, key: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        metadata.insert(key.to_string(), value.to_string());
+    }
+}
+
+fn normalized_provider_timestamp(
+    value: Option<&str>,
+    field: &str,
+) -> Result<Option<String>, String> {
+    let Some(value) = value.filter(|value| !value.trim().is_empty()) else {
+        return Ok(None);
+    };
+    let parsed = sdkwork_utils_rust::parse_datetime(value, None)
+        .ok_or_else(|| format!("{field} must be an RFC 3339 timestamp"))?;
+    Ok(Some(sdkwork_utils_rust::format_datetime(
+        parsed,
+        Some("%Y-%m-%dT%H:%M:%S%.9fZ"),
+    )))
+}
+
+fn session_row_is_older(incoming: &SessionRow, existing: &SessionRow) -> bool {
+    let incoming_at = incoming
+        .updated_at
+        .as_deref()
+        .unwrap_or(incoming.created_at.as_str());
+    let existing_at = existing
+        .updated_at
+        .as_deref()
+        .unwrap_or(existing.created_at.as_str());
+    match (
+        sdkwork_utils_rust::parse_datetime(incoming_at, None),
+        sdkwork_utils_rust::parse_datetime(existing_at, None),
+    ) {
+        (Some(incoming_at), Some(existing_at)) => incoming_at < existing_at,
+        _ => false,
+    }
+}
+
+fn session_rows_equivalent(left: &SessionRow, right: &SessionRow) -> bool {
+    fn normalized_json(raw: Option<&str>) -> Option<serde_json::Value> {
+        raw.and_then(|value| serde_json::from_str(value).ok())
+    }
+
+    left.session_id == right.session_id
+        && left.agent_id == right.agent_id
+        && left.kind == right.kind
+        && left.source == right.source
+        && left.state == right.state
+        && left.title == right.title
+        && left.model == right.model
+        && left.cwd == right.cwd
+        && left.provider_id == right.provider_id
+        && left.bridge_id == right.bridge_id
+        && left.message_count == right.message_count
+        && left.owner_tenant_id == right.owner_tenant_id
+        && left.owner_user_ref == right.owner_user_ref
+        && left.created_at == right.created_at
+        && left.updated_at == right.updated_at
+        && normalized_json(left.token_usage_json.as_deref())
+            == normalized_json(right.token_usage_json.as_deref())
+        && normalized_json(left.metadata_json.as_deref())
+            == normalized_json(right.metadata_json.as_deref())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use sdkwork_agent_database::InMemoryDatabase;
+    use sdkwork_agent_kernel::{SessionKind, SessionSource, SessionState};
+    use std::sync::Mutex;
 
     fn create_manager() -> UnifiedSessionManager<InMemoryDatabase> {
         UnifiedSessionManager::new(InMemoryDatabase::new())
@@ -520,6 +795,19 @@ mod tests {
             .expect("created");
         let closed = manager.close_session(&session.session_id).expect("closed");
         assert_eq!(closed.state, "closed");
+        manager
+            .close_session(&session.session_id)
+            .expect("repeated close is idempotent");
+        let events = manager
+            .load_session_events(&session.session_id, Some(20), None)
+            .expect("events");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event_type == "session.closed")
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -597,7 +885,12 @@ mod tests {
 
     #[test]
     fn delete_session() {
-        let manager = create_manager();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured = events.clone();
+        let mut manager = create_manager();
+        manager.set_event_listener(Arc::new(move |event| {
+            captured.lock().expect("events lock").push(event);
+        }));
         let session = manager
             .create_session(SessionConfig::new("agent.1"))
             .expect("created");
@@ -611,6 +904,101 @@ mod tests {
 
         let result = manager.get_session(&session.session_id);
         assert!(result.is_err());
+        assert!(events
+            .lock()
+            .expect("events lock")
+            .iter()
+            .any(|event| event.event_type == "session.deleted"));
+    }
+
+    #[test]
+    fn synchronizes_provider_session_into_unified_store() {
+        let manager = create_manager();
+        let mut provider_session = AgentSession::new("codex.thread.1")
+            .with_agent_id("agent.intelligence.codex")
+            .with_user_ref("user.1")
+            .with_tenant_id("tenant.1")
+            .with_source(SessionSource::Cli)
+            .with_kind(SessionKind::Main)
+            .with_title("Native thread")
+            .with_model("gpt-5-codex")
+            .created_at("2026-07-15T00:00:00Z");
+        provider_session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
+        provider_session.state = SessionState::Working;
+        provider_session.message_count = 12;
+
+        let row = manager
+            .synchronize_provider_session("codex", Some("bridge.codex"), &provider_session)
+            .expect("synchronized");
+        assert_eq!(row.session_id, "codex.thread.1");
+        assert_eq!(row.provider_id.as_deref(), Some("codex"));
+        assert_eq!(row.bridge_id.as_deref(), Some("bridge.codex"));
+        assert_eq!(row.state, "working");
+        assert_eq!(row.message_count, 12);
+        assert_eq!(row.owner_tenant_id.as_deref(), Some("tenant.1"));
+
+        provider_session.updated_at = Some("2026-07-15T08:02:00+08:00".to_string());
+        provider_session.message_count = 18;
+        provider_session.tenant_id = Some("tenant.2".to_string());
+        let updated = manager
+            .synchronize_provider_session("codex", Some("bridge.codex"), &provider_session)
+            .expect("updated provider aggregate");
+        assert_eq!(updated.message_count, 18);
+        assert_eq!(updated.owner_tenant_id.as_deref(), Some("tenant.2"));
+        assert_eq!(
+            updated.updated_at.as_deref(),
+            Some("2026-07-15T00:02:00.000000000Z")
+        );
+        assert_eq!(
+            manager
+                .get_session(&row.session_id)
+                .expect("persisted aggregate")
+                .message_count,
+            18
+        );
+
+        let events = manager
+            .load_session_events(&row.session_id, Some(20), None)
+            .expect("events");
+        assert!(events
+            .iter()
+            .any(|event| event.event_type == "session.synchronized"));
+
+        let collision =
+            manager.synchronize_provider_session("claude-code", None, &provider_session);
+        assert!(collision
+            .expect_err("provider collision must fail")
+            .contains("already belongs to provider codex"));
+    }
+
+    #[test]
+    fn unified_store_rejects_stale_provider_snapshot() {
+        let manager = create_manager();
+        let mut newer = AgentSession::new("opencode.session.1")
+            .with_agent_id("agent.intelligence.opencode")
+            .created_at("2026-07-15T00:02:00Z");
+        newer.updated_at = Some("2026-07-15T00:02:00Z".to_string());
+        newer.state = SessionState::Working;
+        manager
+            .synchronize_provider_session("opencode", None, &newer)
+            .expect("newer");
+
+        let mut stale = newer.clone();
+        stale.updated_at = Some("2026-07-15T00:01:00Z".to_string());
+        stale.state = SessionState::Paused;
+        let retained = manager
+            .synchronize_provider_session("opencode", None, &stale)
+            .expect("stale ignored");
+        assert_eq!(retained.state, "working");
+        assert_eq!(
+            manager
+                .load_session_events("opencode.session.1", Some(20), None)
+                .expect("events")
+                .iter()
+                .filter(|event| event.event_type == "session.synchronized")
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -631,5 +1019,57 @@ mod tests {
         assert_eq!(task.state, "created");
         let cancelled = manager.cancel_task(&task.task_id).expect("cancelled");
         assert_eq!(cancelled.state, "cancelled");
+        let retried = manager
+            .cancel_task(&task.task_id)
+            .expect("repeated cancellation is idempotent");
+        assert_eq!(retried.updated_at, cancelled.updated_at);
+        let events = manager
+            .load_session_events(&session.session_id, Some(20), None)
+            .expect("events");
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| event.event_type == "task.cancelled")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn replaying_identical_provider_snapshot_is_event_idempotent() {
+        let manager = create_manager();
+        let mut provider_session = AgentSession::new("codex.thread.replay")
+            .with_agent_id("agent.intelligence.codex")
+            .created_at("2026-07-15T00:00:00Z");
+        provider_session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
+        provider_session.state = SessionState::Working;
+
+        manager
+            .synchronize_provider_session("codex", None, &provider_session)
+            .expect("first sync");
+        manager
+            .synchronize_provider_session("codex", None, &provider_session)
+            .expect("replayed sync");
+        assert_eq!(
+            manager
+                .load_session_events("codex.thread.replay", Some(20), None)
+                .expect("events")
+                .iter()
+                .filter(|event| event.event_type == "session.synchronized")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn unified_store_rejects_invalid_provider_timestamp() {
+        let manager = create_manager();
+        let mut session = AgentSession::new("gemini.session.invalid-time");
+        session.updated_at = Some("yesterday-ish".to_string());
+        assert!(manager
+            .synchronize_provider_session("gemini-cli", None, &session)
+            .expect_err("invalid timestamp")
+            .contains("RFC 3339"));
+        assert!(manager.get_session(&session.session_id).is_err());
     }
 }

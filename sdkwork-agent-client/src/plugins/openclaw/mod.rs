@@ -320,8 +320,8 @@ mod tests {
             response.content
         );
         assert!(
-            response.content.to_ascii_lowercase().contains("openclaw"),
-            "expected openclaw sdk-backed response, got: {}",
+            response.content.to_ascii_lowercase().contains("openai"),
+            "expected official OpenAI SDK gateway response, got: {}",
             response.content
         );
     }

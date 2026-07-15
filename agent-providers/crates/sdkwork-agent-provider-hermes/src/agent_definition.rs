@@ -1,7 +1,6 @@
 use sdkwork_agent_kernel::{
     AgentDefinition, AgentManifest, AgentProviderBinding, AgentProviderBindingMode,
     AgentProviderFamily, CapabilityRequirement, MemoryStrategy, ModelSelectionPolicy,
-    ToolCallPolicy,
 };
 
 use crate::ids;
@@ -18,15 +17,12 @@ pub fn hermes_agent_manifest() -> AgentManifest {
         version: "0.2.0".to_string(),
         domain: "intelligence".to_string(),
         required_capabilities: vec!["model.chat".to_string(), "policy.evaluate".to_string()],
-        optional_capabilities: vec!["tool.invoke".to_string(), "skill.invoke".to_string()],
+        optional_capabilities: vec![],
         required_capability_requirements: vec![
             CapabilityRequirement::new("model.chat").with_min_version("0.1.0"),
             CapabilityRequirement::new("policy.evaluate").with_min_version("0.1.0"),
         ],
-        optional_capability_requirements: vec![
-            CapabilityRequirement::new("tool.invoke").with_min_version("0.1.0"),
-            CapabilityRequirement::new("skill.invoke").with_min_version("0.1.0"),
-        ],
+        optional_capability_requirements: vec![],
         event_families: vec![
             "agent.runtime.*".to_string(),
             "agent.session.*".to_string(),
@@ -56,18 +52,6 @@ pub fn hermes_agent_definition() -> AgentDefinition {
         )
         .with_provider_binding(
             AgentProviderBinding::new(
-                "binding.hermes.tool",
-                AgentProviderFamily::Tool,
-                ids::TOOL_PROVIDER_ID,
-                false,
-            )
-            .as_default()
-            .with_mode(AgentProviderBindingMode::TypedLocal)
-            .with_min_version("0.2.0")
-            .with_capability("tool.invoke"),
-        )
-        .with_provider_binding(
-            AgentProviderBinding::new(
                 "binding.hermes.policy",
                 AgentProviderFamily::Policy,
                 ids::POLICY_PROVIDER_ID,
@@ -83,9 +67,6 @@ pub fn hermes_agent_definition() -> AgentDefinition {
                 .with_default_model_id("hermes-default")
                 .with_required_capability("model.chat")
                 .allow_provider_fallback(false),
-        )
-        .with_tool_call_policy(
-            ToolCallPolicy::default_provider(ids::TOOL_PROVIDER_ID).with_policy_required(true),
         )
         .with_memory_strategy(MemoryStrategy::disabled())
 }

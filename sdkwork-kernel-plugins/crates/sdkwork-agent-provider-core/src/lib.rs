@@ -21,7 +21,8 @@ pub use model_wire::{
     wire_system_text, ModelWireMessage,
 };
 pub use provider_session_store::{
-    sort_sessions_by_updated_at, InMemoryProviderSessionStore, SessionListQuery,
+    sort_sessions_by_updated_at, InMemoryProviderSessionStore, ProviderSessionChange,
+    ProviderSessionChangeBatch, ProviderSessionChangeKind, SessionListQuery,
 };
 
 /// Joins model request messages for legacy text-only provider adapters.
@@ -77,6 +78,48 @@ pub trait SessionLifecycleProvider {
     fn close_session(&self, session_id: &str) -> KernelResult<AgentSession>;
 
     fn list_active_sessions(&self) -> KernelResult<Vec<AgentSession>>;
+
+    fn get_session(&self, _session_id: &str) -> KernelResult<AgentSession> {
+        Err(KernelError::validation(
+            "get_session requires a provider session store implementation",
+        ))
+    }
+
+    /// Read a session without conflating an absent provider-native snapshot
+    /// with a provider transport or storage failure.
+    fn find_session(&self, session_id: &str) -> KernelResult<Option<AgentSession>> {
+        self.get_session(session_id).map(Some)
+    }
+
+    fn update_session(&self, _session: AgentSession) -> KernelResult<AgentSession> {
+        Err(KernelError::validation(
+            "update_session requires a provider session store implementation",
+        ))
+    }
+
+    fn delete_session(&self, _session_id: &str) -> KernelResult<AgentSession> {
+        Err(KernelError::validation(
+            "delete_session requires a provider session store implementation",
+        ))
+    }
+
+    /// Upsert a snapshot discovered from a provider-native session API.
+    fn synchronize_session(&self, _session: AgentSession) -> KernelResult<AgentSession> {
+        Err(KernelError::validation(
+            "synchronize_session requires a provider session store implementation",
+        ))
+    }
+
+    /// Read ordered lifecycle changes after a provider-local sequence cursor.
+    fn session_changes(
+        &self,
+        _after_sequence: u64,
+        _limit: Option<usize>,
+    ) -> KernelResult<ProviderSessionChangeBatch> {
+        Err(KernelError::validation(
+            "session_changes requires a provider session store implementation",
+        ))
+    }
 
     /// List persisted sessions for this provider, sorted by `updated_at` descending.
     ///
@@ -626,6 +669,50 @@ macro_rules! define_provider_lifecycle_provider {
                 session_id: &str,
             ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
                 self.store.resume_session(session_id)
+            }
+
+            fn get_session(
+                &self,
+                session_id: &str,
+            ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
+                self.store.get_session(session_id)
+            }
+
+            fn find_session(
+                &self,
+                session_id: &str,
+            ) -> sdkwork_agent_kernel::KernelResult<Option<sdkwork_agent_kernel::AgentSession>>
+            {
+                self.store.find_session(session_id)
+            }
+
+            fn update_session(
+                &self,
+                session: sdkwork_agent_kernel::AgentSession,
+            ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
+                self.store.update_session(session)
+            }
+
+            fn delete_session(
+                &self,
+                session_id: &str,
+            ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
+                self.store.delete_session(session_id)
+            }
+
+            fn synchronize_session(
+                &self,
+                session: sdkwork_agent_kernel::AgentSession,
+            ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
+                self.store.synchronize_session(session)
+            }
+
+            fn session_changes(
+                &self,
+                after_sequence: u64,
+                limit: Option<usize>,
+            ) -> sdkwork_agent_kernel::KernelResult<$crate::ProviderSessionChangeBatch> {
+                self.store.changes_since(after_sequence, limit)
             }
 
             fn close_session(

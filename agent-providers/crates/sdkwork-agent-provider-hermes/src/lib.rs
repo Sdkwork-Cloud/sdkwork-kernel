@@ -1,13 +1,14 @@
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
+    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult,
     ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
     ModelStreamChunk, ProviderHealth, ProviderManifest, SessionKind, SessionSource, SessionState,
-    SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
 use sdkwork_agent_provider_core::{
     create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
 };
 
+#[cfg(test)]
+use sdkwork_agent_kernel::KernelError;
 #[cfg(test)]
 use sdkwork_agent_provider_core::{
     ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
@@ -274,110 +275,6 @@ impl ModelProvider for HermesModelProvider {
 
     fn stream(&self, _request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
         sdkwork_agent_provider_core::reject_in_process_model_stream("provider.model.hermes")
-    }
-}
-
-// ============================================================================
-// Hermes Tool Provider
-// ============================================================================
-
-pub struct HermesToolProvider;
-
-impl HermesToolProvider {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for HermesToolProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ToolProvider for HermesToolProvider {
-    fn provider_manifest(&self) -> ProviderManifest {
-        ProviderManifest::new(
-            "provider.tool.hermes",
-            "tool",
-            "Hermes Tool Provider",
-            "0.1.0",
-            vec!["tool.invoke".to_string()],
-        )
-    }
-
-    fn health(&self) -> ProviderHealth {
-        ProviderHealth::available()
-    }
-
-    fn list_tools(&self) -> Vec<ToolDescriptor> {
-        vec![
-            ToolDescriptor::new(
-                "hermes.terminal",
-                "provider.tool.hermes",
-                "Terminal",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("terminal")
-            .with_description("Run shell commands in a managed terminal session")
-            .with_input_schema(ToolSchema::json_schema("hermes.terminal.input"))
-            .with_output_schema(ToolSchema::json_schema("hermes.terminal.output")),
-            ToolDescriptor::new(
-                "hermes.read_file",
-                "provider.tool.hermes",
-                "Read File",
-                SideEffectLevel::ReadOnly,
-            )
-            .with_name("read_file")
-            .with_description("Read a file from the filesystem")
-            .with_input_schema(ToolSchema::json_schema("hermes.read_file.input"))
-            .with_output_schema(ToolSchema::json_schema("hermes.read_file.output")),
-            ToolDescriptor::new(
-                "hermes.write_file",
-                "provider.tool.hermes",
-                "Write File",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("write_file")
-            .with_description("Write content to a file")
-            .with_input_schema(ToolSchema::json_schema("hermes.write_file.input"))
-            .with_output_schema(ToolSchema::json_schema("hermes.write_file.output")),
-            ToolDescriptor::new(
-                "hermes.web_search",
-                "provider.tool.hermes",
-                "Web Search",
-                SideEffectLevel::ExternalSend,
-            )
-            .with_name("web_search")
-            .with_description("Search the web")
-            .with_input_schema(ToolSchema::json_schema("hermes.web_search.input"))
-            .with_output_schema(ToolSchema::json_schema("hermes.web_search.output")),
-            ToolDescriptor::new(
-                "hermes.delegate_task",
-                "provider.tool.hermes",
-                "Delegate Task",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("delegate_task")
-            .with_description("Spawn an isolated subagent for a focused task")
-            .with_input_schema(ToolSchema::json_schema("hermes.delegate_task.input"))
-            .with_output_schema(ToolSchema::json_schema("hermes.delegate_task.output")),
-        ]
-    }
-
-    fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
-        match call.tool_id.as_str() {
-            "hermes.terminal"
-            | "hermes.read_file"
-            | "hermes.write_file"
-            | "hermes.web_search"
-            | "hermes.delegate_task" => {
-                sdkwork_agent_provider_core::reject_in_process_tool_invoke("provider.tool.hermes")
-            }
-            _ => Err(KernelError::CapabilityMissing {
-                capability_id: call.tool_id.clone(),
-            }),
-        }
     }
 }
 
@@ -698,78 +595,6 @@ mod tests {
             .stream(request)
             .expect_err("in-process stream is forbidden");
         assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    // --- Tool Provider Tests ---
-
-    #[test]
-    fn tool_provider_manifest() {
-        let provider = HermesToolProvider::new();
-        let manifest = provider.provider_manifest();
-        assert_eq!(manifest.provider_id, "provider.tool.hermes");
-        assert_eq!(manifest.provider_family, "tool");
-    }
-
-    #[test]
-    fn tool_provider_list_tools() {
-        let provider = HermesToolProvider::new();
-        let tools = provider.list_tools();
-        assert_eq!(tools.len(), 5);
-
-        let terminal = tools
-            .iter()
-            .find(|t| t.tool_id == "hermes.terminal")
-            .unwrap();
-        assert_eq!(terminal.display_name, "Terminal");
-        assert_eq!(terminal.side_effect_level, SideEffectLevel::SideEffectful);
-
-        let read = tools
-            .iter()
-            .find(|t| t.tool_id == "hermes.read_file")
-            .unwrap();
-        assert_eq!(read.side_effect_level, SideEffectLevel::ReadOnly);
-
-        let delegate = tools
-            .iter()
-            .find(|t| t.tool_id == "hermes.delegate_task")
-            .unwrap();
-        assert_eq!(delegate.side_effect_level, SideEffectLevel::SideEffectful);
-    }
-
-    #[test]
-    fn tool_provider_invoke_terminal_requires_transport_worker() {
-        let provider = HermesToolProvider::new();
-        let call = ToolCall::new("call.1", "hermes.terminal", r#"{"command":"ls"}"#);
-        let error = provider
-            .invoke_tool(call)
-            .expect_err("in-process tool invocation is forbidden");
-        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    #[test]
-    fn tool_provider_invoke_read_file_requires_transport_worker() {
-        let provider = HermesToolProvider::new();
-        let call = ToolCall::new("call.2", "hermes.read_file", r#"{"path":"/tmp/test.txt"}"#);
-        let error = provider
-            .invoke_tool(call)
-            .expect_err("in-process tool invocation is forbidden");
-        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    #[test]
-    fn tool_provider_invoke_unknown_tool() {
-        let provider = HermesToolProvider::new();
-        let call = ToolCall::new("call.3", "hermes.nonexistent", "{}");
-        let result = provider.invoke_tool(call);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn tool_provider_describe_tool() {
-        let provider = HermesToolProvider::new();
-        let desc = provider.describe_tool("hermes.web_search").unwrap();
-        assert_eq!(desc.display_name, "Web Search");
-        assert_eq!(desc.side_effect_level, SideEffectLevel::ExternalSend);
     }
 
     // --- Conversation Manager Tests ---

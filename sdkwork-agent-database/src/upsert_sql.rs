@@ -21,10 +21,31 @@ pub mod sqlite {
                 provider_id = excluded.provider_id,
                 bridge_id = excluded.bridge_id,
                 token_usage_json = excluded.token_usage_json,
+                updated_at = excluded.updated_at,
+                metadata_json = excluded.metadata_json";
+
+    /// Provider snapshots own the aggregate counters and scoped owner fields;
+    /// the caller has already merged them with newer local runtime values.
+    pub const SAVE_PROVIDER_SESSION: &str = "INSERT INTO sessions (
+                session_id, agent_id, kind, source, state, title, model, cwd,
+                provider_id, bridge_id, token_usage_json, message_count,
+                owner_tenant_id, owner_user_ref,
+                created_at, updated_at, metadata_json
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+            ON CONFLICT(session_id) DO UPDATE SET
+                agent_id = excluded.agent_id,
+                kind = excluded.kind,
+                source = excluded.source,
+                state = excluded.state,
+                title = excluded.title,
+                model = excluded.model,
+                cwd = excluded.cwd,
+                provider_id = excluded.provider_id,
+                bridge_id = excluded.bridge_id,
+                token_usage_json = excluded.token_usage_json,
                 message_count = excluded.message_count,
                 owner_tenant_id = excluded.owner_tenant_id,
                 owner_user_ref = excluded.owner_user_ref,
-                created_at = excluded.created_at,
                 updated_at = excluded.updated_at,
                 metadata_json = excluded.metadata_json";
 

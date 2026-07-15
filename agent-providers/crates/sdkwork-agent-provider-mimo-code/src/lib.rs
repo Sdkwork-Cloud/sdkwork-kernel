@@ -385,6 +385,10 @@ sdkwork_agent_provider_core::define_provider_lifecycle_provider!(
     "mimo-code"
 );
 
+mod sdk_integration;
+
+pub use sdk_integration::{mimo_code_binding_manifest, MiMoCodeSdkIntegration};
+
 // ============================================================================`r`n// Tests
 // ============================================================================
 

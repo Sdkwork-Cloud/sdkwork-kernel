@@ -13,7 +13,6 @@ fn rig_uses_stable_standard_ids() {
     assert_eq!(ids::PLUGIN_ID, "plugin.intelligence.rig");
     assert_eq!(ids::AGENT_ID, "agent.intelligence.rig-general");
     assert_eq!(ids::MODEL_PROVIDER_ID, "provider.model.rig-rust");
-    assert_eq!(ids::TOOL_PROVIDER_ID, "provider.tool.rig-rust");
     assert_eq!(ids::MEMORY_PROVIDER_ID, "provider.memory.rig-rust");
     assert_eq!(ids::KNOWLEDGE_PROVIDER_ID, "provider.knowledge.rig-rust");
     assert_eq!(ids::MCP_PROVIDER_ID, "provider.mcp.rig-rust");
@@ -57,7 +56,7 @@ fn rig_agent_and_package_manifests_declare_installable_standard_surface() {
         .required_capabilities
         .contains(&"policy.evaluate".to_string()));
     assert!(agent.event_families.contains(&"agent.model.*".to_string()));
-    assert!(agent
+    assert!(!agent
         .optional_capabilities
         .contains(&"mcp.tools".to_string()));
     assert!(agent
@@ -85,7 +84,7 @@ fn rig_agent_and_package_manifests_declare_installable_standard_surface() {
 }
 
 #[test]
-fn rig_agent_definition_declares_model_tool_policy_and_memory_strategy() {
+fn rig_agent_definition_excludes_unimplemented_standalone_tools() {
     let definition = rig_agent_definition();
 
     assert_eq!(
@@ -114,15 +113,9 @@ fn rig_agent_definition_declares_model_tool_policy_and_memory_strategy() {
         "Rig must not bind structured output until its catalog declares a structured response format"
     );
 
-    let tool = definition
-        .default_binding(AgentProviderFamily::Tool)
-        .expect("Rig tool binding is explicit");
-    assert_eq!(tool.provider_id, ids::TOOL_PROVIDER_ID);
-    assert!(tool.supports_capability("tool.invoke"));
-    assert!(definition.tool_call_policy.policy_required);
     assert!(definition
-        .tool_call_policy
-        .allows_tool(ids::DEFAULT_TOOL_ID));
+        .default_binding(AgentProviderFamily::Tool)
+        .is_none());
 
     let memory = definition
         .default_binding(AgentProviderFamily::Memory)
@@ -156,7 +149,7 @@ fn rig_agent_definition_declares_model_tool_policy_and_memory_strategy() {
     assert_eq!(mcp.provider_id, ids::MCP_PROVIDER_ID);
     assert_eq!(mcp.mode, AgentProviderBindingMode::TypedLocal);
     assert!(!mcp.required);
-    assert!(mcp.supports_capability("mcp.tools"));
+    assert!(!mcp.supports_capability("mcp.tools"));
     assert!(mcp.supports_capability("mcp.resources"));
     assert!(mcp.supports_capability("mcp.prompts"));
 
@@ -187,7 +180,7 @@ fn rig_agent_definition_declares_model_tool_policy_and_memory_strategy() {
 }
 
 #[test]
-fn rig_provider_manifests_cover_model_tool_planning_and_lifecycle() {
+fn rig_provider_manifests_cover_model_planning_and_lifecycle() {
     let providers = rig_provider_manifests();
     assert!(providers.iter().any(|provider| {
         provider.provider_id == ids::MODEL_PROVIDER_ID
@@ -210,10 +203,9 @@ fn rig_provider_manifests_cover_model_tool_planning_and_lifecycle() {
             .contains(&"model.streaming".to_string()),
         "Rig model provider must not advertise streaming while ModelProvider::stream is unsupported"
     );
-    assert!(providers.iter().any(|provider| {
-        provider.provider_id == ids::TOOL_PROVIDER_ID
-            && provider.capabilities.contains(&"tool.invoke".to_string())
-    }));
+    assert!(!providers
+        .iter()
+        .any(|provider| provider.provider_family == "tool"));
     assert!(providers.iter().any(|provider| {
         provider.provider_id == ids::MEMORY_PROVIDER_ID
             && provider.capabilities.contains(&"memory.query".to_string())
@@ -236,7 +228,6 @@ fn rig_provider_manifests_cover_model_tool_planning_and_lifecycle() {
     assert!(providers.iter().any(|provider| {
         provider.provider_id == ids::MCP_PROVIDER_ID
             && provider.provider_family == "mcp"
-            && provider.capabilities.contains(&"mcp.tools".to_string())
             && provider.capabilities.contains(&"mcp.resources".to_string())
             && provider.capabilities.contains(&"mcp.prompts".to_string())
     }));
@@ -291,14 +282,11 @@ fn rig_plugin_assembles_runtime_with_typed_providers() {
             .status,
         "degraded"
     );
-    let tool_diagnostic = report
+    assert!(report
         .runtime
         .diagnostics()
-        .provider(ids::TOOL_PROVIDER_ID)
-        .expect("Rig tool diagnostics are present")
-        .clone();
-    assert!(tool_diagnostic.typed_registered);
-    assert!(tool_diagnostic.health_is_degraded());
+        .provider("provider.tool.rig-rust")
+        .is_none());
     assert!(report
         .runtime
         .diagnostics()

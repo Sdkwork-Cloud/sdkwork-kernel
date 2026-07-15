@@ -4,7 +4,7 @@ use sdkwork_agent_kernel::{AgentMessage, AgentSession, ModelResponse, ToolDescri
 #[derive(Debug, Clone)]
 pub struct BridgeSessionConfig {
     pub agent_id: String,
-    pub tenant_id: u64,
+    pub tenant_id: String,
     pub user_ref: Option<String>,
     pub model: Option<String>,
     pub instructions: Option<String>,

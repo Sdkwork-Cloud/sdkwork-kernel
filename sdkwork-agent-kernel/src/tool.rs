@@ -612,7 +612,7 @@ impl ToolExecutionService {
         let descriptor = provider.describe_tool(&tool_call.tool_id)?;
         let policy_request = provider.authorize_tool_call(&descriptor, tool_call)?;
         let policy_decision = runtime.policy_provider()?.evaluate(policy_request)?;
-        self.ensure_allowed(&policy_decision)?;
+        self.ensure_allowed(&policy_decision, &descriptor, tool_call)?;
         Ok((descriptor, policy_decision))
     }
 
@@ -630,18 +630,35 @@ impl ToolExecutionService {
         tool_call
     }
 
-    fn ensure_allowed(&self, policy_decision: &PolicyDecision) -> KernelResult<()> {
+    fn ensure_allowed(
+        &self,
+        policy_decision: &PolicyDecision,
+        descriptor: &ToolDescriptor,
+        tool_call: &ToolCall,
+    ) -> KernelResult<()> {
         match policy_decision.decision {
             PolicyDecisionValue::Allow => Ok(()),
             PolicyDecisionValue::Deny => Err(KernelError::PolicyDenied {
                 reason_code: policy_decision.reason_code.clone(),
             }),
-            PolicyDecisionValue::NeedsApproval => Err(KernelError::permission_required(
-                policy_decision
-                    .safe_reason
-                    .clone()
-                    .unwrap_or_else(|| policy_decision.reason_code.clone()),
-            )),
+            PolicyDecisionValue::NeedsApproval => {
+                let mut error = KernelError::permission_required(
+                    policy_decision
+                        .safe_reason
+                        .clone()
+                        .unwrap_or_else(|| policy_decision.reason_code.clone()),
+                )
+                .from_source(crate::KernelErrorSource::Policy)
+                .with_detail("permission_request_id", policy_decision.request_id.clone())
+                .with_detail("policy_decision_id", policy_decision.decision_id.clone())
+                .with_detail("policy_category", "tool.invoke")
+                .with_detail("resource", descriptor.tool_id.clone())
+                .with_detail("side_effect_level", descriptor.side_effect_level.as_str());
+                if let Some(session_id) = &tool_call.session_id {
+                    error = error.with_detail("session_id", session_id.clone());
+                }
+                Err(error)
+            }
             PolicyDecisionValue::Defer => Err(KernelError::provider_error(
                 "policy.deferred",
                 policy_decision.reason_code.clone(),

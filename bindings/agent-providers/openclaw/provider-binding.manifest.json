@@ -4,7 +4,7 @@
   "binding_id": "binding.agent-provider.openclaw",
   "agent_id": "agent.intelligence.openclaw",
   "display_name": "OpenClaw",
-  "description": "External agent provider binding for OpenClaw plugin SDK and gateway protocol surfaces.",
+  "description": "External agent provider binding for the OpenClaw OpenAI-compatible gateway protocol.",
   "version": "0.2.0",
   "sdk_owner": "openclaw",
   "status": "experimental",
@@ -13,16 +13,15 @@
   },
   "language_packages": {
     "typescript": {
-      "package": "openclaw",
-      "version": "2026.6.10",
+      "package": "openai",
+      "version": "6.46.0",
       "optional": false
     }
   },
   "selection_policy": {
     "default_backend_priority": [
       "typescript_node",
-      "http_openapi",
-      "ipc_protocol"
+      "http_openapi"
     ]
   },
   "capabilities": [
@@ -35,7 +34,7 @@
           "kind": "typescript_node",
           "driver_id": "driver.openclaw.session.lifecycle.ts",
           "runtime_operations": ["ping"],
-          "package": "openclaw"
+          "package": "openai"
         },
         {
           "kind": "http_openapi",
@@ -52,22 +51,9 @@
       "backends": [
         {
           "kind": "typescript_node",
-          "driver_id": "driver.openclaw.model.chat.ts",
-          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
-          "package": "openclaw"
-        }
-      ]
-    },
-    {
-      "capability_id": "sdk.tool.invoke",
-      "required": false,
-      "execution_scope": "transport_runtime",
-      "backends": [
-        {
-          "kind": "typescript_node",
-          "driver_id": "driver.openclaw.tool.invoke.ts",
-          "runtime_operations": ["ping", "tool_invoke"],
-          "package": "openclaw"
+          "driver_id": "driver.openclaw.model.chat.openai-sdk",
+          "runtime_operations": ["ping", "model_chat"],
+          "package": "openai"
         }
       ]
     }
@@ -75,7 +61,7 @@
   "integration_sources": [
     {
       "mode": "official_sdk",
-      "package": "openclaw"
+      "package": "openai"
     },
     {
       "mode": "http_openapi",

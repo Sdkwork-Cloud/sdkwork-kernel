@@ -3,7 +3,11 @@ import argparse
 import importlib.util
 import json
 import os
+import queue
+import subprocess
 import sys
+import threading
+import time
 
 
 def write_response(response):
@@ -14,6 +18,168 @@ def write_response(response):
 def probe_module(module_name):
     spec = importlib.util.find_spec(module_name)
     return {"resolved": spec is not None}
+
+
+class HermesTuiGatewayClient:
+    """Minimal JSON-RPC bridge to Hermes' installed TUI gateway process."""
+
+    def __init__(self):
+        self._process = None
+        self._responses = queue.Queue()
+        self._next_request_id = 1
+
+    def invoke_oneshot(self, prompt, timeout_ms):
+        process = self._ensure_process()
+        request_id = self._next_request_id
+        self._next_request_id += 1
+        request = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "llm.oneshot",
+            "params": {
+                "instructions": "",
+                "input": prompt,
+            },
+        }
+        try:
+            process.stdin.write(json.dumps(request) + "\n")
+            process.stdin.flush()
+        except (BrokenPipeError, OSError) as error:
+            self.close()
+            raise RuntimeError("Hermes TUI gateway request pipe is unavailable") from error
+
+        deadline = time.monotonic() + (timeout_ms / 1000)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Hermes TUI gateway model request timed out")
+            try:
+                response = self._responses.get(timeout=remaining)
+            except queue.Empty as error:
+                raise TimeoutError("Hermes TUI gateway model request timed out") from error
+            if response.get("id") != request_id:
+                continue
+            if "error" in response:
+                raise RuntimeError("Hermes TUI gateway rejected the model request")
+            result = response.get("result")
+            if not isinstance(result, dict) or not isinstance(result.get("text"), str):
+                raise RuntimeError("Hermes TUI gateway returned an invalid model response")
+            return result["text"]
+
+    def close(self):
+        process = self._process
+        self._process = None
+        if process and process.poll() is None:
+            process.terminate()
+
+    def _ensure_process(self):
+        if self._process and self._process.poll() is None:
+            return self._process
+
+        self.close()
+        process = subprocess.Popen(
+            [sys.executable, "-u", "-m", "tui_gateway.entry"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            bufsize=1,
+        )
+        self._process = process
+        threading.Thread(target=self._read_responses, args=(process,), daemon=True).start()
+        return process
+
+    def _read_responses(self, process):
+        if process.stdout is None:
+            return
+        for line in process.stdout:
+            try:
+                response = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(response, dict):
+                self._responses.put(response)
+
+
+_hermes_tui_gateway = None
+
+
+def hermes_tui_gateway_client():
+    global _hermes_tui_gateway
+    if _hermes_tui_gateway is None:
+        _hermes_tui_gateway = HermesTuiGatewayClient()
+    return _hermes_tui_gateway
+
+
+def resolve_model_prompt(operation):
+    wire_messages = operation.get("wire_messages")
+    if isinstance(wire_messages, list) and wire_messages:
+        user_messages = [entry for entry in wire_messages if isinstance(entry, dict) and entry.get("role") == "user"]
+        message = user_messages[-1] if user_messages else wire_messages[-1]
+        content = message.get("content") if isinstance(message, dict) else None
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts = []
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "text" and isinstance(part.get("text"), str):
+                    parts.append(part["text"])
+                elif isinstance(part.get("content"), str):
+                    parts.append(part["content"])
+            if parts:
+                return "".join(parts)
+    return "\n".join(operation.get("messages") or [])
+
+
+def invoke_hermes_tui_gateway(operation):
+    if operation.get("model_id"):
+        return {
+            "ok": False,
+            "mode": "sdk_live_failed",
+            "operation": "model_chat",
+            "error": "Hermes TUI llm.oneshot does not support per-request model selection",
+            "model_request_id": operation.get("model_request_id"),
+        }
+    timeout_ms = operation.get("timeout_ms") or 300000
+    if not isinstance(timeout_ms, int) or timeout_ms <= 0:
+        return {
+            "ok": False,
+            "mode": "sdk_live_failed",
+            "operation": "model_chat",
+            "error": "timeout_ms must be a positive integer",
+            "model_request_id": operation.get("model_request_id"),
+        }
+    try:
+        text = hermes_tui_gateway_client().invoke_oneshot(
+            resolve_model_prompt(operation), timeout_ms
+        )
+    except TimeoutError:
+        return {
+            "ok": False,
+            "mode": "sdk_live_failed",
+            "operation": "model_chat",
+            "error": "Hermes TUI gateway model request timed out",
+            "model_request_id": operation.get("model_request_id"),
+        }
+    except RuntimeError as error:
+        return {
+            "ok": False,
+            "mode": "sdk_live_failed",
+            "operation": "model_chat",
+            "error": str(error),
+            "model_request_id": operation.get("model_request_id"),
+        }
+    return {
+        "ok": True,
+        "mode": "sdk_live",
+        "messages": [text],
+        "finish_reason": "stop",
+        "package": "tui_gateway",
+        "gateway_method": "llm.oneshot",
+        "model_request_id": operation.get("model_request_id"),
+    }
 
 
 def matches_truthy(value):
@@ -93,6 +259,8 @@ def handle_capability_invoke(params, package_name):
         }
 
     if op == "model_chat":
+        if package_name == "tui_gateway":
+            return invoke_hermes_tui_gateway(operation)
         if not mock_provider_invocation_allowed():
             return fail_closed_synthetic_operation(
                 op,
@@ -112,48 +280,12 @@ def handle_capability_invoke(params, package_name):
             "model_request_id": operation.get("model_request_id"),
         }
 
-    if op == "tool_invoke":
-        if not mock_provider_invocation_allowed():
-            return fail_closed_synthetic_operation(op, package_name, package_probe)
-        return {
-            "ok": True,
-            "mode": "sdk_probe" if package_probe["resolved"] else "stub",
-            "output": json.dumps(
-                {
-                    "tool_id": operation.get("tool_id"),
-                    "arguments": operation.get("arguments"),
-                    "package": package_name,
-                }
-            ),
-            "package": package_name,
-            "tool_call_id": operation.get("tool_call_id"),
-        }
-
-    if op == "skill_invoke":
-        if not mock_provider_invocation_allowed():
-            return fail_closed_synthetic_operation(op, package_name, package_probe)
-        return {
-            "ok": True,
-            "mode": "sdk_probe" if package_probe["resolved"] else "stub",
-            "output": json.dumps(
-                {
-                    "skill_id": operation.get("skill_id"),
-                    "arguments": operation.get("arguments"),
-                    "package": package_name,
-                }
-            ),
-            "package": package_name,
-        }
-
-    if not mock_provider_invocation_allowed():
-        return fail_closed_synthetic_operation(op, package_name, package_probe)
-
-    return {
-        "ok": True,
-        "mode": "unknown_operation",
-        "operation": op,
-        "package": package_name,
-    }
+    result = fail_closed_synthetic_operation(op, package_name, package_probe)
+    result["mode"] = "unsupported_operation"
+    result["error"] = (
+        f"operation is not implemented by the official provider SDK adapter: {op}"
+    )
+    return result
 
 
 def handle_request(request, package_name):

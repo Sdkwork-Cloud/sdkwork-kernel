@@ -85,13 +85,7 @@ function defaultPackagePaths(root) {
     ],
     '@anthropic-ai/claude-agent-sdk': path.join(root, 'external/claude-code'),
     '@opencode-ai/sdk': path.join(root, 'external/opencode/packages/sdk/js'),
-    openclaw: path.join(root, 'external/openclaw'),
   };
-
-  const kernelOpenClaw = path.join(kernelRoot, 'external/openclaw');
-  if (existsSync(path.join(kernelOpenClaw, 'package.json'))) {
-    paths.openclaw = kernelOpenClaw;
-  }
 
   return paths;
 }
@@ -210,15 +204,17 @@ function resolveLocalPackageSpecifier(packageName, localPath) {
 }
 
 export function resolvePackageSpecifier(packageName) {
+  const configuredPaths = configuredPackagePaths();
+  if (Object.hasOwn(configuredPaths, packageName)) {
+    return resolveLocalPackageSpecifier(packageName, configuredPaths[packageName]);
+  }
+
   const require = createRequire(import.meta.url);
   try {
     const resolved = require.resolve(packageName);
     return path.isAbsolute(resolved) ? pathToFileURL(resolved).href : resolved;
   } catch {
-    const paths = {
-      ...defaultPackagePaths(workspaceRoot() ?? ''),
-      ...configuredPackagePaths(),
-    };
+    const paths = defaultPackagePaths(workspaceRoot() ?? '');
     const localPath = paths[packageName];
     return resolveLocalPackageSpecifier(packageName, localPath);
   }
@@ -348,17 +344,204 @@ export function resolveOpenClawWireMessages(operation) {
 }
 
 async function invokeCodexModelChat(prompt, operation, packageName) {
+  const { sessionId, thread } = await createCodexThread(operation, packageName);
+  const turn = await runCodexThread(thread, prompt, operation.timeout_ms);
+  const text = turn?.finalResponse ?? turn?.items?.map((item) => item?.text ?? '').join('\n') ?? '';
+  return liveSuccess(text, operation, {
+    package: packageName,
+    native_session_id: thread?.id ?? sessionId,
+  });
+}
+
+async function createCodexThread(operation, packageName) {
   const moduleNamespace = await loadPackage(packageName);
   const Codex = moduleNamespace.Codex;
   if (typeof Codex !== 'function') {
     throw new Error('Codex class is unavailable in @openai/codex-sdk');
   }
 
-  const codex = new Codex({ cwd: process.cwd() });
-  const thread = codex.startThread();
-  const turn = await thread.run(prompt);
-  const text = turn?.finalResponse ?? turn?.items?.map((item) => item?.text ?? '').join('\n') ?? '';
-  return liveSuccess(text, operation, { package: packageName });
+  const codex = new Codex();
+  const threadOptions = buildCodexThreadOptions(operation);
+  const sessionId = optionalOperationString(operation.session_id, 'session_id');
+  const thread = sessionId
+    ? codex.resumeThread(sessionId, threadOptions)
+    : codex.startThread(threadOptions);
+  return { sessionId, thread };
+}
+
+async function invokeCodexModelChatStream(prompt, operation, packageName) {
+  const { sessionId, thread } = await createCodexThread(operation, packageName);
+  if (typeof thread.runStreamed !== 'function') {
+    throw new Error('Codex thread is missing runStreamed() in @openai/codex-sdk');
+  }
+
+  const streamed = await runCodexOperation(operation.timeout_ms, (turnOptions) =>
+    thread.runStreamed(prompt, turnOptions),
+  );
+  const chunks = [];
+  const itemText = new Map();
+  let sequence = 0;
+
+  for await (const event of streamed.events) {
+    if (event?.type === 'turn.failed') {
+      throw new Error(event?.error?.message ?? 'Codex streamed turn failed');
+    }
+    if (
+      (event?.type !== 'item.updated' && event?.type !== 'item.completed') ||
+      event?.item?.type !== 'agent_message' ||
+      typeof event.item.text !== 'string'
+    ) {
+      continue;
+    }
+    const previous = itemText.get(event.item.id) ?? '';
+    const current = event.item.text;
+    const delta = current.startsWith(previous) ? current.slice(previous.length) : current;
+    itemText.set(event.item.id, current);
+    if (delta) {
+      chunks.push({ sequence, content: delta });
+      sequence += 1;
+    }
+  }
+
+  if (chunks.length === 0) {
+    throw new Error('Codex streamed turn completed without an agent message');
+  }
+  return {
+    ...liveSuccess(chunks.map((chunk) => chunk.content), operation, {
+      package: packageName,
+      native_session_id: thread?.id ?? sessionId,
+    }),
+    chunks,
+  };
+}
+
+function buildCodexThreadOptions(operation) {
+  const executionOptions = readCodexExecutionOptions(operation);
+  const fullAuto =
+    executionOptions.full_auto == null
+      ? false
+      : optionalOperationBoolean(executionOptions.full_auto, 'full_auto');
+  const sandboxMode = normalizeCodexSandboxMode(executionOptions.sandbox_mode);
+  const approvalPolicy = normalizeCodexApprovalPolicy(executionOptions.approval_policy);
+  const threadOptions = {};
+  const modelId = optionalOperationString(operation.model_id, 'model_id');
+  const workingDirectory = optionalOperationString(operation.working_directory, 'working_directory');
+
+  if (modelId) {
+    threadOptions.model = modelId;
+  }
+  if (workingDirectory) {
+    threadOptions.workingDirectory = workingDirectory;
+  }
+  if (sandboxMode ?? fullAuto) {
+    threadOptions.sandboxMode = sandboxMode ?? 'workspace-write';
+  }
+  if (approvalPolicy ?? fullAuto) {
+    threadOptions.approvalPolicy = approvalPolicy ?? 'on-failure';
+  }
+  if (executionOptions.skip_git_repo_check != null) {
+    threadOptions.skipGitRepoCheck = optionalOperationBoolean(
+      executionOptions.skip_git_repo_check,
+      'skip_git_repo_check',
+    );
+  }
+
+  return threadOptions;
+}
+
+async function runCodexThread(thread, prompt, timeoutMs) {
+  return runCodexOperation(timeoutMs, (turnOptions) => thread.run(prompt, turnOptions));
+}
+
+async function runCodexOperation(timeoutMs, invoke) {
+  if (timeoutMs == null) {
+    return invoke({});
+  }
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('timeout_ms must be a positive safe integer');
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await invoke({ signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error(`codex_sdk_timeout: exceeded ${timeoutMs} ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function readCodexExecutionOptions(operation) {
+  const options = operation?.execution_options;
+  if (options == null) {
+    return {};
+  }
+  if (typeof options !== 'object' || Array.isArray(options)) {
+    throw new Error('execution_options must be an object');
+  }
+  return options;
+}
+
+function optionalOperationString(value, fieldName) {
+  if (value == null) {
+    return null;
+  }
+  if (typeof value !== 'string') {
+    throw new Error(`${fieldName} must be a string`);
+  }
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+function optionalOperationBoolean(value, fieldName) {
+  if (typeof value !== 'boolean') {
+    throw new Error(`execution_options.${fieldName} must be a boolean`);
+  }
+  return value;
+}
+
+function normalizeCodexSandboxMode(value) {
+  const normalized = optionalOperationString(value, 'execution_options.sandbox_mode');
+  if (!normalized) {
+    return null;
+  }
+  const compact = normalized.toLowerCase().replace(/[_\s]/gu, '-');
+  if (compact === 'read-only' || compact === 'readonly') {
+    return 'read-only';
+  }
+  if (compact === 'workspace-write' || compact === 'workspacewrite') {
+    return 'workspace-write';
+  }
+  if (compact === 'danger-full-access' || compact === 'dangerfullaccess') {
+    throw new Error('danger-full-access is prohibited for kernel-owned Codex SDK execution');
+  }
+  throw new Error(`unsupported Codex sandbox mode: ${normalized}`);
+}
+
+function normalizeCodexApprovalPolicy(value) {
+  const normalized = optionalOperationString(value, 'execution_options.approval_policy');
+  if (!normalized) {
+    return null;
+  }
+  const compact = normalized.toLowerCase().replace(/[-_\s]/gu, '');
+  const aliases = new Map([
+    ['onrequest', 'on-request'],
+    ['untrusted', 'untrusted'],
+    ['restricted', 'untrusted'],
+    ['unlesstrusted', 'untrusted'],
+    ['onfailure', 'on-failure'],
+    ['releaseonly', 'on-failure'],
+    ['autoallow', 'on-failure'],
+  ]);
+  const mapped = aliases.get(compact);
+  if (!mapped) {
+    throw new Error(`unsupported Codex approval policy: ${normalized}`);
+  }
+  return mapped;
 }
 
 async function invokeClaudeModelChat(prompt, operation, packageName) {
@@ -482,27 +665,26 @@ async function invokeOpenClawModelChat(prompt, operation, packageName) {
   const gatewayUrl =
     process.env.OPENCLAW_GATEWAY_URL?.trim() || process.env.OPENCLAW_HTTP_URL?.trim();
   if (gatewayUrl) {
-    const base = gatewayUrl.replace(/\/$/, '');
-    const url = `${base}/v1/chat/completions`;
-    const headers = { 'Content-Type': 'application/json' };
+    const base = gatewayUrl.replace(/\/$/, '').replace(/\/v1$/, '');
     const token = process.env.OPENCLAW_GATEWAY_TOKEN?.trim();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
+    if (!token) {
+      throw new Error('OPENCLAW_GATEWAY_TOKEN is required for the OpenAI SDK gateway adapter');
     }
-
-    const messages = resolveOpenClawWireMessages(operation);
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: operation.model_id ?? 'default',
-        messages,
-      }),
+    const moduleNamespace = await loadPackage(packageName);
+    const OpenAI = moduleNamespace.default ?? moduleNamespace.OpenAI;
+    if (typeof OpenAI !== 'function') {
+      throw new Error('official openai sdk missing OpenAI constructor');
+    }
+    const client = new OpenAI({
+      apiKey: token,
+      baseURL: `${base}/v1`,
+      timeout: operation.timeout_ms ?? 120_000,
     });
-    if (!response.ok) {
-      throw new Error(`openclaw gateway chat failed: HTTP ${response.status}`);
-    }
-    const payload = await response.json();
+    const messages = resolveOpenClawWireMessages(operation);
+    const payload = await client.chat.completions.create({
+      model: operation.model_id ?? 'default',
+      messages,
+    });
     const text =
       payload?.choices?.[0]?.message?.content ??
       payload?.choices?.[0]?.text ??
@@ -525,7 +707,7 @@ const LIVE_MODEL_CHAT_HANDLERS = {
   '@anthropic-ai/claude-agent-sdk': invokeClaudeModelChat,
   '@google/gemini-cli-sdk': invokeGeminiModelChat,
   '@opencode-ai/sdk': invokeOpencodeModelChat,
-  openclaw: invokeOpenClawModelChat,
+  openai: invokeOpenClawModelChat,
 };
 
 export async function invokeModelChatLive(packageName, operation) {
@@ -536,6 +718,13 @@ export async function invokeModelChatLive(packageName, operation) {
 
   const prompt = resolveModelChatPrompt(operation);
   return handler(prompt, operation, packageName);
+}
+
+export async function invokeModelChatStreamLive(packageName, operation) {
+  if (isCodexPackage(packageName)) {
+    return invokeCodexModelChatStream(resolveModelChatPrompt(operation), operation, packageName);
+  }
+  return buildModelChatStreamResult(await invokeModelChatLive(packageName, operation));
 }
 
 export async function invokeModelChatRuntime(packageName, operation) {

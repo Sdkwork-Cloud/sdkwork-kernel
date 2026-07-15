@@ -1,13 +1,14 @@
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
+    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult,
     ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
     ModelStreamChunk, ProviderHealth, ProviderManifest, SessionKind, SessionSource, SessionState,
-    SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
 use sdkwork_agent_provider_core::{
     create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
 };
 
+#[cfg(test)]
+use sdkwork_agent_kernel::KernelError;
 #[cfg(test)]
 use sdkwork_agent_provider_core::{
     ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
@@ -299,99 +300,6 @@ impl ModelProvider for OpenClawModelProvider {
 }
 
 // ============================================================================
-// OpenClaw Tool Provider
-// ============================================================================
-
-pub struct OpenClawToolProvider;
-
-impl OpenClawToolProvider {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for OpenClawToolProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ToolProvider for OpenClawToolProvider {
-    fn provider_manifest(&self) -> ProviderManifest {
-        ProviderManifest::new(
-            "provider.tool.openclaw",
-            "tool",
-            "OpenClaw Tool Provider",
-            "0.1.0",
-            vec!["tool.invoke".to_string()],
-        )
-    }
-
-    fn health(&self) -> ProviderHealth {
-        ProviderHealth::available()
-    }
-
-    fn list_tools(&self) -> Vec<ToolDescriptor> {
-        vec![
-            ToolDescriptor::new(
-                "openclaw.message",
-                "provider.tool.openclaw",
-                "Message",
-                SideEffectLevel::ExternalSend,
-            )
-            .with_name("message")
-            .with_description("Send a message to the current channel or thread")
-            .with_input_schema(ToolSchema::json_schema("openclaw.message.input"))
-            .with_output_schema(ToolSchema::json_schema("openclaw.message.output")),
-            ToolDescriptor::new(
-                "openclaw.sessions_spawn",
-                "provider.tool.openclaw",
-                "Sessions Spawn",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("sessions_spawn")
-            .with_description("Spawn a subagent session")
-            .with_input_schema(ToolSchema::json_schema("openclaw.sessions_spawn.input"))
-            .with_output_schema(ToolSchema::json_schema("openclaw.sessions_spawn.output")),
-            ToolDescriptor::new(
-                "openclaw.web_search",
-                "provider.tool.openclaw",
-                "Web Search",
-                SideEffectLevel::ExternalSend,
-            )
-            .with_name("web_search")
-            .with_description("Search the web")
-            .with_input_schema(ToolSchema::json_schema("openclaw.web_search.input"))
-            .with_output_schema(ToolSchema::json_schema("openclaw.web_search.output")),
-            ToolDescriptor::new(
-                "openclaw.cron",
-                "provider.tool.openclaw",
-                "Cron",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("cron")
-            .with_description("Manage scheduled cron jobs")
-            .with_input_schema(ToolSchema::json_schema("openclaw.cron.input"))
-            .with_output_schema(ToolSchema::json_schema("openclaw.cron.output")),
-        ]
-    }
-
-    fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
-        match call.tool_id.as_str() {
-            "openclaw.message"
-            | "openclaw.sessions_spawn"
-            | "openclaw.web_search"
-            | "openclaw.cron" => {
-                sdkwork_agent_provider_core::reject_in_process_tool_invoke("provider.tool.openclaw")
-            }
-            _ => Err(KernelError::CapabilityMissing {
-                capability_id: call.tool_id.clone(),
-            }),
-        }
-    }
-}
-
-// ============================================================================
 // OpenClaw Lifecycle Provider (existing, preserved)
 // ============================================================================
 
@@ -679,36 +587,6 @@ mod tests {
             .stream(request)
             .expect_err("in-process model streaming is forbidden");
         assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    // --- Tool Provider Tests ---
-
-    #[test]
-    fn tool_provider_list_tools() {
-        let provider = OpenClawToolProvider::new();
-        let tools = provider.list_tools();
-        assert_eq!(tools.len(), 4);
-        assert!(tools.iter().any(|t| t.tool_id == "openclaw.message"));
-        assert!(tools.iter().any(|t| t.tool_id == "openclaw.sessions_spawn"));
-        assert!(tools.iter().any(|t| t.tool_id == "openclaw.web_search"));
-        assert!(tools.iter().any(|t| t.tool_id == "openclaw.cron"));
-    }
-
-    #[test]
-    fn tool_provider_invoke_spawn_requires_transport_worker() {
-        let provider = OpenClawToolProvider::new();
-        let call = ToolCall::new("c.1", "openclaw.sessions_spawn", r#"{"task":"fix auth"}"#);
-        let error = provider
-            .invoke_tool(call)
-            .expect_err("in-process tool invocation is forbidden");
-        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    #[test]
-    fn tool_provider_invoke_unknown() {
-        let provider = OpenClawToolProvider::new();
-        let call = ToolCall::new("c.2", "openclaw.nonexistent", "{}");
-        assert!(provider.invoke_tool(call).is_err());
     }
 
     // --- Conversation Manager Tests ---

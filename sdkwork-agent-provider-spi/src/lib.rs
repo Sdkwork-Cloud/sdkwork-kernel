@@ -36,8 +36,8 @@ pub use driver::{
 };
 pub use integration::{
     bootstrap_binding, register_manifest_drivers, AgentSdkIntegration, CLAUDE_CODE_BINDING_ID,
-    CODEX_BINDING_ID, GEMINI_CLI_BINDING_ID, HERMES_BINDING_ID, OPENCLAW_BINDING_ID,
-    OPENCODE_BINDING_ID, RIG_BINDING_ID,
+    CODEX_BINDING_ID, GEMINI_CLI_BINDING_ID, HERMES_BINDING_ID, MIMO_CODE_BINDING_ID,
+    OPENCLAW_BINDING_ID, OPENCODE_BINDING_ID, RIG_BINDING_ID,
 };
 pub use mapping::{
     AgentRuntimeAdapter, ConversationManager, MessageAdapter, ModelAdapter, PolicyAdapter,

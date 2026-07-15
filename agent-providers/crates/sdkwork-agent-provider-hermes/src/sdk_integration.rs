@@ -1,13 +1,9 @@
-use crate::{
-    HermesAdapter, HermesLifecycleProvider, HermesMessageAdapter, HermesModelProvider,
-    HermesToolProvider,
-};
+use crate::{HermesAdapter, HermesLifecycleProvider, HermesMessageAdapter, HermesModelProvider};
 use sdkwork_agent_provider_spi::{
-    register_manifest_drivers, wire_runtime_providers, AgentSdkBindingManifest,
-    AgentSdkIntegration, BindingRegistry, DriverRegistry, SdkBackendKind, SdkDriverHealth,
-    SdkNegotiationError, SdkRuntimeBackedModelProvider, SdkRuntimeBackedToolProvider,
-    SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter, StaticCapabilityDriver,
-    HERMES_BINDING_ID,
+    register_manifest_drivers, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
+    DriverRegistry, SdkBackendKind, SdkDriverHealth, SdkNegotiationError,
+    SdkRuntimeBackedModelProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
+    StaticCapabilityDriver, HERMES_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -56,7 +52,6 @@ pub struct HermesSdkIntegration {
     pub runtime: Arc<SdkRuntimeRouter>,
     pub lifecycle: HermesLifecycleProvider,
     pub model: SdkRuntimeBackedModelProvider,
-    pub tools: SdkRuntimeBackedToolProvider,
     pub session_adapter: HermesAdapter,
     pub message_adapter: HermesMessageAdapter,
 }
@@ -87,10 +82,10 @@ impl HermesSdkIntegration {
             )));
         }
         let (transports, runtime) = bootstrap.finalize_pair(negotiation.clone())?;
-        let providers = wire_runtime_providers(
+        let model = SdkRuntimeBackedModelProvider::new(
             runtime.clone(),
             Arc::new(HermesModelProvider::new()),
-            Arc::new(HermesToolProvider::new()),
+            SDK_CAPABILITY_MODEL_CHAT,
             "provider.model.hermes",
         );
 
@@ -99,8 +94,7 @@ impl HermesSdkIntegration {
             transports,
             runtime,
             lifecycle: HermesLifecycleProvider::new(),
-            model: providers.model,
-            tools: providers.tools,
+            model,
             session_adapter: HermesAdapter::new(),
             message_adapter: HermesMessageAdapter::new(),
         })

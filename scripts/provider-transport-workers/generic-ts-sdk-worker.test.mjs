@@ -58,8 +58,13 @@ for (const operation of [
 ]) {
   const response = await invokeWorker(operation);
   assert.equal(response.result.ok, false, `${operation.operation} must fail closed`);
-  assert.equal(response.result.mode, 'sdk_live_failed');
-  assert.match(response.result.error, /mock fallback is disabled|unsupported operation/);
+  if (operation.operation === 'session_create') {
+    assert.equal(response.result.mode, 'sdk_live_failed');
+    assert.match(response.result.error, /mock fallback is disabled/);
+  } else {
+    assert.equal(response.result.mode, 'unsupported_operation');
+    assert.match(response.result.error, /not implemented by the official provider SDK adapter/);
+  }
 }
 
 const devResponse = await invokeWorker(
@@ -69,6 +74,7 @@ const devResponse = await invokeWorker(
     SDKWORK_KERNEL_ENVIRONMENT: 'development',
   },
 );
-assert.equal(devResponse.result.ok, true, 'development profile can still use SDK probe fallback');
+assert.equal(devResponse.result.ok, false, 'unsupported tool calls never use synthetic fallback');
+assert.equal(devResponse.result.mode, 'unsupported_operation');
 
 console.log('generic-ts-sdk-worker production fail-closed contract passed.');

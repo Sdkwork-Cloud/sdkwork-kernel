@@ -527,6 +527,14 @@ impl AgentRuntimeBridge {
         if let Some(model_id) = model_id {
             request = request.with_model_id(model_id);
         }
+        if let Some(timeout_ms) = session.metadata_value("timeoutMs") {
+            let timeout_ms = timeout_ms.parse::<u64>().map_err(|_| {
+                sdkwork_agent_kernel::KernelError::validation(
+                    "session timeoutMs metadata must be an unsigned integer",
+                )
+            })?;
+            request = request.with_timeout_ms(timeout_ms);
+        }
         Ok((request, provider_id))
     }
 
@@ -565,9 +573,23 @@ impl AgentRuntimeBridge {
             format!("call.{}", crate::types::generate_id()),
             tool_name,
             arguments,
-        );
+        )
+        .for_session(session_id);
 
         let result = self.tool_bridge.execute(&call)?;
+
+        Ok(self.commit_tool_execution(session_id, tool_name, call, result))
+    }
+
+    /// Commit the bridge event after a tool provider call completed outside
+    /// the bridge state lock.
+    pub fn commit_tool_execution(
+        &mut self,
+        session_id: &str,
+        tool_name: &str,
+        call: ToolCall,
+        result: sdkwork_agent_kernel::ToolResult,
+    ) -> BridgeToolResult {
 
         let events = vec![BridgeEvent {
             event_type: "agent.tool.executed".to_string(),
@@ -579,11 +601,11 @@ impl AgentRuntimeBridge {
 
         self.event_bridge.record_events(&events);
 
-        Ok(BridgeToolResult {
+        BridgeToolResult {
             call_id: call.tool_call_id,
             result,
             events,
-        })
+        }
     }
 
     // =========================================================================
@@ -655,7 +677,7 @@ mod tests {
     fn test_config() -> BridgeSessionConfig {
         BridgeSessionConfig {
             agent_id: "agent.test".to_string(),
-            tenant_id: 100_001,
+            tenant_id: "tenant.100001".to_string(),
             user_ref: Some("user.1".to_string()),
             model: Some("gpt-4".to_string()),
             instructions: Some("original instructions".to_string()),
@@ -669,7 +691,7 @@ mod tests {
         let mut bridge = AgentRuntimeBridge::new();
         let config = BridgeSessionConfig {
             agent_id: "agent.test".to_string(),
-            tenant_id: 100_001,
+            tenant_id: "tenant.100001".to_string(),
             user_ref: Some("user.1".to_string()),
             model: Some("gpt-4".to_string()),
             instructions: None,
@@ -750,7 +772,7 @@ mod tests {
         let mut bridge = AgentRuntimeBridge::new_with_mock_fallback();
         let config = BridgeSessionConfig {
             agent_id: "agent.test".to_string(),
-            tenant_id: 100_001,
+            tenant_id: "tenant.100001".to_string(),
             user_ref: Some("user.1".to_string()),
             model: Some("gpt-4".to_string()),
             instructions: None,
@@ -772,7 +794,7 @@ mod tests {
         let mut bridge = AgentRuntimeBridge::new_with_mock_fallback();
         let config = BridgeSessionConfig {
             agent_id: "agent.test".to_string(),
-            tenant_id: 100_001,
+            tenant_id: "tenant.100001".to_string(),
             user_ref: Some("user.1".to_string()),
             model: Some("gpt-4".to_string()),
             instructions: None,
@@ -809,7 +831,7 @@ mod tests {
         let session = bridge
             .create_session(BridgeSessionConfig {
                 agent_id: "agent.test".to_string(),
-                tenant_id: 100_001,
+                tenant_id: "tenant.100001".to_string(),
                 user_ref: Some("user.1".to_string()),
                 model: Some("gpt-4".to_string()),
                 instructions: None,
@@ -890,7 +912,7 @@ mod tests {
     fn bridge_list_tools() {
         let bridge = AgentRuntimeBridge::new();
         let tools = bridge.list_tools().expect("tools listed");
-        assert!(!tools.is_empty());
+        assert!(tools.is_empty(), "no provider means no advertised tools");
     }
 
     #[test]
@@ -898,7 +920,7 @@ mod tests {
         let mut bridge = AgentRuntimeBridge::new();
         let config = BridgeSessionConfig {
             agent_id: "agent.test".to_string(),
-            tenant_id: 100_001,
+            tenant_id: "tenant.100001".to_string(),
             user_ref: None,
             model: None,
             instructions: None,
@@ -912,6 +934,9 @@ mod tests {
             .expect("snapshot created");
 
         assert_eq!(snapshot.session_id, session.session_id);
-        assert!(!snapshot.available_tools.is_empty());
+        assert!(
+            snapshot.available_tools.is_empty(),
+            "snapshot must not advertise unavailable tools"
+        );
     }
 }

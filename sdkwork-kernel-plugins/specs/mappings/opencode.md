@@ -23,8 +23,9 @@ OpenCode maps first to the Code Kernel runtime and process-adapter surfaces:
 `process-adapter`
 
 `sdkwork-agent-provider-opencode` wraps the OpenCode runtime through process and
-protocol contracts. Direct in-process model/tool calls fail closed; real
-execution routes through the negotiated `@opencode-ai/sdk` transport worker.
+protocol contracts. Direct in-process model calls fail closed; real execution
+routes through the negotiated `@opencode-ai/sdk` transport worker. Upstream
+tool activity stays inside the session and is projected as events.
 
 ## Capability Mapping
 
@@ -69,7 +70,8 @@ are selected.
   from the installed npm package or inject a local package mirror with
   `SDKWORK_AGENT_SDK_PACKAGE_PATHS`, rather than treating `external/opencode`
   as a guaranteed TypeScript SDK workspace.
-- SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`, optional `sdk.tool.invoke`
+- SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`; OpenCode tool execution is owned by the upstream session and is not an independent SDK operation
+- Streaming is not declared because the current official SDK adapter returns a completed prompt response rather than incremental kernel chunks.
 - Binding execution: `sdk.session.lifecycle` uses provider-local lifecycle
   state through provider-core and declares `execution_scope: provider_local`
   with `runtime_operations: ["ping"]`. Model and tool capabilities use

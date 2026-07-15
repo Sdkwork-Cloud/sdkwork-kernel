@@ -21,8 +21,9 @@ Codex maps primarily to the Code Kernel surface:
 - `ArtifactProvider`
 - `CodeSafetyProvider`
 
-The intelligence client bridge and agent-server bootstrap also expose negotiated SDK
-model/tool providers for chat-oriented local sessions.
+The intelligence client bridge and agent-server bootstrap expose the negotiated
+SDK model provider for chat-oriented local sessions. Codex-internal tool
+activity is projected as events rather than a standalone kernel tool provider.
 
 ## Initial Registration Mode
 
@@ -42,7 +43,7 @@ providers, and server bootstrap registration when `SDKWORK_KERNEL_AGENT_PLUGIN=c
 | Build and test loops | `code.verification.run` |
 | Review output | `code.review.produce` |
 | Logs and reports | `code.artifact.*` |
-| Agent chat / SDK surface | `sdk.model.chat`, `sdk.tool.invoke`, `sdk.session.lifecycle` |
+| Agent chat / SDK surface | `sdk.model.chat`, `sdk.session.lifecycle` |
 
 ## Policy Boundaries
 
@@ -73,8 +74,14 @@ and client bridge SDK routing through `SDKWORK_KERNEL_AGENT_PLUGIN`.
 - SDK binding: `bindings/agent-providers/codex/provider-binding.manifest.json`
 - Client bridge plugin: `sdkwork-agent-client` `builtin.codex` routes local chat through `CodexSdkIntegration` model provider (`SdkModelBridgeRuntime`); remote mode uses internal-api `SseChatClient`
 - Server bootstrap: `SDKWORK_KERNEL_AGENT_PLUGIN=codex`
-- Runtime worker: `@openai/codex-sdk` via `NodeSdkBackendRuntime` + in-process Rust handler
-- SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`, optional `sdk.tool.invoke`
+- Runtime worker: `@openai/codex-sdk` via `NodeSdkBackendRuntime` + in-process Rust handler.
+  The official SDK path uses `startThread()` or `resumeThread(threadId)` with
+  native `ThreadOptions` for model, sandbox, approval policy, working directory,
+  and git-repository checks; it returns the native thread id for later kernel
+  session correlation. `model_chat_stream` consumes the official
+  `runStreamed()` event sequence and preserves agent-message deltas rather than
+  wrapping a completed response as a synthetic single-chunk stream.
+- SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`; Codex-internal command, file, MCP, and approval activity maps to agent/model/code events, not an independently invocable `ToolProvider`
 - Binding execution: `sdk.session.lifecycle` and `sdk.session.history` use
   provider-local lifecycle state through provider-core and declare
   `execution_scope: provider_local` with `runtime_operations: ["ping"]`.

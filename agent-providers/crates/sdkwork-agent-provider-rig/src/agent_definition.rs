@@ -1,7 +1,6 @@
 use sdkwork_agent_kernel::{
     AgentDefinition, AgentManifest, AgentProviderBinding, AgentProviderBindingMode,
     AgentProviderFamily, CapabilityRequirement, MemoryStrategy, ModelSelectionPolicy,
-    ToolCallPolicy,
 };
 
 use crate::ids;
@@ -25,7 +24,6 @@ pub fn rig_agent_manifest() -> AgentManifest {
             "agent.configure".to_string(),
         ],
         optional_capabilities: vec![
-            "tool.invoke".to_string(),
             "memory.query".to_string(),
             "memory.write".to_string(),
             "memory.delete".to_string(),
@@ -33,7 +31,6 @@ pub fn rig_agent_manifest() -> AgentManifest {
             "knowledge.search".to_string(),
             "knowledge.read".to_string(),
             "knowledge.list".to_string(),
-            "mcp.tools".to_string(),
             "mcp.resources".to_string(),
             "mcp.prompts".to_string(),
             "planning.create".to_string(),
@@ -47,7 +44,6 @@ pub fn rig_agent_manifest() -> AgentManifest {
             CapabilityRequirement::new("agent.configure").with_min_version("0.1.0"),
         ],
         optional_capability_requirements: vec![
-            CapabilityRequirement::new("tool.invoke").with_min_version("0.1.0"),
             CapabilityRequirement::new("memory.query").with_min_version("0.1.0"),
             CapabilityRequirement::new("memory.write").with_min_version("0.1.0"),
             CapabilityRequirement::new("memory.delete").with_min_version("0.1.0"),
@@ -55,13 +51,13 @@ pub fn rig_agent_manifest() -> AgentManifest {
             CapabilityRequirement::new("knowledge.search").with_min_version("0.1.0"),
             CapabilityRequirement::new("knowledge.read").with_min_version("0.1.0"),
             CapabilityRequirement::new("knowledge.list").with_min_version("0.1.0"),
-            CapabilityRequirement::new("mcp.tools").with_min_version("0.1.0"),
             CapabilityRequirement::new("mcp.resources").with_min_version("0.1.0"),
             CapabilityRequirement::new("mcp.prompts").with_min_version("0.1.0"),
             CapabilityRequirement::new("planning.create").with_min_version("0.1.0"),
         ],
         event_families: vec![
             "agent.runtime.*".to_string(),
+            "agent.session.*".to_string(),
             "agent.model.*".to_string(),
             "agent.tool.*".to_string(),
             "agent.memory.*".to_string(),
@@ -90,18 +86,6 @@ pub fn rig_agent_definition() -> AgentDefinition {
             .with_mode(AgentProviderBindingMode::TypedLocal)
             .with_min_version("0.1.0")
             .with_capabilities(vec!["model.catalog".to_string(), "model.chat".to_string()]),
-        )
-        .with_provider_binding(
-            AgentProviderBinding::new(
-                "binding.rig.tool",
-                AgentProviderFamily::Tool,
-                ids::TOOL_PROVIDER_ID,
-                false,
-            )
-            .as_default()
-            .with_mode(AgentProviderBindingMode::TypedLocal)
-            .with_min_version("0.1.0")
-            .with_capability("tool.invoke"),
         )
         .with_provider_binding(
             AgentProviderBinding::new(
@@ -146,11 +130,7 @@ pub fn rig_agent_definition() -> AgentDefinition {
             .as_default()
             .with_mode(AgentProviderBindingMode::TypedLocal)
             .with_min_version("0.1.0")
-            .with_capabilities(vec![
-                "mcp.tools".to_string(),
-                "mcp.resources".to_string(),
-                "mcp.prompts".to_string(),
-            ]),
+            .with_capabilities(vec!["mcp.resources".to_string(), "mcp.prompts".to_string()]),
         )
         .with_provider_binding(
             AgentProviderBinding::new(
@@ -224,12 +204,6 @@ pub fn rig_agent_definition() -> AgentDefinition {
                 .with_default_model_id(ids::DEFAULT_MODEL_ID)
                 .with_required_capability("model.chat")
                 .allow_provider_fallback(false),
-        )
-        .with_tool_call_policy(
-            ToolCallPolicy::default_provider(ids::TOOL_PROVIDER_ID)
-                .with_policy_required(true)
-                .with_allowed_tool_id(ids::DEFAULT_TOOL_ID)
-                .with_max_parallel_calls(4),
         )
         .with_memory_strategy(
             MemoryStrategy::default_provider(ids::MEMORY_PROVIDER_ID)

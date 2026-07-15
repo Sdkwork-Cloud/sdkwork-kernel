@@ -4,6 +4,7 @@ use sdkwork_agent_provider_transport_ipc::{
 };
 use serde_json::json;
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 #[test]
 fn in_memory_transport_returns_stubbed_ping() {
@@ -61,4 +62,29 @@ fn stdio_transport_stops_reading_at_response_frame_limit() {
         !worker.is_reusable(),
         "protocol-violating worker must be poisoned"
     );
+}
+
+#[test]
+fn worker_lease_timeout_terminates_and_reaps_unresponsive_process() {
+    if !node_available() {
+        return;
+    }
+    let pool = sdkwork_agent_provider_transport_ipc::SpawnedWorkerPool::new(1, move || {
+        let mut command = Command::new("node");
+        command.args(["-e", "process.stdin.resume(); setInterval(() => {}, 1000);"]);
+        SpawnedWorker::spawn(command)
+    })
+    .expect("create worker pool");
+    let lease = pool
+        .acquire("request.timeout", Duration::from_secs(1))
+        .expect("acquire worker");
+
+    let started = Instant::now();
+    let error = lease
+        .call_with_timeout(SDKWORK_PING_METHOD, None, Duration::from_millis(100))
+        .expect_err("unresponsive worker must time out");
+
+    assert!(error.message.contains("timed out after 100 ms"));
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert!(!lease.is_running(), "timed-out worker must be reaped");
 }

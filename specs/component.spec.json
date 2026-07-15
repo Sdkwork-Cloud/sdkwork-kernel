@@ -130,6 +130,7 @@
   "verification": {
     "commands": [
       "node scripts/check-kernel-standards.mjs",
+      "node --test tests/provider_session_consistency.test.mjs",
       "cargo test --manifest-path sdkwork-agent-database/Cargo.toml",
       "cargo test --manifest-path sdkwork-agent-client/Cargo.toml",
       "cargo test --manifest-path sdkwork-agent-server/Cargo.toml --test http_internal_runtime_contracts",

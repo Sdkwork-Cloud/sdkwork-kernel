@@ -1,8 +1,7 @@
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
+    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult,
     ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
     ModelStreamChunk, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
-    SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
 use sdkwork_agent_provider_core::{
     create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
@@ -10,6 +9,8 @@ use sdkwork_agent_provider_core::{
 
 #[cfg(test)]
 use sdkwork_agent_kernel::SessionState;
+#[cfg(test)]
+use sdkwork_agent_kernel::KernelError;
 #[cfg(test)]
 use sdkwork_agent_provider_core::{
     ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
@@ -332,111 +333,6 @@ impl ModelProvider for CodexModelProvider {
 }
 
 // ============================================================================
-// Codex Tool Provider
-// ============================================================================
-
-#[derive(Clone)]
-pub struct CodexToolProvider;
-
-impl CodexToolProvider {
-    pub fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for CodexToolProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ToolProvider for CodexToolProvider {
-    fn provider_manifest(&self) -> ProviderManifest {
-        ProviderManifest::new(
-            "provider.tool.codex",
-            "tool",
-            "Codex Tool Provider",
-            "0.1.0",
-            vec!["tool.invoke".to_string()],
-        )
-    }
-
-    fn health(&self) -> ProviderHealth {
-        ProviderHealth::available()
-    }
-
-    fn list_tools(&self) -> Vec<ToolDescriptor> {
-        vec![
-            ToolDescriptor::new(
-                "codex.execute_command",
-                "provider.tool.codex",
-                "Execute Command",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("execute_command")
-            .with_description("Execute a shell command")
-            .with_input_schema(ToolSchema::json_schema("codex.execute_command.input"))
-            .with_output_schema(ToolSchema::json_schema("codex.execute_command.output")),
-            ToolDescriptor::new(
-                "codex.read_file",
-                "provider.tool.codex",
-                "Read File",
-                SideEffectLevel::ReadOnly,
-            )
-            .with_name("read_file")
-            .with_description("Read a file from the filesystem")
-            .with_input_schema(ToolSchema::json_schema("codex.read_file.input"))
-            .with_output_schema(ToolSchema::json_schema("codex.read_file.output")),
-            ToolDescriptor::new(
-                "codex.write_file",
-                "provider.tool.codex",
-                "Write File",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("write_file")
-            .with_description("Write content to a file")
-            .with_input_schema(ToolSchema::json_schema("codex.write_file.input"))
-            .with_output_schema(ToolSchema::json_schema("codex.write_file.output")),
-            ToolDescriptor::new(
-                "codex.apply_patch",
-                "provider.tool.codex",
-                "Apply Patch",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("apply_patch")
-            .with_description("Apply a code patch")
-            .with_input_schema(ToolSchema::json_schema("codex.apply_patch.input"))
-            .with_output_schema(ToolSchema::json_schema("codex.apply_patch.output")),
-            ToolDescriptor::new(
-                "codex.run_tests",
-                "provider.tool.codex",
-                "Run Tests",
-                SideEffectLevel::SideEffectful,
-            )
-            .with_name("run_tests")
-            .with_description("Run the test suite")
-            .with_input_schema(ToolSchema::json_schema("codex.run_tests.input"))
-            .with_output_schema(ToolSchema::json_schema("codex.run_tests.output")),
-        ]
-    }
-
-    fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
-        match call.tool_id.as_str() {
-            "codex.execute_command"
-            | "codex.read_file"
-            | "codex.write_file"
-            | "codex.apply_patch"
-            | "codex.run_tests" => {
-                sdkwork_agent_provider_core::reject_in_process_tool_invoke("provider.tool.codex")
-            }
-            _ => Err(KernelError::CapabilityMissing {
-                capability_id: call.tool_id.clone(),
-            }),
-        }
-    }
-}
-
-// ============================================================================
 // Codex Lifecycle Provider (existing, preserved)
 // ============================================================================
 
@@ -729,84 +625,6 @@ mod tests {
             .stream(request)
             .expect_err("in-process stream is forbidden");
         assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    // --- Tool Provider Tests ---
-
-    #[test]
-    fn tool_provider_manifest() {
-        let provider = CodexToolProvider::new();
-        let manifest = provider.provider_manifest();
-        assert_eq!(manifest.provider_id, "provider.tool.codex");
-        assert_eq!(manifest.provider_family, "tool");
-    }
-
-    #[test]
-    fn tool_provider_list_tools() {
-        let provider = CodexToolProvider::new();
-        let tools = provider.list_tools();
-        assert_eq!(tools.len(), 5);
-        assert!(tools.iter().any(|t| t.tool_id == "codex.execute_command"));
-        assert!(tools.iter().any(|t| t.tool_id == "codex.read_file"));
-        assert!(tools.iter().any(|t| t.tool_id == "codex.write_file"));
-        assert!(tools.iter().any(|t| t.tool_id == "codex.apply_patch"));
-        assert!(tools.iter().any(|t| t.tool_id == "codex.run_tests"));
-
-        let read = tools
-            .iter()
-            .find(|t| t.tool_id == "codex.read_file")
-            .unwrap();
-        assert_eq!(read.side_effect_level, SideEffectLevel::ReadOnly);
-    }
-
-    #[test]
-    fn tool_provider_invoke_requires_transport_worker() {
-        let provider = CodexToolProvider::new();
-        let call = ToolCall::new("call.1", "codex.run_tests", "{}");
-        let error = provider
-            .invoke_tool(call)
-            .expect_err("in-process tool invocation is forbidden");
-        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    #[test]
-    fn tool_provider_invoke_read_file_requires_transport_worker() {
-        let provider = CodexToolProvider::new();
-        let call = ToolCall::new("call.2", "codex.read_file", r#"{"path":"/tmp/test.txt"}"#);
-        let error = provider
-            .invoke_tool(call)
-            .expect_err("in-process tool invocation is forbidden");
-        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    #[test]
-    fn tool_provider_invoke_apply_patch_requires_transport_worker() {
-        let provider = CodexToolProvider::new();
-        let call = ToolCall::new(
-            "call.3",
-            "codex.apply_patch",
-            r#"{"patch":"--- a/foo\n+++ b/foo"}"#,
-        );
-        let error = provider
-            .invoke_tool(call)
-            .expect_err("in-process tool invocation is forbidden");
-        assert!(matches!(error, KernelError::ProviderUnavailable { .. }));
-    }
-
-    #[test]
-    fn tool_provider_invoke_unknown_tool() {
-        let provider = CodexToolProvider::new();
-        let call = ToolCall::new("call.4", "codex.nonexistent", "{}");
-        let result = provider.invoke_tool(call);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn tool_provider_describe_tool() {
-        let provider = CodexToolProvider::new();
-        let desc = provider.describe_tool("codex.execute_command").unwrap();
-        assert_eq!(desc.display_name, "Execute Command");
-        assert_eq!(desc.side_effect_level, SideEffectLevel::SideEffectful);
     }
 
     // --- Conversation Manager Tests ---

@@ -1,12 +1,8 @@
-use crate::{
-    CodexAdapter, CodexLifecycleProvider, CodexMessageAdapter, CodexModelProvider,
-    CodexToolProvider,
-};
+use crate::{CodexAdapter, CodexLifecycleProvider, CodexMessageAdapter, CodexModelProvider};
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
-    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
-    SdkRuntimeBackedToolProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
-    CODEX_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_TOOL_INVOKE,
+    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider, SdkRuntimeRequest,
+    SdkRuntimeResponse, SdkRuntimeRouter, CODEX_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -30,7 +26,6 @@ pub struct CodexSdkIntegration {
     pub runtime: Arc<SdkRuntimeRouter>,
     pub lifecycle: CodexLifecycleProvider,
     pub model: SdkRuntimeBackedModelProvider,
-    pub tools: SdkRuntimeBackedToolProvider,
     pub session_adapter: CodexAdapter,
     pub message_adapter: CodexMessageAdapter,
 }
@@ -43,10 +38,8 @@ impl CodexSdkIntegration {
         let negotiation = bootstrap_binding(manifest, &mut drivers, &mut bindings)?;
 
         let inner_model = Arc::new(CodexModelProvider::new());
-        let inner_tools = Arc::new(CodexToolProvider::new());
-        let rust_handler = Arc::new(ProviderBackedRustHandler::new(
+        let rust_handler = Arc::new(ProviderBackedRustHandler::model_only(
             inner_model.clone(),
-            inner_tools.clone(),
             "codex-1",
         ));
 
@@ -68,11 +61,6 @@ impl CodexSdkIntegration {
             SDK_CAPABILITY_MODEL_CHAT,
             "provider.model.codex",
         );
-        let tools = SdkRuntimeBackedToolProvider::new(
-            runtime.clone(),
-            inner_tools,
-            SDK_CAPABILITY_TOOL_INVOKE,
-        );
 
         Ok(Self {
             sdk: AgentSdkIntegration::new(negotiation),
@@ -80,7 +68,6 @@ impl CodexSdkIntegration {
             runtime,
             lifecycle: CodexLifecycleProvider::new(),
             model,
-            tools,
             session_adapter: CodexAdapter::new(),
             message_adapter: CodexMessageAdapter::new(),
         })
@@ -101,7 +88,7 @@ impl CodexSdkIntegration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sdkwork_agent_kernel::{ModelProvider, ModelRequest, ToolProvider};
+    use sdkwork_agent_kernel::{ModelProvider, ModelRequest};
     use sdkwork_agent_provider_spi::SdkBackendKind;
 
     #[test]
@@ -122,7 +109,6 @@ mod tests {
     fn exposes_kernel_providers_after_bootstrap() {
         let integration = CodexSdkIntegration::bootstrap().expect("bootstrap should succeed");
         assert!(!integration.model.list_models().is_empty());
-        assert!(!integration.tools.list_tools().is_empty());
     }
 
     #[test]

@@ -18,7 +18,7 @@ The checkbox implementation plan for the first complete Rig plugin has been **su
 ## What landed
 
 - `SdkworkKernelPlugin` trait, manifest/profile/binding/deployment snapshot helpers
-- Rig ids, manifests, model/tool/planning providers, diagnostics, conformance helpers
+- Rig ids, manifests, model/planning providers, diagnostics, conformance helpers
 - Fail-closed backend with development mock override via topology policy
 - `runtime_bootstrap` + `agent_registry` integration for hosted session validation
 

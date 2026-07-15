@@ -23,22 +23,25 @@ Binding manifests are authoritative: `bindings/agent-providers/<framework>/provi
 | Gemini CLI | Code-agent | `standardizing` | `typescript_node`, `ipc_protocol` | Source-tree `@google/gemini-cli-sdk`; CLI npm `@google/gemini-cli` |
 | OpenCode | Code-agent | `experimental` | `typescript_node`, `ipc_protocol` | `@opencode-ai/sdk` |
 | MiMo Code | Code-agent | `experimental` | `typescript_node`, `ipc_protocol` | `@mimo-ai/sdk` |
-| OpenClaw | Autonomous | `experimental` | `typescript_node`, `http_openapi`, `ipc_protocol` | `openclaw` plugin SDK + gateway OpenAPI |
+| OpenClaw | Autonomous | `experimental` | `typescript_node`, `http_openapi` | Official `openai` SDK against the OpenClaw OpenAI-compatible gateway; private upstream SDK remains inspection-only |
 | Hermes | Autonomous | `experimental` | `python_process`, `ipc_protocol` | Python `run_agent` + TUI gateway JSON-RPC |
 | Rig | Framework-native | `standardizing` | `rust_native` | `rig-core` in-process |
 
 SDKWork separates SDK/provider adapter crates from full kernel plugin runtime
-entrypoints. Direct in-process `ModelProvider::invoke`, `ModelProvider::stream`,
-and `ToolProvider::invoke_tool` for external SDK-backed providers fail closed
-with `ProviderUnavailable`; real execution must route through the negotiated
+entrypoints. Direct in-process `ModelProvider::invoke` and
+`ModelProvider::stream` for external SDK-backed providers fail closed with
+`ProviderUnavailable`; real execution must route through the negotiated
 SDK/runtime transport worker or an explicit kernel plugin runtime entrypoint.
+Agent-internal tool activity is projected as typed events and never exposed as
+an independent `ToolProvider` unless the upstream SDK provides a separately
+invocable, policy-controlled tool API.
 
 Binding manifests also define the executable runtime boundary. Each capability
 declares `execution_scope`, and each backend declares `runtime_operations`.
 `sdk.session.lifecycle` and `sdk.session.history` are provider-local lifecycle
 surfaces: they use `execution_scope: provider_local` and expose only
-`runtime_operations: ["ping"]` through runtime routing. Model, stream, tool, and
-skill capabilities use `execution_scope: transport_runtime`; runtime dispatch
+`runtime_operations: ["ping"]` through runtime routing. Model and stream
+capabilities use `execution_scope: transport_runtime`; runtime dispatch
 rejects any operation that is not declared in the selected backend
 `runtime_operations` allowlist before invoking a worker.
 
@@ -49,7 +52,7 @@ rejects any operation that is not declared in the selected backend
 | `sdkwork-agent-provider-opencode` | `plugin.intelligence.opencode` | `agent.intelligence.opencode` | `OpenCodeKernelPlugin::configure_runtime` |
 | `sdkwork-agent-provider-openclaw` | `plugin.intelligence.openclaw` | `agent.intelligence.openclaw` | `OpenClawKernelPlugin::configure_runtime` |
 | `sdkwork-agent-provider-hermes` | `plugin.intelligence.hermes` | `agent.intelligence.hermes` | `HermesKernelPlugin::configure_runtime` |
-| `sdkwork-agent-provider-rig` | `plugin.intelligence.rig` | `agent.intelligence.rig` | `RigKernelPlugin::configure_runtime` |
+| `sdkwork-agent-provider-rig` | `plugin.intelligence.rig` | `agent.intelligence.rig-general` | `RigKernelPlugin::configure_runtime` |
 
 Provider crates that do not yet expose a full `SdkworkKernelPlugin` runtime
 entrypoint still have an explicit SDK/provider adapter boundary and must remain
@@ -69,9 +72,9 @@ Legend: **R** = required in manifest, **O** = optional, **—** = not declared (
 | `sdk.session.lifecycle` | R | R | R | R | R | R | R | — |
 | `sdk.session.history` | R | — | — | — | — | — | — | — |
 | `sdk.model.chat` | R | R | R | R | R | R | R | R |
-| `sdk.model.stream` | O | O | O | — | — | — | — | — |
-| `sdk.tool.invoke` | O | O | O | O | O | O | O | R |
-| `sdk.skill.invoke` | — | — | — | — | — | — | O | — |
+| `sdk.model.stream` | O | — | O | — | — | — | — | — |
+| `sdk.tool.invoke` | — | — | O | — | O | — | — | — |
+| `sdk.skill.invoke` | — | — | — | — | — | — | — | — |
 
 ## 4. Industry Feature Mapping
 
@@ -134,12 +137,12 @@ a binding manifest declares `integration_sources`.
 ### OpenClaw
 
 - **Strengths:** Gateway protocol + plugin ecosystem; HTTP fallback for remote gateway.
-- **Gaps:** Experimental; autonomous channel features stay in OpenClaw — kernel exposes session/model/tool bridge only.
+- **Gaps:** Experimental; autonomous channel features stay in OpenClaw; kernel exposes session/model execution and typed event observations only.
 - **Integration:** Do not duplicate plugin loader in kernel; use binding transports only.
 
 ### Hermes
 
-- **Strengths:** Python runtime + optional `hermes-ink`; skill invoke capability.
+- **Strengths:** Python runtime + optional `hermes-ink`; model lane and gateway protocol mapping.
 - **Gaps:** Experimental; multi-platform gateway is Hermes-owned, not kernel-owned.
 - **Memory:** Hermes memory plugins map to agents composition → `sdkwork-memory`, not kernel tables.
 
@@ -183,11 +186,12 @@ Staging live SDK proof with real credentials:
 `SDKWORK_KERNEL_STAGING_LIVE_SDK=1 SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1 node scripts/provider-transport-workers/engine-sdk-live-staging.mjs --framework all`
 
 The staging live gate covers Codex, Claude Code, Gemini CLI, OpenCode, and
-OpenClaw. Codex, Claude Code, Gemini CLI, and OpenCode require importable SDK
-packages; OpenClaw proves the gateway HTTP authority through
-`OPENCLAW_GATEWAY_URL` and does not require a local `openclaw` npm package
-import. Hermes uses the Python/TUI gateway binding path and requires a separate
-Hermes-specific staging gateway proof before GA.
+OpenClaw. Codex, Claude Code, Gemini CLI, and OpenCode require their importable
+official SDK packages. OpenClaw requires the importable official `openai` SDK,
+`OPENCLAW_GATEWAY_URL`, and `OPENCLAW_GATEWAY_TOKEN`; its private unpublished
+`@openclaw/sdk` package remains inspection-only. Hermes uses the Python/TUI
+gateway binding path and requires a separate Hermes-specific staging gateway
+proof before GA.
 
 ## 8. Related
 

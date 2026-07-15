@@ -11,11 +11,13 @@ mod package;
 mod provider;
 #[cfg(feature = "rig-core-adapter")]
 mod rig_core_adapter;
+mod sdk_integration;
+mod session;
 
 pub use agent_definition::{rig_agent_definition, rig_agent_manifest};
 pub use backend::{
     RigBackend, RigBackendBootstrapPlan, RigBackendBootstrapState, RigBackendConfig,
-    RigBackendExecutionState, RigBackendExecutionStatus, RigBackendMode,
+    RigBackendExecutionState, RigBackendExecutionStatus, RigBackendExecutor, RigBackendMode,
 };
 pub use configuration::RigConfigurationProvider;
 pub use conformance::rig_conformance_profile;
@@ -26,7 +28,9 @@ pub use manifest::{rig_kernel_plugin_manifest, rig_provider_manifests, RigKernel
 pub use package::rig_package_manifest;
 pub use provider::{
     RigKnowledgeProvider, RigMcpProvider, RigMemoryProvider, RigModelProvider, RigPlanningProvider,
-    RigPolicyProvider, RigToolProvider,
+    RigPolicyProvider,
 };
 #[cfg(feature = "rig-core-adapter")]
-pub use rig_core_adapter::{RigCoreKnowledgeAdapter, RigVectorSearchPlan};
+pub use rig_core_adapter::{RigCoreKnowledgeAdapter, RigCoreOpenAiExecutor, RigVectorSearchPlan};
+pub use sdk_integration::{rig_binding_manifest, RigSdkIntegration};
+pub use session::{RigLifecycleProvider, RigSessionAdapter, RigSessionSnapshot};

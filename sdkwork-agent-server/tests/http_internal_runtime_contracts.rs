@@ -1650,6 +1650,12 @@ async fn metrics_endpoint_exposes_prometheus_families_without_auth() {
     assert!(text.contains("sdkwork_kernel_http_requests_total"));
     assert!(text.contains("sdkwork_kernel_http_auth_failures_total"));
     assert!(text.contains("sdkwork_kernel_http_rate_limited_total"));
+    assert!(text.contains("sdkwork_kernel_provider_admission_capacity"));
+    assert!(text.contains("sdkwork_kernel_provider_admission_wait_capacity"));
+    assert!(text.contains("sdkwork_kernel_provider_admission_active"));
+    assert!(text.contains("sdkwork_kernel_provider_admission_waiting"));
+    assert!(text.contains("sdkwork_kernel_provider_admission_rejected_total"));
+    assert!(text.contains("sdkwork_kernel_provider_admission_acquire_duration_seconds_bucket"));
     assert!(text.contains("sdkwork_kernel_runtime_persistence_backend_info"));
     assert!(text.contains("sdkwork_kernel_rate_limit_backend_info"));
     assert!(text.contains("backend=\"sqlite\""));

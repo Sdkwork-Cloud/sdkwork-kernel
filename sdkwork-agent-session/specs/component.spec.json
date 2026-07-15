@@ -59,7 +59,8 @@
     "publicExports": [
       "UnifiedSessionManager",
       "ConversationManager",
-      "SessionConfig"
+      "SessionConfig",
+      "ProviderSessionSynchronizer"
     ],
     "runtimeEntrypoints": [],
     "routeManifest": null,
@@ -67,7 +68,13 @@
     "dependencyApiExports": [],
     "dependencyApiSurfaces": [],
     "sdkClients": [],
-    "events": [],
+    "events": [
+      "session.created",
+      "session.updated",
+      "session.synchronized",
+      "session.closed",
+      "session.deleted"
+    ],
     "configKeys": []
   },
   "verification": {

@@ -1,8 +1,8 @@
-use sdkwork_agent_kernel::{AgentProviderFamily, ModelProvider, ToolProvider};
+use sdkwork_agent_kernel::{AgentProviderFamily, ModelProvider};
 use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
 use sdkwork_agent_provider_codex::{
     codex_agent_definition, codex_kernel_plugin_manifest, codex_provider_manifests,
-    CodexKernelPlugin, CodexModelProvider, CodexToolProvider,
+    CodexKernelPlugin, CodexModelProvider,
 };
 use serde_json::Value;
 
@@ -25,15 +25,6 @@ fn model_provider_manifest_uses_canonical_provider_id() {
 }
 
 #[test]
-fn tool_provider_manifest_uses_canonical_provider_id() {
-    let provider = CodexToolProvider::new();
-    assert_eq!(
-        provider.provider_manifest().provider_id,
-        "provider.tool.codex"
-    );
-}
-
-#[test]
 fn kernel_plugin_manifest_declares_runtime_providers() {
     let manifest = codex_kernel_plugin_manifest();
     assert_eq!(manifest.plugin_id, "plugin.intelligence.codex");
@@ -44,26 +35,26 @@ fn kernel_plugin_manifest_declares_runtime_providers() {
     assert!(manifest
         .provider_ids
         .contains(&"provider.model.codex".to_string()));
-    assert!(manifest
+    assert!(!manifest
         .provider_ids
         .contains(&"provider.tool.codex".to_string()));
     assert!(manifest.supports_profile("provider-model"));
-    assert!(manifest.supports_profile("provider-tool"));
+    assert!(!manifest.supports_profile("provider-tool"));
 }
 
 #[test]
-fn provider_manifests_include_model_tool_and_policy() {
+fn provider_manifests_exclude_agent_internal_tools() {
     let provider_ids: Vec<String> = codex_provider_manifests()
         .into_iter()
         .map(|manifest| manifest.provider_id)
         .collect();
     assert!(provider_ids.contains(&"provider.model.codex".to_string()));
-    assert!(provider_ids.contains(&"provider.tool.codex".to_string()));
+    assert!(!provider_ids.contains(&"provider.tool.codex".to_string()));
     assert!(provider_ids.contains(&"provider.policy.sdk-standard".to_string()));
 }
 
 #[test]
-fn agent_definition_binds_model_tool_and_policy() {
+fn agent_definition_does_not_bind_agent_internal_tools() {
     let definition = codex_agent_definition();
     let families: Vec<AgentProviderFamily> = definition
         .provider_bindings
@@ -71,7 +62,7 @@ fn agent_definition_binds_model_tool_and_policy() {
         .map(|binding| binding.family)
         .collect();
     assert!(families.contains(&AgentProviderFamily::Model));
-    assert!(families.contains(&AgentProviderFamily::Tool));
+    assert!(!families.contains(&AgentProviderFamily::Tool));
     assert!(families.contains(&AgentProviderFamily::Policy));
 }
 

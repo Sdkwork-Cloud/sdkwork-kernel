@@ -203,7 +203,19 @@ impl SessionRepository for InMemoryDatabase {
             .sessions
             .lock()
             .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
-        sessions.insert(session.session_id.clone(), session.clone());
+        if let Some(existing) = sessions.get_mut(&session.session_id) {
+            let message_count = existing.message_count;
+            let owner_tenant_id = existing.owner_tenant_id.clone();
+            let owner_user_ref = existing.owner_user_ref.clone();
+            let created_at = existing.created_at.clone();
+            *existing = session.clone();
+            existing.message_count = message_count;
+            existing.owner_tenant_id = owner_tenant_id;
+            existing.owner_user_ref = owner_user_ref;
+            existing.created_at = created_at;
+        } else {
+            sessions.insert(session.session_id.clone(), session.clone());
+        }
         Ok(())
     }
 
@@ -312,7 +324,18 @@ impl SessionRepository for InMemoryDatabase {
             .sessions
             .lock()
             .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
-        sessions.insert(session.session_id.clone(), session.clone());
+        let existing = sessions.get_mut(&session.session_id).ok_or_else(|| {
+            DatabaseError::NotFound(format!("session not found: {}", session.session_id))
+        })?;
+        let message_count = existing.message_count;
+        let owner_tenant_id = existing.owner_tenant_id.clone();
+        let owner_user_ref = existing.owner_user_ref.clone();
+        let created_at = existing.created_at.clone();
+        *existing = session.clone();
+        existing.message_count = message_count;
+        existing.owner_tenant_id = owner_tenant_id;
+        existing.owner_user_ref = owner_user_ref;
+        existing.created_at = created_at;
         Ok(())
     }
 
@@ -668,6 +691,18 @@ impl EventRepository for InMemoryDatabase {
 }
 
 impl PermissionRepository for InMemoryDatabase {
+    fn create_permission_if_absent(&self, permission: &PermissionRow) -> DatabaseResult<bool> {
+        let mut permissions = self
+            .permissions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        if permissions.contains_key(&permission.permission_request_id) {
+            return Ok(false);
+        }
+        permissions.insert(permission.permission_request_id.clone(), permission.clone());
+        Ok(true)
+    }
+
     fn save_permission(&self, permission: &PermissionRow) -> DatabaseResult<()> {
         let mut permissions = self
             .permissions
@@ -727,11 +762,24 @@ impl PermissionRepository for InMemoryDatabase {
         permission_request_id: &str,
         status: &str,
     ) -> DatabaseResult<()> {
+        if !matches!(status, "allow" | "deny") {
+            return Err(DatabaseError::ConstraintViolation(
+                "permission status must be allow or deny".to_string(),
+            ));
+        }
         let mut permissions = self
             .permissions
             .lock()
             .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {}", e)))?;
-        if let Some(permission) = permissions.get_mut(permission_request_id) {
+        let permission = permissions
+            .get_mut(permission_request_id)
+            .ok_or_else(|| DatabaseError::NotFound("permission request not found".to_string()))?;
+        if permission.status != "pending" && permission.status != status {
+            return Err(DatabaseError::ConstraintViolation(
+                "permission request state conflict".to_string(),
+            ));
+        }
+        if permission.status == "pending" {
             permission.status = status.to_string();
             permission.updated_at = Some(chrono::Utc::now().to_rfc3339());
         }
@@ -753,13 +801,60 @@ impl RuntimeSessionWrites for InMemoryDatabase {
             .events
             .lock()
             .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
-        sessions.insert(session.session_id.clone(), session.clone());
+        if let Some(existing) = sessions.get_mut(&session.session_id) {
+            let message_count = existing.message_count;
+            let owner_tenant_id = existing.owner_tenant_id.clone();
+            let owner_user_ref = existing.owner_user_ref.clone();
+            let created_at = existing.created_at.clone();
+            *existing = session.clone();
+            existing.message_count = message_count;
+            existing.owner_tenant_id = owner_tenant_id;
+            existing.owner_user_ref = owner_user_ref;
+            existing.created_at = created_at;
+        } else {
+            sessions.insert(session.session_id.clone(), session.clone());
+        }
         if let Some(existing) = events.iter_mut().find(|row| row.event_id == event.event_id) {
             *existing = event.clone();
         } else {
             events.push(event.clone());
         }
         Ok(())
+    }
+
+    fn save_session_with_event_if_newer(
+        &self,
+        session: &SessionRow,
+        event: &EventRow,
+    ) -> DatabaseResult<bool> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        if let Some(existing) = sessions.get(&session.session_id) {
+            if crate::types::session_provider_conflicts(session, existing)
+                || crate::types::session_snapshot_is_older(session, existing)
+            {
+                return Ok(false);
+            }
+        }
+        if let Some(existing) = sessions.get_mut(&session.session_id) {
+            let created_at = existing.created_at.clone();
+            *existing = session.clone();
+            existing.created_at = created_at;
+        } else {
+            sessions.insert(session.session_id.clone(), session.clone());
+        }
+        if let Some(existing) = events.iter_mut().find(|row| row.event_id == event.event_id) {
+            *existing = event.clone();
+        } else {
+            events.push(event.clone());
+        }
+        Ok(true)
     }
 
     fn append_message_with_event(
@@ -911,6 +1006,42 @@ impl RuntimeSessionWrites for InMemoryDatabase {
         }
         Ok(())
     }
+
+    fn cancel_task_with_event(
+        &self,
+        task_id: &str,
+        updated_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<(TaskRow, bool)> {
+        let mut tasks = self
+            .tasks
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|e| DatabaseError::Internal(format!("failed to acquire lock: {e}")))?;
+        let task = tasks
+            .get_mut(task_id)
+            .ok_or_else(|| DatabaseError::NotFound(format!("task not found: {task_id}")))?;
+        if task.state == "cancelled" {
+            return Ok((task.clone(), false));
+        }
+        if !matches!(task.state.as_str(), "created" | "pending" | "running") {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "task {task_id} is not active"
+            )));
+        }
+        if event.session_id.as_deref() != Some(task.session_id.as_str()) {
+            return Err(DatabaseError::ConstraintViolation(
+                "task cancellation event session mismatch".to_string(),
+            ));
+        }
+        task.state = "cancelled".to_string();
+        task.updated_at = Some(updated_at.to_string());
+        events.push(event.clone());
+        Ok((task.clone(), true))
+    }
 }
 
 #[cfg(test)]
@@ -944,6 +1075,121 @@ mod tests {
         let loaded = db.load_session("session.1").expect("loaded");
         assert!(loaded.is_some());
         assert_eq!(loaded.unwrap().session_id, "session.1");
+    }
+
+    #[test]
+    fn conditional_session_write_rejects_stale_snapshot_and_event() {
+        let db = InMemoryDatabase::new();
+        let mut session = SessionRow {
+            session_id: "session.conditional.memory".to_string(),
+            agent_id: "agent.1".to_string(),
+            kind: "main".to_string(),
+            source: "provider".to_string(),
+            state: "working".to_string(),
+            title: None,
+            model: None,
+            cwd: None,
+            provider_id: Some("codex".to_string()),
+            bridge_id: None,
+            token_usage_json: None,
+            message_count: 0,
+            owner_tenant_id: None,
+            owner_user_ref: None,
+            created_at: "2026-07-15T00:00:00Z".to_string(),
+            updated_at: Some("2026-07-15T00:02:00Z".to_string()),
+            metadata_json: None,
+        };
+        let applied = db
+            .save_session_with_event_if_newer(
+                &session,
+                &EventRow {
+                    event_id: "evt.memory.newer".to_string(),
+                    session_id: Some(session.session_id.clone()),
+                    event_type: "session.synchronized".to_string(),
+                    severity: "info".to_string(),
+                    payload: None,
+                    created_at: "2026-07-15T00:02:00Z".to_string(),
+                },
+            )
+            .expect("newer write");
+        assert!(applied);
+
+        session.message_count = 12;
+        session.owner_tenant_id = Some("tenant.updated".to_string());
+        session.owner_user_ref = Some("user.updated".to_string());
+        session.updated_at = Some("2026-07-15T00:03:00Z".to_string());
+        assert!(db
+            .save_session_with_event_if_newer(
+                &session,
+                &EventRow {
+                    event_id: "evt.memory.aggregate-update".to_string(),
+                    session_id: Some(session.session_id.clone()),
+                    event_type: "session.synchronized".to_string(),
+                    severity: "info".to_string(),
+                    payload: None,
+                    created_at: "2026-07-15T00:03:00Z".to_string(),
+                },
+            )
+            .expect("aggregate update"));
+        let updated = db
+            .load_session(&session.session_id)
+            .expect("load updated")
+            .expect("updated session");
+        assert_eq!(updated.message_count, 12);
+        assert_eq!(updated.owner_tenant_id.as_deref(), Some("tenant.updated"));
+
+        let mut foreign = session.clone();
+        foreign.provider_id = Some("claude-code".to_string());
+        foreign.updated_at = Some("2026-07-15T00:04:00Z".to_string());
+        assert!(!db
+            .save_session_with_event_if_newer(
+                &foreign,
+                &EventRow {
+                    event_id: "evt.memory.foreign-provider".to_string(),
+                    session_id: Some(session.session_id.clone()),
+                    event_type: "session.synchronized".to_string(),
+                    severity: "info".to_string(),
+                    payload: None,
+                    created_at: "2026-07-15T00:04:00Z".to_string(),
+                },
+            )
+            .expect("provider conflict"));
+
+        session.state = "paused".to_string();
+        session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
+        let applied = db
+            .save_session_with_event_if_newer(
+                &session,
+                &EventRow {
+                    event_id: "evt.memory.stale".to_string(),
+                    session_id: Some(session.session_id.clone()),
+                    event_type: "session.synchronized".to_string(),
+                    severity: "info".to_string(),
+                    payload: None,
+                    created_at: "2026-07-15T00:01:00Z".to_string(),
+                },
+            )
+            .expect("stale write");
+        assert!(!applied);
+        assert_eq!(
+            db.load_session(&session.session_id)
+                .expect("load")
+                .expect("session")
+                .state,
+            "working"
+        );
+        let events = db
+            .load_events(
+                &session.session_id,
+                &EventQuery {
+                    limit: Some(20),
+                    ..EventQuery::default()
+                },
+            )
+            .expect("events");
+        assert!(events
+            .iter()
+            .all(|event| event.event_id != "evt.memory.stale"));
     }
 
     #[test]

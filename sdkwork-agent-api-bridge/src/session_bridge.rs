@@ -107,9 +107,9 @@ impl SessionBridge {
         config: BridgeSessionConfig,
     ) -> KernelResult<AgentSession> {
         let existing = self.get_session(session_id)?;
-        let expected_tenant = config.tenant_id.to_string();
+        let expected_tenant = config.tenant_id.as_str();
         if existing.agent_id.as_deref() != Some(config.agent_id.as_str())
-            || existing.tenant_id.as_deref() != Some(expected_tenant.as_str())
+            || existing.tenant_id.as_deref() != Some(expected_tenant)
             || existing.user_ref.as_deref() != config.user_ref.as_deref()
         {
             return Err(KernelError::conflict(
@@ -434,7 +434,7 @@ impl SessionBridge {
             let existing = self.histories.get(session_id).ok_or_else(|| {
                 KernelError::validation(format!("session not found: {session_id}"))
             })?;
-            if existing == &messages
+            if histories_semantically_equal(existing, &messages)
                 || (revision == 0 && existing.is_empty() && messages.is_empty())
             {
                 return Ok(false);
@@ -477,6 +477,32 @@ impl SessionBridge {
     }
 }
 
+fn histories_semantically_equal(left: &[AgentMessage], right: &[AgentMessage]) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            left.role == right.role
+                && parts_semantically_equal(&left.parts, &right.parts)
+                && left.task_id == right.task_id
+                && left.run_id == right.run_id
+                && left.step_id == right.step_id
+                && left.untrusted == right.untrusted
+        })
+}
+
+fn parts_semantically_equal(
+    left: &[sdkwork_agent_kernel::AgentPart],
+    right: &[sdkwork_agent_kernel::AgentPart],
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(left, right)| {
+            let mut left = left.clone();
+            let mut right = right.clone();
+            left.part_id.clear();
+            right.part_id.clear();
+            left == right
+        })
+}
+
 impl Default for SessionBridge {
     fn default() -> Self {
         Self::new()
@@ -491,7 +517,7 @@ fn chrono_now() -> String {
 fn build_session(session_id: &str, config: BridgeSessionConfig) -> KernelResult<AgentSession> {
     let mut session = AgentSession::new(session_id)
         .with_agent_id(&config.agent_id)
-        .with_tenant_id(config.tenant_id.to_string())
+        .with_tenant_id(config.tenant_id.clone())
         .with_source(SessionSource::Api)
         .with_kind(SessionKind::Main)
         .created_at(chrono_now());
@@ -731,7 +757,7 @@ mod tests {
     fn test_config() -> BridgeSessionConfig {
         BridgeSessionConfig {
             agent_id: "agent.test".to_string(),
-            tenant_id: 100_001,
+            tenant_id: "tenant.100001".to_string(),
             user_ref: Some("user.1".to_string()),
             model: Some("gpt-4".to_string()),
             instructions: None,
@@ -822,7 +848,7 @@ mod tests {
             .expect("registered");
 
         let mut tenant_mismatch = test_config();
-        tenant_mismatch.tenant_id = 100_002;
+        tenant_mismatch.tenant_id = "tenant.100002".to_string();
         let tenant_error = bridge
             .register_session("session.identity", tenant_mismatch)
             .expect_err("tenant mismatch must be rejected");
@@ -955,6 +981,55 @@ mod tests {
         let history = bridge.get_history(&session.session_id).expect("history");
         assert_eq!(history.len(), 2);
         assert_eq!(history[1].message_id, "msg.second");
+    }
+
+    #[test]
+    fn same_revision_accepts_persisted_identity_rewrites_but_rejects_content_changes() {
+        let mut bridge = SessionBridge::new();
+        let session = bridge.create_session(test_config()).expect("created");
+        let local = AgentMessage::new(
+            "msg.local",
+            sdkwork_agent_kernel::AgentMessageRole::User,
+            vec![sdkwork_agent_kernel::AgentPart::text("part.local", "hello")],
+        )
+        .for_session(&session.session_id)
+        .mark_untrusted();
+        bridge
+            .append_message(&session.session_id, local)
+            .expect("local message");
+
+        let persisted = AgentMessage::new(
+            "msg.persisted",
+            sdkwork_agent_kernel::AgentMessageRole::User,
+            vec![sdkwork_agent_kernel::AgentPart::text(
+                "msg.persisted/part.0",
+                "hello",
+            )],
+        )
+        .for_session(&session.session_id)
+        .created_at("2026-07-14T00:00:00Z")
+        .mark_untrusted();
+        assert!(!bridge
+            .replace_history_if_revision(&session.session_id, 1, vec![persisted])
+            .expect("storage identity rewrite is equivalent"));
+
+        let changed = AgentMessage::new(
+            "msg.changed",
+            sdkwork_agent_kernel::AgentMessageRole::User,
+            vec![sdkwork_agent_kernel::AgentPart::text(
+                "msg.changed/part.0",
+                "different",
+            )],
+        )
+        .for_session(&session.session_id)
+        .mark_untrusted();
+        let error = bridge
+            .replace_history_if_revision(&session.session_id, 1, vec![changed])
+            .expect_err("content divergence must remain a conflict");
+        assert_eq!(
+            error.kind(),
+            sdkwork_agent_kernel::KernelErrorKind::Conflict
+        );
     }
 
     #[test]

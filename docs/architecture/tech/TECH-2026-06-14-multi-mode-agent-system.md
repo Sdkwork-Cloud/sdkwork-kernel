@@ -1,5 +1,5 @@
 > Owner: SDKWork maintainers
-> Updated: 2026-07-08
+> Updated: 2026-07-14
 > Status: **as-built** (replaces the historical implementation plan)
 
 # Multi-Mode Agent Client and Kernel Plugin Integration
@@ -144,7 +144,7 @@ Optional live invokes (require real upstream credentials/runtime; not part of de
 
 | Plugin | Server env | Upstream prerequisites |
 | --- | --- | --- |
-| OpenClaw | `SDKWORK_KERNEL_AGENT_PLUGIN=openclaw` | `OPENCLAW_GATEWAY_URL` (+ optional `OPENCLAW_GATEWAY_TOKEN`) |
+| OpenClaw | `SDKWORK_KERNEL_AGENT_PLUGIN=openclaw` | Official `openai` SDK plus required `OPENCLAW_GATEWAY_URL` and `OPENCLAW_GATEWAY_TOKEN` |
 | Hermes | `SDKWORK_KERNEL_AGENT_PLUGIN=hermes` | Hermes `tui_gateway` / IPC when `SDKWORK_HERMES_USE_TUI_GATEWAY=1` |
 | Codex | `SDKWORK_KERNEL_AGENT_PLUGIN=codex` | `@openai/codex-sdk` worker path in `engine-sdk-live.mjs` |
 | Claude Code | `SDKWORK_KERNEL_AGENT_PLUGIN=claude-code` | `@anthropic-ai/claude-agent-sdk` |

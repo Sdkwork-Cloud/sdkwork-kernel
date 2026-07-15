@@ -106,6 +106,17 @@ pub trait RuntimeSessionWrites: Send + Sync {
     fn save_session_with_event(&self, session: &SessionRow, event: &EventRow)
         -> DatabaseResult<()>;
 
+    /// Atomically apply a session snapshot only when it is not older than the
+    /// stored snapshot, and persist its event only when the snapshot applies.
+    /// Returns `false` when a newer stored snapshot wins the race.
+    fn save_session_with_event_if_newer(
+        &self,
+        session: &SessionRow,
+        event: &EventRow,
+    ) -> DatabaseResult<bool> {
+        self.save_session_with_event(session, event).map(|()| true)
+    }
+
     /// Atomically persist a message, increment the session message count, and record an event.
     fn append_message_with_event(
         &self,
@@ -129,10 +140,21 @@ pub trait RuntimeSessionWrites: Send + Sync {
 
     /// Atomically persist a task state and its corresponding event.
     fn save_task_with_event(&self, task: &TaskRow, event: &EventRow) -> DatabaseResult<()>;
+
+    /// Atomically cancel an active task and emit one event. Returns `false`
+    /// when the task was already cancelled and no write occurred.
+    fn cancel_task_with_event(
+        &self,
+        task_id: &str,
+        updated_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<(TaskRow, bool)>;
 }
 
 /// Permission repository trait for persisting permission request state.
 pub trait PermissionRepository: Send + Sync {
+    /// Atomically create a permission request without overwriting an existing decision.
+    fn create_permission_if_absent(&self, permission: &PermissionRow) -> DatabaseResult<bool>;
     fn save_permission(&self, permission: &PermissionRow) -> DatabaseResult<()>;
     fn load_permission(&self, permission_request_id: &str)
         -> DatabaseResult<Option<PermissionRow>>;

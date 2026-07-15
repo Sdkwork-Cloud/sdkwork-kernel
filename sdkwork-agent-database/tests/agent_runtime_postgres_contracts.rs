@@ -1,8 +1,8 @@
 //! Live PostgreSQL contract tests for agent runtime session persistence.
 
 use sdkwork_agent_database::{
-    EventRepository, MessageRepository, MessageRow, PermissionRepository, PermissionRow,
-    PostgresDatabase, RuntimeSessionWrites, SessionRepository,
+    EventQuery, EventRepository, EventRow, MessageRepository, MessageRow, PermissionRepository,
+    PermissionRow, PostgresDatabase, RuntimeSessionWrites, SessionRepository, SessionRow,
 };
 
 fn runtime_postgres_uri() -> Option<String> {
@@ -11,6 +11,123 @@ fn runtime_postgres_uri() -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+#[test]
+fn live_postgres_conditional_session_sync_rejects_stale_snapshot_when_uri_configured() {
+    let Some(uri) = runtime_postgres_uri() else {
+        return;
+    };
+    let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
+    let session_id = format!("session.conditional.pg.{}", uuid_like_suffix());
+    let mut session = SessionRow {
+        session_id: session_id.clone(),
+        agent_id: "agent.runtime".to_string(),
+        kind: "main".to_string(),
+        source: "provider".to_string(),
+        state: "working".to_string(),
+        title: None,
+        model: None,
+        cwd: None,
+        provider_id: Some("hermes".to_string()),
+        bridge_id: None,
+        token_usage_json: None,
+        message_count: 0,
+        owner_tenant_id: None,
+        owner_user_ref: None,
+        created_at: "2026-07-15T00:00:00Z".to_string(),
+        updated_at: Some("2026-07-15T00:02:00Z".to_string()),
+        metadata_json: None,
+    };
+    assert!(db
+        .save_session_with_event_if_newer(
+            &session,
+            &EventRow {
+                event_id: format!("evt.newer.{session_id}"),
+                session_id: Some(session_id.clone()),
+                event_type: "session.synchronized".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:02:00Z".to_string(),
+            },
+        )
+        .expect("newer sync"));
+
+    session.message_count = 23;
+    session.owner_tenant_id = Some("tenant.updated".to_string());
+    session.owner_user_ref = Some("user.updated".to_string());
+    session.updated_at = Some("2026-07-15T00:03:00Z".to_string());
+    assert!(db
+        .save_session_with_event_if_newer(
+            &session,
+            &EventRow {
+                event_id: format!("evt.aggregate.{session_id}"),
+                session_id: Some(session_id.clone()),
+                event_type: "session.synchronized".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:03:00Z".to_string(),
+            },
+        )
+        .expect("aggregate update"));
+    let updated = db
+        .load_session(&session_id)
+        .expect("load updated")
+        .expect("updated session");
+    assert_eq!(updated.message_count, 23);
+    assert_eq!(updated.owner_tenant_id.as_deref(), Some("tenant.updated"));
+
+    let mut foreign = session.clone();
+    foreign.provider_id = Some("codex".to_string());
+    foreign.updated_at = Some("2026-07-15T00:04:00Z".to_string());
+    assert!(!db
+        .save_session_with_event_if_newer(
+            &foreign,
+            &EventRow {
+                event_id: format!("evt.foreign.{session_id}"),
+                session_id: Some(session_id.clone()),
+                event_type: "session.synchronized".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:04:00Z".to_string(),
+            },
+        )
+        .expect("provider conflict"));
+
+    session.state = "paused".to_string();
+    session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
+    let stale_event_id = format!("evt.stale.{session_id}");
+    assert!(!db
+        .save_session_with_event_if_newer(
+            &session,
+            &EventRow {
+                event_id: stale_event_id.clone(),
+                session_id: Some(session_id.clone()),
+                event_type: "session.synchronized".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:01:00Z".to_string(),
+            },
+        )
+        .expect("stale sync"));
+    assert_eq!(
+        db.load_session(&session_id)
+            .expect("load")
+            .expect("session")
+            .state,
+        "working"
+    );
+    assert!(db
+        .load_events(
+            &session_id,
+            &EventQuery {
+                limit: Some(20),
+                ..EventQuery::default()
+            },
+        )
+        .expect("events")
+        .iter()
+        .all(|event| event.event_id != stale_event_id));
 }
 
 #[test]
@@ -308,7 +425,11 @@ fn live_postgres_permissions_roundtrip_when_uri_configured() {
         .iter()
         .any(|row| row.permission_request_id == permission_id));
 
-    let _ = db.update_permission_status(&permission_id, "approved");
+    db.update_permission_status(&permission_id, "allow")
+        .expect("allow permission");
+    db.update_permission_status(&permission_id, "allow")
+        .expect("same decision is idempotent");
+    assert!(db.update_permission_status(&permission_id, "deny").is_err());
 }
 
 #[test]

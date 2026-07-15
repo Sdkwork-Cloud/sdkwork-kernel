@@ -15,7 +15,7 @@ use crate::{
     package::rig_package_manifest,
     provider::{
         RigKnowledgeProvider, RigMcpProvider, RigMemoryProvider, RigModelProvider,
-        RigPlanningProvider, RigPolicyProvider, RigToolProvider,
+        RigPlanningProvider, RigPolicyProvider,
     },
 };
 
@@ -33,7 +33,6 @@ pub fn rig_kernel_plugin_manifest() -> KernelPluginManifest {
         .with_source_reference("external/rig")
         .with_agent_id(ids::AGENT_ID)
         .with_provider_id(ids::MODEL_PROVIDER_ID)
-        .with_provider_id(ids::TOOL_PROVIDER_ID)
         .with_provider_id(ids::MCP_PROVIDER_ID)
         .with_provider_id(ids::MEMORY_PROVIDER_ID)
         .with_provider_id(ids::KNOWLEDGE_PROVIDER_ID)
@@ -46,7 +45,6 @@ pub fn rig_kernel_plugin_manifest() -> KernelPluginManifest {
         .with_supported_profile("runtime-local")
         .with_supported_profile("agent-installation")
         .with_supported_profile("provider-model")
-        .with_supported_profile("provider-tool")
         .with_supported_profile("provider-mcp")
         .with_supported_profile("provider-memory")
         .with_supported_profile("provider-knowledge")
@@ -56,7 +54,6 @@ pub fn rig_kernel_plugin_manifest() -> KernelPluginManifest {
 pub fn rig_provider_manifests() -> Vec<ProviderManifest> {
     vec![
         RigModelProvider::fail_closed().provider_manifest(),
-        RigToolProvider::fail_closed().provider_manifest(),
         RigMcpProvider::fail_closed().provider_manifest(),
         RigMemoryProvider::new().provider_manifest(),
         RigKnowledgeProvider::new().provider_manifest(),
@@ -122,11 +119,6 @@ impl SdkworkKernelPlugin for RigKernelPlugin {
                 ids::MODEL_PROVIDER_ID,
                 "0.1.0",
                 RigModelProvider::fail_closed(),
-            )
-            .register_tool_provider(
-                ids::TOOL_PROVIDER_ID,
-                "0.1.0",
-                RigToolProvider::fail_closed(),
             )
             .register_mcp_provider(ids::MCP_PROVIDER_ID, "0.1.0", RigMcpProvider::fail_closed())
             .register_memory_provider(ids::MEMORY_PROVIDER_ID, "0.1.0", RigMemoryProvider::new())

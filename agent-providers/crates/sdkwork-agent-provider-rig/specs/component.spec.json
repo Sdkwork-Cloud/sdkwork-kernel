@@ -66,14 +66,19 @@
       "rig_agent_manifest",
       "rig_provider_manifests",
       "rig_package_manifest",
-      "rig_kernel_plugin_manifest"
+      "rig_kernel_plugin_manifest",
+      "RigSdkIntegration::bootstrap",
+      "RigSessionAdapter",
+      "RigLifecycleProvider"
     ],
     "routeManifest": null,
     "sdkDependencies": [],
     "dependencyApiExports": [],
     "dependencyApiSurfaces": [],
     "sdkClients": [],
-    "events": [],
+    "events": [
+      "agent.session.*"
+    ],
     "configKeys": []
   },
   "verification": {

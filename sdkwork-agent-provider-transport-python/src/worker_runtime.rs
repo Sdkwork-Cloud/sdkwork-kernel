@@ -16,6 +16,8 @@ use std::time::Duration;
 
 const WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
 const HEALTH_WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(2);
+const DEFAULT_WORKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(300);
+const MAX_WORKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(3600);
 
 #[derive(Debug, Clone)]
 pub struct PythonWorkerLaunchOptions {
@@ -177,8 +179,7 @@ impl PythonSdkBackendRuntime {
                     .acquire_internal("health", HEALTH_WORKER_ACQUIRE_TIMEOUT)
                     .map_err(map_transport_error)?;
                 lease
-                    .transport()
-                    .call(SDKWORK_PING_METHOD, None)
+                    .call_with_timeout(SDKWORK_PING_METHOD, None, HEALTH_WORKER_ACQUIRE_TIMEOUT)
                     .map_err(map_transport_error)
             }
             PythonRuntimeBackend::Stub(transport) | PythonRuntimeBackend::FailClosed(transport) => {
@@ -200,8 +201,11 @@ impl PythonSdkBackendRuntime {
             PythonRuntimeBackend::Managed { pool } => {
                 let lease = Self::acquire_worker(pool, request)?;
                 lease
-                    .transport()
-                    .call(SDKWORK_CAPABILITY_INVOKE_METHOD, Some(params))
+                    .call_with_timeout(
+                        SDKWORK_CAPABILITY_INVOKE_METHOD,
+                        Some(params),
+                        worker_operation_timeout(request),
+                    )
                     .map_err(map_transport_error)
             }
             PythonRuntimeBackend::Stub(_) | PythonRuntimeBackend::FailClosed(_) => self
@@ -226,10 +230,10 @@ impl PythonSdkBackendRuntime {
             PythonRuntimeBackend::Managed { pool } => {
                 let lease = Self::acquire_worker(pool, request)?;
                 lease
-                    .transport()
-                    .call_streaming(
+                    .call_streaming_with_timeout(
                         SDKWORK_CAPABILITY_INVOKE_METHOD,
                         Some(params),
+                        worker_operation_timeout(request),
                         &mut |frame| {
                             sink(frame).map_err(|error| TransportError::new(error.message))
                         },
@@ -321,6 +325,18 @@ impl SdkBackendRuntime for PythonSdkBackendRuntime {
             PythonRuntimeBackend::Stub(_) | PythonRuntimeBackend::FailClosed(_) => Ok(false),
         }
     }
+}
+
+fn worker_operation_timeout(request: &SdkRuntimeRequest) -> Duration {
+    let timeout_ms = match &request.operation {
+        SdkRuntimeOperation::ModelChat { timeout_ms, .. }
+        | SdkRuntimeOperation::ModelChatStream { timeout_ms, .. } => *timeout_ms,
+        _ => None,
+    };
+    timeout_ms
+        .map(Duration::from_millis)
+        .unwrap_or(DEFAULT_WORKER_OPERATION_TIMEOUT)
+        .clamp(Duration::from_millis(1), MAX_WORKER_OPERATION_TIMEOUT)
 }
 
 fn spawn_worker(options: &PythonWorkerLaunchOptions) -> Result<SpawnedWorker, TransportError> {

@@ -2,8 +2,9 @@
 
 Complete SDKWork plugin implementation boundary for Rig.
 
-The executable `AgentDefinition` binds Rig model, tool, memory, knowledge,
-planning, policy, MCP, lifecycle, and protocol-adapter providers explicitly.
+The executable `AgentDefinition` binds Rig model, memory, knowledge, planning,
+policy, MCP, lifecycle, and protocol-adapter providers explicitly. Tool activity
+is observed inside model execution and is not exposed as a standalone provider.
 Knowledge and MCP are optional bindings; missing optional capabilities degrade
 runtime negotiation instead of blocking agents that do not require them.
 

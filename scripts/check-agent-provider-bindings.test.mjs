@@ -108,6 +108,22 @@ test('OpenCode binding uses the typed SDK package as the official SDK source', (
   );
 });
 
+test('agent-internal tools are not declared as independently invocable SDK capabilities', () => {
+  for (const provider of ['codex', 'claude-code', 'opencode', 'openclaw', 'hermes']) {
+    const manifestPath = path.join(
+      root,
+      'bindings',
+      'agent-providers',
+      provider,
+      'provider-binding.manifest.json'
+    );
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const capabilityIds = manifest.capabilities.map((capability) => capability.capability_id);
+    assert.ok(!capabilityIds.includes('sdk.tool.invoke'), `${provider} must not claim sdk.tool.invoke`);
+    assert.ok(!capabilityIds.includes('sdk.skill.invoke'), `${provider} must not claim sdk.skill.invoke`);
+  }
+});
+
 test('OpenCode binding must not reuse the OpenClaw gateway OpenAPI authority', () => {
   const manifestPath = path.join(
     root,

@@ -2,7 +2,7 @@
   "schema_version": "0.1.0",
   "manifest_type": "agent_provider_binding",
   "binding_id": "binding.agent-provider.rig",
-  "agent_id": "agent.intelligence.rig",
+  "agent_id": "agent.intelligence.rig-general",
   "display_name": "Rig",
   "description": "Rig agent framework integration via source tree and Rust crate providers.",
   "version": "0.1.0",
@@ -25,6 +25,19 @@
   ],
   "capabilities": [
     {
+      "capability_id": "sdk.session.lifecycle",
+      "required": true,
+      "execution_scope": "provider_local",
+      "backends": [
+        {
+          "kind": "rust_native",
+          "driver_id": "driver.rig.session.lifecycle.rust",
+          "runtime_operations": ["ping"],
+          "crate": "sdkwork-agent-provider-rig"
+        }
+      ]
+    },
+    {
       "capability_id": "sdk.model.chat",
       "required": true,
       "execution_scope": "transport_runtime",
@@ -32,20 +45,7 @@
         {
           "kind": "rust_native",
           "driver_id": "driver.rig.model.chat.rust",
-          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
-          "crate": "rig-core"
-        }
-      ]
-    },
-    {
-      "capability_id": "sdk.tool.invoke",
-      "required": true,
-      "execution_scope": "transport_runtime",
-      "backends": [
-        {
-          "kind": "rust_native",
-          "driver_id": "driver.rig.tool.invoke.rust",
-          "runtime_operations": ["ping", "tool_invoke"],
+          "runtime_operations": ["ping", "model_chat"],
           "crate": "rig-core"
         }
       ]

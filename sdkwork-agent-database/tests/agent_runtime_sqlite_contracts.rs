@@ -11,6 +11,120 @@ fn migrated_sqlite() -> SqliteDatabase {
     SqliteDatabase::memory_migrated().expect("sqlite")
 }
 
+#[test]
+fn sqlite_conditional_session_sync_rejects_stale_snapshot_and_event() {
+    let db = migrated_sqlite();
+    let mut session = scoped_session("session.conditional.sqlite", "tenant.1", "user.1");
+    session.provider_id = Some("opencode".to_string());
+    session.state = "working".to_string();
+    session.updated_at = Some("2026-07-15T00:02:00Z".to_string());
+    assert!(db
+        .save_session_with_event_if_newer(
+            &session,
+            &EventRow {
+                event_id: "evt.sqlite.newer".to_string(),
+                session_id: Some(session.session_id.clone()),
+                event_type: "session.synchronized".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:02:00Z".to_string(),
+            },
+        )
+        .expect("newer sync"));
+
+    session.message_count = 17;
+    session.owner_tenant_id = Some("tenant.updated".to_string());
+    session.owner_user_ref = Some("user.updated".to_string());
+    session.updated_at = Some("2026-07-15T00:03:00Z".to_string());
+    assert!(db
+        .save_session_with_event_if_newer(
+            &session,
+            &EventRow {
+                event_id: "evt.sqlite.aggregate-update".to_string(),
+                session_id: Some(session.session_id.clone()),
+                event_type: "session.synchronized".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:03:00Z".to_string(),
+            },
+        )
+        .expect("aggregate update"));
+    let updated = db
+        .load_session(&session.session_id)
+        .expect("load updated")
+        .expect("updated session");
+    assert_eq!(updated.message_count, 17);
+    assert_eq!(updated.owner_tenant_id.as_deref(), Some("tenant.updated"));
+
+    let mut foreign = session.clone();
+    foreign.provider_id = Some("codex".to_string());
+    foreign.updated_at = Some("2026-07-15T00:04:00Z".to_string());
+    assert!(!db
+        .save_session_with_event_if_newer(
+            &foreign,
+            &EventRow {
+                event_id: "evt.sqlite.foreign-provider".to_string(),
+                session_id: Some(session.session_id.clone()),
+                event_type: "session.synchronized".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:04:00Z".to_string(),
+            },
+        )
+        .expect("provider conflict"));
+
+    session.state = "paused".to_string();
+    session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
+    assert!(!db
+        .save_session_with_event_if_newer(
+            &session,
+            &EventRow {
+                event_id: "evt.sqlite.stale".to_string(),
+                session_id: Some(session.session_id.clone()),
+                event_type: "session.synchronized".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:01:00Z".to_string(),
+            },
+        )
+        .expect("stale sync"));
+    session.state = "failed".to_string();
+    session.updated_at = Some("2026-07-15T08:01:00+08:00".to_string());
+    assert!(!db
+        .save_session_with_event_if_newer(
+            &session,
+            &EventRow {
+                event_id: "evt.sqlite.offset-stale".to_string(),
+                session_id: Some(session.session_id.clone()),
+                event_type: "session.synchronized".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T01:00:00Z".to_string(),
+            },
+        )
+        .expect("offset stale sync"));
+    assert_eq!(
+        db.load_session(&session.session_id)
+            .expect("load")
+            .expect("session")
+            .state,
+        "working"
+    );
+    assert!(db
+        .load_events(
+            &session.session_id,
+            &EventQuery {
+                limit: Some(20),
+                ..EventQuery::default()
+            },
+        )
+        .expect("events")
+        .iter()
+        .all(|event| {
+            event.event_id != "evt.sqlite.stale" && event.event_id != "evt.sqlite.offset-stale"
+        }));
+}
+
 fn scoped_session(session_id: &str, tenant: &str, user: &str) -> SessionRow {
     SessionRow {
         session_id: session_id.to_string(),
@@ -31,6 +145,42 @@ fn scoped_session(session_id: &str, tenant: &str, user: &str) -> SessionRow {
         updated_at: None,
         metadata_json: None,
     }
+}
+
+#[test]
+fn sqlite_permission_decision_transition_is_atomic_and_idempotent() {
+    let db = migrated_sqlite();
+    let permission_id = "permission.contract.transition";
+    db.save_permission(&PermissionRow {
+        permission_request_id: permission_id.to_string(),
+        session_id: None,
+        category: "host.filesystem.write".to_string(),
+        resource: "/workspace/file".to_string(),
+        side_effect_level: "side_effectful".to_string(),
+        reason: "contract".to_string(),
+        status: "pending".to_string(),
+        owner_tenant_id: Some("tenant.contract".to_string()),
+        owner_user_ref: Some("user.contract".to_string()),
+        created_at: "2026-06-23T00:00:00Z".to_string(),
+        updated_at: None,
+    })
+    .expect("save permission");
+
+    db.update_permission_status(permission_id, "allow")
+        .expect("allow permission");
+    db.update_permission_status(permission_id, "allow")
+        .expect("same decision is idempotent");
+    assert!(db.update_permission_status(permission_id, "deny").is_err());
+    assert!(db
+        .update_permission_status(permission_id, "approved")
+        .is_err());
+    assert_eq!(
+        db.load_permission(permission_id)
+            .expect("load")
+            .expect("permission")
+            .status,
+        "allow"
+    );
 }
 
 #[test]
@@ -458,29 +608,53 @@ fn sqlite_update_session_preserves_messages() {
         bridge_id: None,
         token_usage_json: None,
         message_count: 0,
-        owner_tenant_id: None,
-        owner_user_ref: None,
+        owner_tenant_id: Some("tenant.original".to_string()),
+        owner_user_ref: Some("user.original".to_string()),
         created_at: "2026-06-23T00:00:00Z".to_string(),
         updated_at: None,
         metadata_json: None,
     })
     .expect("save session");
 
-    db.save_message(&MessageRow {
-        message_id: "msg.preserve.1".to_string(),
-        session_id: session_id.clone(),
-        role: "user".to_string(),
-        content: "must survive session update".to_string(),
-        created_at: "2026-06-23T00:00:01Z".to_string(),
-        metadata_json: None,
-    })
-    .expect("save message");
+    let mut stale_session = db.load_session(&session_id).expect("load").expect("found");
+    db.append_message_with_event(
+        &MessageRow {
+            message_id: "msg.preserve.1".to_string(),
+            session_id: session_id.clone(),
+            role: "user".to_string(),
+            content: "must survive session update".to_string(),
+            created_at: "2026-06-23T00:00:01Z".to_string(),
+            metadata_json: None,
+        },
+        &EventRow {
+            event_id: "evt.preserve.1".to_string(),
+            session_id: Some(session_id.clone()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: None,
+            created_at: "2026-06-23T00:00:01Z".to_string(),
+        },
+    )
+    .expect("append message");
 
-    let mut session = db.load_session(&session_id).expect("load").expect("found");
-    session.state = "closed".to_string();
-    session.message_count = 1;
-    session.updated_at = Some("2026-06-23T00:00:02Z".to_string());
-    db.update_session(&session).expect("update session");
+    stale_session.state = "closed".to_string();
+    stale_session.owner_tenant_id = Some("tenant.overwrite".to_string());
+    stale_session.owner_user_ref = Some("user.overwrite".to_string());
+    stale_session.created_at = "2030-01-01T00:00:00Z".to_string();
+    stale_session.updated_at = Some("2026-06-23T00:00:02Z".to_string());
+    db.update_session(&stale_session).expect("update session");
+    db.save_session_with_event(
+        &stale_session,
+        &EventRow {
+            event_id: "evt.session.preserve".to_string(),
+            session_id: Some(session_id.clone()),
+            event_type: "session.closed".to_string(),
+            severity: "info".to_string(),
+            payload: None,
+            created_at: "2026-06-23T00:00:02Z".to_string(),
+        },
+    )
+    .expect("transactional session update");
 
     let messages = db
         .load_messages(
@@ -490,6 +664,11 @@ fn sqlite_update_session_preserves_messages() {
         .expect("messages");
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].message_id, "msg.preserve.1");
+    let updated = db.load_session(&session_id).expect("load").expect("found");
+    assert_eq!(updated.message_count, 1);
+    assert_eq!(updated.owner_tenant_id.as_deref(), Some("tenant.original"));
+    assert_eq!(updated.owner_user_ref.as_deref(), Some("user.original"));
+    assert_eq!(updated.created_at, "2026-06-23T00:00:00Z");
 
     db.delete_session_cascade(&session_id).expect("cascade");
 }
@@ -1023,6 +1202,73 @@ fn sqlite_session_and_task_event_writes_roll_back_together() {
     };
     assert!(db.save_task_with_event(&task, &invalid_event).is_err());
     assert!(db.load_task(&task.task_id).expect("task lookup").is_none());
+}
+
+#[test]
+fn sqlite_task_cancellation_is_atomic_idempotent_and_state_checked() {
+    let db = migrated_sqlite();
+    let session = scoped_session("session.task.cancel", "tenant.a", "user.a");
+    db.save_session(&session).expect("parent session");
+    let task = sdkwork_agent_database::TaskRow {
+        task_id: "task.cancel.atomic".to_string(),
+        session_id: session.session_id.clone(),
+        instruction: "cancel atomically".to_string(),
+        state: "running".to_string(),
+        created_at: "2026-06-23T00:00:01Z".to_string(),
+        updated_at: None,
+    };
+    db.save_task(&task).expect("task");
+    let first_event = EventRow {
+        event_id: "evt.task.cancel.first".to_string(),
+        session_id: Some(session.session_id.clone()),
+        event_type: "task.cancelled".to_string(),
+        severity: "info".to_string(),
+        payload: Some(task.task_id.clone()),
+        created_at: "2026-06-23T00:00:02Z".to_string(),
+    };
+    let (cancelled, changed) = db
+        .cancel_task_with_event(&task.task_id, "2026-06-23T00:00:02Z", &first_event)
+        .expect("cancel task");
+    assert!(changed);
+    assert_eq!(cancelled.state, "cancelled");
+
+    let retry_event = EventRow {
+        event_id: "evt.task.cancel.retry".to_string(),
+        ..first_event.clone()
+    };
+    let (_, changed) = db
+        .cancel_task_with_event(&task.task_id, "2026-06-23T00:00:03Z", &retry_event)
+        .expect("idempotent retry");
+    assert!(!changed);
+    let events = db
+        .load_events(
+            &session.session_id,
+            &EventQuery {
+                event_type: Some("task.cancelled".to_string()),
+                limit: Some(20),
+                ..Default::default()
+            },
+        )
+        .expect("events");
+    assert_eq!(events.len(), 1);
+
+    let completed = sdkwork_agent_database::TaskRow {
+        task_id: "task.cancel.completed".to_string(),
+        state: "completed".to_string(),
+        ..task
+    };
+    db.save_task(&completed).expect("completed task");
+    assert!(db
+        .cancel_task_with_event(
+            &completed.task_id,
+            "2026-06-23T00:00:04Z",
+            &EventRow {
+                event_id: "evt.task.cancel.completed".to_string(),
+                payload: Some(completed.task_id.clone()),
+                ..first_event
+            },
+        )
+        .is_err());
 }
 
 #[test]

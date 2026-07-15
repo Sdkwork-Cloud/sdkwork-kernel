@@ -10,7 +10,13 @@ path = "src/lib.rs"
 [dependencies]
 sdkwork-agent-kernel.workspace = true
 sdkwork-agent-plugin-core.workspace = true
+sdkwork-agent-provider-core.workspace = true
+sdkwork-agent-provider-spi.workspace = true
+sdkwork-agent-provider-transport-core.workspace = true
+sdkwork-agent-provider-transport-rust.workspace = true
+rig-core = { version = "0.40.0", optional = true, default-features = false, features = ["reqwest", "rustls"] }
+tokio = { version = "1", optional = true, features = ["rt-multi-thread"] }
 
 [features]
 default = []
-rig-core-adapter = []
+rig-core-adapter = ["dep:rig-core", "dep:tokio"]

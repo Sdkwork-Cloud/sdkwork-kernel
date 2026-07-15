@@ -61,6 +61,50 @@ fn map_event_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<EventRow> {
     })
 }
 
+async fn postgres_save_event_idempotent<'e, E>(
+    executor: E,
+    event: &EventRow,
+) -> DatabaseResult<()>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let accepted = sqlx::query_scalar::<_, bool>(
+        "WITH inserted AS (
+            INSERT INTO events (
+                event_id, session_id, event_type, severity, payload, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (event_id) DO NOTHING
+            RETURNING event_id
+        )
+        SELECT EXISTS(SELECT 1 FROM inserted)
+            OR EXISTS(
+                SELECT 1 FROM events
+                WHERE event_id = $1
+                  AND session_id IS NOT DISTINCT FROM $2
+                  AND event_type = $3
+                  AND severity = $4
+                  AND payload IS NOT DISTINCT FROM $5
+                  AND created_at = $6
+            )",
+    )
+    .bind(&event.event_id)
+    .bind(&event.session_id)
+    .bind(&event.event_type)
+    .bind(&event.severity)
+    .bind(&event.payload)
+    .bind(&event.created_at)
+    .fetch_one(executor)
+    .await
+    .map_err(map_sqlx_error)?;
+    if !accepted {
+        return Err(DatabaseError::ConstraintViolation(format!(
+            "event {} already exists with different identity or payload",
+            event.event_id
+        )));
+    }
+    Ok(())
+}
+
 fn map_sqlx_error(error: sqlx::Error) -> DatabaseError {
     DatabaseError::Query(error.to_string())
 }
@@ -833,28 +877,8 @@ impl EventRepository for PostgresDatabase {
     fn save_event(&self, event: &EventRow) -> DatabaseResult<()> {
         let pool = self.pool.pool().clone();
         let event = event.clone();
-        self.pool.run_db(async move {
-            sqlx::query(
-                "INSERT INTO events (
-                    event_id, session_id, event_type, severity, payload, created_at
-                ) VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (event_id) DO UPDATE SET
-                    session_id = EXCLUDED.session_id,
-                    event_type = EXCLUDED.event_type,
-                    severity = EXCLUDED.severity,
-                    payload = EXCLUDED.payload,
-                    created_at = EXCLUDED.created_at",
-            )
-            .bind(&event.event_id)
-            .bind(&event.session_id)
-            .bind(&event.event_type)
-            .bind(&event.severity)
-            .bind(&event.payload)
-            .bind(&event.created_at)
-            .execute(&pool)
-            .await?;
-            Ok(())
-        })
+        self.pool
+            .run_db(async move { postgres_save_event_idempotent(&pool, &event).await })
     }
 
     fn load_events(&self, session_id: &str, query: &EventQuery) -> DatabaseResult<Vec<EventRow>> {

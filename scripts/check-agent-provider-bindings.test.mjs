@@ -5,11 +5,65 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
-import { collectManifestValidationErrors } from './check-agent-provider-bindings.mjs';
+import {
+  collectManifestValidationErrors
+} from './check-agent-provider-bindings.mjs';
+import {
+  isWindowsCargoFilesystemRace,
+  shouldRetryWindowsCargoCommand,
+  WINDOWS_CARGO_FILESYSTEM_MAX_ATTEMPTS
+} from './lib/windows-cargo-filesystem-retry.mjs';
 import { migrateManifest } from './migrate-provider-binding-manifests.mjs';
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(scriptDir, '..');
+
+test('Windows Cargo filesystem retry classification is narrow', () => {
+  assert.equal(
+    isWindowsCargoFilesystemRace(
+      'error: failed to link or copy build.exe to build-script-build.exe (os error 5)',
+      'win32'
+    ),
+    true
+  );
+  assert.equal(
+    isWindowsCargoFilesystemRace(
+      'error: failed to move dependency graph dep-graph.part.bin (os error 5)',
+      'win32'
+    ),
+    true
+  );
+  assert.equal(
+    isWindowsCargoFilesystemRace('assertion failed (os error 5)', 'win32'),
+    false
+  );
+  assert.equal(
+    isWindowsCargoFilesystemRace(
+      'error: failed to link or copy build.exe (os error 5)',
+      'linux'
+    ),
+    false
+  );
+  const transientFailure =
+    'error: failed to link or copy build.exe to build-script-build.exe (os error 5)';
+  assert.equal(
+    shouldRetryWindowsCargoCommand('cargo', transientFailure, 1, 'win32'),
+    true
+  );
+  assert.equal(
+    shouldRetryWindowsCargoCommand(
+      'cargo',
+      transientFailure,
+      WINDOWS_CARGO_FILESYSTEM_MAX_ATTEMPTS,
+      'win32'
+    ),
+    false
+  );
+  assert.equal(
+    shouldRetryWindowsCargoCommand('node', transientFailure, 1, 'win32'),
+    false
+  );
+});
 
 test('binding schema exposes runtime operations as a reusable top-level definition', () => {
   const schemaPath = path.join(

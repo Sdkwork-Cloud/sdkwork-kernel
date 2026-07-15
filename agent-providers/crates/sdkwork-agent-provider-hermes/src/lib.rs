@@ -1,10 +1,11 @@
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
-    ModelStreamChunk, ProviderHealth, ProviderManifest, SessionKind, SessionSource, SessionState,
+    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult, ModelDescriptor,
+    ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStreamChunk,
+    ProviderHealth, ProviderManifest, SessionKind, SessionSource, SessionState,
 };
 use sdkwork_agent_provider_core::{
-    create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
+    create_session_from_config, finalize_provider_session_snapshot, uuid_simple, MessageAdapter,
+    SessionAdapter, SessionConfig,
 };
 
 #[cfg(test)]
@@ -133,9 +134,10 @@ impl SessionAdapter for HermesAdapter {
         session.parent_session_id = external.parent_session_id.clone();
         session.token_usage.input_tokens = external.input_tokens;
         session.token_usage.output_tokens = external.output_tokens;
-        session.token_usage.total_tokens = external.input_tokens + external.output_tokens;
+        session.token_usage.total_tokens =
+            external.input_tokens.saturating_add(external.output_tokens);
 
-        Ok(session)
+        finalize_provider_session_snapshot("hermes", session)
     }
 }
 

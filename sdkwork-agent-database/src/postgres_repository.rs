@@ -275,7 +275,7 @@ impl SessionRepository for PostgresDatabase {
         let pool = self.pool.pool().clone();
         let session = session.clone();
         self.pool.run_db(async move {
-            sqlx::query(
+            let result = sqlx::query(
                 "INSERT INTO sessions (
                     session_id, agent_id, kind, source, state, title, model, cwd,
                     provider_id, bridge_id, token_usage_json, message_count,
@@ -294,7 +294,12 @@ impl SessionRepository for PostgresDatabase {
                     bridge_id = EXCLUDED.bridge_id,
                     token_usage_json = EXCLUDED.token_usage_json,
                     updated_at = EXCLUDED.updated_at,
-                    metadata_json = EXCLUDED.metadata_json",
+                    metadata_json = EXCLUDED.metadata_json
+                WHERE sessions.provider_id IS NOT DISTINCT FROM EXCLUDED.provider_id
+                  AND (
+                    LOWER(sessions.state) NOT IN ('closed', 'failed', 'archived')
+                    OR LOWER(EXCLUDED.state) IN ('closed', 'failed', 'archived')
+                  )",
             )
             .bind(&session.session_id)
             .bind(&session.agent_id)
@@ -315,6 +320,12 @@ impl SessionRepository for PostgresDatabase {
             .bind(&session.metadata_json)
             .execute(&pool)
             .await?;
+            if result.rows_affected() == 0 {
+                return Err(DatabaseError::ConstraintViolation(format!(
+                    "session {} update conflicts with provider ownership or terminal lifecycle",
+                    session.session_id
+                )));
+            }
             Ok(())
         })
     }
@@ -442,7 +453,12 @@ impl SessionRepository for PostgresDatabase {
                     title = $6, model = $7, cwd = $8, provider_id = $9,
                     bridge_id = $10, token_usage_json = $11, updated_at = $12,
                     metadata_json = $13
-                 WHERE session_id = $1",
+                 WHERE session_id = $1
+                   AND provider_id IS NOT DISTINCT FROM $9
+                   AND (
+                     LOWER(state) NOT IN ('closed', 'failed', 'archived')
+                     OR LOWER($5) IN ('closed', 'failed', 'archived')
+                   )",
             )
             .bind(&session.session_id)
             .bind(&session.agent_id)
@@ -460,10 +476,23 @@ impl SessionRepository for PostgresDatabase {
             .execute(&pool)
             .await?;
             if result.rows_affected() != 1 {
-                return Err(DatabaseError::NotFound(format!(
-                    "session not found: {}",
-                    session.session_id
-                )));
+                let exists: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM sessions WHERE session_id = $1)",
+                )
+                .bind(&session.session_id)
+                .fetch_one(&pool)
+                .await?;
+                return if exists {
+                    Err(DatabaseError::ConstraintViolation(format!(
+                        "session {} update conflicts with provider ownership or terminal lifecycle",
+                        session.session_id
+                    )))
+                } else {
+                    Err(DatabaseError::NotFound(format!(
+                        "session not found: {}",
+                        session.session_id
+                    )))
+                };
             }
             Ok(())
         })
@@ -1142,7 +1171,7 @@ impl RuntimeSessionWrites for PostgresDatabase {
         let event = event.clone();
         self.pool.run_db(async move {
             let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
-            sqlx::query(
+            let result = sqlx::query(
                 "INSERT INTO sessions (
                     session_id, agent_id, kind, source, state, title, model, cwd,
                     provider_id, bridge_id, token_usage_json, message_count,
@@ -1161,7 +1190,12 @@ impl RuntimeSessionWrites for PostgresDatabase {
                     bridge_id = EXCLUDED.bridge_id,
                     token_usage_json = EXCLUDED.token_usage_json,
                     updated_at = EXCLUDED.updated_at,
-                    metadata_json = EXCLUDED.metadata_json",
+                    metadata_json = EXCLUDED.metadata_json
+                WHERE sessions.provider_id IS NOT DISTINCT FROM EXCLUDED.provider_id
+                  AND (
+                    LOWER(sessions.state) NOT IN ('closed', 'failed', 'archived')
+                    OR LOWER(EXCLUDED.state) IN ('closed', 'failed', 'archived')
+                  )",
             )
             .bind(&session.session_id)
             .bind(&session.agent_id)
@@ -1182,6 +1216,12 @@ impl RuntimeSessionWrites for PostgresDatabase {
             .bind(&session.metadata_json)
             .execute(&mut *tx)
             .await?;
+            if result.rows_affected() == 0 {
+                return Err(DatabaseError::ConstraintViolation(format!(
+                    "session {} update conflicts with provider ownership or terminal lifecycle",
+                    session.session_id
+                )));
+            }
             sqlx::query(
                 "INSERT INTO events (
                     event_id, session_id, event_type, severity, payload, created_at
@@ -1246,6 +1286,10 @@ impl RuntimeSessionWrites for PostgresDatabase {
                       OR sessions.provider_id = EXCLUDED.provider_id
                   )
                   AND (
+                      LOWER(sessions.state) NOT IN ('closed', 'failed', 'archived')
+                      OR LOWER(EXCLUDED.state) IN ('closed', 'failed', 'archived')
+                  )
+                  AND (
                       sessions.updated_at IS NULL
                       OR EXCLUDED.updated_at::timestamptz >= sessions.updated_at::timestamptz
                   )",
@@ -1307,6 +1351,21 @@ impl RuntimeSessionWrites for PostgresDatabase {
         let event = event.clone();
         self.pool.run_db(async move {
             let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            let session_state = sqlx::query_scalar::<_, String>(
+                "SELECT state FROM sessions WHERE session_id = $1 FOR UPDATE",
+            )
+            .bind(&message.session_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| {
+                DatabaseError::NotFound(format!("session not found: {}", message.session_id))
+            })?;
+            if crate::types::session_state_is_terminal(&session_state) {
+                return Err(DatabaseError::ConstraintViolation(format!(
+                    "session {} is terminal ({session_state})",
+                    message.session_id
+                )));
+            }
             let insert_result = sqlx::query(
                 "INSERT INTO messages (
                     message_id, session_id, role, content, created_at, metadata_json

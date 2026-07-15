@@ -3,9 +3,8 @@ use crate::{
 };
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
-    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
-    SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter, OPENCODE_BINDING_ID,
-    SDK_CAPABILITY_MODEL_CHAT,
+    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider, SdkRuntimeRequest,
+    SdkRuntimeResponse, SdkRuntimeRouter, OPENCODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,

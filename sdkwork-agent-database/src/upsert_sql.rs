@@ -22,7 +22,12 @@ pub mod sqlite {
                 bridge_id = excluded.bridge_id,
                 token_usage_json = excluded.token_usage_json,
                 updated_at = excluded.updated_at,
-                metadata_json = excluded.metadata_json";
+                metadata_json = excluded.metadata_json
+            WHERE sessions.provider_id IS excluded.provider_id
+              AND (
+                LOWER(sessions.state) NOT IN ('closed', 'failed', 'archived')
+                OR LOWER(excluded.state) IN ('closed', 'failed', 'archived')
+              )";
 
     /// Provider snapshots own the aggregate counters and scoped owner fields;
     /// the caller has already merged them with newer local runtime values.

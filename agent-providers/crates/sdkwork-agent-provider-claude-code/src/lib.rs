@@ -1,16 +1,17 @@
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
-    ModelStreamChunk, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
+    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult, ModelDescriptor,
+    ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStreamChunk,
+    ProviderHealth, ProviderManifest, SessionKind, SessionSource,
 };
 use sdkwork_agent_provider_core::{
-    create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
+    create_session_from_config, finalize_provider_session_snapshot, uuid_simple, MessageAdapter,
+    SessionAdapter, SessionConfig,
 };
 
 #[cfg(test)]
-use sdkwork_agent_kernel::SessionState;
-#[cfg(test)]
 use sdkwork_agent_kernel::KernelError;
+#[cfg(test)]
+use sdkwork_agent_kernel::SessionState;
 #[cfg(test)]
 use sdkwork_agent_provider_core::{
     ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
@@ -123,7 +124,7 @@ impl SessionAdapter for ClaudeCodeAdapter {
         let mut session = session;
         session.updated_at = external.updated_at.clone();
 
-        Ok(session)
+        finalize_provider_session_snapshot("claude-code", session)
     }
 }
 

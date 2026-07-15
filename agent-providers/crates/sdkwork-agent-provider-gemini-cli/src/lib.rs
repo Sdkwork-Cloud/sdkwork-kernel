@@ -5,7 +5,8 @@ use sdkwork_agent_kernel::{
     SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
 use sdkwork_agent_provider_core::{
-    create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
+    create_session_from_config, finalize_provider_session_snapshot, uuid_simple, MessageAdapter,
+    SessionAdapter, SessionConfig,
 };
 
 // ============================================================================
@@ -112,10 +113,10 @@ impl SessionAdapter for GeminiCliAdapter {
         );
 
         session.updated_at = external.last_updated.clone();
-        session.message_count = external.messages.len() as u32;
+        session.message_count = u32::try_from(external.messages.len()).unwrap_or(u32::MAX);
         session.summary = external.summary.clone();
 
-        Ok(session)
+        finalize_provider_session_snapshot("gemini-cli", session)
     }
 }
 

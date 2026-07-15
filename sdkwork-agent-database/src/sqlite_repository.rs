@@ -352,29 +352,36 @@ impl SessionRepository for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        conn.execute(
-            crate::upsert_sql::sqlite::SAVE_SESSION,
-            params![
-                session.session_id,
-                session.agent_id,
-                session.kind,
-                session.source,
-                session.state,
-                session.title,
-                session.model,
-                session.cwd,
-                session.provider_id,
-                session.bridge_id,
-                session.token_usage_json,
-                session.message_count,
-                session.owner_tenant_id,
-                session.owner_user_ref,
-                session.created_at,
-                session.updated_at,
-                session.metadata_json,
-            ],
-        )
-        .map_err(|error| DatabaseError::Query(format!("failed to save session: {error}")))?;
+        let changed = conn
+            .execute(
+                crate::upsert_sql::sqlite::SAVE_SESSION,
+                params![
+                    session.session_id,
+                    session.agent_id,
+                    session.kind,
+                    session.source,
+                    session.state,
+                    session.title,
+                    session.model,
+                    session.cwd,
+                    session.provider_id,
+                    session.bridge_id,
+                    session.token_usage_json,
+                    session.message_count,
+                    session.owner_tenant_id,
+                    session.owner_user_ref,
+                    session.created_at,
+                    session.updated_at,
+                    session.metadata_json,
+                ],
+            )
+            .map_err(|error| DatabaseError::Query(format!("failed to save session: {error}")))?;
+        if changed == 0 {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "session {} update conflicts with provider ownership or terminal lifecycle",
+                session.session_id
+            )));
+        }
         Ok(())
     }
 
@@ -512,7 +519,12 @@ impl SessionRepository for SqliteDatabase {
                     title = ?6, model = ?7, cwd = ?8, provider_id = ?9,
                     bridge_id = ?10, token_usage_json = ?11, updated_at = ?12,
                     metadata_json = ?13
-                 WHERE session_id = ?1",
+                 WHERE session_id = ?1
+                   AND provider_id IS ?9
+                   AND (
+                     LOWER(state) NOT IN ('closed', 'failed', 'archived')
+                     OR LOWER(?5) IN ('closed', 'failed', 'archived')
+                   )",
                 params![
                     session.session_id,
                     session.agent_id,
@@ -531,10 +543,26 @@ impl SessionRepository for SqliteDatabase {
             )
             .map_err(|error| DatabaseError::Query(format!("failed to update session: {error}")))?;
         if changed != 1 {
-            return Err(DatabaseError::NotFound(format!(
-                "session not found: {}",
-                session.session_id
-            )));
+            let exists: bool = conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sessions WHERE session_id = ?1)",
+                    params![session.session_id],
+                    |row| row.get(0),
+                )
+                .map_err(|error| {
+                    DatabaseError::Query(format!("failed to check session existence: {error}"))
+                })?;
+            return if exists {
+                Err(DatabaseError::ConstraintViolation(format!(
+                    "session {} update conflicts with provider ownership or terminal lifecycle",
+                    session.session_id
+                )))
+            } else {
+                Err(DatabaseError::NotFound(format!(
+                    "session not found: {}",
+                    session.session_id
+                )))
+            };
         }
         Ok(())
     }
@@ -1255,29 +1283,36 @@ impl RuntimeSessionWrites for SqliteDatabase {
         let tx = conn.unchecked_transaction().map_err(|error| {
             DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
         })?;
-        tx.execute(
-            crate::upsert_sql::sqlite::SAVE_SESSION,
-            params![
-                session.session_id,
-                session.agent_id,
-                session.kind,
-                session.source,
-                session.state,
-                session.title,
-                session.model,
-                session.cwd,
-                session.provider_id,
-                session.bridge_id,
-                session.token_usage_json,
-                session.message_count,
-                session.owner_tenant_id,
-                session.owner_user_ref,
-                session.created_at,
-                session.updated_at,
-                session.metadata_json,
-            ],
-        )
-        .map_err(|error| DatabaseError::Query(format!("failed to save session: {error}")))?;
+        let changed = tx
+            .execute(
+                crate::upsert_sql::sqlite::SAVE_SESSION,
+                params![
+                    session.session_id,
+                    session.agent_id,
+                    session.kind,
+                    session.source,
+                    session.state,
+                    session.title,
+                    session.model,
+                    session.cwd,
+                    session.provider_id,
+                    session.bridge_id,
+                    session.token_usage_json,
+                    session.message_count,
+                    session.owner_tenant_id,
+                    session.owner_user_ref,
+                    session.created_at,
+                    session.updated_at,
+                    session.metadata_json,
+                ],
+            )
+            .map_err(|error| DatabaseError::Query(format!("failed to save session: {error}")))?;
+        if changed == 0 {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "session {} update conflicts with provider ownership or terminal lifecycle",
+                session.session_id
+            )));
+        }
         tx.execute(
             crate::upsert_sql::sqlite::SAVE_EVENT,
             params![
@@ -1308,11 +1343,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
             Transaction::new_unchecked(&conn, TransactionBehavior::Immediate).map_err(|error| {
                 DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
             })?;
-        let existing: Option<(Option<String>, Option<String>)> = tx
+        let existing: Option<(Option<String>, String, Option<String>)> = tx
             .query_row(
-                "SELECT provider_id, updated_at FROM sessions WHERE session_id = ?1",
+                "SELECT provider_id, state, updated_at FROM sessions WHERE session_id = ?1",
                 params![session.session_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()
             .map_err(|error| {
@@ -1320,17 +1355,23 @@ impl RuntimeSessionWrites for SqliteDatabase {
             })?;
         let provider_conflicts = existing
             .as_ref()
-            .and_then(|(provider_id, _)| provider_id.as_deref())
+            .and_then(|(provider_id, _, _)| provider_id.as_deref())
             .zip(session.provider_id.as_deref())
             .is_some_and(|(existing, incoming)| existing != incoming);
-        let stale = existing.as_ref().is_some_and(|(_, existing_updated_at)| {
-            session.updated_at.is_none()
-                || crate::types::timestamp_is_older(
-                    session.updated_at.as_deref(),
-                    existing_updated_at.as_deref(),
-                )
+        let terminal_regression = existing.as_ref().is_some_and(|(_, state, _)| {
+            crate::types::session_state_is_terminal(state)
+                && !crate::types::session_state_is_terminal(&session.state)
         });
-        if provider_conflicts || stale {
+        let stale = existing
+            .as_ref()
+            .is_some_and(|(_, _, existing_updated_at)| {
+                session.updated_at.is_none()
+                    || crate::types::timestamp_is_older(
+                        session.updated_at.as_deref(),
+                        existing_updated_at.as_deref(),
+                    )
+            });
+        if provider_conflicts || terminal_regression || stale {
             tx.commit().map_err(|error| {
                 DatabaseError::Transaction(format!("failed to commit stale session check: {error}"))
             })?;
@@ -1390,6 +1431,26 @@ impl RuntimeSessionWrites for SqliteDatabase {
         let tx = conn.unchecked_transaction().map_err(|error| {
             DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
         })?;
+        let session_state: String = tx
+            .query_row(
+                "SELECT state FROM sessions WHERE session_id = ?1",
+                params![message.session_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| match error {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    DatabaseError::NotFound(format!("session not found: {}", message.session_id))
+                }
+                other => DatabaseError::Query(format!(
+                    "failed to lock session for message append: {other}"
+                )),
+            })?;
+        if crate::types::session_state_is_terminal(&session_state) {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "session {} is terminal ({session_state})",
+                message.session_id
+            )));
+        }
         let inserted_rows = tx
             .execute(
                 "INSERT INTO messages (

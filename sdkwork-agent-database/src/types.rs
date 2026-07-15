@@ -77,6 +77,29 @@ pub fn session_provider_conflicts(incoming: &SessionRow, existing: &SessionRow) 
     )
 }
 
+/// Ordinary CRUD writes must preserve exact provider ownership. Provider
+/// synchronization uses `session_provider_conflicts` so it can claim an
+/// unowned row through its dedicated conditional-write path.
+pub fn session_provider_ownership_changes(incoming: &SessionRow, existing: &SessionRow) -> bool {
+    incoming.provider_id != existing.provider_id
+}
+
+pub fn session_state_is_terminal(state: &str) -> bool {
+    matches!(
+        state.to_ascii_lowercase().as_str(),
+        "closed" | "failed" | "archived"
+    )
+}
+
+pub fn session_state_regresses_from_terminal(incoming: &SessionRow, existing: &SessionRow) -> bool {
+    session_state_is_terminal(&existing.state) && !session_state_is_terminal(&incoming.state)
+}
+
+pub fn ordinary_session_update_conflicts(incoming: &SessionRow, existing: &SessionRow) -> bool {
+    session_provider_ownership_changes(incoming, existing)
+        || session_state_regresses_from_terminal(incoming, existing)
+}
+
 pub fn timestamp_is_older(incoming: Option<&str>, existing: Option<&str>) -> bool {
     match (
         incoming.and_then(|value| sdkwork_utils_rust::parse_datetime(value, None)),

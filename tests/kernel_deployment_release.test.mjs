@@ -480,6 +480,8 @@ test('Windows audit verification avoids parallel Cargo build-script races', () =
   assert.match(auditScript, /process\.platform === 'win32'/);
   assert.match(auditScript, /CARGO_BUILD_JOBS \?\?= '1'/);
   assert.match(auditScript, /CARGO_INCREMENTAL \?\?= '0'/);
+  assert.match(auditScript, /shouldRetryWindowsCargoCommand/);
+  assert.match(auditScript, /WINDOWS_CARGO_FILESYSTEM_MAX_ATTEMPTS/);
 });
 
 test('commercial readiness docs distinguish merge and release dependency gates', () => {

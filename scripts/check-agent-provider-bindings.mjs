@@ -4,6 +4,14 @@ import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import {
+  isWindowsCargoFilesystemRace,
+  shouldRetryWindowsCargoCommand,
+  WINDOWS_CARGO_FILESYSTEM_MAX_ATTEMPTS
+} from './lib/windows-cargo-filesystem-retry.mjs';
+
+export { isWindowsCargoFilesystemRace } from './lib/windows-cargo-filesystem-retry.mjs';
+
 const scriptPath = fileURLToPath(import.meta.url);
 const root = path.resolve(path.dirname(scriptPath), '..');
 const catalogRoot = path.join(root, 'bindings', 'agent-providers');
@@ -591,20 +599,31 @@ export function collectManifestValidationErrors(
 }
 
 function runCargoTest(crateDir) {
-  const result = spawnSync(
-    'cargo',
-    ['test', '--manifest-path', `${crateDir}/Cargo.toml`, '-q'],
-    {
-      cwd: root,
-      encoding: 'utf8',
-      shell: process.platform === 'win32',
-      maxBuffer: 64 * 1024 * 1024
+  let result;
+  let output = '';
+  for (let attempt = 1; attempt <= WINDOWS_CARGO_FILESYSTEM_MAX_ATTEMPTS; attempt += 1) {
+    result = spawnSync(
+      'cargo',
+      ['test', '--manifest-path', `${crateDir}/Cargo.toml`, '-q'],
+      {
+        cwd: root,
+        encoding: 'utf8',
+        shell: process.platform === 'win32',
+        maxBuffer: 64 * 1024 * 1024
+      }
+    );
+    if (result.status === 0) {
+      return { passed: true, skipped: false };
     }
-  );
-  if (result.status === 0) {
-    return { passed: true, skipped: false };
+    output = `${result.stdout}${result.stderr}`;
+    if (!shouldRetryWindowsCargoCommand('cargo', output, attempt)) {
+      break;
+    }
+    console.warn(
+      `warning: retrying ${crateDir} cargo tests after transient Windows filesystem access denial ` +
+      `(${attempt}/${WINDOWS_CARGO_FILESYSTEM_MAX_ATTEMPTS}).`
+    );
   }
-  const output = `${result.stdout}${result.stderr}`;
   if (isWindowsBuildScriptPanic(output)) {
     // Known Windows toolchain issue: proc-macro2/serde/serde_core/quote build
     // scripts panic during process spawning on certain Windows configurations.
@@ -618,7 +637,7 @@ function runCargoTest(crateDir) {
   return {
     passed: false,
     skipped: false,
-    output: `${result.error?.message ?? ''}\n${output}`.trim()
+    output: `${result?.error?.message ?? ''}\n${output}`.trim()
   };
 }
 

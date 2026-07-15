@@ -93,6 +93,23 @@ fn live_postgres_conditional_session_sync_rejects_stale_snapshot_when_uri_config
             },
         )
         .expect("provider conflict"));
+    let ordinary_foreign_event_id = format!("evt.foreign.ordinary.{session_id}");
+    assert!(matches!(
+        db.save_session_with_event(
+            &foreign,
+            &EventRow {
+                event_id: ordinary_foreign_event_id.clone(),
+                session_id: Some(session_id.clone()),
+                event_type: "session.updated".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:04:00Z".to_string(),
+            },
+        ),
+        Err(sdkwork_agent_database::DatabaseError::ConstraintViolation(
+            _
+        ))
+    ));
 
     session.state = "paused".to_string();
     session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
@@ -128,6 +145,109 @@ fn live_postgres_conditional_session_sync_rejects_stale_snapshot_when_uri_config
         .expect("events")
         .iter()
         .all(|event| event.event_id != stale_event_id));
+
+    session.state = "closed".to_string();
+    session.updated_at = Some("2026-07-15T00:05:00Z".to_string());
+    assert!(db
+        .save_session_with_event_if_newer(
+            &session,
+            &EventRow {
+                event_id: format!("evt.closed.{session_id}"),
+                session_id: Some(session_id.clone()),
+                event_type: "session.synchronized".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:05:00Z".to_string(),
+            },
+        )
+        .expect("terminal write"));
+    session.state = "active".to_string();
+    session.updated_at = Some("2026-07-15T00:06:00Z".to_string());
+    assert!(!db
+        .save_session_with_event_if_newer(
+            &session,
+            &EventRow {
+                event_id: format!("evt.reopened.{session_id}"),
+                session_id: Some(session_id.clone()),
+                event_type: "session.synchronized".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:06:00Z".to_string(),
+            },
+        )
+        .expect("terminal regression"));
+    assert_eq!(
+        db.load_session(&session_id)
+            .expect("load terminal")
+            .expect("terminal session")
+            .state,
+        "closed"
+    );
+    let ordinary_event_id = format!("evt.reopened.ordinary.{session_id}");
+    assert!(matches!(
+        db.save_session_with_event(
+            &session,
+            &EventRow {
+                event_id: ordinary_event_id.clone(),
+                session_id: Some(session_id.clone()),
+                event_type: "session.updated".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:06:00Z".to_string(),
+            },
+        ),
+        Err(sdkwork_agent_database::DatabaseError::ConstraintViolation(
+            _
+        ))
+    ));
+    assert!(matches!(
+        db.save_session(&session),
+        Err(sdkwork_agent_database::DatabaseError::ConstraintViolation(
+            _
+        ))
+    ));
+    assert!(matches!(
+        db.update_session(&session),
+        Err(sdkwork_agent_database::DatabaseError::ConstraintViolation(
+            _
+        ))
+    ));
+    assert!(db
+        .load_events(
+            &session_id,
+            &EventQuery {
+                limit: Some(50),
+                ..EventQuery::default()
+            },
+        )
+        .expect("events after rejected ordinary write")
+        .iter()
+        .all(|event| {
+            event.event_id != ordinary_event_id && event.event_id != ordinary_foreign_event_id
+        }));
+    assert!(matches!(
+        db.append_message_with_event(
+            &MessageRow {
+                message_id: format!("msg.after-close.{session_id}"),
+                session_id: session_id.clone(),
+                role: "user".to_string(),
+                content: "late".to_string(),
+                created_at: "2026-07-15T00:06:01Z".to_string(),
+                metadata_json: None,
+            },
+            &EventRow {
+                event_id: format!("evt.after-close.{session_id}"),
+                session_id: Some(session_id.clone()),
+                event_type: "message.sent".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:06:01Z".to_string(),
+            },
+        ),
+        Err(sdkwork_agent_database::DatabaseError::ConstraintViolation(
+            _
+        ))
+    ));
 }
 
 #[test]

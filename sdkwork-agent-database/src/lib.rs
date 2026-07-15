@@ -1,4 +1,5 @@
 mod error;
+mod event_identity;
 mod message_identity;
 mod pagination;
 mod schema;
@@ -33,7 +34,9 @@ pub use traits::{
     TaskRepository,
 };
 pub use types::{
-    session_owner_fields_from_metadata_json, EventQuery, EventRow, MessageQuery, MessageRow,
+    ordinary_session_update_conflicts, session_owner_fields_from_metadata_json,
+    session_provider_ownership_changes, session_state_is_terminal,
+    session_state_regresses_from_terminal, EventQuery, EventRow, MessageQuery, MessageRow,
     PermissionQuery, PermissionRow, RuntimePurgeCounts, RuntimeSchemaStatus, SessionQuery,
     SessionRow, TaskQuery, TaskRow, CURRENT_SCHEMA_VERSION,
 };

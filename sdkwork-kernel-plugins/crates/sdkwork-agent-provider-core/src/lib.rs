@@ -21,8 +21,8 @@ pub use model_wire::{
     wire_system_text, ModelWireMessage,
 };
 pub use provider_session_store::{
-    sort_sessions_by_updated_at, InMemoryProviderSessionStore, ProviderSessionChange,
-    ProviderSessionChangeBatch, ProviderSessionChangeKind, SessionListQuery,
+    finalize_provider_session_snapshot, sort_sessions_by_updated_at, InMemoryProviderSessionStore,
+    ProviderSessionChange, ProviderSessionChangeBatch, ProviderSessionChangeKind, SessionListQuery,
 };
 
 /// Joins model request messages for legacy text-only provider adapters.

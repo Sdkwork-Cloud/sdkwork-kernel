@@ -1,14 +1,13 @@
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
-    ModelStreamChunk, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
+    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult, ModelDescriptor,
+    ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStreamChunk,
+    ProviderHealth, ProviderManifest, SessionKind, SessionSource, SessionState,
 };
 use sdkwork_agent_provider_core::{
-    create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
+    create_session_from_config, finalize_provider_session_snapshot, uuid_simple, MessageAdapter,
+    SessionAdapter, SessionConfig,
 };
 
-#[cfg(test)]
-use sdkwork_agent_kernel::SessionState;
 #[cfg(test)]
 use sdkwork_agent_kernel::KernelError;
 #[cfg(test)]
@@ -91,6 +90,23 @@ impl CodexThreadSessionState {
             active,
         }
     }
+
+    fn to_meta(&self) -> CodexSessionMeta {
+        CodexSessionMeta {
+            id: self.id.clone(),
+            forked_from_id: self.forked_from_id.clone(),
+            parent_thread_id: self.parent_thread_id.clone(),
+            timestamp: self.timestamp.clone(),
+            cwd: self.cwd.clone(),
+            originator: self.originator.clone(),
+            model: self.model.clone(),
+            model_provider: self.model_provider.clone(),
+            agent_nickname: self.agent_nickname.clone(),
+            role: self.role.clone(),
+            reasoning_effort: self.reasoning_effort.clone(),
+            approval_policy: self.approval_policy.clone(),
+        }
+    }
 }
 
 pub struct CodexAdapter;
@@ -141,6 +157,21 @@ impl CodexAdapter {
         session.agent_nickname = meta.agent_nickname.clone();
         session.agent_role = meta.role.clone();
 
+        finalize_provider_session_snapshot("codex", session)
+    }
+
+    /// Converts the runtime-aware thread projection, whose active state is
+    /// absent from persisted Codex thread metadata.
+    pub fn to_agent_session_state(
+        &self,
+        external: &CodexThreadSessionState,
+    ) -> KernelResult<AgentSession> {
+        let mut session = Self::convert_meta(&external.to_meta())?;
+        session.state = if external.active {
+            SessionState::Active
+        } else {
+            SessionState::Closed
+        };
         Ok(session)
     }
 }
@@ -442,6 +473,17 @@ mod tests {
         assert!(state.active);
         assert_eq!(state.id, "codex.session.1");
         assert_eq!(state.model, Some("o3".to_string()));
+    }
+
+    #[test]
+    fn thread_session_state_preserves_inactive_terminal_state() {
+        let adapter = CodexAdapter::new();
+        let state = CodexThreadSessionState::from_meta(&sample_codex_meta(), false);
+        let session = adapter
+            .to_agent_session_state(&state)
+            .expect("thread state");
+        assert_eq!(session.state, SessionState::Closed);
+        assert_eq!(session.metadata_value("provider_id"), Some("codex"));
     }
 
     #[test]

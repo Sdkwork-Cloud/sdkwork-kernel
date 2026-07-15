@@ -5,6 +5,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
+import {
+  shouldRetryWindowsCargoCommand,
+  WINDOWS_CARGO_FILESYSTEM_MAX_ATTEMPTS
+} from './lib/windows-cargo-filesystem-retry.mjs';
+
 const kernelRoot = process.cwd();
 const auditEnvironment = { ...process.env };
 
@@ -162,12 +167,37 @@ if (commercialRelease && failed > 0) {
 
 for (const [cmd, args, extraEnv] of commands) {
   const label = `${cmd} ${args.join(' ')}`;
-  const result = spawnSync(cmd, args, {
-    cwd: kernelRoot,
-    env: extraEnv ? { ...auditEnvironment, ...extraEnv } : auditEnvironment,
-    stdio: 'inherit',
-    shell: process.platform === 'win32'
-  });
+  const captureOutput = cmd === 'cargo' && process.platform === 'win32';
+  let result;
+  for (
+    let attempt = 1;
+    attempt <= WINDOWS_CARGO_FILESYSTEM_MAX_ATTEMPTS;
+    attempt += 1
+  ) {
+    result = spawnSync(cmd, args, {
+      cwd: kernelRoot,
+      env: extraEnv ? { ...auditEnvironment, ...extraEnv } : auditEnvironment,
+      stdio: captureOutput ? 'pipe' : 'inherit',
+      encoding: captureOutput ? 'utf8' : undefined,
+      maxBuffer: captureOutput ? 64 * 1024 * 1024 : undefined,
+      shell: process.platform === 'win32'
+    });
+    if (captureOutput) {
+      process.stdout.write(result.stdout ?? '');
+      process.stderr.write(result.stderr ?? '');
+    }
+    if (result.status === 0) {
+      break;
+    }
+    const output = `${result.error?.message ?? ''}\n${result.stdout ?? ''}${result.stderr ?? ''}`;
+    if (!shouldRetryWindowsCargoCommand(cmd, output, attempt)) {
+      break;
+    }
+    console.warn(
+      `warning: retrying ${label} after transient Windows filesystem access denial ` +
+      `(${attempt}/${WINDOWS_CARGO_FILESYSTEM_MAX_ATTEMPTS}).`
+    );
+  }
   if (result.status !== 0) {
     console.error(`FAILED: ${label}`);
     failed += 1;

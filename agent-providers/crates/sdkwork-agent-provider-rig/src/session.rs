@@ -1,5 +1,7 @@
 use sdkwork_agent_kernel::{AgentSession, KernelResult, SessionKind, SessionSource, SessionState};
-use sdkwork_agent_provider_core::{create_session_from_config, SessionAdapter, SessionConfig};
+use sdkwork_agent_provider_core::{
+    create_session_from_config, finalize_provider_session_snapshot, SessionAdapter, SessionConfig,
+};
 
 /// Provider-native Rig execution state projected into the kernel session model.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,7 +71,7 @@ impl SessionAdapter for RigSessionAdapter {
         session.parent_session_id = external.parent_execution_id.clone();
         session.updated_at = external.updated_at.clone();
         session.state = external.state;
-        Ok(session)
+        finalize_provider_session_snapshot("rig", session)
     }
 }
 

@@ -61,6 +61,24 @@ pub struct InMemoryProviderSessionStore {
     inner: RwLock<ProviderSessionInner>,
 }
 
+/// Applies the provider-independent invariants required before a native
+/// snapshot enters lifecycle storage or the unified runtime store.
+pub fn finalize_provider_session_snapshot(
+    provider_id: &str,
+    mut session: AgentSession,
+) -> KernelResult<AgentSession> {
+    if provider_id.trim().is_empty() {
+        return Err(KernelError::validation("provider_id must not be empty"));
+    }
+    if session.session_id.trim().is_empty() {
+        return Err(KernelError::validation("session_id must not be empty"));
+    }
+    validate_session_timestamp(&mut session.created_at, "created_at")?;
+    validate_session_timestamp(&mut session.updated_at, "updated_at")?;
+    ensure_provider_metadata(&mut session, provider_id);
+    Ok(session)
+}
+
 struct ProviderSessionInner {
     sessions: HashMap<String, AgentSession>,
     conversations: HashMap<String, Vec<AgentMessage>>,
@@ -131,12 +149,10 @@ impl InMemoryProviderSessionStore {
 
     pub fn update_session(&self, mut session: AgentSession) -> KernelResult<AgentSession> {
         let mut inner = self.write_inner()?;
-        if !inner.sessions.contains_key(&session.session_id) {
-            return Err(KernelError::validation(format!(
-                "session not found: {}",
-                session.session_id
-            )));
-        }
+        let existing = inner.sessions.get(&session.session_id).ok_or_else(|| {
+            KernelError::validation(format!("session not found: {}", session.session_id))
+        })?;
+        reject_terminal_state_regression(existing.state, session.state)?;
         ensure_provider_metadata(&mut session, &self.provider_id);
         touch_session(&mut session);
         inner
@@ -147,15 +163,13 @@ impl InMemoryProviderSessionStore {
     }
 
     /// Insert or refresh an externally discovered native provider session.
-    pub fn synchronize_session(&self, mut session: AgentSession) -> KernelResult<AgentSession> {
-        if session.session_id.trim().is_empty() {
-            return Err(KernelError::validation("session_id must not be empty"));
-        }
+    pub fn synchronize_session(&self, session: AgentSession) -> KernelResult<AgentSession> {
+        let mut session = finalize_provider_session_snapshot(&self.provider_id, session)?;
         normalize_session_timestamp(&mut session.created_at, "created_at")?;
         normalize_session_timestamp(&mut session.updated_at, "updated_at")?;
-        ensure_provider_metadata(&mut session, &self.provider_id);
         let mut inner = self.write_inner()?;
         if let Some(existing) = inner.sessions.get(&session.session_id) {
+            reject_terminal_state_regression(existing.state, session.state)?;
             if session.updated_at.is_none() {
                 session.updated_at = existing.updated_at.clone();
             }
@@ -287,6 +301,15 @@ impl InMemoryProviderSessionStore {
         if !inner.sessions.contains_key(session_id) {
             return Err(KernelError::validation(format!(
                 "session not found: {session_id}"
+            )));
+        }
+        if inner
+            .sessions
+            .get(session_id)
+            .is_some_and(|session| session.state.is_terminal())
+        {
+            return Err(KernelError::validation(format!(
+                "cannot append a message to terminal session {session_id}"
             )));
         }
         inner
@@ -448,6 +471,18 @@ fn touch_session(session: &mut AgentSession) {
     session.updated_at = Some(now_iso());
 }
 
+fn reject_terminal_state_regression(
+    existing: SessionState,
+    incoming: SessionState,
+) -> KernelResult<()> {
+    if existing.is_terminal() && !incoming.is_terminal() {
+        return Err(KernelError::validation(format!(
+            "cannot transition terminal session from {existing:?} to {incoming:?}"
+        )));
+    }
+    Ok(())
+}
+
 fn ensure_provider_metadata(session: &mut AgentSession, provider_id: &str) {
     session
         .metadata
@@ -495,6 +530,16 @@ fn normalize_session_timestamp(value: &mut Option<String>, field: &str) -> Kerne
         parsed,
         Some("%Y-%m-%dT%H:%M:%S%.9fZ"),
     ));
+    Ok(())
+}
+
+fn validate_session_timestamp(value: &mut Option<String>, field: &str) -> KernelResult<()> {
+    let Some(raw) = value.as_deref().filter(|value| !value.trim().is_empty()) else {
+        *value = None;
+        return Ok(());
+    };
+    sdkwork_utils_rust::parse_datetime(raw, None)
+        .ok_or_else(|| KernelError::validation(format!("{field} must be an RFC 3339 timestamp")))?;
     Ok(())
 }
 
@@ -640,6 +685,24 @@ mod tests {
                 .count(),
             1
         );
+
+        let mut reopened = store
+            .get_session(&created.session_id)
+            .expect("closed session");
+        reopened.state = SessionState::Active;
+        assert!(store.update_session(reopened.clone()).is_err());
+        reopened.updated_at = Some("2099-01-01T00:00:00Z".to_string());
+        assert!(store.synchronize_session(reopened).is_err());
+        assert!(store
+            .append_conversation_message(
+                &created.session_id,
+                AgentMessage::new(
+                    "msg.after-close",
+                    AgentMessageRole::User,
+                    vec![AgentPart::text("part.after-close", "late")],
+                ),
+            )
+            .is_err());
     }
 
     #[test]
@@ -729,6 +792,33 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn provider_snapshot_finalizer_enforces_identity_time_and_metadata() {
+        let mut snapshot = AgentSession::new("native.session.1");
+        snapshot.created_at = Some("2026-07-15T08:00:00+08:00".to_string());
+        snapshot.updated_at = Some("".to_string());
+        snapshot
+            .metadata
+            .push(("provider_id".to_string(), "stale".to_string()));
+
+        let finalized = finalize_provider_session_snapshot("codex", snapshot).expect("finalized");
+        assert_eq!(
+            finalized.created_at.as_deref(),
+            Some("2026-07-15T08:00:00+08:00")
+        );
+        assert_eq!(finalized.updated_at, None);
+        assert_eq!(finalized.metadata_value("provider_id"), Some("codex"));
+        assert_eq!(
+            finalized.metadata_value("provider_session_id"),
+            Some("native.session.1")
+        );
+        assert!(finalize_provider_session_snapshot("codex", AgentSession::new(" ")).is_err());
+
+        let mut invalid = AgentSession::new("native.session.invalid");
+        invalid.updated_at = Some("eventually".to_string());
+        assert!(finalize_provider_session_snapshot("codex", invalid).is_err());
     }
 
     #[test]

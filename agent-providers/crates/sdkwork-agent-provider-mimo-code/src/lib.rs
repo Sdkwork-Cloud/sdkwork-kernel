@@ -5,7 +5,8 @@ use sdkwork_agent_kernel::{
     SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
 use sdkwork_agent_provider_core::{
-    create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
+    create_session_from_config, finalize_provider_session_snapshot, uuid_simple, MessageAdapter,
+    SessionAdapter, SessionConfig,
 };
 
 // ============================================================================
@@ -119,7 +120,7 @@ impl SessionAdapter for MiMoCodeAdapter {
         session.summary = external.summary.clone();
         session.goal = external.goal.clone();
 
-        Ok(session)
+        finalize_provider_session_snapshot("mimo-code", session)
     }
 }
 

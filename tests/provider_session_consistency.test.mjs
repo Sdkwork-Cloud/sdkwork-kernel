@@ -51,6 +51,21 @@ test('every shipped provider exposes one complete unified session surface', asyn
     assert.match(adapterSource, /impl SessionAdapter for \w+/u, `${provider.id} needs SessionAdapter`);
     assert.match(
       adapterSource,
+      new RegExp(`finalize_provider_session_snapshot\\("${provider.id}",\\s*session\\)`),
+      `${provider.id} SessionAdapter must apply unified snapshot invariants`,
+    );
+    assert.doesNotMatch(
+      adapterSource,
+      /token_usage\.total_tokens\s*=\s*external\.[^;]+\+\s*external\./u,
+      `${provider.id} token aggregation must not overflow`,
+    );
+    assert.doesNotMatch(
+      adapterSource,
+      /message_count\s*=\s*[^;]+\bas\s+u32/u,
+      `${provider.id} message count conversion must not truncate`,
+    );
+    assert.match(
+      adapterSource,
       /define_provider_lifecycle_provider!/u,
       `${provider.id} needs the unified lifecycle provider`,
     );

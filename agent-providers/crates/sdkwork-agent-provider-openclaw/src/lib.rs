@@ -1,10 +1,11 @@
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
-    ModelStreamChunk, ProviderHealth, ProviderManifest, SessionKind, SessionSource, SessionState,
+    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult, ModelDescriptor,
+    ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStreamChunk,
+    ProviderHealth, ProviderManifest, SessionKind, SessionSource, SessionState,
 };
 use sdkwork_agent_provider_core::{
-    create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
+    create_session_from_config, finalize_provider_session_snapshot, uuid_simple, MessageAdapter,
+    SessionAdapter, SessionConfig,
 };
 
 #[cfg(test)]
@@ -92,9 +93,14 @@ impl OpenClawAdapter {
 
     fn map_status(status: &str) -> SessionState {
         match status.to_lowercase().as_str() {
-            "running" => SessionState::Working,
-            "done" => SessionState::Closed,
-            "failed" | "killed" | "timeout" => SessionState::Failed,
+            "running" | "in_progress" => SessionState::Working,
+            "active" | "idle" => SessionState::Active,
+            "waiting" => SessionState::Waiting,
+            "paused" => SessionState::Paused,
+            "done" | "complete" | "completed" => SessionState::Closed,
+            "failed" | "error" | "blocked" | "killed" | "timeout" | "timed_out" | "cancelled"
+            | "canceled" => SessionState::Failed,
+            "archived" => SessionState::Archived,
             _ => SessionState::Created,
         }
     }
@@ -147,11 +153,12 @@ impl SessionAdapter for OpenClawAdapter {
         session.updated_at = external.updated_at.clone();
         session.token_usage.input_tokens = external.input_tokens;
         session.token_usage.output_tokens = external.output_tokens;
-        session.token_usage.total_tokens = external.input_tokens + external.output_tokens;
+        session.token_usage.total_tokens =
+            external.input_tokens.saturating_add(external.output_tokens);
         session.child_session_ids = external.child_sessions.clone();
         session.goal = external.goal.clone();
 
-        Ok(session)
+        finalize_provider_session_snapshot("openclaw", session)
     }
 }
 
@@ -434,6 +441,38 @@ mod tests {
         ext.status = "timeout".to_string();
         let session = adapter.to_agent_session(&ext).unwrap();
         assert_eq!(session.state, SessionState::Failed);
+    }
+
+    #[test]
+    fn maps_extended_gateway_status_vocabulary() {
+        for status in ["done", "complete", "completed"] {
+            assert_eq!(OpenClawAdapter::map_status(status), SessionState::Closed);
+        }
+        for status in [
+            "failed",
+            "error",
+            "blocked",
+            "killed",
+            "timeout",
+            "timed_out",
+            "cancelled",
+            "canceled",
+        ] {
+            assert_eq!(OpenClawAdapter::map_status(status), SessionState::Failed);
+        }
+        assert_eq!(
+            OpenClawAdapter::map_status("in_progress"),
+            SessionState::Working
+        );
+        assert_eq!(
+            OpenClawAdapter::map_status("waiting"),
+            SessionState::Waiting
+        );
+        assert_eq!(OpenClawAdapter::map_status("paused"), SessionState::Paused);
+        assert_eq!(
+            OpenClawAdapter::map_status("archived"),
+            SessionState::Archived
+        );
     }
 
     #[test]

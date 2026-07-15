@@ -72,6 +72,20 @@ fn sqlite_conditional_session_sync_rejects_stale_snapshot_and_event() {
             },
         )
         .expect("provider conflict"));
+    assert!(matches!(
+        db.save_session_with_event(
+            &foreign,
+            &EventRow {
+                event_id: "evt.sqlite.foreign-provider-ordinary".to_string(),
+                session_id: Some(session.session_id.clone()),
+                event_type: "session.updated".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:04:00Z".to_string(),
+            },
+        ),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
 
     session.state = "paused".to_string();
     session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
@@ -123,6 +137,75 @@ fn sqlite_conditional_session_sync_rejects_stale_snapshot_and_event() {
         .all(|event| {
             event.event_id != "evt.sqlite.stale" && event.event_id != "evt.sqlite.offset-stale"
         }));
+
+    session.state = "closed".to_string();
+    session.updated_at = Some("2026-07-15T00:05:00Z".to_string());
+    assert!(db
+        .save_session_with_event_if_newer(
+            &session,
+            &EventRow {
+                event_id: "evt.sqlite.closed".to_string(),
+                session_id: Some(session.session_id.clone()),
+                event_type: "session.synchronized".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:05:00Z".to_string(),
+            },
+        )
+        .expect("terminal write"));
+    session.state = "active".to_string();
+    session.updated_at = Some("2026-07-15T00:06:00Z".to_string());
+    assert!(!db
+        .save_session_with_event_if_newer(
+            &session,
+            &EventRow {
+                event_id: "evt.sqlite.reopened".to_string(),
+                session_id: Some(session.session_id.clone()),
+                event_type: "session.synchronized".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:06:00Z".to_string(),
+            },
+        )
+        .expect("terminal regression"));
+    assert_eq!(
+        db.load_session(&session.session_id)
+            .expect("load terminal")
+            .expect("terminal session")
+            .state,
+        "closed"
+    );
+    let ordinary_event_id = "evt.sqlite.reopened-ordinary";
+    assert!(matches!(
+        db.save_session_with_event(
+            &session,
+            &EventRow {
+                event_id: ordinary_event_id.to_string(),
+                session_id: Some(session.session_id.clone()),
+                event_type: "session.updated".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-15T00:06:00Z".to_string(),
+            },
+        ),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+    assert!(matches!(
+        db.save_session(&session),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+    assert!(matches!(
+        db.update_session(&session),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+    assert!(db
+        .load_events(&session.session_id, &EventQuery::default())
+        .expect("events after rejected ordinary write")
+        .iter()
+        .all(|event| {
+            event.event_id != ordinary_event_id
+                && event.event_id != "evt.sqlite.foreign-provider-ordinary"
+        }));
 }
 
 fn scoped_session(session_id: &str, tenant: &str, user: &str) -> SessionRow {
@@ -145,6 +228,43 @@ fn scoped_session(session_id: &str, tenant: &str, user: &str) -> SessionRow {
         updated_at: None,
         metadata_json: None,
     }
+}
+
+#[test]
+fn sqlite_terminal_session_rejects_atomic_message_append() {
+    let db = migrated_sqlite();
+    let mut session = scoped_session("session.terminal.sqlite", "tenant.1", "user.1");
+    session.state = "failed".to_string();
+    db.save_session(&session).expect("terminal session");
+    let message = MessageRow {
+        message_id: "msg.terminal.sqlite".to_string(),
+        session_id: session.session_id.clone(),
+        role: "user".to_string(),
+        content: "late".to_string(),
+        created_at: "2026-07-15T00:00:01Z".to_string(),
+        metadata_json: None,
+    };
+    let event = EventRow {
+        event_id: "evt.terminal.sqlite".to_string(),
+        session_id: Some(session.session_id.clone()),
+        event_type: "message.sent".to_string(),
+        severity: "info".to_string(),
+        payload: None,
+        created_at: "2026-07-15T00:00:01Z".to_string(),
+    };
+
+    assert!(matches!(
+        db.append_message_with_event(&message, &event),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+    assert!(db
+        .load_messages(&session.session_id, &MessageQuery::default())
+        .expect("messages")
+        .is_empty());
+    assert!(db
+        .load_events(&session.session_id, &EventQuery::default())
+        .expect("events")
+        .is_empty());
 }
 
 #[test]

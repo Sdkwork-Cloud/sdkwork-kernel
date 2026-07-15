@@ -122,6 +122,19 @@ where
 
     /// Update a session
     pub fn update_session(&self, session: &SessionRow) -> Result<(), String> {
+        let existing = self.get_session(&session.session_id)?;
+        if existing.provider_id != session.provider_id {
+            return Err(format!(
+                "cannot change provider ownership for session {}",
+                session.session_id
+            ));
+        }
+        if sdkwork_agent_database::session_state_regresses_from_terminal(session, &existing) {
+            return Err(format!(
+                "cannot transition terminal session {} from {} to {}",
+                session.session_id, existing.state, session.state
+            ));
+        }
         let mut session = session.clone();
         session.updated_at = Some(chrono::Utc::now().to_rfc3339());
         let event = self.build_event(&session.session_id, "session.updated", "info", None);
@@ -163,6 +176,12 @@ where
 
         let row = provider_session_to_row(provider_id, bridge_id, session, existing.as_ref())?;
         if let Some(existing) = existing.as_ref() {
+            if sdkwork_agent_database::session_state_regresses_from_terminal(&row, existing) {
+                return Err(format!(
+                    "cannot transition terminal session {} from {} to {}",
+                    row.session_id, existing.state, row.state
+                ));
+            }
             if session_row_is_older(&row, existing) {
                 return Ok(existing.clone());
             }
@@ -192,6 +211,12 @@ where
                         row.session_id, existing_provider
                     ));
                 }
+            }
+            if sdkwork_agent_database::session_state_regresses_from_terminal(&row, &current) {
+                return Err(format!(
+                    "cannot transition terminal session {} from {} to {}",
+                    row.session_id, current.state, row.state
+                ));
             }
             Ok(current)
         }
@@ -242,8 +267,11 @@ where
         config: MessageConfig,
     ) -> Result<MessageRow, String> {
         let session = self.get_session(session_id)?;
-        if session.state == "closed" {
-            return Err(format!("session {session_id} is closed"));
+        if sdkwork_agent_database::session_state_is_terminal(&session.state) {
+            return Err(format!(
+                "session {session_id} is terminal ({})",
+                session.state
+            ));
         }
 
         let now = chrono::Utc::now().to_rfc3339();
@@ -999,6 +1027,57 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn unified_store_rejects_terminal_provider_state_regression() {
+        let manager = create_manager();
+        let mut session = AgentSession::new("openclaw.session.terminal")
+            .with_agent_id("agent.intelligence.openclaw")
+            .created_at("2026-07-15T00:00:00Z");
+        session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
+        session.state = SessionState::Working;
+        manager
+            .synchronize_provider_session("openclaw", None, &session)
+            .expect("working");
+
+        session.updated_at = Some("2026-07-15T00:02:00Z".to_string());
+        session.state = SessionState::Closed;
+        manager
+            .synchronize_provider_session("openclaw", None, &session)
+            .expect("closed");
+
+        session.updated_at = Some("2026-07-15T00:03:00Z".to_string());
+        session.state = SessionState::Active;
+        assert!(manager
+            .synchronize_provider_session("openclaw", None, &session)
+            .expect_err("terminal regression")
+            .contains("cannot transition terminal session"));
+        assert_eq!(
+            manager
+                .get_session(&session.session_id)
+                .expect("retained terminal state")
+                .state,
+            "closed"
+        );
+        let mut update = manager
+            .get_session(&session.session_id)
+            .expect("terminal update source");
+        update.state = "active".to_string();
+        assert!(manager
+            .update_session(&update)
+            .expect_err("generic update terminal regression")
+            .contains("cannot transition terminal session"));
+        update.state = "closed".to_string();
+        update.provider_id = Some("codex".to_string());
+        assert!(manager
+            .update_session(&update)
+            .expect_err("provider ownership mutation")
+            .contains("cannot change provider ownership"));
+        assert!(manager
+            .send_message(&session.session_id, MessageConfig::user("late"))
+            .expect_err("terminal message")
+            .contains("terminal"));
     }
 
     #[test]

@@ -1,10 +1,11 @@
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
-    ModelStreamChunk, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
+    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult, ModelDescriptor,
+    ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStreamChunk,
+    ProviderHealth, ProviderManifest, SessionKind, SessionSource,
 };
 use sdkwork_agent_provider_core::{
-    create_session_from_config, uuid_simple, MessageAdapter, SessionAdapter, SessionConfig,
+    create_session_from_config, finalize_provider_session_snapshot, uuid_simple, MessageAdapter,
+    SessionAdapter, SessionConfig,
 };
 
 #[cfg(test)]
@@ -104,10 +105,12 @@ impl SessionAdapter for OpenCodeAdapter {
         session.message_count = external.message_count;
         session.token_usage.input_tokens = external.prompt_tokens;
         session.token_usage.output_tokens = external.completion_tokens;
-        session.token_usage.total_tokens = external.prompt_tokens + external.completion_tokens;
+        session.token_usage.total_tokens = external
+            .prompt_tokens
+            .saturating_add(external.completion_tokens);
         session.cost_cents = external.cost_cents;
 
-        Ok(session)
+        finalize_provider_session_snapshot("opencode", session)
     }
 }
 

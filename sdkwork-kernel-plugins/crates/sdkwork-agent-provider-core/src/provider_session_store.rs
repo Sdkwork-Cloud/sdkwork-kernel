@@ -163,6 +163,8 @@ impl InMemoryProviderSessionStore {
             KernelError::validation(format!("session not found: {}", session.session_id))
         })?;
         reject_terminal_state_regression(existing.state, session.state)?;
+        session.created_at = existing.created_at.clone().or(session.created_at);
+        session.message_count = session.message_count.max(existing.message_count);
         ensure_change_sequence_available(&inner)?;
         touch_session(&mut session);
         inner
@@ -184,6 +186,8 @@ impl InMemoryProviderSessionStore {
             if snapshot_is_older(&session, existing) {
                 return Ok(existing.clone());
             }
+            session.created_at = existing.created_at.clone().or(session.created_at);
+            session.message_count = session.message_count.max(existing.message_count);
             if &session == existing {
                 return Ok(existing.clone());
             }
@@ -960,6 +964,47 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn updates_preserve_created_at_and_monotonic_message_count() {
+        let store = InMemoryProviderSessionStore::new("aggregates");
+        let session = store
+            .create_session("agent.aggregates", None, SessionConfig::new())
+            .expect("created");
+        store
+            .append_conversation_message(
+                &session.session_id,
+                AgentMessage::new(
+                    "msg.aggregate",
+                    AgentMessageRole::User,
+                    vec![AgentPart::text("part.aggregate", "hello")],
+                ),
+            )
+            .expect("message");
+        let original_created_at = session.created_at.clone();
+
+        let mut ordinary_update = store.get_session(&session.session_id).expect("session");
+        ordinary_update.created_at = Some("2027-01-01T00:00:00Z".to_string());
+        ordinary_update.message_count = 0;
+        ordinary_update.title = Some("ordinary".to_string());
+        let ordinary_update = store
+            .update_session(ordinary_update)
+            .expect("ordinary update");
+        assert_eq!(ordinary_update.created_at, original_created_at);
+        assert_eq!(ordinary_update.message_count, 1);
+
+        let mut synchronized = ordinary_update;
+        synchronized.created_at = Some("2028-01-01T00:00:00Z".to_string());
+        synchronized.updated_at = Some("2030-01-01T00:00:00Z".to_string());
+        synchronized.message_count = 0;
+        synchronized.title = Some("synchronized".to_string());
+        let synchronized = store
+            .synchronize_session(synchronized)
+            .expect("synchronized update");
+        assert_eq!(synchronized.created_at, original_created_at);
+        assert_eq!(synchronized.message_count, 1);
+        assert_eq!(synchronized.title.as_deref(), Some("synchronized"));
     }
 
     #[test]

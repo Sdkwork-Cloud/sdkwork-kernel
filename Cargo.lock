@@ -2781,6 +2781,7 @@ dependencies = [
  "sdkwork-agent-streaming",
  "sdkwork-code-kernel",
  "sdkwork-utils-rust",
+ "sdkwork-web-axum",
  "sdkwork-web-bootstrap",
  "sdkwork-web-core",
  "sdkwork-web-store-redis",
@@ -2960,6 +2961,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tower 0.5.3",
+ "tower-http",
  "tracing",
 ]
 
@@ -2977,6 +2979,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "tower-http",
  "tracing",
  "tracing-subscriber",
 ]

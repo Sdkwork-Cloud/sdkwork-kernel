@@ -19,6 +19,10 @@ pub struct SessionListQuery {
     pub agent_id: Option<String>,
     pub active_only: bool,
     pub limit: Option<usize>,
+    /// Keyset cursor: the last `(updated_at, session_id)` returned by the
+    /// previous page. Results are ordered newest-first.
+    pub after_updated_at: Option<String>,
+    pub after_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -240,6 +244,17 @@ impl InMemoryProviderSessionStore {
             .collect();
 
         sort_sessions_by_updated_at(&mut sessions);
+
+        if query.after_updated_at.is_some() || query.after_session_id.is_some() {
+            let after_at = query.after_updated_at.as_deref().unwrap_or("");
+            let after_id = query.after_session_id.as_deref().unwrap_or("");
+            sessions.retain(|session| {
+                let sort_at = session_sort_timestamp(session);
+                // Descending `(timestamp, id)` keyset continuation.
+                sort_at < after_at
+                    || (sort_at == after_at && session.session_id.as_str() < after_id)
+            });
+        }
 
         let limit = query.limit.unwrap_or(DEFAULT_LIST_PAGE_SIZE as usize);
         if sessions.len() > limit {

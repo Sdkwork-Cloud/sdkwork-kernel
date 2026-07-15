@@ -4,9 +4,13 @@ use sdkwork_agent_database::{
     TaskRepository,
 };
 use sdkwork_agent_provider_core::{
-    ProviderSessionChange, ProviderSessionChangeKind, SessionLifecycleProvider,
+    ProviderSessionChange, ProviderSessionChangeKind, SessionLifecycleProvider, SessionListQuery,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+
+const DEFAULT_INVENTORY_PAGE_SIZE: usize = 100;
+const MAX_INVENTORY_PAGE_SIZE: usize = 200;
+const MAX_INVENTORY_PAGES: usize = 10_000;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ProviderSessionSyncReport {
@@ -16,10 +20,104 @@ pub struct ProviderSessionSyncReport {
     pub has_more: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ProviderSessionInventorySyncReport {
+    pub pages: usize,
+    pub discovered: usize,
+}
+
 /// Applies one bounded provider change page to the unified transient session store.
 pub struct ProviderSessionSynchronizer;
 
 impl ProviderSessionSynchronizer {
+    /// Imports a provider's persisted session inventory using stable keyset
+    /// pagination. Re-running this method after process restart is safe:
+    /// `UnifiedSessionManager` rejects stale snapshots and avoids writes and
+    /// events for snapshots that are already current.
+    pub fn synchronize_inventory<DB, P>(
+        manager: &UnifiedSessionManager<DB>,
+        provider_id: &str,
+        bridge_id: Option<&str>,
+        provider: &P,
+        page_size: Option<usize>,
+    ) -> Result<ProviderSessionInventorySyncReport, String>
+    where
+        DB: AgentDatabase
+            + SessionRepository
+            + MessageRepository
+            + TaskRepository
+            + EventRepository
+            + RuntimeSessionWrites
+            + Clone,
+        P: SessionLifecycleProvider + ?Sized,
+    {
+        let page_size = page_size
+            .unwrap_or(DEFAULT_INVENTORY_PAGE_SIZE)
+            .clamp(1, MAX_INVENTORY_PAGE_SIZE);
+        let mut report = ProviderSessionInventorySyncReport::default();
+        let mut after_updated_at = None;
+        let mut after_session_id = None;
+        let mut discovered_ids = HashSet::new();
+
+        loop {
+            if report.pages >= MAX_INVENTORY_PAGES {
+                return Err(format!(
+                    "provider {provider_id} session inventory exceeded {MAX_INVENTORY_PAGES} pages"
+                ));
+            }
+            let page = provider
+                .list_sessions(&SessionListQuery {
+                    limit: Some(page_size),
+                    after_updated_at: after_updated_at.clone(),
+                    after_session_id: after_session_id.clone(),
+                    ..SessionListQuery::default()
+                })
+                .map_err(|error| format!("failed to load provider session inventory: {error}"))?;
+            report.pages += 1;
+            if page.len() > page_size {
+                return Err(format!(
+                    "provider {provider_id} returned {} sessions for page size {page_size}",
+                    page.len()
+                ));
+            }
+            if page.is_empty() {
+                break;
+            }
+
+            for session in &page {
+                if !discovered_ids.insert(session.session_id.clone()) {
+                    return Err(format!(
+                        "provider {provider_id} repeated session {} across inventory pages",
+                        session.session_id
+                    ));
+                }
+                manager.synchronize_provider_session(provider_id, bridge_id, session)?;
+                report.discovered += 1;
+            }
+
+            if page.len() < page_size {
+                break;
+            }
+            let last = page.last().expect("non-empty provider inventory page");
+            let next_updated_at = last
+                .updated_at
+                .clone()
+                .or_else(|| last.created_at.clone())
+                .unwrap_or_default();
+            if after_updated_at.as_deref() == Some(next_updated_at.as_str())
+                && after_session_id.as_deref() == Some(last.session_id.as_str())
+            {
+                return Err(format!(
+                    "provider {provider_id} did not advance its session inventory cursor"
+                ));
+            }
+            after_updated_at = Some(next_updated_at);
+            after_session_id = Some(last.session_id.clone());
+        }
+
+        Ok(report)
+    }
+
     pub fn synchronize_once<DB, P>(
         manager: &UnifiedSessionManager<DB>,
         provider_id: &str,
@@ -183,6 +281,69 @@ mod tests {
         .expect("delete synchronized");
         assert_eq!(deleted.deleted, 1);
         assert!(manager.get_session(&created.session_id).is_err());
+    }
+
+    #[test]
+    fn imports_complete_provider_inventory_with_keyset_pages_and_replays_without_writes() {
+        let provider = TestLifecycleProvider::new();
+        let manager = UnifiedSessionManager::new(InMemoryDatabase::new());
+        let mut session_ids = Vec::new();
+        for index in 0..45 {
+            let session = provider
+                .create_session(
+                    "agent.test",
+                    None,
+                    SessionConfig::new().with_title(format!("Session {index}")),
+                )
+                .expect("created provider session");
+            session_ids.push(session.session_id);
+        }
+
+        let first = ProviderSessionSynchronizer::synchronize_inventory(
+            &manager,
+            "test",
+            Some("bridge.test"),
+            &provider,
+            Some(7),
+        )
+        .expect("first inventory sync");
+        assert_eq!(first.discovered, 45);
+        assert_eq!(first.pages, 7);
+        assert_eq!(
+            manager
+                .list_sessions(crate::SessionQuery {
+                    limit: Some(100),
+                    ..crate::SessionQuery::default()
+                })
+                .expect("unified sessions")
+                .len(),
+            45
+        );
+
+        let synchronized_event_count = || {
+            session_ids
+                .iter()
+                .map(|session_id| {
+                    manager
+                        .load_session_events(session_id, Some(20), None)
+                        .expect("session events")
+                        .iter()
+                        .filter(|event| event.event_type == "session.synchronized")
+                        .count()
+                })
+                .sum::<usize>()
+        };
+        let synchronized_events_before = synchronized_event_count();
+        let replay = ProviderSessionSynchronizer::synchronize_inventory(
+            &manager,
+            "test",
+            Some("bridge.test"),
+            &provider,
+            Some(7),
+        )
+        .expect("replayed inventory sync");
+        assert_eq!(replay.discovered, 45);
+        assert_eq!(synchronized_event_count(), synchronized_events_before);
     }
 
     struct MissingSnapshotProvider {

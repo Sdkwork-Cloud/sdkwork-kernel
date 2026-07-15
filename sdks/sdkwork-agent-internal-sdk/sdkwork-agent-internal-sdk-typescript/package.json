@@ -41,5 +41,22 @@
   },
   "devDependencies": {
     "typescript": "catalog:"
-  }
+  },
+  "files": [
+    "src",
+    "dist",
+    "composed",
+    "generated/server-openapi/dist",
+    "generated/server-openapi/src",
+    "generated/server-openapi/sdkwork-sdk.json",
+    "generated/server-openapi/README.md",
+    "generated/server-openapi/LICENSE",
+    "generated/domains/server-openapi/dist",
+    "generated/domains/server-openapi/src",
+    "generated/domains/server-openapi/sdkwork-sdk.json",
+    "generated/domains/server-openapi/README.md",
+    "generated/domains/server-openapi/LICENSE",
+    "README.md",
+    "LICENSE"
+  ]
 }

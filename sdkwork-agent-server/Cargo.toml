@@ -48,6 +48,7 @@ uuid = { version = "1", features = ["v7"] }
 sdkwork-agent-plugin-core.workspace = true
 sdkwork-utils-rust = { workspace = true }
 sdkwork-web-bootstrap.workspace = true
+sdkwork-web-axum.workspace = true
 sdkwork-web-core.workspace = true
 sdkwork-web-store-redis.workspace = true
 sdkwork-agent-provider-rig.workspace = true

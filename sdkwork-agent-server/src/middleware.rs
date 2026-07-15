@@ -496,7 +496,19 @@ pub fn cors_layer(config: &ServerConfig) -> tower_http::cors::CorsLayer {
         return tower_http::cors::CorsLayer::new();
     }
 
-    let mut layer = tower_http::cors::CorsLayer::new()
+    let environment = sdkwork_web_bootstrap::web_environment_from_env(&[
+        "SDKWORK_KERNEL_ENVIRONMENT",
+        "SDKWORK_ENVIRONMENT",
+    ]);
+    let configured_origins = config
+        .cors_origins
+        .iter()
+        .filter(|origin| origin.as_str() != "*")
+        .cloned();
+    let policy =
+        sdkwork_web_bootstrap::security_policy_for_environment(&environment, configured_origins);
+
+    sdkwork_web_axum::cors_layer_from_policy(policy.cors)
         .allow_methods([
             axum::http::Method::GET,
             axum::http::Method::POST,
@@ -514,20 +526,7 @@ pub fn cors_layer(config: &ServerConfig) -> tower_http::cors::CorsLayer {
             HeaderName::from_static("x-sdkwork-access-token"),
             HeaderName::from_static("x-sdkwork-identity-mac"),
             HeaderName::from_static("x-subject-id"),
-        ]);
-
-    if config.cors_origins.iter().any(|origin| origin == "*") {
-        layer = layer.allow_origin(tower_http::cors::Any);
-    } else {
-        let origins: Vec<HeaderValue> = config
-            .cors_origins
-            .iter()
-            .filter_map(|origin| HeaderValue::from_str(origin).ok())
-            .collect();
-        layer = layer.allow_origin(origins);
-    }
-
-    layer
+        ])
 }
 
 #[cfg(test)]

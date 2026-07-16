@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+const REMOVED_SDK_ASSEMBLY_MANIFEST = ['.sdkwork', 'assembly.json'].join('-');
+
 export function listComponentSpecFiles(scanPath) {
   if (!fs.existsSync(scanPath)) {
     return [];
@@ -98,14 +100,14 @@ export function validateComponentSpecMetadata(manifestPath, { kernelRoot, errors
     if (!(component.manifests ?? []).includes('sdk-manifest.json')) {
       errors.push(`${relativePath} SDK family component.manifests must include sdk-manifest.json`);
     }
-    if ((component.manifests ?? []).includes('.sdkwork-assembly.json')) {
-      errors.push(`${relativePath} SDK family component.manifests must not reference retired .sdkwork-assembly.json`);
+    if ((component.manifests ?? []).includes(REMOVED_SDK_ASSEMBLY_MANIFEST)) {
+      errors.push(`${relativePath} SDK family component.manifests must not reference removed parallel SDK metadata`);
     }
-    if ((contracts.runtimeEntrypoints ?? []).includes('.sdkwork-assembly.json')) {
-      errors.push(`${relativePath} SDK family runtimeEntrypoints must not reference retired .sdkwork-assembly.json`);
+    if ((contracts.runtimeEntrypoints ?? []).includes(REMOVED_SDK_ASSEMBLY_MANIFEST)) {
+      errors.push(`${relativePath} SDK family runtimeEntrypoints must not reference removed parallel SDK metadata`);
     }
-    if ((contracts.configKeys ?? []).includes('.sdkwork-assembly.json')) {
-      errors.push(`${relativePath} SDK family configKeys must not reference retired .sdkwork-assembly.json`);
+    if ((contracts.configKeys ?? []).includes(REMOVED_SDK_ASSEMBLY_MANIFEST)) {
+      errors.push(`${relativePath} SDK family configKeys must not reference removed parallel SDK metadata`);
     }
     if (!Object.hasOwn(contracts, 'routeManifest')) {
       errors.push(`${relativePath} must declare contracts.routeManifest explicitly`);

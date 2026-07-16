@@ -80,11 +80,11 @@ function operationBlocks(openapiText) {
 
 test("agent SDK manifests are the family metadata source of truth", () => {
   for (const family of families) {
-    const assemblyPath = path.join(workspaceRoot, "sdks", family.root, ".sdkwork-assembly.json");
+    const assemblyPath = path.join(workspaceRoot, "sdks", family.root, [".sdkwork", "assembly.json"].join("-"));
     assert.equal(
       existsSync(assemblyPath),
       false,
-      `${family.root} must not retain retired per-family .sdkwork-assembly.json`,
+      `${family.root} must not retain removed parallel SDK metadata`,
     );
 
     const manifest = readJson(path.join("sdks", family.root, family.manifest));

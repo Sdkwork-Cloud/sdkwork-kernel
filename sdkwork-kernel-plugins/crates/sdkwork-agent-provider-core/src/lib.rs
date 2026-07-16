@@ -121,6 +121,13 @@ pub trait SessionLifecycleProvider {
         ))
     }
 
+    /// Return the latest committed lifecycle sequence without copying changes.
+    fn session_change_cursor(&self) -> KernelResult<u64> {
+        Err(KernelError::validation(
+            "session_change_cursor requires a provider session store implementation",
+        ))
+    }
+
     /// List persisted sessions for this provider, sorted by `updated_at` descending.
     ///
     /// Implementations must override this method; the default rejects in-process listing.
@@ -713,6 +720,10 @@ macro_rules! define_provider_lifecycle_provider {
                 limit: Option<usize>,
             ) -> sdkwork_agent_kernel::KernelResult<$crate::ProviderSessionChangeBatch> {
                 self.store.changes_since(after_sequence, limit)
+            }
+
+            fn session_change_cursor(&self) -> sdkwork_agent_kernel::KernelResult<u64> {
+                self.store.current_change_cursor()
             }
 
             fn close_session(

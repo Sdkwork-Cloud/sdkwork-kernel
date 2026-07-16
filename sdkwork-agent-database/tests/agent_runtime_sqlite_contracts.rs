@@ -1186,6 +1186,12 @@ fn sqlite_append_message_with_event_is_idempotent_for_duplicate_message_id() {
 
     assert_eq!(first_count, 1);
     assert_eq!(retry_count, 1);
+    let mut conflicting_event = event.clone();
+    conflicting_event.payload = Some("conflict".to_string());
+    assert!(matches!(
+        db.append_message_with_event(&message, &conflicting_event),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
     assert_eq!(db.message_count(&session_id).expect("message count"), 1);
     let session = db.load_session(&session_id).expect("load").expect("found");
     assert_eq!(session.message_count, 1);
@@ -1199,6 +1205,15 @@ fn sqlite_append_message_with_event_is_idempotent_for_duplicate_message_id() {
         db.load_events(&session_id, &EventQuery::default())
             .expect("events")
             .len(),
+        1
+    );
+
+    let mut closed = db.load_session(&session_id).expect("load").expect("found");
+    closed.state = "closed".to_string();
+    db.update_session(&closed).expect("close session");
+    assert_eq!(
+        db.append_message_with_event(&message, &event)
+            .expect("exact retry after close"),
         1
     );
 
@@ -1782,6 +1797,105 @@ fn sqlite_completed_turn_rolls_back_when_a_later_message_conflicts() {
             .expect("events")
             .len(),
         1
+    );
+}
+
+#[test]
+fn sqlite_completed_turn_retry_is_idempotent_after_close_and_validates_event_identity() {
+    let db = migrated_sqlite();
+    let mut session = scoped_session("session.turn.retry.sqlite", "tenant.a", "user.a");
+    db.save_session(&session).expect("session");
+    let message = MessageRow {
+        message_id: "msg.turn.retry.sqlite".to_string(),
+        session_id: session.session_id.clone(),
+        role: "user".to_string(),
+        content: "hello".to_string(),
+        created_at: "2026-07-16T00:00:01Z".to_string(),
+        metadata_json: None,
+    };
+    let events = vec![
+        EventRow {
+            event_id: "evt.turn.message.sqlite".to_string(),
+            session_id: Some(session.session_id.clone()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: Some("role=user".to_string()),
+            created_at: "2026-07-16T00:00:01Z".to_string(),
+        },
+        EventRow {
+            event_id: "evt.turn.completed.sqlite".to_string(),
+            session_id: Some(session.session_id.clone()),
+            event_type: "turn.completed".to_string(),
+            severity: "info".to_string(),
+            payload: None,
+            created_at: "2026-07-16T00:00:02Z".to_string(),
+        },
+    ];
+    assert_eq!(
+        db.append_message_turn_with_events(std::slice::from_ref(&message), &events)
+            .expect("first turn"),
+        1
+    );
+    let assistant = MessageRow {
+        message_id: "msg.turn.partial-assistant.sqlite".to_string(),
+        session_id: session.session_id.clone(),
+        role: "assistant".to_string(),
+        content: "partial".to_string(),
+        created_at: "2026-07-16T00:00:02Z".to_string(),
+        metadata_json: None,
+    };
+    let partial_events = vec![
+        events[0].clone(),
+        EventRow {
+            event_id: "evt.turn.partial-assistant.sqlite".to_string(),
+            session_id: Some(session.session_id.clone()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: Some("role=assistant".to_string()),
+            created_at: "2026-07-16T00:00:02Z".to_string(),
+        },
+        events[1].clone(),
+    ];
+    assert!(matches!(
+        db.append_message_turn_with_events(&[message.clone(), assistant.clone()], &partial_events,),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+    assert!(db
+        .load_messages(&session.session_id, &MessageQuery::default())
+        .expect("messages")
+        .iter()
+        .all(|row| row.message_id != assistant.message_id));
+    session.state = "closed".to_string();
+    db.update_session(&session).expect("close");
+    assert_eq!(
+        db.append_message_turn_with_events(std::slice::from_ref(&message), &events)
+            .expect("exact retry after close"),
+        1
+    );
+
+    let mut conflicting_events = events.clone();
+    conflicting_events[1].payload = Some("conflict".to_string());
+    assert!(matches!(
+        db.append_message_turn_with_events(std::slice::from_ref(&message), &conflicting_events,),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+    let late_message = MessageRow {
+        message_id: "msg.turn.late.sqlite".to_string(),
+        ..message
+    };
+    let mut late_events = events;
+    late_events[0].event_id = "evt.turn.late-message.sqlite".to_string();
+    late_events[1].event_id = "evt.turn.late-completed.sqlite".to_string();
+    assert!(matches!(
+        db.append_message_turn_with_events(&[late_message], &late_events),
+        Err(DatabaseError::ConstraintViolation(_))
+    ));
+    assert_eq!(db.message_count(&session.session_id).expect("count"), 1);
+    assert_eq!(
+        db.load_events(&session.session_id, &EventQuery::default())
+            .expect("events")
+            .len(),
+        2
     );
 }
 

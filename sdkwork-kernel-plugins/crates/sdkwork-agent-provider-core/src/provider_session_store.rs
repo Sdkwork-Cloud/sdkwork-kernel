@@ -1,7 +1,7 @@
 use crate::{create_session_from_config, now_iso, uuid_simple, SessionConfig};
 use sdkwork_agent_kernel::{AgentMessage, AgentSession, KernelError, KernelResult, SessionState};
 use sdkwork_utils_rust::DEFAULT_LIST_PAGE_SIZE;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::RwLock;
 
 /// Maximum provider-local sessions retained in process memory per adapter.
@@ -18,6 +18,11 @@ const MAX_PROVIDER_SESSION_CHANGES: usize = 10_000;
 
 /// Maximum lifecycle changes copied into one incremental response page.
 const MAX_PROVIDER_SESSION_CHANGE_PAGE_SIZE: usize = 200;
+
+/// Canonical provider snapshot instant format. `%.f` keeps meaningful
+/// sub-second precision while avoiding synthetic `.000000000` suffixes for
+/// provider timestamps that are precise only to whole seconds.
+const PROVIDER_SNAPSHOT_TIMESTAMP_FORMAT: &str = "%Y-%m-%dT%H:%M:%S%.fZ";
 
 /// Filters for listing persisted provider sessions.
 #[derive(Debug, Clone, Default)]
@@ -79,8 +84,23 @@ pub fn finalize_provider_session_snapshot(
     if session.session_id.trim().is_empty() {
         return Err(KernelError::validation("session_id must not be empty"));
     }
+    normalize_stable_session_reference(
+        &mut session.parent_session_id,
+        &session.session_id,
+        "parent_session_id",
+    )?;
+    normalize_stable_session_reference(
+        &mut session.forked_from_id,
+        &session.session_id,
+        "forked_from_id",
+    )?;
+    normalize_child_session_ids(&mut session)?;
     normalize_session_timestamp(&mut session.created_at, "created_at")?;
     normalize_session_timestamp(&mut session.updated_at, "updated_at")?;
+    normalize_session_timestamp(&mut session.ended_at, "ended_at")?;
+    normalize_session_timestamp(&mut session.archived_at, "archived_at")?;
+    validate_session_timestamp_order(&session)?;
+    normalize_session_token_total(&mut session)?;
     ensure_provider_metadata(&mut session, provider_id);
     Ok(session)
 }
@@ -109,6 +129,15 @@ impl InMemoryProviderSessionStore {
 
     pub fn provider_id(&self) -> &str {
         &self.provider_id
+    }
+
+    /// Returns the latest committed provider-local lifecycle sequence.
+    pub fn current_change_cursor(&self) -> KernelResult<u64> {
+        Ok(self
+            .read_inner()?
+            .next_change_sequence
+            .checked_sub(1)
+            .expect("provider change sequence starts at one"))
     }
 
     pub fn create_session(
@@ -156,17 +185,38 @@ impl InMemoryProviderSessionStore {
         Ok(self.read_inner()?.sessions.get(session_id).cloned())
     }
 
-    pub fn update_session(&self, session: AgentSession) -> KernelResult<AgentSession> {
-        let mut session = finalize_provider_session_snapshot(&self.provider_id, session)?;
+    pub fn update_session(&self, mut session: AgentSession) -> KernelResult<AgentSession> {
         let mut inner = self.write_inner()?;
+        let existing_created_at = inner
+            .sessions
+            .get(&session.session_id)
+            .map(|existing| existing.created_at.clone())
+            .ok_or_else(|| {
+                KernelError::validation(format!("session not found: {}", session.session_id))
+            })?;
+        session.created_at = existing_created_at.or(session.created_at);
+        let mut session = finalize_provider_session_snapshot(&self.provider_id, session)?;
         let existing = inner.sessions.get(&session.session_id).ok_or_else(|| {
             KernelError::validation(format!("session not found: {}", session.session_id))
         })?;
         reject_terminal_state_regression(existing.state, session.state)?;
         session.created_at = existing.created_at.clone().or(session.created_at);
-        session.message_count = session.message_count.max(existing.message_count);
+        merge_stable_session_reference(
+            &mut session.parent_session_id,
+            existing.parent_session_id.as_deref(),
+            "parent_session_id",
+        )?;
+        merge_stable_session_reference(
+            &mut session.forked_from_id,
+            existing.forked_from_id.as_deref(),
+            "forked_from_id",
+        )?;
+        session.ended_at = session.ended_at.or_else(|| existing.ended_at.clone());
+        session.archived_at = session.archived_at.or_else(|| existing.archived_at.clone());
+        merge_monotonic_session_aggregates(&mut session, existing)?;
         ensure_change_sequence_available(&inner)?;
         touch_session(&mut session);
+        ensure_terminal_session_timestamps(&mut session);
         inner
             .sessions
             .insert(session.session_id.clone(), session.clone());
@@ -175,9 +225,12 @@ impl InMemoryProviderSessionStore {
     }
 
     /// Insert or refresh an externally discovered native provider session.
-    pub fn synchronize_session(&self, session: AgentSession) -> KernelResult<AgentSession> {
-        let mut session = finalize_provider_session_snapshot(&self.provider_id, session)?;
+    pub fn synchronize_session(&self, mut session: AgentSession) -> KernelResult<AgentSession> {
         let mut inner = self.write_inner()?;
+        if let Some(existing) = inner.sessions.get(&session.session_id) {
+            session.created_at = existing.created_at.clone().or(session.created_at);
+        }
+        let mut session = finalize_provider_session_snapshot(&self.provider_id, session)?;
         if let Some(existing) = inner.sessions.get(&session.session_id) {
             reject_terminal_state_regression(existing.state, session.state)?;
             if session.updated_at.is_none() {
@@ -187,13 +240,27 @@ impl InMemoryProviderSessionStore {
                 return Ok(existing.clone());
             }
             session.created_at = existing.created_at.clone().or(session.created_at);
-            session.message_count = session.message_count.max(existing.message_count);
+            merge_stable_session_reference(
+                &mut session.parent_session_id,
+                existing.parent_session_id.as_deref(),
+                "parent_session_id",
+            )?;
+            merge_stable_session_reference(
+                &mut session.forked_from_id,
+                existing.forked_from_id.as_deref(),
+                "forked_from_id",
+            )?;
+            session.ended_at = session.ended_at.or_else(|| existing.ended_at.clone());
+            session.archived_at = session.archived_at.or_else(|| existing.archived_at.clone());
+            merge_monotonic_session_aggregates(&mut session, existing)?;
+            ensure_terminal_session_timestamps(&mut session);
             if &session == existing {
                 return Ok(existing.clone());
             }
         } else if session.updated_at.is_none() {
             touch_session(&mut session);
         }
+        ensure_terminal_session_timestamps(&mut session);
         if !inner.sessions.contains_key(&session.session_id)
             && inner.sessions.len() >= MAX_PROVIDER_SESSIONS
         {
@@ -520,6 +587,9 @@ impl InMemoryProviderSessionStore {
             .expect("session existence checked before transition");
         session.state = state;
         touch_session(session);
+        if state == SessionState::Closed {
+            session.ended_at = session.updated_at.clone();
+        }
         let session = session.clone();
         self.record_change(&mut inner, &session, kind);
         Ok(session)
@@ -603,6 +673,145 @@ fn ensure_change_sequence_available(inner: &ProviderSessionInner) -> KernelResul
     Ok(())
 }
 
+fn merge_monotonic_session_aggregates(
+    incoming: &mut AgentSession,
+    existing: &AgentSession,
+) -> KernelResult<()> {
+    incoming.message_count = incoming.message_count.max(existing.message_count);
+    incoming.token_usage.input_tokens = incoming
+        .token_usage
+        .input_tokens
+        .max(existing.token_usage.input_tokens);
+    incoming.token_usage.output_tokens = incoming
+        .token_usage
+        .output_tokens
+        .max(existing.token_usage.output_tokens);
+    incoming.token_usage.cached_tokens = incoming
+        .token_usage
+        .cached_tokens
+        .max(existing.token_usage.cached_tokens);
+    incoming.token_usage.reasoning_tokens = incoming
+        .token_usage
+        .reasoning_tokens
+        .max(existing.token_usage.reasoning_tokens);
+    let counted_total = incoming
+        .token_usage
+        .input_tokens
+        .checked_add(incoming.token_usage.output_tokens)
+        .ok_or_else(|| KernelError::validation("session token usage overflow"))?;
+    incoming.token_usage.total_tokens = incoming
+        .token_usage
+        .total_tokens
+        .max(existing.token_usage.total_tokens)
+        .max(counted_total);
+    incoming.tool_call_count = incoming.tool_call_count.max(existing.tool_call_count);
+    incoming.compression_count = incoming.compression_count.max(existing.compression_count);
+    incoming.cost_cents = match (incoming.cost_cents, existing.cost_cents) {
+        (Some(incoming), Some(existing)) => Some(incoming.max(existing)),
+        (incoming, existing) => incoming.or(existing),
+    };
+    incoming.change_summary.additions = incoming
+        .change_summary
+        .additions
+        .max(existing.change_summary.additions);
+    incoming.change_summary.deletions = incoming
+        .change_summary
+        .deletions
+        .max(existing.change_summary.deletions);
+    incoming.change_summary.files_changed = incoming
+        .change_summary
+        .files_changed
+        .max(existing.change_summary.files_changed);
+    Ok(())
+}
+
+fn normalize_session_token_total(session: &mut AgentSession) -> KernelResult<()> {
+    let counted_total = session
+        .token_usage
+        .input_tokens
+        .checked_add(session.token_usage.output_tokens)
+        .ok_or_else(|| KernelError::validation("session token usage overflow"))?;
+    session.token_usage.total_tokens = session.token_usage.total_tokens.max(counted_total);
+    Ok(())
+}
+
+fn ensure_terminal_session_timestamps(session: &mut AgentSession) {
+    let terminal_at = session
+        .updated_at
+        .clone()
+        .or_else(|| session.created_at.clone());
+    if session.state.is_terminal() && session.ended_at.is_none() {
+        session.ended_at = terminal_at.clone();
+    }
+    if session.state == SessionState::Archived && session.archived_at.is_none() {
+        session.archived_at = terminal_at;
+    }
+}
+
+fn normalize_stable_session_reference(
+    value: &mut Option<String>,
+    session_id: &str,
+    field: &str,
+) -> KernelResult<()> {
+    let Some(reference) = value
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        *value = None;
+        return Ok(());
+    };
+    if reference == session_id {
+        return Err(KernelError::validation(format!(
+            "{field} must not reference the session itself"
+        )));
+    }
+    *value = Some(reference.to_string());
+    Ok(())
+}
+
+fn merge_stable_session_reference(
+    incoming: &mut Option<String>,
+    existing: Option<&str>,
+    field: &str,
+) -> KernelResult<()> {
+    if let Some(existing) = existing {
+        if incoming
+            .as_deref()
+            .is_some_and(|incoming| incoming != existing)
+        {
+            return Err(KernelError::validation(format!(
+                "{field} cannot change from {existing}"
+            )));
+        }
+        *incoming = Some(existing.to_string());
+    }
+    Ok(())
+}
+
+fn normalize_child_session_ids(session: &mut AgentSession) -> KernelResult<()> {
+    let mut seen = HashSet::with_capacity(session.child_session_ids.len());
+    let mut normalized = Vec::with_capacity(session.child_session_ids.len());
+    for child_session_id in &session.child_session_ids {
+        let child_session_id = child_session_id.trim();
+        if child_session_id.is_empty() {
+            return Err(KernelError::validation(
+                "child_session_ids must not contain an empty session id",
+            ));
+        }
+        if child_session_id == session.session_id {
+            return Err(KernelError::validation(
+                "child_session_ids must not reference the session itself",
+            ));
+        }
+        if seen.insert(child_session_id.to_string()) {
+            normalized.push(child_session_id.to_string());
+        }
+    }
+    session.child_session_ids = normalized;
+    Ok(())
+}
+
 fn ensure_provider_metadata(session: &mut AgentSession, provider_id: &str) {
     session
         .metadata
@@ -648,8 +857,39 @@ fn normalize_session_timestamp(value: &mut Option<String>, field: &str) -> Kerne
         .ok_or_else(|| KernelError::validation(format!("{field} must be an RFC 3339 timestamp")))?;
     *value = Some(sdkwork_utils_rust::format_datetime(
         parsed,
-        Some("%Y-%m-%dT%H:%M:%S%.9fZ"),
+        Some(PROVIDER_SNAPSHOT_TIMESTAMP_FORMAT),
     ));
+    Ok(())
+}
+
+fn validate_session_timestamp_order(session: &AgentSession) -> KernelResult<()> {
+    let parsed = |value: Option<&str>| {
+        value.and_then(|value| sdkwork_utils_rust::parse_datetime(value, None))
+    };
+    let created_at = parsed(session.created_at.as_deref());
+    let updated_at = parsed(session.updated_at.as_deref());
+    let ended_at = parsed(session.ended_at.as_deref());
+    let archived_at = parsed(session.archived_at.as_deref());
+    if matches!((created_at, updated_at), (Some(created), Some(updated)) if updated < created) {
+        return Err(KernelError::validation(
+            "updated_at must not be earlier than created_at",
+        ));
+    }
+    if matches!((created_at, ended_at), (Some(created), Some(ended)) if ended < created) {
+        return Err(KernelError::validation(
+            "ended_at must not be earlier than created_at",
+        ));
+    }
+    if matches!((created_at, archived_at), (Some(created), Some(archived)) if archived < created) {
+        return Err(KernelError::validation(
+            "archived_at must not be earlier than created_at",
+        ));
+    }
+    if matches!((ended_at, archived_at), (Some(ended), Some(archived)) if archived < ended) {
+        return Err(KernelError::validation(
+            "archived_at must not be earlier than ended_at",
+        ));
+    }
     Ok(())
 }
 
@@ -949,7 +1189,7 @@ mod tests {
             .create_session("agent.timestamps", None, SessionConfig::new())
             .expect("created");
         let mut invalid = session.clone();
-        invalid.created_at = Some("eventually".to_string());
+        invalid.updated_at = Some("eventually".to_string());
 
         assert!(store.update_session(invalid).is_err());
         assert_eq!(
@@ -986,7 +1226,22 @@ mod tests {
 
         let mut ordinary_update = store.get_session(&session.session_id).expect("session");
         ordinary_update.created_at = Some("2027-01-01T00:00:00Z".to_string());
+        ordinary_update.parent_session_id = Some("aggregates.parent".to_string());
+        ordinary_update.forked_from_id = Some("aggregates.source".to_string());
+        ordinary_update.ended_at = Some("2099-01-01T00:03:00Z".to_string());
+        ordinary_update.archived_at = Some("2099-01-01T00:04:00Z".to_string());
         ordinary_update.message_count = 0;
+        ordinary_update.token_usage.input_tokens = 11;
+        ordinary_update.token_usage.output_tokens = 7;
+        ordinary_update.token_usage.cached_tokens = 3;
+        ordinary_update.token_usage.reasoning_tokens = 5;
+        ordinary_update.token_usage.total_tokens = 18;
+        ordinary_update.tool_call_count = 4;
+        ordinary_update.compression_count = 2;
+        ordinary_update.cost_cents = Some(99);
+        ordinary_update.change_summary.additions = 21;
+        ordinary_update.change_summary.deletions = 8;
+        ordinary_update.change_summary.files_changed = 3;
         ordinary_update.title = Some("ordinary".to_string());
         let ordinary_update = store
             .update_session(ordinary_update)
@@ -997,14 +1252,54 @@ mod tests {
         let mut synchronized = ordinary_update;
         synchronized.created_at = Some("2028-01-01T00:00:00Z".to_string());
         synchronized.updated_at = Some("2030-01-01T00:00:00Z".to_string());
+        synchronized.parent_session_id = None;
+        synchronized.forked_from_id = None;
+        synchronized.ended_at = None;
+        synchronized.archived_at = None;
         synchronized.message_count = 0;
+        synchronized.token_usage = Default::default();
+        synchronized.tool_call_count = 0;
+        synchronized.compression_count = 0;
+        synchronized.cost_cents = None;
+        synchronized.change_summary = Default::default();
         synchronized.title = Some("synchronized".to_string());
         let synchronized = store
             .synchronize_session(synchronized)
             .expect("synchronized update");
         assert_eq!(synchronized.created_at, original_created_at);
         assert_eq!(synchronized.message_count, 1);
+        assert_eq!(synchronized.token_usage.input_tokens, 11);
+        assert_eq!(synchronized.token_usage.output_tokens, 7);
+        assert_eq!(synchronized.token_usage.cached_tokens, 3);
+        assert_eq!(synchronized.token_usage.reasoning_tokens, 5);
+        assert_eq!(synchronized.token_usage.total_tokens, 18);
+        assert_eq!(synchronized.tool_call_count, 4);
+        assert_eq!(synchronized.compression_count, 2);
+        assert_eq!(synchronized.cost_cents, Some(99));
+        assert_eq!(synchronized.change_summary.additions, 21);
+        assert_eq!(synchronized.change_summary.deletions, 8);
+        assert_eq!(synchronized.change_summary.files_changed, 3);
+        assert_eq!(
+            synchronized.parent_session_id.as_deref(),
+            Some("aggregates.parent")
+        );
+        assert_eq!(
+            synchronized.forked_from_id.as_deref(),
+            Some("aggregates.source")
+        );
+        assert_eq!(
+            synchronized.ended_at.as_deref(),
+            Some("2099-01-01T00:03:00Z")
+        );
+        assert_eq!(
+            synchronized.archived_at.as_deref(),
+            Some("2099-01-01T00:04:00Z")
+        );
         assert_eq!(synchronized.title.as_deref(), Some("synchronized"));
+
+        let mut conflicting_lineage = synchronized;
+        conflicting_lineage.parent_session_id = Some("aggregates.other".to_string());
+        assert!(store.update_session(conflicting_lineage).is_err());
     }
 
     #[test]
@@ -1065,7 +1360,8 @@ mod tests {
         let created = store
             .create_session("agent.claude", None, SessionConfig::new())
             .expect("created");
-        store.close_session(&created.session_id).expect("closed");
+        let closed = store.close_session(&created.session_id).expect("closed");
+        assert_eq!(closed.ended_at, closed.updated_at);
         store
             .close_session(&created.session_id)
             .expect("repeated close is idempotent");
@@ -1112,6 +1408,25 @@ mod tests {
             Some("thread.native.1")
         );
         assert_eq!(synchronized.state, SessionState::Working);
+    }
+
+    #[test]
+    fn synchronized_terminal_snapshots_receive_lifecycle_timestamps() {
+        let store = InMemoryProviderSessionStore::new("openclaw");
+        let mut closed = AgentSession::new("openclaw.session.closed");
+        closed.state = SessionState::Closed;
+        closed.updated_at = Some("2026-07-16T00:01:00Z".to_string());
+        let closed = store.synchronize_session(closed).expect("closed snapshot");
+        assert_eq!(closed.ended_at, closed.updated_at);
+
+        let mut archived = AgentSession::new("openclaw.session.archived");
+        archived.state = SessionState::Archived;
+        archived.updated_at = Some("2026-07-16T00:02:00Z".to_string());
+        let archived = store
+            .synchronize_session(archived)
+            .expect("archived snapshot");
+        assert_eq!(archived.ended_at, archived.updated_at);
+        assert_eq!(archived.archived_at, archived.updated_at);
     }
 
     #[test]
@@ -1172,7 +1487,7 @@ mod tests {
             .expect("offset snapshot");
         assert_eq!(
             synchronized.updated_at.as_deref(),
-            Some("2026-07-15T00:01:00.000000000Z")
+            Some("2026-07-15T00:01:00Z")
         );
 
         let mut replay = synchronized;
@@ -1193,6 +1508,13 @@ mod tests {
         let mut snapshot = AgentSession::new("native.session.1");
         snapshot.created_at = Some("2026-07-15T08:00:00+08:00".to_string());
         snapshot.updated_at = Some("".to_string());
+        snapshot.ended_at = Some("2026-07-15T08:03:00+08:00".to_string());
+        snapshot.archived_at = Some("2026-07-15T08:04:00.120000000+08:00".to_string());
+        snapshot.token_usage.input_tokens = 11;
+        snapshot.token_usage.output_tokens = 7;
+        snapshot.parent_session_id = Some(" native.parent ".to_string());
+        snapshot.forked_from_id = Some(" native.source ".to_string());
+        snapshot.child_session_ids = vec![" native.child ".to_string(), "native.child".to_string()];
         snapshot
             .metadata
             .push(("provider_id".to_string(), "stale".to_string()));
@@ -1200,9 +1522,21 @@ mod tests {
         let finalized = finalize_provider_session_snapshot("codex", snapshot).expect("finalized");
         assert_eq!(
             finalized.created_at.as_deref(),
-            Some("2026-07-15T00:00:00.000000000Z")
+            Some("2026-07-15T00:00:00Z")
         );
         assert_eq!(finalized.updated_at, None);
+        assert_eq!(finalized.ended_at.as_deref(), Some("2026-07-15T00:03:00Z"));
+        assert_eq!(
+            finalized.archived_at.as_deref(),
+            Some("2026-07-15T00:04:00.120Z")
+        );
+        assert_eq!(finalized.token_usage.total_tokens, 18);
+        assert_eq!(
+            finalized.parent_session_id.as_deref(),
+            Some("native.parent")
+        );
+        assert_eq!(finalized.forked_from_id.as_deref(), Some("native.source"));
+        assert_eq!(finalized.child_session_ids, vec!["native.child"]);
         assert_eq!(finalized.metadata_value("provider_id"), Some("codex"));
         assert_eq!(
             finalized.metadata_value("provider_session_id"),
@@ -1211,8 +1545,47 @@ mod tests {
         assert!(finalize_provider_session_snapshot("codex", AgentSession::new(" ")).is_err());
 
         let mut invalid = AgentSession::new("native.session.invalid");
-        invalid.updated_at = Some("eventually".to_string());
+        invalid.ended_at = Some("eventually".to_string());
         assert!(finalize_provider_session_snapshot("codex", invalid).is_err());
+
+        let mut overflow = AgentSession::new("native.session.overflow");
+        overflow.token_usage.input_tokens = u64::MAX;
+        overflow.token_usage.output_tokens = 1;
+        assert!(finalize_provider_session_snapshot("codex", overflow).is_err());
+
+        let mut self_parent = AgentSession::new("native.session.self-parent");
+        self_parent.parent_session_id = Some(self_parent.session_id.clone());
+        assert!(finalize_provider_session_snapshot("codex", self_parent).is_err());
+
+        let mut self_child = AgentSession::new("native.session.self-child");
+        self_child
+            .child_session_ids
+            .push(self_child.session_id.clone());
+        assert!(finalize_provider_session_snapshot("codex", self_child).is_err());
+
+        let mut invalid_order = AgentSession::new("native.session.invalid-order");
+        invalid_order.created_at = Some("2026-07-16T00:02:00Z".to_string());
+        invalid_order.updated_at = Some("2026-07-16T00:01:00Z".to_string());
+        assert!(finalize_provider_session_snapshot("codex", invalid_order).is_err());
+
+        let mut invalid_archive_order = AgentSession::new("native.session.invalid-archive-order");
+        invalid_archive_order.created_at = Some("2026-07-16T00:00:00Z".to_string());
+        invalid_archive_order.ended_at = Some("2026-07-16T00:02:00Z".to_string());
+        invalid_archive_order.archived_at = Some("2026-07-16T00:01:00Z".to_string());
+        assert!(finalize_provider_session_snapshot("codex", invalid_archive_order).is_err());
+    }
+
+    #[test]
+    fn provider_timestamp_normalization_preserves_meaningful_subseconds() {
+        let mut snapshot = AgentSession::new("native.session.subseconds");
+        snapshot.created_at = Some("2026-07-15T08:00:00.120000000+08:00".to_string());
+
+        let finalized = finalize_provider_session_snapshot("codex", snapshot)
+            .expect("subsecond timestamp finalizes");
+        assert_eq!(
+            finalized.created_at.as_deref(),
+            Some("2026-07-15T00:00:00.120Z")
+        );
     }
 
     #[test]

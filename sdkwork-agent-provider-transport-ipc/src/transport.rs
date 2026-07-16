@@ -1,6 +1,7 @@
 use crate::protocol::{
     is_stream_chunk_frame, is_stream_terminal_frame, stream_chunk_frame, stream_done_frame,
-    JsonRpcRequest, JsonRpcResponse, SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_PING_METHOD,
+    stream_done_frame_with_completion, JsonRpcRequest, JsonRpcResponse,
+    SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_PING_METHOD,
 };
 use sdkwork_agent_kernel::mock_provider_invocation_allowed_from_env;
 use serde_json::{json, Value};
@@ -187,7 +188,12 @@ where
             .get("finish_reason")
             .and_then(Value::as_str)
             .unwrap_or("stop");
-        on_frame(stream_done_frame(finish_reason))?;
+        let native_session_id = payload.get("native_session_id").and_then(Value::as_str);
+        on_frame(stream_done_frame_with_completion(
+            finish_reason,
+            model_request_id,
+            native_session_id,
+        ))?;
         return Ok(());
     }
     if let Some(messages) = payload.get("messages").and_then(Value::as_array) {
@@ -208,7 +214,12 @@ where
                 return Ok(());
             }
         }
-        on_frame(stream_done_frame("stop"))?;
+        let native_session_id = payload.get("native_session_id").and_then(Value::as_str);
+        on_frame(stream_done_frame_with_completion(
+            "stop",
+            model_request_id,
+            native_session_id,
+        ))?;
         return Ok(());
     }
     if !on_frame(payload)? {

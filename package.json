@@ -9,6 +9,7 @@
     "openai": "6.46.0"
   },
   "scripts": {
+    "stop": "node ../sdkwork-specs/tools/stop-sdkwork-workspace-processes.mjs --workspace .",
     "dev": "node scripts/sdkwork-command.mjs dev --runtime-target server --database postgres --deployment-profile standalone",
     "dev:server:postgres:standalone": "node scripts/sdkwork-command.mjs dev --runtime-target server --database postgres --deployment-profile standalone",
     "dev:server:postgres:cloud": "node scripts/sdkwork-command.mjs dev --runtime-target server --database postgres --deployment-profile cloud",

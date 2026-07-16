@@ -136,8 +136,16 @@ where
             ));
         }
         let mut session = session.clone();
-        session.updated_at = Some(sdkwork_agent_database::runtime_now_timestamp());
-        let event = self.build_event(&session.session_id, "session.updated", "info", None);
+        let state_changed = !session.state.eq_ignore_ascii_case(&existing.state);
+        let updated_at = sdkwork_agent_database::runtime_now_timestamp();
+        session.updated_at = Some(updated_at.clone());
+        ensure_session_row_lifecycle_timestamps(&mut session, &updated_at)?;
+        let event_type = if state_changed && session.state.eq_ignore_ascii_case("closed") {
+            "session.closed"
+        } else {
+            "session.updated"
+        };
+        let event = self.build_event(&session.session_id, event_type, "info", None);
         self.db
             .save_session_with_event(&session, &event)
             .map_err(|e| format!("failed to update session: {}", e))?;
@@ -238,7 +246,9 @@ where
             ));
         }
         session.state = "closed".to_string();
-        session.updated_at = Some(sdkwork_agent_database::runtime_now_timestamp());
+        let updated_at = sdkwork_agent_database::runtime_now_timestamp();
+        session.updated_at = Some(updated_at.clone());
+        ensure_session_row_lifecycle_timestamps(&mut session, &updated_at)?;
 
         let event = self.build_event(session_id, "session.closed", "info", None);
         self.db
@@ -618,6 +628,35 @@ fn generate_id() -> String {
     sdkwork_utils_rust::uuid()
 }
 
+fn ensure_session_row_lifecycle_timestamps(
+    session: &mut SessionRow,
+    updated_at: &str,
+) -> Result<(), String> {
+    if !sdkwork_agent_database::session_state_is_terminal(&session.state) {
+        return Ok(());
+    }
+    let mut metadata: HashMap<String, String> = session
+        .metadata_json
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(|error| format!("failed to parse session metadata: {error}"))?
+        .unwrap_or_default();
+    metadata
+        .entry("endedAt".to_string())
+        .or_insert_with(|| updated_at.to_string());
+    if session.state.eq_ignore_ascii_case("archived") {
+        metadata
+            .entry("archivedAt".to_string())
+            .or_insert_with(|| updated_at.to_string());
+    }
+    session.metadata_json = Some(
+        serde_json::to_string(&metadata)
+            .map_err(|error| format!("failed to serialize session metadata: {error}"))?,
+    );
+    Ok(())
+}
+
 fn provider_session_to_row(
     provider_id: &str,
     bridge_id: Option<&str>,
@@ -627,24 +666,140 @@ fn provider_session_to_row(
     let now = sdkwork_agent_database::runtime_now_timestamp();
     let created_at = normalized_provider_timestamp(session.created_at.as_deref(), "created_at")?;
     let updated_at = normalized_provider_timestamp(session.updated_at.as_deref(), "updated_at")?;
+    let mut ended_at = normalized_provider_timestamp(session.ended_at.as_deref(), "ended_at")?;
+    let mut archived_at =
+        normalized_provider_timestamp(session.archived_at.as_deref(), "archived_at")?;
+    let existing_metadata: HashMap<String, String> = existing
+        .and_then(|row| row.metadata_json.as_deref())
+        .and_then(|value| serde_json::from_str(value).ok())
+        .unwrap_or_default();
+    let parent_session_id = stable_provider_session_reference(
+        session.parent_session_id.as_deref(),
+        existing_metadata.get("parentSessionId").map(String::as_str),
+        &session.session_id,
+        "parent_session_id",
+    )?;
+    let forked_from_id = stable_provider_session_reference(
+        session.forked_from_id.as_deref(),
+        existing_metadata.get("forkedFromId").map(String::as_str),
+        &session.session_id,
+        "forked_from_id",
+    )?;
+    let child_session_ids = normalized_provider_child_session_ids(session)?;
+    ended_at = ended_at.or_else(|| existing_metadata.get("endedAt").cloned());
+    archived_at = archived_at.or_else(|| existing_metadata.get("archivedAt").cloned());
+    let effective_created_at = existing
+        .map(|row| row.created_at.clone())
+        .or(created_at)
+        .unwrap_or_else(|| now.clone());
+    let effective_updated_at = updated_at
+        .or_else(|| existing.and_then(|row| row.updated_at.clone()))
+        .unwrap_or_else(|| now.clone());
+    if session.state.is_terminal() && ended_at.is_none() {
+        ended_at = Some(effective_updated_at.clone());
+    }
+    if session.state == sdkwork_agent_kernel::SessionState::Archived && archived_at.is_none() {
+        archived_at = Some(effective_updated_at.clone());
+    }
+    validate_runtime_session_timestamp_order(
+        &effective_created_at,
+        &effective_updated_at,
+        ended_at.as_deref(),
+        archived_at.as_deref(),
+    )?;
+    let tool_call_count = session
+        .tool_call_count
+        .max(metadata_u32(&existing_metadata, "toolCallCount"));
+    let compression_count = session
+        .compression_count
+        .max(metadata_u32(&existing_metadata, "compressionCount"));
+    let cost_cents = session
+        .cost_cents
+        .into_iter()
+        .chain(metadata_u64_optional(&existing_metadata, "costCents"))
+        .max();
+    let existing_change_summary = existing_metadata
+        .get("changeSummary")
+        .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok());
+    let change_additions = session.change_summary.additions.max(
+        existing_change_summary
+            .as_ref()
+            .and_then(|value| value.get("additions"))
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or(0),
+    );
+    let change_deletions = session.change_summary.deletions.max(
+        existing_change_summary
+            .as_ref()
+            .and_then(|value| value.get("deletions"))
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or(0),
+    );
+    let files_changed = session.change_summary.files_changed.max(
+        existing_change_summary
+            .as_ref()
+            .and_then(|value| value.get("filesChanged"))
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or(0),
+    );
     let mut metadata: HashMap<String, String> = session.metadata.iter().cloned().collect();
+    for key in [
+        "providerId",
+        "providerSessionId",
+        "parentSessionId",
+        "forkedFromId",
+        "slug",
+        "userRef",
+        "tenantId",
+        "ownerUserRef",
+        "ownerTenantId",
+        "preview",
+        "goal",
+        "summary",
+        "endedAt",
+        "archivedAt",
+        "modelProvider",
+        "instructions",
+        "personality",
+        "reasoningEffort",
+        "approvalPolicy",
+        "permissionProfile",
+        "workspaceRoots",
+        "costCents",
+        "contextFrom",
+        "contextWatermark",
+        "summaryMessageId",
+        "childSessionIds",
+        "agentNickname",
+        "agentRole",
+        "timeoutMs",
+        "toolCallCount",
+        "compressionCount",
+        "changeSummary",
+    ] {
+        metadata.remove(key);
+    }
     metadata.insert("providerId".to_string(), provider_id.to_string());
     metadata.insert("providerSessionId".to_string(), session.session_id.clone());
     insert_optional(
         &mut metadata,
         "parentSessionId",
-        session.parent_session_id.as_deref(),
+        parent_session_id.as_deref(),
     );
-    insert_optional(
-        &mut metadata,
-        "forkedFromId",
-        session.forked_from_id.as_deref(),
-    );
+    insert_optional(&mut metadata, "forkedFromId", forked_from_id.as_deref());
+    insert_optional(&mut metadata, "slug", session.slug.as_deref());
     insert_optional(&mut metadata, "userRef", session.user_ref.as_deref());
     insert_optional(&mut metadata, "tenantId", session.tenant_id.as_deref());
     insert_optional(&mut metadata, "ownerUserRef", session.user_ref.as_deref());
     insert_optional(&mut metadata, "ownerTenantId", session.tenant_id.as_deref());
+    insert_optional(&mut metadata, "preview", session.preview.as_deref());
     insert_optional(&mut metadata, "goal", session.goal.as_deref());
+    insert_optional(&mut metadata, "summary", session.summary.as_deref());
+    insert_optional(&mut metadata, "endedAt", ended_at.as_deref());
+    insert_optional(&mut metadata, "archivedAt", archived_at.as_deref());
     insert_optional(
         &mut metadata,
         "modelProvider",
@@ -655,6 +810,22 @@ fn provider_session_to_row(
         "instructions",
         session.instructions.as_deref(),
     );
+    insert_optional(&mut metadata, "personality", session.personality.as_deref());
+    insert_optional(
+        &mut metadata,
+        "reasoningEffort",
+        session.reasoning_effort.as_deref(),
+    );
+    insert_optional(
+        &mut metadata,
+        "approvalPolicy",
+        session.approval_policy.as_deref(),
+    );
+    insert_optional(
+        &mut metadata,
+        "permissionProfile",
+        session.permission_profile.as_deref(),
+    );
     if !session.workspace_roots.is_empty() {
         metadata.insert(
             "workspaceRoots".to_string(),
@@ -662,39 +833,97 @@ fn provider_session_to_row(
                 .map_err(|e| format!("failed to serialize workspace roots: {e}"))?,
         );
     }
-    if !session.child_session_ids.is_empty() {
+    if !child_session_ids.is_empty() {
         metadata.insert(
             "childSessionIds".to_string(),
-            serde_json::to_string(&session.child_session_ids)
+            serde_json::to_string(&child_session_ids)
                 .map_err(|e| format!("failed to serialize child sessions: {e}"))?,
         );
     }
-    metadata.insert(
-        "toolCallCount".to_string(),
-        session.tool_call_count.to_string(),
+    if let Some(cost_cents) = cost_cents {
+        metadata.insert("costCents".to_string(), cost_cents.to_string());
+    }
+    insert_optional(
+        &mut metadata,
+        "contextFrom",
+        session.context_from.as_deref(),
     );
+    insert_optional(
+        &mut metadata,
+        "contextWatermark",
+        session.context_watermark.as_deref(),
+    );
+    insert_optional(
+        &mut metadata,
+        "summaryMessageId",
+        session.summary_message_id.as_deref(),
+    );
+    insert_optional(
+        &mut metadata,
+        "agentNickname",
+        session.agent_nickname.as_deref(),
+    );
+    insert_optional(&mut metadata, "agentRole", session.agent_role.as_deref());
+    if let Some(timeout_ms) = session.timeout_ms {
+        metadata.insert("timeoutMs".to_string(), timeout_ms.to_string());
+    }
+    metadata.insert("toolCallCount".to_string(), tool_call_count.to_string());
     metadata.insert(
         "compressionCount".to_string(),
-        session.compression_count.to_string(),
+        compression_count.to_string(),
     );
     metadata.insert(
         "changeSummary".to_string(),
         serde_json::json!({
-            "additions": session.change_summary.additions,
-            "deletions": session.change_summary.deletions,
-            "filesChanged": session.change_summary.files_changed,
+            "additions": change_additions,
+            "deletions": change_deletions,
+            "filesChanged": files_changed,
         })
         .to_string(),
     );
 
     let metadata_json = serde_json::to_string(&metadata)
         .map_err(|e| format!("failed to serialize provider session metadata: {e}"))?;
+    let existing_token_usage = existing
+        .and_then(|row| row.token_usage_json.as_deref())
+        .and_then(|value| serde_json::from_str::<serde_json::Value>(value).ok());
+    let existing_token = |key| {
+        existing_token_usage
+            .as_ref()
+            .and_then(|value| value.get(key))
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0)
+    };
+    let input_tokens = session
+        .token_usage
+        .input_tokens
+        .max(existing_token("inputTokens"));
+    let output_tokens = session
+        .token_usage
+        .output_tokens
+        .max(existing_token("outputTokens"));
+    let cached_tokens = session
+        .token_usage
+        .cached_tokens
+        .max(existing_token("cachedTokens"));
+    let reasoning_tokens = session
+        .token_usage
+        .reasoning_tokens
+        .max(existing_token("reasoningTokens"));
+    let counted_total = input_tokens
+        .checked_add(output_tokens)
+        .ok_or_else(|| "provider session token usage overflow".to_string())?;
+    let total_tokens = session
+        .token_usage
+        .total_tokens
+        .max(existing_token("totalTokens"))
+        .max(counted_total);
     let token_usage_json = serde_json::json!({
-        "inputTokens": session.token_usage.input_tokens,
-        "outputTokens": session.token_usage.output_tokens,
-        "cachedTokens": session.token_usage.cached_tokens,
-        "reasoningTokens": session.token_usage.reasoning_tokens,
-        "totalTokens": session.token_usage.total_tokens,
+        "inputTokens": input_tokens,
+        "outputTokens": output_tokens,
+        "cachedTokens": cached_tokens,
+        "reasoningTokens": reasoning_tokens,
+        "totalTokens": total_tokens,
     })
     .to_string();
     let (owner_tenant_id, owner_user_ref) =
@@ -722,12 +951,8 @@ fn provider_session_to_row(
             .max(existing.map(|row| row.message_count).unwrap_or(0)),
         owner_tenant_id,
         owner_user_ref,
-        created_at: created_at
-            .or_else(|| existing.map(|row| row.created_at.clone()))
-            .unwrap_or_else(|| now.clone()),
-        updated_at: updated_at
-            .or_else(|| existing.and_then(|row| row.updated_at.clone()))
-            .or(Some(now)),
+        created_at: effective_created_at,
+        updated_at: Some(effective_updated_at),
         metadata_json: Some(metadata_json),
     })
 }
@@ -736,6 +961,54 @@ fn insert_optional(metadata: &mut HashMap<String, String>, key: &str, value: Opt
     if let Some(value) = value {
         metadata.insert(key.to_string(), value.to_string());
     }
+}
+
+fn metadata_u32(metadata: &HashMap<String, String>, key: &str) -> u32 {
+    metadata
+        .get(key)
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0)
+}
+
+fn metadata_u64_optional(metadata: &HashMap<String, String>, key: &str) -> Option<u64> {
+    metadata.get(key).and_then(|value| value.parse().ok())
+}
+
+fn stable_provider_session_reference(
+    incoming: Option<&str>,
+    existing: Option<&str>,
+    session_id: &str,
+    field: &str,
+) -> Result<Option<String>, String> {
+    let incoming = incoming.map(str::trim).filter(|value| !value.is_empty());
+    if incoming == Some(session_id) {
+        return Err(format!("{field} must not reference the session itself"));
+    }
+    if let Some(existing) = existing {
+        if incoming.is_some_and(|incoming| incoming != existing) {
+            return Err(format!("{field} cannot change from {existing}"));
+        }
+        return Ok(Some(existing.to_string()));
+    }
+    Ok(incoming.map(str::to_string))
+}
+
+fn normalized_provider_child_session_ids(session: &AgentSession) -> Result<Vec<String>, String> {
+    let mut seen = std::collections::HashSet::with_capacity(session.child_session_ids.len());
+    let mut normalized = Vec::with_capacity(session.child_session_ids.len());
+    for child_session_id in &session.child_session_ids {
+        let child_session_id = child_session_id.trim();
+        if child_session_id.is_empty() {
+            return Err("child_session_ids must not contain an empty session id".to_string());
+        }
+        if child_session_id == session.session_id {
+            return Err("child_session_ids must not reference the session itself".to_string());
+        }
+        if seen.insert(child_session_id.to_string()) {
+            normalized.push(child_session_id.to_string());
+        }
+    }
+    Ok(normalized)
 }
 
 fn normalized_provider_timestamp(
@@ -751,6 +1024,37 @@ fn normalized_provider_timestamp(
         parsed,
         Some("%Y-%m-%dT%H:%M:%S%.9fZ"),
     )))
+}
+
+fn validate_runtime_session_timestamp_order(
+    created_at: &str,
+    updated_at: &str,
+    ended_at: Option<&str>,
+    archived_at: Option<&str>,
+) -> Result<(), String> {
+    let parse = |field: &str, value: &str| {
+        sdkwork_utils_rust::parse_datetime(value, None)
+            .ok_or_else(|| format!("{field} must be an RFC 3339 timestamp"))
+    };
+    let created_at = parse("created_at", created_at)?;
+    let updated_at = parse("updated_at", updated_at)?;
+    let ended_at = ended_at.map(|value| parse("ended_at", value)).transpose()?;
+    let archived_at = archived_at
+        .map(|value| parse("archived_at", value))
+        .transpose()?;
+    if updated_at < created_at {
+        return Err("updated_at must not be earlier than created_at".to_string());
+    }
+    if ended_at.is_some_and(|ended_at| ended_at < created_at) {
+        return Err("ended_at must not be earlier than created_at".to_string());
+    }
+    if archived_at.is_some_and(|archived_at| archived_at < created_at) {
+        return Err("archived_at must not be earlier than created_at".to_string());
+    }
+    if matches!((ended_at, archived_at), (Some(ended), Some(archived)) if archived < ended) {
+        return Err("archived_at must not be earlier than ended_at".to_string());
+    }
+    Ok(())
 }
 
 fn session_row_is_older(incoming: &SessionRow, existing: &SessionRow) -> bool {
@@ -846,6 +1150,13 @@ mod tests {
             .expect("created");
         let closed = manager.close_session(&session.session_id).expect("closed");
         assert_eq!(closed.state, "closed");
+        let metadata: HashMap<String, String> =
+            serde_json::from_str(closed.metadata_json.as_deref().expect("metadata"))
+                .expect("metadata JSON");
+        assert_eq!(
+            metadata.get("endedAt").map(String::as_str),
+            closed.updated_at.as_deref()
+        );
         manager
             .close_session(&session.session_id)
             .expect("repeated close is idempotent");
@@ -854,6 +1165,51 @@ mod tests {
             .expect("events");
         assert_eq!(
             events
+                .iter()
+                .filter(|event| event.event_type == "session.closed")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn generic_update_preserves_terminal_lifecycle_semantics() {
+        let manager = create_manager();
+        let mut session = manager
+            .create_session(SessionConfig::new("agent.1"))
+            .expect("created");
+        session.state = "closed".to_string();
+        manager
+            .update_session(&session)
+            .expect("close through update");
+        let mut closed = manager.get_session(&session.session_id).expect("closed");
+        let metadata: HashMap<String, String> =
+            serde_json::from_str(closed.metadata_json.as_deref().expect("metadata"))
+                .expect("metadata JSON");
+        let ended_at = metadata.get("endedAt").cloned().expect("endedAt");
+        assert_eq!(
+            manager
+                .load_session_events(&session.session_id, Some(20), None)
+                .expect("events")
+                .iter()
+                .filter(|event| event.event_type == "session.closed")
+                .count(),
+            1
+        );
+
+        closed.title = Some("retitled".to_string());
+        manager
+            .update_session(&closed)
+            .expect("same-state terminal update");
+        let updated = manager.get_session(&session.session_id).expect("updated");
+        let updated_metadata: HashMap<String, String> =
+            serde_json::from_str(updated.metadata_json.as_deref().expect("metadata"))
+                .expect("metadata JSON");
+        assert_eq!(updated_metadata.get("endedAt"), Some(&ended_at));
+        assert_eq!(
+            manager
+                .load_session_events(&session.session_id, Some(20), None)
+                .expect("events")
                 .iter()
                 .filter(|event| event.event_type == "session.closed")
                 .count(),
@@ -975,6 +1331,45 @@ mod tests {
             .with_model("gpt-5-codex")
             .created_at("2026-07-15T00:00:00Z");
         provider_session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
+        provider_session.parent_session_id = Some("codex.thread.parent".to_string());
+        provider_session.forked_from_id = Some("codex.thread.source".to_string());
+        provider_session.slug = Some("native-thread".to_string());
+        provider_session.preview = Some("preview".to_string());
+        provider_session.goal = Some("goal".to_string());
+        provider_session.summary = Some("summary".to_string());
+        provider_session.ended_at = Some("2026-07-15T08:03:00+08:00".to_string());
+        provider_session.archived_at = Some("2026-07-15T08:04:00+08:00".to_string());
+        provider_session.model_provider = Some("openai".to_string());
+        provider_session.instructions = Some("instructions".to_string());
+        provider_session.personality = Some("precise".to_string());
+        provider_session.reasoning_effort = Some("high".to_string());
+        provider_session.approval_policy = Some("on-request".to_string());
+        provider_session.permission_profile = Some("workspace-write".to_string());
+        provider_session.workspace_roots = vec!["E:/workspace".to_string()];
+        provider_session.token_usage.input_tokens = 11;
+        provider_session.token_usage.output_tokens = 7;
+        provider_session.token_usage.cached_tokens = 3;
+        provider_session.token_usage.reasoning_tokens = 5;
+        provider_session.token_usage.total_tokens = 18;
+        provider_session.tool_call_count = 4;
+        provider_session.compression_count = 2;
+        provider_session.cost_cents = Some(99);
+        provider_session.change_summary.additions = 21;
+        provider_session.change_summary.deletions = 8;
+        provider_session.change_summary.files_changed = 3;
+        provider_session.context_from = Some("msg.context".to_string());
+        provider_session.context_watermark = Some("watermark.1".to_string());
+        provider_session.summary_message_id = Some("msg.summary".to_string());
+        provider_session.child_session_ids = vec![
+            " codex.thread.child ".to_string(),
+            "codex.thread.child".to_string(),
+        ];
+        provider_session.agent_nickname = Some("builder".to_string());
+        provider_session.agent_role = Some("worker".to_string());
+        provider_session.timeout_ms = Some(30_000);
+        provider_session
+            .metadata
+            .push(("providerId".to_string(), "spoofed".to_string()));
         provider_session.state = SessionState::Working;
         provider_session.message_count = 12;
 
@@ -987,15 +1382,118 @@ mod tests {
         assert_eq!(row.state, "working");
         assert_eq!(row.message_count, 12);
         assert_eq!(row.owner_tenant_id.as_deref(), Some("tenant.1"));
+        let metadata: HashMap<String, String> =
+            serde_json::from_str(row.metadata_json.as_deref().expect("metadata"))
+                .expect("metadata JSON");
+        for (key, expected) in [
+            ("providerId", "codex"),
+            ("providerSessionId", "codex.thread.1"),
+            ("parentSessionId", "codex.thread.parent"),
+            ("forkedFromId", "codex.thread.source"),
+            ("slug", "native-thread"),
+            ("preview", "preview"),
+            ("goal", "goal"),
+            ("summary", "summary"),
+            ("endedAt", "2026-07-15T00:03:00.000000000Z"),
+            ("archivedAt", "2026-07-15T00:04:00.000000000Z"),
+            ("modelProvider", "openai"),
+            ("instructions", "instructions"),
+            ("personality", "precise"),
+            ("reasoningEffort", "high"),
+            ("approvalPolicy", "on-request"),
+            ("permissionProfile", "workspace-write"),
+            ("costCents", "99"),
+            ("contextFrom", "msg.context"),
+            ("contextWatermark", "watermark.1"),
+            ("summaryMessageId", "msg.summary"),
+            ("agentNickname", "builder"),
+            ("agentRole", "worker"),
+            ("timeoutMs", "30000"),
+            ("toolCallCount", "4"),
+            ("compressionCount", "2"),
+        ] {
+            assert_eq!(metadata.get(key).map(String::as_str), Some(expected));
+        }
+        assert_eq!(
+            metadata.get("workspaceRoots").map(String::as_str),
+            Some("[\"E:/workspace\"]")
+        );
+        assert_eq!(
+            metadata.get("childSessionIds").map(String::as_str),
+            Some("[\"codex.thread.child\"]")
+        );
 
         provider_session.updated_at = Some("2026-07-15T08:02:00+08:00".to_string());
+        provider_session.created_at = Some("2027-01-01T00:00:00Z".to_string());
         provider_session.message_count = 18;
+        provider_session.token_usage = Default::default();
+        provider_session.tool_call_count = 0;
+        provider_session.compression_count = 0;
+        provider_session.cost_cents = None;
+        provider_session.change_summary = Default::default();
+        provider_session.parent_session_id = None;
+        provider_session.forked_from_id = None;
+        provider_session.ended_at = None;
+        provider_session.archived_at = None;
         provider_session.tenant_id = Some("tenant.2".to_string());
         let updated = manager
             .synchronize_provider_session("codex", Some("bridge.codex"), &provider_session)
             .expect("updated provider aggregate");
         assert_eq!(updated.message_count, 18);
         assert_eq!(updated.owner_tenant_id.as_deref(), Some("tenant.2"));
+        let updated_tokens: serde_json::Value = serde_json::from_str(
+            updated
+                .token_usage_json
+                .as_deref()
+                .expect("updated token usage"),
+        )
+        .expect("updated token JSON");
+        assert_eq!(updated_tokens["inputTokens"], 11);
+        assert_eq!(updated_tokens["outputTokens"], 7);
+        assert_eq!(updated_tokens["cachedTokens"], 3);
+        assert_eq!(updated_tokens["reasoningTokens"], 5);
+        assert_eq!(updated_tokens["totalTokens"], 18);
+        let updated_metadata: HashMap<String, String> =
+            serde_json::from_str(updated.metadata_json.as_deref().expect("updated metadata"))
+                .expect("updated metadata JSON");
+        assert_eq!(
+            updated_metadata.get("toolCallCount").map(String::as_str),
+            Some("4")
+        );
+        assert_eq!(
+            updated_metadata.get("compressionCount").map(String::as_str),
+            Some("2")
+        );
+        assert_eq!(
+            updated_metadata.get("costCents").map(String::as_str),
+            Some("99")
+        );
+        let updated_change_summary: serde_json::Value = serde_json::from_str(
+            updated_metadata
+                .get("changeSummary")
+                .expect("change summary"),
+        )
+        .expect("change summary JSON");
+        assert_eq!(updated_change_summary["additions"], 21);
+        assert_eq!(updated_change_summary["deletions"], 8);
+        assert_eq!(updated_change_summary["filesChanged"], 3);
+        assert_eq!(updated.created_at, row.created_at);
+        assert_eq!(
+            updated_metadata.get("parentSessionId").map(String::as_str),
+            Some("codex.thread.parent")
+        );
+        assert_eq!(
+            updated_metadata.get("forkedFromId").map(String::as_str),
+            Some("codex.thread.source")
+        );
+        assert_eq!(
+            updated_metadata.get("endedAt").map(String::as_str),
+            Some("2026-07-15T00:03:00.000000000Z")
+        );
+        assert_eq!(
+            updated_metadata.get("archivedAt").map(String::as_str),
+            Some("2026-07-15T00:04:00.000000000Z")
+        );
         assert_eq!(
             updated.updated_at.as_deref(),
             Some("2026-07-15T00:02:00.000000000Z")
@@ -1015,6 +1513,19 @@ mod tests {
             .iter()
             .any(|event| event.event_type == "session.synchronized"));
 
+        provider_session.parent_session_id = Some("codex.thread.other".to_string());
+        assert!(manager
+            .synchronize_provider_session("codex", Some("bridge.codex"), &provider_session)
+            .expect_err("lineage must not move")
+            .contains("parent_session_id cannot change"));
+
+        let mut self_parent = AgentSession::new("codex.thread.self");
+        self_parent.parent_session_id = Some(self_parent.session_id.clone());
+        assert!(manager
+            .synchronize_provider_session("codex", None, &self_parent)
+            .expect_err("self parent")
+            .contains("must not reference the session itself"));
+
         let collision =
             manager.synchronize_provider_session("claude-code", None, &provider_session);
         assert!(collision
@@ -1027,7 +1538,7 @@ mod tests {
         let manager = create_manager();
         let mut newer = AgentSession::new("opencode.session.1")
             .with_agent_id("agent.intelligence.opencode")
-            .created_at("2026-07-15T00:02:00Z");
+            .created_at("2026-07-15T00:00:00Z");
         newer.updated_at = Some("2026-07-15T00:02:00Z".to_string());
         newer.state = SessionState::Working;
         manager
@@ -1066,9 +1577,37 @@ mod tests {
 
         session.updated_at = Some("2026-07-15T00:02:00Z".to_string());
         session.state = SessionState::Closed;
-        manager
+        let closed = manager
             .synchronize_provider_session("openclaw", None, &session)
             .expect("closed");
+        let closed_metadata: HashMap<String, String> =
+            serde_json::from_str(closed.metadata_json.as_deref().expect("closed metadata"))
+                .expect("closed metadata JSON");
+        assert_eq!(
+            closed_metadata.get("endedAt").map(String::as_str),
+            Some("2026-07-15T00:02:00.000000000Z")
+        );
+
+        session.updated_at = Some("2026-07-15T00:02:30Z".to_string());
+        session.state = SessionState::Archived;
+        let archived = manager
+            .synchronize_provider_session("openclaw", None, &session)
+            .expect("archived");
+        let archived_metadata: HashMap<String, String> = serde_json::from_str(
+            archived
+                .metadata_json
+                .as_deref()
+                .expect("archived metadata"),
+        )
+        .expect("archived metadata JSON");
+        assert_eq!(
+            archived_metadata.get("endedAt").map(String::as_str),
+            Some("2026-07-15T00:02:00.000000000Z")
+        );
+        assert_eq!(
+            archived_metadata.get("archivedAt").map(String::as_str),
+            Some("2026-07-15T00:02:30.000000000Z")
+        );
 
         session.updated_at = Some("2026-07-15T00:03:00Z".to_string());
         session.state = SessionState::Active;
@@ -1081,7 +1620,7 @@ mod tests {
                 .get_session(&session.session_id)
                 .expect("retained terminal state")
                 .state,
-            "closed"
+            "archived"
         );
         let mut update = manager
             .get_session(&session.session_id)
@@ -1091,7 +1630,7 @@ mod tests {
             .update_session(&update)
             .expect_err("generic update terminal regression")
             .contains("cannot transition terminal session"));
-        update.state = "closed".to_string();
+        update.state = "archived".to_string();
         update.provider_id = Some("codex".to_string());
         assert!(manager
             .update_session(&update)
@@ -1177,5 +1716,14 @@ mod tests {
             .expect_err("invalid timestamp")
             .contains("RFC 3339"));
         assert!(manager.get_session(&session.session_id).is_err());
+
+        let mut invalid_order = AgentSession::new("gemini.session.invalid-order");
+        invalid_order.created_at = Some("2026-07-16T00:02:00Z".to_string());
+        invalid_order.updated_at = Some("2026-07-16T00:01:00Z".to_string());
+        assert!(manager
+            .synchronize_provider_session("gemini-cli", None, &invalid_order)
+            .expect_err("invalid timestamp order")
+            .contains("earlier than created_at"));
+        assert!(manager.get_session(&invalid_order.session_id).is_err());
     }
 }

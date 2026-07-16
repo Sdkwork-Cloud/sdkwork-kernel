@@ -976,29 +976,28 @@ impl RuntimeSessionWrites for InMemoryDatabase {
         let session = sessions.get_mut(&message.session_id).ok_or_else(|| {
             DatabaseError::NotFound(format!("session not found: {}", message.session_id))
         })?;
-        if crate::types::session_state_is_terminal(&session.state) {
-            return Err(DatabaseError::ConstraintViolation(format!(
-                "session {} is terminal ({})",
-                message.session_id, session.state
-            )));
-        }
         let existing_message = messages
             .iter()
             .find(|row| row.message_id == message.message_id)
             .cloned();
         if let Some(existing_message) = &existing_message {
             crate::message_identity::ensure_message_retry_matches(existing_message, message)?;
+            ensure_event_can_be_saved(&events, event)?;
+            return Ok(session.message_count);
         }
-        let message_is_new = existing_message.is_none();
-        if message_is_new {
-            let next_count = session.message_count.checked_add(1).ok_or_else(|| {
-                DatabaseError::ConstraintViolation("session message count overflow".to_string())
-            })?;
-            save_event_idempotent(&mut events, event)?;
-            messages.push(message.clone());
-            session.message_count = next_count;
-            session.updated_at = Some(crate::types::runtime_now_timestamp());
+        if crate::types::session_state_is_terminal(&session.state) {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "session {} is terminal ({})",
+                message.session_id, session.state
+            )));
         }
+        let next_count = session.message_count.checked_add(1).ok_or_else(|| {
+            DatabaseError::ConstraintViolation("session message count overflow".to_string())
+        })?;
+        save_event_idempotent(&mut events, event)?;
+        messages.push(message.clone());
+        session.message_count = next_count;
+        session.updated_at = Some(crate::types::runtime_now_timestamp());
         let count = session.message_count;
         Ok(count)
     }
@@ -1025,12 +1024,6 @@ impl RuntimeSessionWrites for InMemoryDatabase {
         let session = sessions
             .get_mut(session_id)
             .ok_or_else(|| DatabaseError::NotFound(format!("session not found: {session_id}")))?;
-        if !session.state.eq_ignore_ascii_case("active") {
-            return Err(DatabaseError::ConstraintViolation(format!(
-                "session {session_id} is not active"
-            )));
-        }
-
         let mut new_messages = Vec::with_capacity(turn_messages.len());
         for message in turn_messages {
             if let Some(existing) = messages
@@ -1042,6 +1035,19 @@ impl RuntimeSessionWrites for InMemoryDatabase {
                 new_messages.push(message.clone());
             }
         }
+        for event in turn_events {
+            ensure_event_can_be_saved(&events, event)?;
+        }
+        if !new_messages.is_empty() && new_messages.len() != turn_messages.len() {
+            return Err(DatabaseError::ConstraintViolation(
+                "a completed message turn cannot be partially replayed".to_string(),
+            ));
+        }
+        if !session.state.eq_ignore_ascii_case("active") && !new_messages.is_empty() {
+            return Err(DatabaseError::ConstraintViolation(format!(
+                "session {session_id} is not active"
+            )));
+        }
 
         if !new_messages.is_empty() {
             let added = i64::try_from(new_messages.len()).map_err(|_| {
@@ -1050,9 +1056,6 @@ impl RuntimeSessionWrites for InMemoryDatabase {
             let next_count = session.message_count.checked_add(added).ok_or_else(|| {
                 DatabaseError::ConstraintViolation("session message count overflow".to_string())
             })?;
-            for event in turn_events {
-                ensure_event_can_be_saved(&events, event)?;
-            }
             session.message_count = next_count;
             session.updated_at = Some(crate::types::runtime_now_timestamp());
             messages.extend(new_messages);
@@ -1866,6 +1869,12 @@ mod tests {
 
         assert_eq!(first_count, 1);
         assert_eq!(retry_count, 1);
+        let mut conflicting_event = event.clone();
+        conflicting_event.payload = Some("conflict".to_string());
+        assert!(matches!(
+            db.append_message_with_event(&message, &conflicting_event),
+            Err(DatabaseError::ConstraintViolation(_))
+        ));
         assert_eq!(db.message_count(session_id).expect("message count"), 1);
         assert_eq!(
             db.load_session(session_id)
@@ -1887,6 +1896,11 @@ mod tests {
             .expect("session");
         closed.state = "closed".to_string();
         db.update_session(&closed).expect("close session");
+        assert_eq!(
+            db.append_message_with_event(&message, &event)
+                .expect("exact retry after close"),
+            1
+        );
         let mut late_message = message.clone();
         late_message.message_id = "msg.memory.after-close".to_string();
         let mut late_event = event.clone();
@@ -1957,6 +1971,111 @@ mod tests {
         assert_eq!(retry_count, 1);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, "evt.memory.duplicate-event.1");
+    }
+
+    #[test]
+    fn completed_turn_retry_is_idempotent_after_close_and_validates_event_identity() {
+        let db = InMemoryDatabase::new();
+        let mut session = sample_session("session.turn.retry.memory");
+        db.save_session(&session).expect("session");
+        let message = MessageRow {
+            message_id: "msg.turn.retry.memory".to_string(),
+            session_id: session.session_id.clone(),
+            role: "user".to_string(),
+            content: "hello".to_string(),
+            created_at: "2026-07-16T00:00:01Z".to_string(),
+            metadata_json: None,
+        };
+        let events = vec![
+            EventRow {
+                event_id: "evt.turn.message.memory".to_string(),
+                session_id: Some(session.session_id.clone()),
+                event_type: "message.sent".to_string(),
+                severity: "info".to_string(),
+                payload: Some("role=user".to_string()),
+                created_at: "2026-07-16T00:00:01Z".to_string(),
+            },
+            EventRow {
+                event_id: "evt.turn.completed.memory".to_string(),
+                session_id: Some(session.session_id.clone()),
+                event_type: "turn.completed".to_string(),
+                severity: "info".to_string(),
+                payload: None,
+                created_at: "2026-07-16T00:00:02Z".to_string(),
+            },
+        ];
+        assert_eq!(
+            db.append_message_turn_with_events(std::slice::from_ref(&message), &events)
+                .expect("first turn"),
+            1
+        );
+        let assistant = MessageRow {
+            message_id: "msg.turn.partial-assistant.memory".to_string(),
+            session_id: session.session_id.clone(),
+            role: "assistant".to_string(),
+            content: "partial".to_string(),
+            created_at: "2026-07-16T00:00:02Z".to_string(),
+            metadata_json: None,
+        };
+        let partial_events = vec![
+            events[0].clone(),
+            EventRow {
+                event_id: "evt.turn.partial-assistant.memory".to_string(),
+                session_id: Some(session.session_id.clone()),
+                event_type: "message.sent".to_string(),
+                severity: "info".to_string(),
+                payload: Some("role=assistant".to_string()),
+                created_at: "2026-07-16T00:00:02Z".to_string(),
+            },
+            events[1].clone(),
+        ];
+        assert!(matches!(
+            db.append_message_turn_with_events(
+                &[message.clone(), assistant.clone()],
+                &partial_events,
+            ),
+            Err(DatabaseError::ConstraintViolation(_))
+        ));
+        assert!(db
+            .load_messages(&session.session_id, &MessageQuery::default())
+            .expect("messages")
+            .iter()
+            .all(|row| row.message_id != assistant.message_id));
+        session.state = "closed".to_string();
+        db.update_session(&session).expect("close");
+        assert_eq!(
+            db.append_message_turn_with_events(std::slice::from_ref(&message), &events)
+                .expect("exact retry after close"),
+            1
+        );
+
+        let mut conflicting_events = events.clone();
+        conflicting_events[1].payload = Some("conflict".to_string());
+        assert!(matches!(
+            db.append_message_turn_with_events(
+                std::slice::from_ref(&message),
+                &conflicting_events,
+            ),
+            Err(DatabaseError::ConstraintViolation(_))
+        ));
+        let late_message = MessageRow {
+            message_id: "msg.turn.late.memory".to_string(),
+            ..message
+        };
+        let mut late_events = events;
+        late_events[0].event_id = "evt.turn.late-message.memory".to_string();
+        late_events[1].event_id = "evt.turn.late-completed.memory".to_string();
+        assert!(matches!(
+            db.append_message_turn_with_events(&[late_message], &late_events),
+            Err(DatabaseError::ConstraintViolation(_))
+        ));
+        assert_eq!(db.message_count(&session.session_id).expect("count"), 1);
+        assert_eq!(
+            db.load_events(&session.session_id, &EventQuery::default())
+                .expect("events")
+                .len(),
+            2
+        );
     }
 
     #[test]

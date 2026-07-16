@@ -27,6 +27,9 @@ pub struct ProviderSessionInventorySyncReport {
     pub pages: usize,
     pub discovered: usize,
     pub deleted: usize,
+    pub change_pages: usize,
+    pub synchronized: usize,
+    pub next_cursor: u64,
 }
 
 /// Applies one bounded provider change page to the unified transient session store.
@@ -57,7 +60,12 @@ impl ProviderSessionSynchronizer {
         let page_size = page_size
             .unwrap_or(DEFAULT_INVENTORY_PAGE_SIZE)
             .clamp(1, MAX_INVENTORY_PAGE_SIZE);
-        let mut report = ProviderSessionInventorySyncReport::default();
+        let mut report = ProviderSessionInventorySyncReport {
+            next_cursor: provider.session_change_cursor().map_err(|error| {
+                format!("failed to capture provider session change cursor: {error}")
+            })?,
+            ..ProviderSessionInventorySyncReport::default()
+        };
         let mut after_updated_at = None;
         let mut after_session_id = None;
         let mut discovered_ids = HashSet::new();
@@ -146,6 +154,29 @@ impl ProviderSessionSynchronizer {
             &discovered_ids,
         )?;
 
+        loop {
+            if report.change_pages >= MAX_INVENTORY_PAGES {
+                return Err(format!(
+                    "provider {provider_id} inventory catch-up exceeded {MAX_INVENTORY_PAGES} change pages"
+                ));
+            }
+            let change_report = Self::synchronize_once(
+                manager,
+                provider_id,
+                bridge_id,
+                provider,
+                report.next_cursor,
+                Some(MAX_CHANGE_PAGE_SIZE),
+            )?;
+            report.change_pages += 1;
+            report.synchronized += change_report.synchronized;
+            report.deleted += change_report.deleted;
+            report.next_cursor = change_report.next_cursor;
+            if !change_report.has_more {
+                break;
+            }
+        }
+
         Ok(report)
     }
 
@@ -181,6 +212,39 @@ impl ProviderSessionSynchronizer {
         }
         let mut previous_sequence = after_sequence;
         for change in &batch.changes {
+            if change.provider_id != provider_id {
+                return Err(format!(
+                    "provider session change for {} belongs to {}, expected {}",
+                    change.session_id, change.provider_id, provider_id
+                ));
+            }
+            if change.session_id.trim().is_empty() {
+                return Err(format!(
+                    "provider {provider_id} returned a session change with an empty session_id"
+                ));
+            }
+            if sdkwork_utils_rust::parse_datetime(&change.occurred_at, None).is_none() {
+                return Err(format!(
+                    "provider {provider_id} session change {} has an invalid occurred_at timestamp",
+                    change.sequence
+                ));
+            }
+            match (change.kind, change.state) {
+                (ProviderSessionChangeKind::Deleted, Some(_)) => {
+                    return Err(format!(
+                        "provider {provider_id} deletion change {} must not carry session state",
+                        change.sequence
+                    ));
+                }
+                (ProviderSessionChangeKind::Deleted, None) => {}
+                (_, None) => {
+                    return Err(format!(
+                        "provider {provider_id} session change {} must carry session state",
+                        change.sequence
+                    ));
+                }
+                (_, Some(_)) => {}
+            }
             let expected_sequence = previous_sequence.checked_add(1).ok_or_else(|| {
                 format!(
                     "provider {provider_id} session change cursor exhausted at {previous_sequence}"
@@ -209,12 +273,6 @@ impl ProviderSessionSynchronizer {
         // Only the latest mutation for each session matters in one provider snapshot.
         let mut latest_by_session: HashMap<String, ProviderSessionChange> = HashMap::new();
         for change in batch.changes {
-            if change.provider_id != provider_id {
-                return Err(format!(
-                    "provider session change for {} belongs to {}, expected {}",
-                    change.session_id, change.provider_id, provider_id
-                ));
-            }
             latest_by_session.insert(change.session_id.clone(), change);
         }
         let mut latest: Vec<_> = latest_by_session.into_values().collect();
@@ -416,6 +474,7 @@ mod tests {
     use sdkwork_agent_database::InMemoryDatabase;
     use sdkwork_agent_kernel::{SessionKind, SessionSource};
     use sdkwork_agent_provider_core::SessionConfig;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     sdkwork_agent_provider_core::define_provider_lifecycle_provider!(TestLifecycleProvider, "test");
 
@@ -498,6 +557,9 @@ mod tests {
         .expect("first inventory sync");
         assert_eq!(first.discovered, 45);
         assert_eq!(first.pages, 7);
+        assert_eq!(first.change_pages, 1);
+        assert_eq!(first.synchronized, 0);
+        assert_eq!(first.next_cursor, 45);
         assert_eq!(
             manager
                 .list_sessions(crate::SessionQuery {
@@ -532,7 +594,118 @@ mod tests {
         )
         .expect("replayed inventory sync");
         assert_eq!(replay.discovered, 45);
+        assert_eq!(replay.next_cursor, 45);
         assert_eq!(synchronized_event_count(), synchronized_events_before);
+    }
+
+    struct MutatingInventoryProvider {
+        inner: TestLifecycleProvider,
+        target_session_id: String,
+        mutated: AtomicBool,
+    }
+
+    impl SessionLifecycleProvider for MutatingInventoryProvider {
+        fn create_session(
+            &self,
+            agent_id: &str,
+            user_ref: Option<&str>,
+            config: SessionConfig,
+        ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
+            self.inner.create_session(agent_id, user_ref, config)
+        }
+
+        fn resume_session(
+            &self,
+            session_id: &str,
+        ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
+            self.inner.resume_session(session_id)
+        }
+
+        fn close_session(
+            &self,
+            session_id: &str,
+        ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentSession> {
+            self.inner.close_session(session_id)
+        }
+
+        fn list_active_sessions(
+            &self,
+        ) -> sdkwork_agent_kernel::KernelResult<Vec<sdkwork_agent_kernel::AgentSession>> {
+            self.inner.list_active_sessions()
+        }
+
+        fn find_session(
+            &self,
+            session_id: &str,
+        ) -> sdkwork_agent_kernel::KernelResult<Option<sdkwork_agent_kernel::AgentSession>>
+        {
+            self.inner.find_session(session_id)
+        }
+
+        fn session_change_cursor(&self) -> sdkwork_agent_kernel::KernelResult<u64> {
+            self.inner.session_change_cursor()
+        }
+
+        fn session_changes(
+            &self,
+            after_sequence: u64,
+            limit: Option<usize>,
+        ) -> sdkwork_agent_kernel::KernelResult<
+            sdkwork_agent_provider_core::ProviderSessionChangeBatch,
+        > {
+            self.inner.session_changes(after_sequence, limit)
+        }
+
+        fn list_sessions(
+            &self,
+            query: &sdkwork_agent_provider_core::SessionListQuery,
+        ) -> sdkwork_agent_kernel::KernelResult<Vec<sdkwork_agent_kernel::AgentSession>> {
+            let page = self.inner.list_sessions(query)?;
+            if !self.mutated.swap(true, Ordering::SeqCst) {
+                let mut updated = self.inner.get_session(&self.target_session_id)?;
+                updated.title = Some("updated during inventory".to_string());
+                self.inner.update_session(updated)?;
+            }
+            Ok(page)
+        }
+    }
+
+    #[test]
+    fn inventory_replays_changes_committed_during_pagination() {
+        let inner = TestLifecycleProvider::new();
+        let session = inner
+            .create_session(
+                "agent.test",
+                None,
+                SessionConfig::new().with_title("before inventory"),
+            )
+            .expect("session");
+        let provider = MutatingInventoryProvider {
+            inner,
+            target_session_id: session.session_id.clone(),
+            mutated: AtomicBool::new(false),
+        };
+        let manager = UnifiedSessionManager::new(InMemoryDatabase::new());
+
+        let report = ProviderSessionSynchronizer::synchronize_inventory(
+            &manager,
+            "test",
+            None,
+            &provider,
+            Some(20),
+        )
+        .expect("inventory with catch-up");
+        assert_eq!(report.discovered, 1);
+        assert_eq!(report.synchronized, 1);
+        assert_eq!(report.next_cursor, 2);
+        assert_eq!(
+            manager
+                .get_session(&session.session_id)
+                .expect("unified session")
+                .title
+                .as_deref(),
+            Some("updated during inventory")
+        );
     }
 
     #[test]
@@ -664,6 +837,10 @@ mod tests {
                 has_more: false,
             })
         }
+
+        fn session_change_cursor(&self) -> sdkwork_agent_kernel::KernelResult<u64> {
+            Ok(0)
+        }
     }
 
     #[test]
@@ -735,6 +912,13 @@ mod tests {
             state: Some(sdkwork_agent_kernel::SessionState::Working),
             occurred_at: "2026-07-15T00:00:00Z".to_string(),
         };
+        let one_change_batch = |change: sdkwork_agent_provider_core::ProviderSessionChange| {
+            sdkwork_agent_provider_core::ProviderSessionChangeBatch {
+                next_cursor: change.sequence,
+                changes: vec![change],
+                has_more: false,
+            }
+        };
         let malformed = [
             sdkwork_agent_provider_core::ProviderSessionChangeBatch {
                 changes: vec![change(2), change(1)],
@@ -758,6 +942,26 @@ mod tests {
                 next_cursor: (MAX_CHANGE_PAGE_SIZE + 1) as u64,
                 has_more: false,
             },
+            one_change_batch(sdkwork_agent_provider_core::ProviderSessionChange {
+                provider_id: "other".to_string(),
+                ..change(1)
+            }),
+            one_change_batch(sdkwork_agent_provider_core::ProviderSessionChange {
+                session_id: " ".to_string(),
+                ..change(1)
+            }),
+            one_change_batch(sdkwork_agent_provider_core::ProviderSessionChange {
+                occurred_at: "eventually".to_string(),
+                ..change(1)
+            }),
+            one_change_batch(sdkwork_agent_provider_core::ProviderSessionChange {
+                kind: ProviderSessionChangeKind::Deleted,
+                ..change(1)
+            }),
+            one_change_batch(sdkwork_agent_provider_core::ProviderSessionChange {
+                state: None,
+                ..change(1)
+            }),
         ];
         for batch in malformed {
             let provider = MissingSnapshotProvider {

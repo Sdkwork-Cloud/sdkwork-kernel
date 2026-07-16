@@ -35,6 +35,8 @@ Authoritative TS projection reference: `@sdkwork/birdcoder-pc-projection` `canon
 | `message.completed` | `completed` | Aggregated assistant output | Full `content` after stream settles |
 | `tool.call.requested` | `awaiting_tool` | `agent.tool.call.requested` | `toolCallId`, `toolName`, `toolArguments` |
 | `tool.call.completed` | `completed` | `agent.tool.call.completed` | Maps tool result output |
+| `approval.required` | `awaiting_tool` | Provider-neutral interaction projection | `interactionId`, `interactionKind: "approval"`, plus tool display metadata |
+| `user.question.required` | `awaiting_tool` | Provider-neutral interaction projection | `interactionId`, `interactionKind: "user_question"`, plus `questions` and tool display metadata |
 | `operation.updated` | `completed` / `awaiting_tool` | Checkpoint / approval / command lifecycle | `status`, optional `finishReason` |
 | `turn.completed` | `completed` | `agent.turn.completed` | `contentLength`, `finishReason` |
 | `turn.failed` | `failed` | `agent.turn.failed` / kernel error normalization | `errorMessage` |
@@ -49,6 +51,38 @@ After projection, BirdCoder `codeengine.dialect` normalizes:
 - runtime status strings → `normalize_codeengine_runtime_status`
 
 Kernel event payloads remain provider-neutral. Dialect normalization happens only in BirdCoder crates.
+
+### Interaction Projection Contract
+
+Pending provider interactions are projected by the BirdCoder kernel bridge,
+not by provider-specific UI code. The bridge accepts only kernel-neutral tool
+calls/command records and emits these canonical events:
+
+- Approval: `approval.required` with `interactionKind: "approval"`.
+- User question: `user.question.required` with `interactionKind: "user_question"`.
+
+Both payloads MUST include a non-empty immutable `interactionId` copied from
+the provider-native approval, permission, question, request, or checkpoint
+identifier. The bridge MUST NOT synthesize an id from a local session, turn,
+database record, transport request, or counter. Invalid/ambiguous provider
+interaction payloads fail closed instead of creating an unrouteable durable
+event.
+
+The canonical payload MAY retain display information under `questions`,
+`tool`, `toolName`, `toolCallId`, `toolArguments`, and `metadata`, but it MUST
+not publish raw provider event names or provider identifier aliases as
+top-level contract fields. Provider-specific request/permission/session alias
+keys are removed from projected display arguments because `interactionId` is
+the only interaction authority.
+
+Finalization inserts canonical interaction events before terminal
+`message.completed` / `turn.completed` events and preserves the source
+`turn_id` and `runtime_id`. Repository persistence assigns the durable event
+UUID and sequence. Mutation endpoints resolve that durable UUID back to the
+payload `interactionId`; bridge adapters pass the resolved value unchanged as
+the provider reply target and idempotency key. A durable lease can prevent
+concurrent replies, but an unknown provider outcome after process loss remains
+an explicit recovery state rather than a claim of external exactly-once.
 
 ## Live Interaction (transition)
 

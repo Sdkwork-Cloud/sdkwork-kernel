@@ -1522,6 +1522,29 @@ impl RuntimeSessionWrites for SqliteDatabase {
                 )),
             })?;
         if crate::types::session_state_is_terminal(&session_state) {
+            let existing = tx
+                .query_row(
+                    "SELECT message_id, session_id, role, content, created_at, metadata_json
+                     FROM messages WHERE message_id = ?1",
+                    params![message.message_id],
+                    map_message_row,
+                )
+                .optional()
+                .map_err(|error| {
+                    DatabaseError::Query(format!(
+                        "failed to load terminal-session message retry: {error}"
+                    ))
+                })?;
+            if let Some(existing) = existing {
+                crate::message_identity::ensure_message_retry_matches(&existing, message)?;
+                sqlite_validate_event_retry_if_present(&tx, event)?;
+                tx.commit().map_err(|error| {
+                    DatabaseError::Transaction(format!(
+                        "failed to commit terminal-session message retry: {error}"
+                    ))
+                })?;
+                return Ok(current_count);
+            }
             return Err(DatabaseError::ConstraintViolation(format!(
                 "session {} is terminal ({session_state})",
                 message.session_id
@@ -1574,6 +1597,7 @@ impl RuntimeSessionWrites for SqliteDatabase {
                     DatabaseError::Query(format!("failed to load existing message: {error}"))
                 })?;
             crate::message_identity::ensure_message_retry_matches(&existing, message)?;
+            sqlite_validate_event_retry_if_present(&tx, event)?;
             tx.query_row(
                 "SELECT message_count FROM sessions WHERE session_id = ?1",
                 params![message.session_id],
@@ -1624,9 +1648,36 @@ impl RuntimeSessionWrites for SqliteDatabase {
                 )),
             })?;
         if !session_state.eq_ignore_ascii_case("active") {
-            return Err(DatabaseError::ConstraintViolation(format!(
-                "session {session_id} is not active"
-            )));
+            for message in turn_messages {
+                let existing = tx
+                    .query_row(
+                        "SELECT message_id, session_id, role, content, created_at, metadata_json
+                         FROM messages WHERE message_id = ?1",
+                        params![message.message_id],
+                        map_message_row,
+                    )
+                    .optional()
+                    .map_err(|error| {
+                        DatabaseError::Query(format!(
+                            "failed to load terminal-session turn retry: {error}"
+                        ))
+                    })?
+                    .ok_or_else(|| {
+                        DatabaseError::ConstraintViolation(format!(
+                            "session {session_id} is not active"
+                        ))
+                    })?;
+                crate::message_identity::ensure_message_retry_matches(&existing, message)?;
+            }
+            for event in turn_events {
+                sqlite_validate_event_retry_if_present(&tx, event)?;
+            }
+            tx.commit().map_err(|error| {
+                DatabaseError::Transaction(format!(
+                    "failed to commit terminal-session turn retry: {error}"
+                ))
+            })?;
+            return Ok(current_count);
         }
 
         let mut inserted_count = 0_i64;
@@ -1669,6 +1720,14 @@ impl RuntimeSessionWrites for SqliteDatabase {
                 crate::message_identity::ensure_message_retry_matches(&existing, message)?;
             }
         }
+        let turn_size = i64::try_from(turn_messages.len()).map_err(|_| {
+            DatabaseError::ConstraintViolation("message turn size overflow".to_string())
+        })?;
+        if inserted_count > 0 && inserted_count != turn_size {
+            return Err(DatabaseError::ConstraintViolation(
+                "a completed message turn cannot be partially replayed".to_string(),
+            ));
+        }
 
         let count = if inserted_count > 0 {
             let updated_at = crate::types::runtime_now_timestamp();
@@ -1693,6 +1752,9 @@ impl RuntimeSessionWrites for SqliteDatabase {
             }
             count
         } else {
+            for event in turn_events {
+                sqlite_validate_event_retry_if_present(&tx, event)?;
+            }
             current_count
         };
 

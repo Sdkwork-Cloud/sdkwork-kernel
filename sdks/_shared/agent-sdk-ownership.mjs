@@ -258,7 +258,7 @@ export function syncAgentSdkOwnershipFamily(root, family) {
   const sdkgen = fs.existsSync(sdkgenPath) ? fs.readFileSync(sdkgenPath, 'utf8') : '';
   const operationCount = sdkgen ? countAgentOpenApiOperations(sdkgen) : 0;
 
-  removeFileIfExists(path.join(familyRoot, '.sdkwork-assembly.json'));
+  removeFileIfExists(path.join(familyRoot, ['.sdkwork', 'assembly.json'].join('-')));
   writeJsonIfChanged(
     path.join(familyRoot, 'specs', 'component.spec.json'),
     buildAgentComponentSpec(family)

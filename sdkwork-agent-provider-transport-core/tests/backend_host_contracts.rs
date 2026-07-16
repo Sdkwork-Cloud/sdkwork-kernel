@@ -68,7 +68,9 @@ fn negotiated_typescript_model_chat() -> SdkCapabilityNegotiation {
 #[test]
 fn bootstrap_fails_closed_when_selected_runtime_is_unhealthy() {
     let mut bootstrap = ProviderTransportBootstrap::new();
-    bootstrap.register_host(Arc::new(TypeScriptNodeBackendHost::new("@sdkwork/missing-sdk")));
+    bootstrap.register_host(Arc::new(TypeScriptNodeBackendHost::new(
+        "@sdkwork/missing-sdk",
+    )));
     bootstrap.with_typescript_runtime(Arc::new(UnhealthyRuntime));
 
     let error = match bootstrap.finalize_pair(negotiated_typescript_model_chat()) {

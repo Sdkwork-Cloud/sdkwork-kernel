@@ -1,8 +1,9 @@
 use sdkwork_agent_provider_transport_ipc::{
     expand_buffered_stream_payload, is_stream_chunk_frame, is_stream_terminal_frame,
-    stream_chunk_frame, stream_done_frame, JsonRpcTransport, PackageStubJsonRpcTransport,
-    MAX_STREAM_BUFFER_CHUNKS, MAX_STREAM_CHUNK_BYTES, MAX_STREAM_TOTAL_BYTES,
-    SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_STREAM_EVENT_CHUNK, SDKWORK_STREAM_EVENT_DONE,
+    stream_chunk_frame, stream_done_frame, stream_done_frame_with_completion, JsonRpcTransport,
+    PackageStubJsonRpcTransport, MAX_STREAM_BUFFER_CHUNKS, MAX_STREAM_CHUNK_BYTES,
+    MAX_STREAM_TOTAL_BYTES, SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_STREAM_EVENT_CHUNK,
+    SDKWORK_STREAM_EVENT_DONE,
 };
 use serde_json::json;
 use std::sync::{Mutex, OnceLock};
@@ -52,7 +53,8 @@ fn expand_buffered_stream_payload_emits_chunk_and_done_frames() {
             { "sequence": 1, "content": "two " }
         ],
         "finish_reason": "stop",
-        "model_request_id": "req.1"
+        "model_request_id": "req.1",
+        "native_session_id": "thread-1"
     });
     let mut frames = Vec::new();
     expand_buffered_stream_payload(payload, |frame| {
@@ -64,6 +66,18 @@ fn expand_buffered_stream_payload_emits_chunk_and_done_frames() {
     assert!(is_stream_chunk_frame(&frames[0]));
     assert!(is_stream_chunk_frame(&frames[1]));
     assert!(is_stream_terminal_frame(&frames[2]));
+    assert_eq!(
+        frames[2]
+            .get("model_request_id")
+            .and_then(|value| value.as_str()),
+        Some("req.1")
+    );
+    assert_eq!(
+        frames[2]
+            .get("native_session_id")
+            .and_then(|value| value.as_str()),
+        Some("thread-1")
+    );
 }
 
 #[test]
@@ -106,6 +120,44 @@ fn stream_frame_helpers_round_trip() {
     assert!(is_stream_chunk_frame(&chunk));
     let done = stream_done_frame("stop");
     assert!(is_stream_terminal_frame(&done));
+
+    let completion = stream_done_frame_with_completion(
+        "stop",
+        Some("req.completion"),
+        Some("thread-completion"),
+    );
+    assert!(is_stream_terminal_frame(&completion));
+    assert_eq!(
+        completion
+            .get("model_request_id")
+            .and_then(|value| value.as_str()),
+        Some("req.completion")
+    );
+    assert_eq!(
+        completion
+            .get("native_session_id")
+            .and_then(|value| value.as_str()),
+        Some("thread-completion")
+    );
+}
+
+#[test]
+fn failed_stream_payload_is_not_expanded_into_done_frame() {
+    let payload = json!({
+        "ok": false,
+        "error": "provider failed after emitting chunks",
+        "model_request_id": "req.failed"
+    });
+    let mut frames = Vec::new();
+
+    let error = expand_buffered_stream_payload(payload, |frame| {
+        frames.push(frame);
+        Ok(true)
+    })
+    .expect_err("failed provider payload must remain a transport error");
+
+    assert_eq!(error.message, "provider failed after emitting chunks");
+    assert!(frames.is_empty());
 }
 
 #[test]

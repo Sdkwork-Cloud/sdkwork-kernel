@@ -9,7 +9,9 @@ use sdkwork_agent_kernel::{
 };
 use sdkwork_agent_provider_core::mock_provider_invocation_allowed;
 use sdkwork_agent_provider_core::validate_runtime_model_payload;
-use sdkwork_agent_provider_transport_ipc::{is_stream_chunk_frame, StreamResourceBudget};
+use sdkwork_agent_provider_transport_ipc::{
+    is_stream_chunk_frame, is_stream_terminal_frame, StreamResourceBudget,
+};
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -17,6 +19,18 @@ pub const SDK_CAPABILITY_SESSION_LIFECYCLE: &str = "sdk.session.lifecycle";
 pub const SDK_CAPABILITY_MODEL_CHAT: &str = "sdk.model.chat";
 pub const SDK_CAPABILITY_TOOL_INVOKE: &str = "sdk.tool.invoke";
 pub const SDK_CAPABILITY_SKILL_INVOKE: &str = "sdk.skill.invoke";
+
+/// Provider-neutral completion metadata for one runtime-backed model stream.
+///
+/// A transport may complete a stream without being able to prove a native
+/// provider session id. Callers that need resumable first-turn streaming must
+/// require `native_session_id` instead of synthesizing one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SdkRuntimeStreamCompletion {
+    pub model_request_id: String,
+    pub finish_reason: String,
+    pub native_session_id: Option<String>,
+}
 
 /// Kernel providers wired through a negotiated [`SdkRuntimeRouter`].
 pub struct RuntimeBackedProviders {
@@ -103,6 +117,12 @@ impl SdkRuntimeBackedModelProvider {
         let mut budget = StreamResourceBudget::new();
         runtime.invoke_streaming(&runtime_request, &mut |frame| {
             if let Some(chunk) = model_stream_chunk_from_frame(&frame, &model_request_id) {
+                if chunk.model_request_id != model_request_id {
+                    return Err(SdkRuntimeError::new(
+                        "stream_request_mismatch",
+                        "runtime stream chunk model_request_id does not match the active request",
+                    ));
+                }
                 budget.record_chunk(&chunk.content).map_err(|error| {
                     SdkRuntimeError::new("stream_resource_limit", error.to_string())
                 })?;
@@ -110,6 +130,62 @@ impl SdkRuntimeBackedModelProvider {
                     .map_err(|error| SdkRuntimeError::new("stream_sink", error.to_string()))?;
             }
             Ok(true)
+        })
+    }
+
+    /// Streams through the negotiated runtime and returns the correlated
+    /// terminal metadata emitted by the transport.
+    ///
+    /// This intentionally extends only the runtime-backed provider boundary;
+    /// the stable kernel [`ModelProvider`] SPI remains chunk-only. A terminal
+    /// frame without a matching `model_request_id` is rejected so completion
+    /// metadata cannot be attached to another in-flight turn.
+    pub fn stream_through_runtime_into_with_completion(
+        runtime: &SdkRuntimeRouter,
+        capability_id: &str,
+        request: &ModelRequest,
+        _provider_id: &str,
+        sink: &mut dyn ModelStreamSink,
+    ) -> Result<SdkRuntimeStreamCompletion, SdkRuntimeError> {
+        let runtime_request = SdkRuntimeRequest::stream_from_model_request(capability_id, request)?;
+        let model_request_id = request.model_request_id.clone();
+        let mut budget = StreamResourceBudget::new();
+        let mut completion = None;
+
+        runtime.invoke_streaming(&runtime_request, &mut |frame| {
+            if is_stream_terminal_frame(&frame) {
+                let next_completion =
+                    runtime_stream_completion_from_terminal_frame(&frame, &model_request_id)?;
+                if completion.replace(next_completion).is_some() {
+                    return Err(SdkRuntimeError::new(
+                        "duplicate_stream_completion",
+                        "runtime stream emitted more than one terminal completion frame",
+                    ));
+                }
+                return Ok(true);
+            }
+
+            if let Some(chunk) = model_stream_chunk_from_frame(&frame, &model_request_id) {
+                if chunk.model_request_id != model_request_id {
+                    return Err(SdkRuntimeError::new(
+                        "stream_request_mismatch",
+                        "runtime stream chunk model_request_id does not match the active request",
+                    ));
+                }
+                budget.record_chunk(&chunk.content).map_err(|error| {
+                    SdkRuntimeError::new("stream_resource_limit", error.to_string())
+                })?;
+                sink.push_chunk(chunk)
+                    .map_err(|error| SdkRuntimeError::new("stream_sink", error.to_string()))?;
+            }
+            Ok(true)
+        })?;
+
+        completion.ok_or_else(|| {
+            SdkRuntimeError::new(
+                "missing_stream_completion",
+                "runtime stream completed without a terminal completion frame",
+            )
         })
     }
 
@@ -126,6 +202,27 @@ impl SdkRuntimeBackedModelProvider {
             ));
         }
         Ok(ModelResponse::cancelled(model_request_id, provider_id))
+    }
+
+    /// Streams model output and returns the runtime completion metadata when
+    /// the negotiated provider can prove it. This does not fall back to a
+    /// synthetic provider because no fallback can truthfully provide the
+    /// native session identity for the streamed execution.
+    pub fn stream_into_with_completion(
+        &self,
+        request: ModelRequest,
+        sink: &mut dyn ModelStreamSink,
+    ) -> KernelResult<SdkRuntimeStreamCompletion> {
+        Self::stream_through_runtime_into_with_completion(
+            &self.runtime,
+            &self.capability_id,
+            &request,
+            &self.provider_id,
+            sink,
+        )
+        .map_err(|_| sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+            provider_id: self.provider_id.clone(),
+        })
     }
 }
 
@@ -318,6 +415,7 @@ pub fn model_response_from_runtime(
                 .unwrap_or("runtime invoke returned ok=false"),
         ));
     }
+    validate_payload_model_request_id(&payload, model_request_id)?;
 
     validate_runtime_model_payload(&payload)
         .map_err(|message| SdkRuntimeError::new("mock_provider_disabled", message))?;
@@ -329,13 +427,14 @@ pub fn model_response_from_runtime(
             "runtime response did not include model messages",
         ));
     }
+    let tool_calls = extract_tool_calls(&payload)?;
 
     let mut model_response = ModelResponse {
         model_request_id: model_request_id.to_string(),
         provider_id: provider_id.to_string(),
         status: ModelStatus::Succeeded,
         messages,
-        tool_calls: Vec::new(),
+        tool_calls,
         usage: None,
         finish_reason: payload
             .get("finish_reason")
@@ -392,6 +491,7 @@ pub fn stream_chunks_from_runtime(
                 .unwrap_or("runtime stream invoke returned ok=false"),
         ));
     }
+    validate_payload_model_request_id(&payload, model_request_id)?;
 
     if let Some(chunks) = payload.get("chunks").and_then(Value::as_array) {
         let mut budget = StreamResourceBudget::new();
@@ -455,6 +555,27 @@ pub fn stream_chunks_from_runtime(
     Ok(mapped)
 }
 
+fn validate_payload_model_request_id(
+    payload: &Value,
+    expected_model_request_id: &str,
+) -> Result<(), SdkRuntimeError> {
+    let Some(model_request_id) = payload
+        .get("model_request_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(());
+    };
+    if model_request_id == expected_model_request_id {
+        return Ok(());
+    }
+    Err(SdkRuntimeError::new(
+        "stream_request_mismatch",
+        "runtime model_request_id does not match the active request",
+    ))
+}
+
 pub fn model_stream_chunk_from_frame(
     frame: &Value,
     default_model_request_id: &str,
@@ -476,6 +597,49 @@ pub fn model_stream_chunk_from_frame(
         sequence,
         content.to_string(),
     ))
+}
+
+fn runtime_stream_completion_from_terminal_frame(
+    frame: &Value,
+    expected_model_request_id: &str,
+) -> Result<SdkRuntimeStreamCompletion, SdkRuntimeError> {
+    let model_request_id = frame
+        .get("model_request_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            SdkRuntimeError::new(
+                "missing_stream_request_id",
+                "runtime stream completion is missing model_request_id",
+            )
+        })?;
+    if model_request_id != expected_model_request_id {
+        return Err(SdkRuntimeError::new(
+            "stream_request_mismatch",
+            "runtime stream completion model_request_id does not match the active request",
+        ));
+    }
+
+    let finish_reason = frame
+        .get("finish_reason")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("stop")
+        .to_string();
+    let native_session_id = frame
+        .get("native_session_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+
+    Ok(SdkRuntimeStreamCompletion {
+        model_request_id: model_request_id.to_string(),
+        finish_reason,
+        native_session_id,
+    })
 }
 
 pub fn tool_result_from_runtime(
@@ -517,6 +681,96 @@ fn extract_messages(payload: &Value) -> Vec<String> {
         .and_then(Value::as_str)
         .map(|message| vec![message.to_string()])
         .unwrap_or_default()
+}
+
+/// Maps a provider runtime's optional tool-call list into the kernel-neutral
+/// [`ToolCall`] contract. A provider must supply its own stable call id; this
+/// bridge never fabricates an id because interaction replies must route back
+/// to the provider-native request/checkpoint.
+fn extract_tool_calls(payload: &Value) -> Result<Vec<ToolCall>, SdkRuntimeError> {
+    let Some(entries) = payload
+        .get("tool_calls")
+        .or_else(|| payload.get("toolCalls"))
+        .and_then(Value::as_array)
+    else {
+        return Ok(Vec::new());
+    };
+
+    entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| runtime_tool_call_from_value(entry, index))
+        .collect()
+}
+
+fn runtime_tool_call_from_value(entry: &Value, index: usize) -> Result<ToolCall, SdkRuntimeError> {
+    let tool_call_id = runtime_tool_call_string(
+        entry,
+        &["tool_call_id", "toolCallId", "id", "interactionId"],
+    )
+    .ok_or_else(|| {
+        SdkRuntimeError::new(
+            "invalid_tool_call",
+            format!("runtime tool call at index {index} is missing a stable id"),
+        )
+    })?;
+    let tool_id = runtime_tool_call_string(
+        entry,
+        &["tool_id", "toolId", "tool_name", "toolName", "name"],
+    )
+    .or_else(|| {
+        entry
+            .get("function")
+            .and_then(|function| runtime_tool_call_string(function, &["name"]))
+    })
+    .ok_or_else(|| {
+        SdkRuntimeError::new(
+            "invalid_tool_call",
+            format!("runtime tool call {tool_call_id} is missing a tool id"),
+        )
+    })?;
+    let arguments = entry
+        .get("arguments")
+        .or_else(|| entry.get("toolArguments"))
+        .or_else(|| entry.get("input"))
+        .or_else(|| {
+            entry
+                .get("function")
+                .and_then(|function| function.get("arguments"))
+        })
+        .map(runtime_tool_call_arguments)
+        .transpose()?
+        .unwrap_or_else(|| "{}".to_string());
+
+    Ok(ToolCall::new(tool_call_id, tool_id, arguments))
+}
+
+fn runtime_tool_call_string(entry: &Value, keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        entry
+            .get(*key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    })
+}
+
+fn runtime_tool_call_arguments(value: &Value) -> Result<String, SdkRuntimeError> {
+    match value {
+        Value::String(value) => Ok(value.clone()),
+        Value::Object(_) | Value::Array(_) => serde_json::to_string(value).map_err(|error| {
+            SdkRuntimeError::new(
+                "invalid_tool_call",
+                format!("runtime tool call arguments could not be serialized: {error}"),
+            )
+        }),
+        Value::Null => Ok("{}".to_string()),
+        _ => Err(SdkRuntimeError::new(
+            "invalid_tool_call",
+            "runtime tool call arguments must be a string, object, array, or null",
+        )),
+    }
 }
 
 #[cfg(test)]
@@ -682,7 +936,9 @@ mod tests {
                     &request.capability_id,
                     serde_json::json!({
                         "ok": true,
-                        "chunks": [{"sequence": 0, "content": "live"}]
+                        "chunks": [{"sequence": 0, "content": "live"}],
+                        "model_request_id": request.operation.request_id(),
+                        "native_session_id": "thread-live"
                     }),
                 ))
             }
@@ -763,6 +1019,18 @@ mod tests {
             )
             .expect("real runtime stream_into must remain enabled in production");
         assert_eq!(sink.0[0].content, "live");
+
+        let mut completion_sink = CollectSink(Vec::new());
+        let completion = provider
+            .stream_into_with_completion(
+                ModelRequest::new("request-live-completion", vec!["hello".to_string()]),
+                &mut completion_sink,
+            )
+            .expect("runtime completion must remain available in production");
+        assert_eq!(completion_sink.0[0].content, "live");
+        assert_eq!(completion.model_request_id, "request-live-completion");
+        assert_eq!(completion.native_session_id.as_deref(), Some("thread-live"));
+
         provider
             .cancel("request-live")
             .expect("real runtime cancellation must remain enabled in production");
@@ -787,6 +1055,139 @@ mod tests {
     fn model_stream_chunk_from_frame_ignores_non_stream_frames() {
         let frame = serde_json::json!({ "type": "message", "content": "ignored" });
         assert!(model_stream_chunk_from_frame(&frame, "req-1").is_none());
+    }
+
+    #[test]
+    fn stream_into_rejects_mismatched_chunk_model_request_id() {
+        struct MismatchedStreamingRuntime;
+
+        impl SdkBackendRuntime for MismatchedStreamingRuntime {
+            fn backend_kind(&self) -> SdkBackendKind {
+                SdkBackendKind::RustNative
+            }
+
+            fn health(&self) -> crate::driver::SdkDriverHealth {
+                crate::driver::SdkDriverHealth::healthy()
+            }
+
+            fn invoke(
+                &self,
+                request: &SdkRuntimeRequest,
+            ) -> Result<SdkRuntimeResponse, SdkRuntimeError> {
+                Ok(SdkRuntimeResponse::success(
+                    SdkBackendKind::RustNative,
+                    &request.capability_id,
+                    serde_json::json!({
+                        "ok": true,
+                        "chunks": [{"sequence": 0, "content": "wrong turn"}],
+                        "model_request_id": "req-other"
+                    }),
+                ))
+            }
+        }
+
+        struct CollectSink(Vec<ModelStreamChunk>);
+
+        impl ModelStreamSink for CollectSink {
+            fn push_chunk(&mut self, chunk: ModelStreamChunk) -> KernelResult<()> {
+                self.0.push(chunk);
+                Ok(())
+            }
+        }
+
+        let negotiation = SdkCapabilityNegotiation {
+            agent_id: "agent.stream-mismatch".to_string(),
+            binding_id: "binding.stream-mismatch".to_string(),
+            binding_version: "0.1.0".to_string(),
+            selected: vec![crate::negotiation::NegotiatedCapability {
+                capability_id: SDK_CAPABILITY_MODEL_CHAT.to_string(),
+                backend_kind: SdkBackendKind::RustNative,
+                driver_id: "driver.stream-mismatch".to_string(),
+                runtime_operations: vec![SdkRuntimeOperationKind::ModelChatStream],
+            }],
+            missing_required: Vec::new(),
+            degraded_optional: Vec::new(),
+        };
+        let runtime = SdkRuntimeRouter::new(negotiation)
+            .with_rust_runtime(Arc::new(MismatchedStreamingRuntime));
+        let mut sink = CollectSink(Vec::new());
+
+        let error = SdkRuntimeBackedModelProvider::stream_through_runtime_into(
+            &runtime,
+            SDK_CAPABILITY_MODEL_CHAT,
+            &ModelRequest::new("req-active", vec!["hello".to_string()]),
+            "provider.codex",
+            &mut sink,
+        )
+        .expect_err("stream chunks must not cross-correlate turns");
+
+        assert_eq!(error.code, "stream_request_mismatch");
+        assert!(sink.0.is_empty());
+    }
+
+    #[test]
+    fn stream_completion_requires_the_active_model_request_id() {
+        let frame = serde_json::json!({
+            "event": "stream.done",
+            "finish_reason": "stop",
+            "model_request_id": "req-active",
+            "native_session_id": "thread-1"
+        });
+        let completion = runtime_stream_completion_from_terminal_frame(&frame, "req-active")
+            .expect("matching stream completion");
+        assert_eq!(completion.native_session_id.as_deref(), Some("thread-1"));
+
+        let error = runtime_stream_completion_from_terminal_frame(&frame, "req-other")
+            .expect_err("mismatched completion must be rejected");
+        assert_eq!(error.code, "stream_request_mismatch");
+    }
+
+    #[test]
+    fn stream_completion_does_not_invent_a_native_session_id() {
+        let frame = serde_json::json!({
+            "event": "stream.done",
+            "finish_reason": "stop",
+            "model_request_id": "req-active"
+        });
+        let completion = runtime_stream_completion_from_terminal_frame(&frame, "req-active")
+            .expect("completion without native session is still well-formed");
+        assert_eq!(completion.native_session_id, None);
+    }
+
+    #[test]
+    fn buffered_stream_payload_rejects_mismatched_model_request_id() {
+        let response = SdkRuntimeResponse::success(
+            SdkBackendKind::TypeScriptNode,
+            SDK_CAPABILITY_MODEL_CHAT,
+            serde_json::json!({
+                "ok": true,
+                "chunks": [{"sequence": 0, "content": "wrong turn"}],
+                "model_request_id": "req-other"
+            }),
+        );
+
+        let error = stream_chunks_from_runtime(response, "req-active", "provider.codex")
+            .expect_err("buffered stream payload must not cross-correlate turns");
+
+        assert_eq!(error.code, "stream_request_mismatch");
+    }
+
+    #[test]
+    fn model_response_rejects_mismatched_model_request_id() {
+        let response = SdkRuntimeResponse::success(
+            SdkBackendKind::TypeScriptNode,
+            SDK_CAPABILITY_MODEL_CHAT,
+            serde_json::json!({
+                "ok": true,
+                "messages": ["wrong turn"],
+                "model_request_id": "req-other"
+            }),
+        );
+
+        let error = model_response_from_runtime(response, "req-active", "provider.codex")
+            .expect_err("model response payload must not cross-correlate turns");
+
+        assert_eq!(error.code, "stream_request_mismatch");
     }
 
     #[test]
@@ -836,6 +1237,58 @@ mod tests {
                 "sdk_runtime_native_session_id=thread-test-123".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn model_response_preserves_provider_neutral_tool_calls_without_synthesizing_ids() {
+        let response = SdkRuntimeResponse::success(
+            SdkBackendKind::TypeScriptNode,
+            SDK_CAPABILITY_MODEL_CHAT,
+            serde_json::json!({
+                "ok": true,
+                "mode": "sdk_live",
+                "messages": ["I need your input."],
+                "tool_calls": [
+                    {
+                        "id": "provider-question-1",
+                        "toolName": "user_question",
+                        "toolArguments": {
+                            "requestID": "provider-question-1",
+                            "questions": [{"question": "Run unit tests?"}]
+                        }
+                    }
+                ]
+            }),
+        );
+
+        let mapped = model_response_from_runtime(response, "req-tool-call", "provider.opencode")
+            .expect("valid provider tool calls should be preserved");
+
+        assert_eq!(mapped.tool_calls.len(), 1);
+        assert_eq!(mapped.tool_calls[0].tool_call_id, "provider-question-1");
+        assert_eq!(mapped.tool_calls[0].tool_id, "user_question");
+        assert_eq!(
+            mapped.tool_calls[0].arguments,
+            r#"{"questions":[{"question":"Run unit tests?"}],"requestID":"provider-question-1"}"#
+        );
+    }
+
+    #[test]
+    fn model_response_rejects_tool_calls_without_provider_native_ids() {
+        let response = SdkRuntimeResponse::success(
+            SdkBackendKind::TypeScriptNode,
+            SDK_CAPABILITY_MODEL_CHAT,
+            serde_json::json!({
+                "ok": true,
+                "messages": ["I need approval."],
+                "tool_calls": [{"toolName": "permission_request", "arguments": {}}]
+            }),
+        );
+
+        let error = model_response_from_runtime(response, "req-tool-call", "provider.opencode")
+            .expect_err("the bridge must not invent a native interaction id");
+
+        assert_eq!(error.code, "invalid_tool_call");
     }
 
     #[test]

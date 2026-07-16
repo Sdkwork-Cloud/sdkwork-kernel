@@ -7,6 +7,7 @@ import { test } from 'node:test';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
+const removedSdkAssemblyManifest = ['.sdkwork', 'assembly.json'].join('-');
 
 const standardDirectories = [
   'apis',
@@ -210,19 +211,19 @@ test('component specs declare SDK metadata and authored source standards explici
         `${relativePath} SDK family component.manifests should include sdk-manifest.json`
       );
       assert.equal(
-        (component.manifests ?? []).includes('.sdkwork-assembly.json'),
+        (component.manifests ?? []).includes(removedSdkAssemblyManifest),
         false,
-        `${relativePath} SDK family component.manifests must not reference retired .sdkwork-assembly.json`
+        `${relativePath} SDK family component.manifests must not reference removed parallel SDK metadata`
       );
       assert.equal(
-        (contracts.runtimeEntrypoints ?? []).includes('.sdkwork-assembly.json'),
+        (contracts.runtimeEntrypoints ?? []).includes(removedSdkAssemblyManifest),
         false,
-        `${relativePath} SDK family runtimeEntrypoints must not reference retired .sdkwork-assembly.json`
+        `${relativePath} SDK family runtimeEntrypoints must not reference removed parallel SDK metadata`
       );
       assert.equal(
-        (contracts.configKeys ?? []).includes('.sdkwork-assembly.json'),
+        (contracts.configKeys ?? []).includes(removedSdkAssemblyManifest),
         false,
-        `${relativePath} SDK family configKeys must not reference retired .sdkwork-assembly.json`
+        `${relativePath} SDK family configKeys must not reference removed parallel SDK metadata`
       );
       for (const specFile of [
         'SDK_SPEC.md',

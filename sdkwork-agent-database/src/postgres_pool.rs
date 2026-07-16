@@ -5,6 +5,7 @@ use sdkwork_database_sqlx::{create_pool_from_config, DatabasePool, PoolError};
 use sdkwork_utils_rust::is_blank;
 use sqlx::PgPool;
 use std::future::Future;
+use std::mem::ManuallyDrop;
 use std::sync::Arc;
 use std::thread;
 use tokio::runtime::Runtime;
@@ -26,7 +27,7 @@ pub fn map_database_config_error(error: sdkwork_database_config::ConfigError) ->
 #[derive(Debug, Clone)]
 pub struct BlockingPostgresPool {
     pool: PgPool,
-    runtime: Arc<Runtime>,
+    runtime: ManuallyDrop<Arc<Runtime>>,
     #[allow(dead_code)]
     database_pool: DatabasePool,
 }
@@ -41,7 +42,7 @@ impl BlockingPostgresPool {
         })?;
         Ok(Self {
             pool,
-            runtime,
+            runtime: ManuallyDrop::new(runtime),
             database_pool,
         })
     }
@@ -149,21 +150,46 @@ impl BlockingPostgresPool {
     where
         F: Future<Output = T>,
     {
-        self.runtime.block_on(future)
+        block_on_runtime(self.runtime.as_ref(), future)
     }
 
     pub fn run_db<F, T>(&self, future: F) -> DatabaseResult<T>
     where
         F: Future<Output = DatabaseResult<T>>,
     {
-        self.runtime.block_on(future)
+        block_on_runtime(self.runtime.as_ref(), future)
     }
 
     pub fn run<F, T>(&self, future: F) -> DatabaseResult<T>
     where
         F: Future<Output = Result<T, sqlx::Error>>,
     {
-        self.runtime.block_on(future).map_err(map_sqlx_error)
+        block_on_runtime(self.runtime.as_ref(), future).map_err(map_sqlx_error)
+    }
+}
+
+fn block_on_runtime<F, T>(runtime: &Runtime, future: F) -> T
+where
+    F: Future<Output = T>,
+{
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(future)),
+        Err(_) => runtime.block_on(future),
+    }
+}
+
+fn drop_runtime(runtime: Arc<Runtime>) {
+    if Arc::strong_count(&runtime) == 1 && tokio::runtime::Handle::try_current().is_ok() {
+        let _ = thread::spawn(move || drop(runtime)).join();
+        return;
+    }
+    drop(runtime);
+}
+
+impl Drop for BlockingPostgresPool {
+    fn drop(&mut self) {
+        let runtime = unsafe { ManuallyDrop::take(&mut self.runtime) };
+        drop_runtime(runtime);
     }
 }
 
@@ -176,6 +202,13 @@ fn build_runtime() -> DatabaseResult<Arc<Runtime>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn private_runtime_can_execute_and_drop_inside_async_host() {
+        let runtime = build_runtime().expect("private runtime builds");
+        assert_eq!(block_on_runtime(runtime.as_ref(), async { 42 }), 42);
+        drop_runtime(runtime);
+    }
 
     #[tokio::test]
     async fn connect_inside_existing_tokio_runtime_returns_error_without_nested_runtime_panic() {

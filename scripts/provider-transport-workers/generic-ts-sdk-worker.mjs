@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { once } from 'node:events';
 import readline from 'node:readline';
 import {
   buildModelChatStreamResult,
@@ -8,6 +9,7 @@ import {
   mockProviderInvocationAllowed,
   probePackage,
   probeModelChatRuntime,
+  VERIFIED_NATIVE_SESSION_ID,
 } from './engine-sdk-live.mjs';
 
 const packageIndex = process.argv.indexOf('--package');
@@ -16,34 +18,61 @@ const packageName =
     ? process.argv[packageIndex + 1]
     : 'unknown';
 
-function writeResponse(response) {
-  process.stdout.write(`${JSON.stringify(response)}\n`);
+async function writeResponse(response) {
+  if (!process.stdout.write(`${JSON.stringify(response)}\n`)) {
+    await once(process.stdout, 'drain');
+  }
 }
 
-function writeStreamResult(requestId, result) {
-  const chunks = Array.isArray(result.chunks) ? result.chunks : [];
-  const modelRequestId = result.model_request_id ?? null;
-  for (const chunk of chunks) {
-    writeResponse({
-      jsonrpc: '2.0',
-      id: requestId,
-      result: {
-        event: 'stream.chunk',
-        sequence: chunk.sequence ?? 0,
-        content: chunk.content ?? chunk.delta ?? '',
-        model_request_id: modelRequestId,
-      },
-    });
-  }
-  writeResponse({
+async function writeStreamChunk(requestId, chunk, modelRequestId) {
+  await writeResponse({
     jsonrpc: '2.0',
     id: requestId,
     result: {
-      event: 'stream.done',
-      finish_reason: result.finish_reason ?? 'stop',
+      event: 'stream.chunk',
+      sequence: chunk.sequence ?? 0,
+      content: chunk.content ?? chunk.delta ?? '',
       model_request_id: modelRequestId,
     },
   });
+}
+
+async function writeStreamDone(requestId, result) {
+  const terminalResult = {
+    event: 'stream.done',
+    finish_reason: result.finish_reason ?? 'stop',
+    model_request_id: result.model_request_id ?? null,
+  };
+  const nativeSessionId = verifiedNativeSessionId(result);
+  if (nativeSessionId) {
+    terminalResult.native_session_id = nativeSessionId;
+  }
+  await writeResponse({
+    jsonrpc: '2.0',
+    id: requestId,
+    result: terminalResult,
+  });
+}
+
+async function writeStreamResult(requestId, result) {
+  const chunks = Array.isArray(result.chunks) ? result.chunks : [];
+  const modelRequestId = result.model_request_id ?? null;
+  for (const chunk of chunks) {
+    await writeStreamChunk(requestId, chunk, modelRequestId);
+  }
+  await writeStreamDone(requestId, result);
+}
+
+function verifiedNativeSessionId(result) {
+  if (result?.[VERIFIED_NATIVE_SESSION_ID] !== true) {
+    return null;
+  }
+  const nativeSessionId = result?.native_session_id;
+  if (typeof nativeSessionId !== 'string') {
+    return null;
+  }
+  const normalized = nativeSessionId.trim();
+  return normalized || null;
 }
 
 function failClosedSyntheticOperation(operationName, packageProbe, modelRequestId = null) {
@@ -75,7 +104,7 @@ function operationRequiresLiveProvider(operation) {
   return value;
 }
 
-async function handleCapabilityInvoke(params) {
+async function handleCapabilityInvoke(params, streamOptions = {}) {
   const operation = params.operation ?? {};
   const op = operation.operation ?? operation;
   const packageProbe = probePackage(packageName);
@@ -118,7 +147,7 @@ async function handleCapabilityInvoke(params) {
       packageName.startsWith('@openai/codex')
     ) {
       try {
-        return await invokeModelChatStreamLive(packageName, operation);
+        return await invokeModelChatStreamLive(packageName, operation, streamOptions);
       } catch (error) {
         if (!fallbackAllowed) {
           return {
@@ -179,10 +208,36 @@ async function handleCapabilityInvoke(params) {
   };
 }
 
-function handleRequest(request) {
+async function handleStreamingCapabilityInvoke(requestId, params) {
+  let emittedChunkCount = 0;
+  const result = await handleCapabilityInvoke(params, {
+    onChunk: async (chunk) => {
+      await writeStreamChunk(requestId, chunk, params.operation?.model_request_id ?? null);
+      emittedChunkCount += 1;
+    },
+  });
+
+  if (result?.ok === false) {
+    await writeResponse({
+      jsonrpc: '2.0',
+      id: requestId,
+      result,
+    });
+    return;
+  }
+
+  if (emittedChunkCount === 0) {
+    await writeStreamResult(requestId, result);
+    return;
+  }
+
+  await writeStreamDone(requestId, result);
+}
+
+async function handleRequest(request) {
   if (request.method === 'sdkwork/ping') {
     const probe = probeModelChatRuntime(packageName);
-    writeResponse({
+    await writeResponse({
       jsonrpc: '2.0',
       id: request.id,
       result: {
@@ -200,34 +255,22 @@ function handleRequest(request) {
 
   if (request.method === 'sdkwork/capability.invoke') {
     const params = request.params ?? {};
-    Promise.resolve(handleCapabilityInvoke(params))
-      .then((result) => {
-        const operation = params.operation ?? {};
-        const op = operation.operation ?? operation;
-        if (op === 'model_chat_stream' && result?.ok !== false) {
-          writeStreamResult(request.id, result);
-          return;
-        }
-        writeResponse({
-          jsonrpc: '2.0',
-          id: request.id,
-          result,
-        });
-      })
-      .catch((error) => {
-        writeResponse({
-          jsonrpc: '2.0',
-          id: request.id,
-          error: {
-            code: -32000,
-            message: error instanceof Error ? error.message : String(error),
-          },
-        });
-      });
+    const operation = params.operation ?? {};
+    const op = operation.operation ?? operation;
+    if (op === 'model_chat_stream') {
+      await handleStreamingCapabilityInvoke(request.id, params);
+      return;
+    }
+    const result = await handleCapabilityInvoke(params);
+    await writeResponse({
+      jsonrpc: '2.0',
+      id: request.id,
+      result,
+    });
     return;
   }
 
-  writeResponse({
+  await writeResponse({
     jsonrpc: '2.0',
     id: request.id,
     error: {
@@ -249,7 +292,7 @@ rl.on('line', (line) => {
   try {
     request = JSON.parse(trimmed);
   } catch (error) {
-    writeResponse({
+    void writeResponse({
       jsonrpc: '2.0',
       id: null,
       error: {
@@ -260,5 +303,14 @@ rl.on('line', (line) => {
     return;
   }
 
-  handleRequest(request);
+  void handleRequest(request).catch((error) => {
+    void writeResponse({
+      jsonrpc: '2.0',
+      id: request.id ?? null,
+      error: {
+        code: -32000,
+        message: error instanceof Error ? error.message : String(error),
+      },
+    });
+  });
 });

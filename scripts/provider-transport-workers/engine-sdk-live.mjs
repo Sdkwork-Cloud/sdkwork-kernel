@@ -23,6 +23,10 @@ const ALLOW_MOCK_ENV = 'SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS';
 const PACKAGE_PATHS_ENV = 'SDKWORK_AGENT_SDK_PACKAGE_PATHS';
 const WORKSPACE_ROOT_ENV = 'SDKWORK_AGENT_SDK_WORKSPACE_ROOT';
 
+// This marker stays inside the Node worker process. A provider must set it only
+// after it has received the native session id from its own runtime.
+export const VERIFIED_NATIVE_SESSION_ID = Symbol('sdkwork.verifiedNativeSessionId');
+
 export function isProductionKernelProfile() {
   const environment = (process.env[ENVIRONMENT_ENV] ?? '').trim().toLowerCase();
   if (environment === 'production' || environment === 'prod') {
@@ -344,12 +348,14 @@ export function resolveOpenClawWireMessages(operation) {
 }
 
 async function invokeCodexModelChat(prompt, operation, packageName) {
-  const { sessionId, thread } = await createCodexThread(operation, packageName);
+  const { thread } = await createCodexThread(operation, packageName);
   const turn = await runCodexThread(thread, prompt, operation.timeout_ms);
   const text = turn?.finalResponse ?? turn?.items?.map((item) => item?.text ?? '').join('\n') ?? '';
+  const nativeSessionId = verifiedCodexNativeSessionId(thread);
   return liveSuccess(text, operation, {
     package: packageName,
-    native_session_id: thread?.id ?? sessionId,
+    native_session_id: nativeSessionId,
+    [VERIFIED_NATIVE_SESSION_ID]: Boolean(nativeSessionId),
   });
 }
 
@@ -366,53 +372,86 @@ async function createCodexThread(operation, packageName) {
   const thread = sessionId
     ? codex.resumeThread(sessionId, threadOptions)
     : codex.startThread(threadOptions);
-  return { sessionId, thread };
+  return { thread };
 }
 
-async function invokeCodexModelChatStream(prompt, operation, packageName) {
-  const { sessionId, thread } = await createCodexThread(operation, packageName);
+async function invokeCodexModelChatStream(prompt, operation, packageName, onChunk) {
+  const { thread } = await createCodexThread(operation, packageName);
   if (typeof thread.runStreamed !== 'function') {
     throw new Error('Codex thread is missing runStreamed() in @openai/codex-sdk');
   }
 
-  const streamed = await runCodexOperation(operation.timeout_ms, (turnOptions) =>
-    thread.runStreamed(prompt, turnOptions),
-  );
+  const collectChunks = !onChunk;
   const chunks = [];
   const itemText = new Map();
   let sequence = 0;
+  let completed = false;
 
-  for await (const event of streamed.events) {
-    if (event?.type === 'turn.failed') {
-      throw new Error(event?.error?.message ?? 'Codex streamed turn failed');
-    }
-    if (
-      (event?.type !== 'item.updated' && event?.type !== 'item.completed') ||
-      event?.item?.type !== 'agent_message' ||
-      typeof event.item.text !== 'string'
-    ) {
-      continue;
-    }
-    const previous = itemText.get(event.item.id) ?? '';
-    const current = event.item.text;
-    const delta = current.startsWith(previous) ? current.slice(previous.length) : current;
-    itemText.set(event.item.id, current);
-    if (delta) {
-      chunks.push({ sequence, content: delta });
+  await runCodexOperation(operation.timeout_ms, async (turnOptions) => {
+    const streamed = await thread.runStreamed(prompt, turnOptions);
+    for await (const event of streamed.events) {
+      if (event?.type === 'turn.failed') {
+        throw new Error(event?.error?.message ?? 'Codex streamed turn failed');
+      }
+      if (event?.type === 'error') {
+        throw new Error(event?.message ?? 'Codex streamed turn failed');
+      }
+      if (event?.type === 'turn.completed') {
+        completed = true;
+        continue;
+      }
+      if (
+        (event?.type !== 'item.updated' && event?.type !== 'item.completed') ||
+        event?.item?.type !== 'agent_message' ||
+        typeof event.item.text !== 'string'
+      ) {
+        continue;
+      }
+      const previous = itemText.get(event.item.id) ?? '';
+      const current = event.item.text;
+      if (!current.startsWith(previous)) {
+        throw new Error('codex_stream_non_monotonic_agent_message');
+      }
+      const delta = current.slice(previous.length);
+      itemText.set(event.item.id, current);
+      if (!delta) {
+        continue;
+      }
+      const chunk = { sequence, content: delta };
       sequence += 1;
+      if (onChunk) {
+        await onChunk(chunk);
+      }
+      if (collectChunks) {
+        chunks.push(chunk);
+      }
     }
-  }
+  });
 
-  if (chunks.length === 0) {
+  if (!completed) {
+    throw new Error('codex_stream_incomplete: missing turn.completed event');
+  }
+  if (sequence === 0) {
     throw new Error('Codex streamed turn completed without an agent message');
   }
+  const nativeSessionId = verifiedCodexNativeSessionId(thread);
   return {
-    ...liveSuccess(chunks.map((chunk) => chunk.content), operation, {
+    ...liveSuccess(collectChunks ? chunks.map((chunk) => chunk.content) : [], operation, {
       package: packageName,
-      native_session_id: thread?.id ?? sessionId,
+      native_session_id: nativeSessionId,
+      [VERIFIED_NATIVE_SESSION_ID]: Boolean(nativeSessionId),
     }),
     chunks,
   };
+}
+
+function verifiedCodexNativeSessionId(thread) {
+  const nativeSessionId = thread?.id;
+  if (typeof nativeSessionId !== 'string') {
+    return null;
+  }
+  const normalized = nativeSessionId.trim();
+  return normalized || null;
 }
 
 function buildCodexThreadOptions(operation) {
@@ -464,7 +503,11 @@ async function runCodexOperation(timeoutMs, invoke) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await invoke({ signal: controller.signal });
+    const result = await invoke({ signal: controller.signal });
+    if (controller.signal.aborted) {
+      throw new Error(`codex_sdk_timeout: exceeded ${timeoutMs} ms`);
+    }
+    return result;
   } catch (error) {
     if (controller.signal.aborted) {
       throw new Error(`codex_sdk_timeout: exceeded ${timeoutMs} ms`);
@@ -546,31 +589,69 @@ function normalizeCodexApprovalPolicy(value) {
 
 async function invokeClaudeModelChat(prompt, operation, packageName) {
   const moduleNamespace = await loadPackage(packageName);
-
-  if (typeof moduleNamespace.unstable_v2_prompt === 'function') {
-    const result = await moduleNamespace.unstable_v2_prompt(prompt, {
-      cwd: process.cwd(),
-    });
-    return liveSuccess(String(result ?? ''), operation, { package: packageName });
+  if (typeof moduleNamespace.query !== 'function') {
+    throw new Error(
+      'claude agent sdk must expose query() to establish and resume provider-native sessions',
+    );
   }
 
-  if (typeof moduleNamespace.query === 'function') {
+  return runProviderOperation(operation, 'claude_agent_sdk', async (abortController) => {
+    const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
+    const modelId = optionalOperationString(operation.model_id, 'model_id');
+    const options = {
+      cwd: resolveProviderWorkingDirectory(operation),
+      abortController,
+      ...(modelId ? { model: modelId } : {}),
+      ...(requestedSessionId ? { resume: requestedSessionId } : {}),
+    };
     let text = '';
-    for await (const event of moduleNamespace.query({
-      prompt,
-      options: { cwd: process.cwd() },
-    })) {
-      const content = event?.message?.content ?? event?.content;
-      if (typeof content === 'string') {
-        text += content;
-      } else if (Array.isArray(content)) {
-        text += extractTextParts(content);
+    let completed = false;
+    let resultText = null;
+    let nativeSessionId = null;
+
+    for await (const event of moduleNamespace.query({ prompt, options })) {
+      nativeSessionId = collectProviderNativeSessionId(
+        'claude_agent_sdk',
+        nativeSessionId,
+        event?.session_id ?? event?.sessionId ?? event?.message?.session_id,
+      );
+      if (event?.type === 'assistant') {
+        text += extractClaudeAssistantText(event);
+      }
+      if (event?.type !== 'result') {
+        continue;
+      }
+      if (event?.is_error === true || event?.subtype !== 'success') {
+        throw new Error(
+          `claude agent sdk turn failed: ${
+            readProviderError(event?.error ?? event?.result) ?? event?.subtype ?? 'unknown result'
+          }`,
+        );
+      }
+      completed = true;
+      if (typeof event.result === 'string' && event.result.trim()) {
+        resultText = event.result;
       }
     }
-    return liveSuccess(text, operation, { package: packageName });
-  }
 
-  throw new Error('claude agent sdk missing query entrypoints');
+    if (!completed) {
+      throw new Error('claude agent sdk completed without a successful result event');
+    }
+    const verifiedSessionId = verifyProviderNativeSessionId(
+      'claude_agent_sdk',
+      nativeSessionId,
+      requestedSessionId,
+    );
+    const output = resultText ?? text;
+    if (!output.trim()) {
+      throw new Error('claude agent sdk completed without assistant content');
+    }
+    return liveSuccess(output, operation, {
+      package: packageName,
+      native_session_id: verifiedSessionId,
+      [VERIFIED_NATIVE_SESSION_ID]: true,
+    });
+  });
 }
 
 async function invokeGeminiModelChat(prompt, operation, packageName) {
@@ -580,85 +661,308 @@ async function invokeGeminiModelChat(prompt, operation, packageName) {
     throw new Error('GeminiCliAgent is unavailable in @google/gemini-cli-sdk');
   }
 
-  const agent = new Agent({ cwd: process.cwd() });
-  const session = agent.session();
-  let text = '';
+  return runProviderOperation(operation, 'gemini_cli_sdk', async (abortController) => {
+    const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
+    const agent = new Agent(buildGeminiAgentOptions(operation));
+    const session = await resolveGeminiSession(agent, requestedSessionId);
+    let text = '';
 
-  if (typeof session.sendStream === 'function') {
-    for await (const event of session.sendStream(prompt)) {
-      const message = event?.message ?? event;
-      if (message?.role === 'assistant') {
-        if (typeof message.content === 'string') {
-          text += message.content;
-        } else if (Array.isArray(message.content)) {
-          text += extractTextParts(message.content);
+    if (typeof session.sendStream === 'function') {
+      let completed = false;
+      for await (const event of session.sendStream(prompt, abortController.signal)) {
+        if (event?.type === 'error') {
+          throw new Error(
+            `gemini cli sdk turn failed: ${readProviderError(event?.value?.error ?? event?.error) ?? 'unknown error'}`,
+          );
         }
-      } else if (typeof event?.text === 'string') {
-        text += event.text;
+        if (event?.type === 'user_cancelled') {
+          throw new Error('gemini cli sdk turn was cancelled by the provider');
+        }
+        if (event?.type === 'agent_execution_stopped' || event?.type === 'agent_execution_blocked') {
+          throw new Error(
+            `gemini cli sdk execution stopped: ${readProviderError(event?.value?.reason) ?? event.type}`,
+          );
+        }
+        if (event?.type === 'finished') {
+          completed = true;
+        }
+        text += extractGeminiAssistantText(event);
       }
+      if (!completed) {
+        throw new Error('gemini cli sdk stream completed without a finished event');
+      }
+    } else if (typeof session.send === 'function') {
+      const response = await session.send(prompt, abortController.signal);
+      text = typeof response === 'string' ? response : String(response?.text ?? response?.content ?? '');
+    } else {
+      throw new Error('gemini cli sdk session missing send/sendStream');
     }
-  } else if (typeof session.send === 'function') {
-    const response = await session.send(prompt);
-    text = typeof response === 'string' ? response : String(response?.text ?? '');
-  } else {
-    throw new Error('gemini cli sdk session missing send/sendStream');
-  }
 
-  return liveSuccess(text, operation, { package: packageName });
+    if (!text.trim()) {
+      throw new Error('gemini cli sdk completed without assistant content');
+    }
+    const verifiedSessionId = verifyProviderNativeSessionId(
+      'gemini_cli_sdk',
+      session?.id,
+      requestedSessionId,
+    );
+    return liveSuccess(text, operation, {
+      package: packageName,
+      native_session_id: verifiedSessionId,
+      [VERIFIED_NATIVE_SESSION_ID]: true,
+    });
+  });
 }
 
 async function invokeOpencodeModelChat(prompt, operation, packageName) {
   const moduleNamespace = await loadPackage(packageName);
   const createOpencode = moduleNamespace.createOpencode;
   const createOpencodeClient = moduleNamespace.createOpencodeClient;
+  const createOpencodeServer = moduleNamespace.createOpencodeServer;
 
-  if (typeof createOpencode === 'function') {
-    const { client, server } = await createOpencode();
-    try {
-      const created = await client.session.create({ body: {} });
-      const sessionId = created?.data?.id ?? created?.id;
-      if (!sessionId) {
-        throw new Error('opencode session.create did not return a session id');
-      }
-
-      const response = await client.session.prompt({
-        path: { id: sessionId },
-        body: {
-          parts: resolveOpencodePromptParts(operation),
-        },
-      });
-      const text =
-        extractTextParts(response?.data?.parts) ||
-        extractTextParts(response?.parts) ||
-        String(response?.data?.content ?? response?.content ?? '');
-      return liveSuccess(text, operation, { package: packageName, session_id: sessionId });
-    } finally {
-      await server?.close?.();
-    }
-  }
-
-  if (typeof createOpencodeClient === 'function') {
+  return runProviderOperation(operation, 'opencode_sdk', async (abortController) => {
     const baseUrl = process.env.OPENCODE_SERVER_URL?.trim();
-    if (!baseUrl) {
-      throw new Error('OPENCODE_SERVER_URL is required for createOpencodeClient live invoke');
+    const workingDirectory = resolveProviderWorkingDirectory(operation);
+    if (baseUrl) {
+      if (typeof createOpencodeClient !== 'function') {
+        throw new Error('opencode sdk missing createOpencodeClient() for OPENCODE_SERVER_URL');
+      }
+      return invokeOpencodeClient(
+        createOpencodeClient({ baseUrl, directory: workingDirectory }),
+        prompt,
+        operation,
+        packageName,
+        abortController.signal,
+      );
     }
-    const client = createOpencodeClient({ baseUrl });
-    const created = await client.session.create({ body: {} });
-    const sessionId = created?.data?.id ?? created?.id;
-    const response = await client.session.prompt({
-      path: { id: sessionId },
-      body: {
-        parts: resolveOpencodePromptParts(operation),
-      },
-    });
-    const text =
-      extractTextParts(response?.data?.parts) ||
-      extractTextParts(response?.parts) ||
-      String(response?.data?.content ?? response?.content ?? '');
-    return liveSuccess(text, operation, { package: packageName, session_id: sessionId });
+
+    if (typeof createOpencodeServer === 'function' && typeof createOpencodeClient === 'function') {
+      const server = await createOpencodeServer({ signal: abortController.signal });
+      try {
+        return await invokeOpencodeClient(
+          createOpencodeClient({
+            baseUrl: server?.url,
+            directory: workingDirectory,
+          }),
+          prompt,
+          operation,
+          packageName,
+          abortController.signal,
+        );
+      } finally {
+        await server?.close?.();
+      }
+    }
+
+    if (typeof createOpencode === 'function') {
+      if (workingDirectory !== process.cwd()) {
+        throw new Error(
+          'opencode sdk createOpencode() fallback cannot honor working_directory; upgrade to the official server/client entrypoints',
+        );
+      }
+      const { client, server } = await createOpencode({ signal: abortController.signal });
+      try {
+        return await invokeOpencodeClient(
+          client,
+          prompt,
+          operation,
+          packageName,
+          abortController.signal,
+        );
+      } finally {
+        await server?.close?.();
+      }
+    }
+
+    throw new Error('opencode sdk missing createOpencodeServer/createOpencodeClient session entrypoints');
+  });
+}
+
+function resolveProviderWorkingDirectory(operation) {
+  return optionalOperationString(operation.working_directory, 'working_directory') ?? process.cwd();
+}
+
+function buildGeminiAgentOptions(operation) {
+  const modelId = optionalOperationString(operation.model_id, 'model_id');
+  return {
+    // The official Gemini SDK requires instructions. An empty instruction keeps
+    // provider defaults intact without inventing product-owned prompt policy.
+    instructions: '',
+    cwd: resolveProviderWorkingDirectory(operation),
+    ...(modelId ? { model: modelId } : {}),
+  };
+}
+
+async function resolveGeminiSession(agent, requestedSessionId) {
+  if (requestedSessionId) {
+    if (typeof agent?.resumeSession !== 'function') {
+      throw new Error('gemini cli sdk session is missing resumeSession()');
+    }
+    return agent.resumeSession(requestedSessionId);
+  }
+  if (typeof agent?.session !== 'function') {
+    throw new Error('gemini cli sdk agent is missing session()');
+  }
+  return agent.session();
+}
+
+function extractGeminiAssistantText(event) {
+  if (event?.type === 'content' && typeof event.value === 'string') {
+    return event.value;
+  }
+  const message = event?.message ?? event;
+  if (message?.role === 'assistant') {
+    if (typeof message.content === 'string') {
+      return message.content;
+    }
+    if (Array.isArray(message.content)) {
+      return extractTextParts(message.content);
+    }
+  }
+  return typeof event?.text === 'string' ? event.text : '';
+}
+
+function extractClaudeAssistantText(event) {
+  const content = event?.message?.content ?? event?.content;
+  if (typeof content === 'string') {
+    return content;
+  }
+  return extractTextParts(content);
+}
+
+async function invokeOpencodeClient(client, prompt, operation, packageName, signal) {
+  if (!client?.session?.prompt || !client?.session?.create) {
+    throw new Error('opencode sdk client is missing session.create/session.prompt');
+  }
+  const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
+  const sessionId = requestedSessionId ?? await createOpencodeSession(client, signal);
+  const response = await client.session.prompt({
+    signal,
+    path: { id: sessionId },
+    body: buildOpencodePromptBody(operation),
+  });
+  const error = readProviderError(response?.error);
+  if (error) {
+    throw new Error(`opencode session.prompt failed: ${error}`);
+  }
+  const text =
+    extractTextParts(response?.data?.parts) ||
+    extractTextParts(response?.parts) ||
+    String(response?.data?.content ?? response?.content ?? '');
+  if (!text.trim()) {
+    throw new Error('opencode session.prompt completed without assistant content');
+  }
+  return liveSuccess(text, operation, {
+    package: packageName,
+    native_session_id: sessionId,
+    [VERIFIED_NATIVE_SESSION_ID]: true,
+  });
+}
+
+async function createOpencodeSession(client, signal) {
+  const created = await client.session.create({ body: {}, signal });
+  const error = readProviderError(created?.error);
+  if (error) {
+    throw new Error(`opencode session.create failed: ${error}`);
+  }
+  return requireProviderNativeSessionId('opencode_sdk', created?.data?.id ?? created?.id);
+}
+
+function buildOpencodePromptBody(operation) {
+  const body = {
+    parts: resolveOpencodePromptParts(operation),
+  };
+  const model = resolveOpencodeModelSelection(operation);
+  return model ? { ...body, model } : body;
+}
+
+function resolveOpencodeModelSelection(operation) {
+  const modelId = optionalOperationString(operation.model_id, 'model_id');
+  if (!modelId || ['opencode', 'open-code', 'open code'].includes(modelId.toLowerCase())) {
+    return null;
+  }
+  const separator = modelId.indexOf('/');
+  if (separator <= 0 || separator === modelId.length - 1) {
+    throw new Error('opencode model_id must use the official providerID/modelID form');
+  }
+  return {
+    providerID: modelId.slice(0, separator),
+    modelID: modelId.slice(separator + 1),
+  };
+}
+
+function collectProviderNativeSessionId(provider, current, candidate) {
+  const next = readProviderNativeSessionId(candidate);
+  if (!next) {
+    return current;
+  }
+  if (current && current !== next) {
+    throw new Error(`${provider} emitted inconsistent provider-native session identities`);
+  }
+  return next;
+}
+
+function verifyProviderNativeSessionId(provider, candidate, requestedSessionId) {
+  const nativeSessionId = requireProviderNativeSessionId(provider, candidate);
+  if (requestedSessionId && nativeSessionId !== requestedSessionId) {
+    throw new Error(`${provider} resumed a different provider-native session than requested`);
+  }
+  return nativeSessionId;
+}
+
+function requireProviderNativeSessionId(provider, value) {
+  const nativeSessionId = readProviderNativeSessionId(value);
+  if (!nativeSessionId) {
+    throw new Error(`${provider} completed without a provider-native session id`);
+  }
+  return nativeSessionId;
+}
+
+function readProviderNativeSessionId(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function readProviderError(value) {
+  if (typeof value === 'string' && value.trim()) {
+    return value.trim();
+  }
+  if (value && typeof value === 'object' && typeof value.message === 'string') {
+    return value.message.trim() || null;
+  }
+  return null;
+}
+
+async function runProviderOperation(operation, provider, invoke) {
+  const timeoutMs = operation.timeout_ms;
+  if (timeoutMs != null && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)) {
+    throw new Error('timeout_ms must be a positive safe integer');
   }
 
-  throw new Error('opencode sdk missing createOpencode/createOpencodeClient');
+  const abortController = new AbortController();
+  let timedOut = false;
+  const timer =
+    timeoutMs == null
+      ? null
+      : setTimeout(() => {
+          timedOut = true;
+          abortController.abort();
+        }, timeoutMs);
+  try {
+    const result = await invoke(abortController);
+    if (timedOut) {
+      throw new Error(`${provider}_timeout: exceeded ${timeoutMs} ms`);
+    }
+    return result;
+  } catch (error) {
+    if (timedOut) {
+      throw new Error(`${provider}_timeout: exceeded ${timeoutMs} ms`);
+    }
+    throw error;
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 async function invokeOpenClawModelChat(prompt, operation, packageName) {
@@ -720,11 +1024,25 @@ export async function invokeModelChatLive(packageName, operation) {
   return handler(prompt, operation, packageName);
 }
 
-export async function invokeModelChatStreamLive(packageName, operation) {
-  if (isCodexPackage(packageName)) {
-    return invokeCodexModelChatStream(resolveModelChatPrompt(operation), operation, packageName);
+export async function invokeModelChatStreamLive(packageName, operation, options = {}) {
+  const onChunk = options?.onChunk;
+  if (onChunk != null && typeof onChunk !== 'function') {
+    throw new Error('stream onChunk must be a function');
   }
-  return buildModelChatStreamResult(await invokeModelChatLive(packageName, operation));
+  if (isCodexPackage(packageName)) {
+    return invokeCodexModelChatStream(resolveModelChatPrompt(operation), operation, packageName, onChunk);
+  }
+  const result = buildModelChatStreamResult(await invokeModelChatLive(packageName, operation));
+  if (onChunk) {
+    for (const chunk of result.chunks) {
+      await onChunk(chunk);
+    }
+    return {
+      ...result,
+      chunks: [],
+    };
+  }
+  return result;
 }
 
 export async function invokeModelChatRuntime(packageName, operation) {

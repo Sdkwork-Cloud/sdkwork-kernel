@@ -784,6 +784,14 @@ fn live_postgres_append_message_with_event_is_idempotent_when_uri_configured() {
 
     assert_eq!(first_count, 1);
     assert_eq!(retry_count, 1);
+    let mut conflicting_event = event.clone();
+    conflicting_event.payload = Some("conflict".to_string());
+    assert!(matches!(
+        db.append_message_with_event(&message, &conflicting_event),
+        Err(sdkwork_agent_database::DatabaseError::ConstraintViolation(
+            _
+        ))
+    ));
     assert_eq!(db.message_count(&session_id).expect("message count"), 1);
     assert_eq!(
         db.load_session(&session_id)
@@ -796,6 +804,15 @@ fn live_postgres_append_message_with_event_is_idempotent_when_uri_configured() {
         db.load_events(&session_id, &Default::default())
             .expect("events")
             .len(),
+        1
+    );
+
+    let mut closed = db.load_session(&session_id).expect("load").expect("found");
+    closed.state = "closed".to_string();
+    db.update_session(&closed).expect("close session");
+    assert_eq!(
+        db.append_message_with_event(&message, &event)
+            .expect("exact retry after close"),
         1
     );
 
@@ -1112,6 +1129,123 @@ fn live_postgres_task_ownership_terminal_and_cancel_contracts_when_uri_configure
 
     let _ = db.delete_session_cascade(&session_id);
     let _ = db.delete_session_cascade(&other_session_id);
+}
+
+#[test]
+fn live_postgres_completed_turn_retry_contract_when_uri_configured() {
+    let Some(uri) = runtime_postgres_uri() else {
+        return;
+    };
+    let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
+    let session_id = format!("session.turn.retry.pg.{}", uuid_like_suffix());
+    let mut session = SessionRow {
+        session_id: session_id.clone(),
+        agent_id: "agent.runtime".to_string(),
+        kind: "main".to_string(),
+        source: "contract-test".to_string(),
+        state: "active".to_string(),
+        title: None,
+        model: None,
+        cwd: None,
+        provider_id: None,
+        bridge_id: None,
+        token_usage_json: None,
+        message_count: 0,
+        owner_tenant_id: None,
+        owner_user_ref: None,
+        created_at: "2026-07-16T00:00:00Z".to_string(),
+        updated_at: None,
+        metadata_json: None,
+    };
+    db.save_session(&session).expect("session");
+    let message = MessageRow {
+        message_id: format!("msg.turn.retry.{session_id}"),
+        session_id: session_id.clone(),
+        role: "user".to_string(),
+        content: "hello".to_string(),
+        created_at: "2026-07-16T00:00:01Z".to_string(),
+        metadata_json: None,
+    };
+    let events = vec![
+        EventRow {
+            event_id: format!("evt.turn.message.{session_id}"),
+            session_id: Some(session_id.clone()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: Some("role=user".to_string()),
+            created_at: "2026-07-16T00:00:01Z".to_string(),
+        },
+        EventRow {
+            event_id: format!("evt.turn.completed.{session_id}"),
+            session_id: Some(session_id.clone()),
+            event_type: "turn.completed".to_string(),
+            severity: "info".to_string(),
+            payload: None,
+            created_at: "2026-07-16T00:00:02Z".to_string(),
+        },
+    ];
+    assert_eq!(
+        db.append_message_turn_with_events(std::slice::from_ref(&message), &events)
+            .expect("first turn"),
+        1
+    );
+    let assistant = MessageRow {
+        message_id: format!("msg.turn.partial-assistant.{session_id}"),
+        session_id: session_id.clone(),
+        role: "assistant".to_string(),
+        content: "partial".to_string(),
+        created_at: "2026-07-16T00:00:02Z".to_string(),
+        metadata_json: None,
+    };
+    let partial_events = vec![
+        events[0].clone(),
+        EventRow {
+            event_id: format!("evt.turn.partial-assistant.{session_id}"),
+            session_id: Some(session_id.clone()),
+            event_type: "message.sent".to_string(),
+            severity: "info".to_string(),
+            payload: Some("role=assistant".to_string()),
+            created_at: "2026-07-16T00:00:02Z".to_string(),
+        },
+        events[1].clone(),
+    ];
+    assert!(matches!(
+        db.append_message_turn_with_events(&[message.clone(), assistant.clone()], &partial_events,),
+        Err(sdkwork_agent_database::DatabaseError::ConstraintViolation(
+            _
+        ))
+    ));
+    assert!(db
+        .load_messages(
+            &session_id,
+            &sdkwork_agent_database::MessageQuery::default()
+        )
+        .expect("messages")
+        .iter()
+        .all(|row| row.message_id != assistant.message_id));
+    session.state = "closed".to_string();
+    db.update_session(&session).expect("close");
+    assert_eq!(
+        db.append_message_turn_with_events(std::slice::from_ref(&message), &events)
+            .expect("exact retry after close"),
+        1
+    );
+    let mut conflicting_events = events;
+    conflicting_events[1].payload = Some("conflict".to_string());
+    assert!(matches!(
+        db.append_message_turn_with_events(std::slice::from_ref(&message), &conflicting_events,),
+        Err(sdkwork_agent_database::DatabaseError::ConstraintViolation(
+            _
+        ))
+    ));
+    assert_eq!(db.message_count(&session_id).expect("count"), 1);
+    assert_eq!(
+        db.load_events(&session_id, &EventQuery::default())
+            .expect("events")
+            .len(),
+        2
+    );
+    let _ = db.delete_session_cascade(&session_id);
 }
 
 fn uuid_like_suffix() -> String {

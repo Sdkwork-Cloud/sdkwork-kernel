@@ -71,8 +71,21 @@ pub fn stream_chunk_frame(sequence: u64, content: &str, model_request_id: Option
 }
 
 pub fn stream_done_frame(finish_reason: &str) -> Value {
+    stream_done_frame_with_completion(finish_reason, None, None)
+}
+
+/// Builds a terminal stream frame with completion metadata when the provider
+/// can prove it. Both identifiers remain optional for compatibility with
+/// providers that cannot establish a native session for a streamed turn.
+pub fn stream_done_frame_with_completion(
+    finish_reason: &str,
+    model_request_id: Option<&str>,
+    native_session_id: Option<&str>,
+) -> Value {
     json!({
         "event": SDKWORK_STREAM_EVENT_DONE,
         "finish_reason": finish_reason,
+        "model_request_id": model_request_id,
+        "native_session_id": native_session_id,
     })
 }

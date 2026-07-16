@@ -590,7 +590,6 @@ impl AgentRuntimeBridge {
         call: ToolCall,
         result: sdkwork_agent_kernel::ToolResult,
     ) -> BridgeToolResult {
-
         let events = vec![BridgeEvent {
             event_type: "agent.tool.executed".to_string(),
             session_id: Some(session_id.to_string()),

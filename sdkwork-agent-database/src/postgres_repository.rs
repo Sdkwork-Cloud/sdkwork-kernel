@@ -1431,6 +1431,21 @@ impl RuntimeSessionWrites for PostgresDatabase {
                 DatabaseError::NotFound(format!("session not found: {}", message.session_id))
             })?;
             if crate::types::session_state_is_terminal(&session_state) {
+                let existing = sqlx::query(
+                    "SELECT message_id, session_id, role, content, created_at, metadata_json
+                     FROM messages WHERE message_id = $1",
+                )
+                .bind(&message.message_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(map_sqlx_error)?;
+                if let Some(existing) = existing {
+                    let existing = map_message_row(&existing)?;
+                    crate::message_identity::ensure_message_retry_matches(&existing, &message)?;
+                    postgres_validate_event_retry_if_present(&mut *tx, &event).await?;
+                    tx.commit().await?;
+                    return Ok(current_count);
+                }
                 return Err(DatabaseError::ConstraintViolation(format!(
                     "session {} is terminal ({session_state})",
                     message.session_id
@@ -1478,6 +1493,7 @@ impl RuntimeSessionWrites for PostgresDatabase {
                 .map_err(map_sqlx_error)?;
                 let existing = map_message_row(&existing)?;
                 crate::message_identity::ensure_message_retry_matches(&existing, &message)?;
+                postgres_validate_event_retry_if_present(&mut *tx, &event).await?;
                 let count = sqlx::query_scalar::<_, i64>(
                     "SELECT message_count FROM sessions WHERE session_id = $1",
                 )
@@ -1517,9 +1533,28 @@ impl RuntimeSessionWrites for PostgresDatabase {
             .map_err(map_sqlx_error)?
             .ok_or_else(|| DatabaseError::NotFound(format!("session not found: {session_id}")))?;
             if !session_state.eq_ignore_ascii_case("active") {
-                return Err(DatabaseError::ConstraintViolation(format!(
-                    "session {session_id} is not active"
-                )));
+                for message in &messages {
+                    let existing = sqlx::query(
+                        "SELECT message_id, session_id, role, content, created_at, metadata_json
+                         FROM messages WHERE message_id = $1",
+                    )
+                    .bind(&message.message_id)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(map_sqlx_error)?
+                    .ok_or_else(|| {
+                        DatabaseError::ConstraintViolation(format!(
+                            "session {session_id} is not active"
+                        ))
+                    })?;
+                    let existing = map_message_row(&existing)?;
+                    crate::message_identity::ensure_message_retry_matches(&existing, message)?;
+                }
+                for event in &events {
+                    postgres_validate_event_retry_if_present(&mut *tx, event).await?;
+                }
+                tx.commit().await.map_err(map_sqlx_error)?;
+                return Ok(current_count);
             }
 
             let mut inserted_count = 0_i64;
@@ -1556,6 +1591,14 @@ impl RuntimeSessionWrites for PostgresDatabase {
                     crate::message_identity::ensure_message_retry_matches(&existing, message)?;
                 }
             }
+            let turn_size = i64::try_from(messages.len()).map_err(|_| {
+                DatabaseError::ConstraintViolation("message turn size overflow".to_string())
+            })?;
+            if inserted_count > 0 && inserted_count != turn_size {
+                return Err(DatabaseError::ConstraintViolation(
+                    "a completed message turn cannot be partially replayed".to_string(),
+                ));
+            }
 
             let count = if inserted_count > 0 {
                 let updated_at = crate::types::runtime_now_timestamp();
@@ -1578,6 +1621,9 @@ impl RuntimeSessionWrites for PostgresDatabase {
                 }
                 count
             } else {
+                for event in &events {
+                    postgres_validate_event_retry_if_present(&mut *tx, event).await?;
+                }
                 current_count
             };
 

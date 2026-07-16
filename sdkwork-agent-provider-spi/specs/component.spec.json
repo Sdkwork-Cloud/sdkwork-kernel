@@ -61,6 +61,7 @@
       "SdkCapabilityNegotiation",
       "SdkRuntimeRouter",
       "SdkRuntimeBackedModelProvider",
+      "SdkRuntimeStreamCompletion",
       "SdkRuntimeBackedToolProvider"
     ],
     "runtimeEntrypoints": [],

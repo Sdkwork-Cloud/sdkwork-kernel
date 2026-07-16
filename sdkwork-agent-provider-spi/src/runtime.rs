@@ -537,10 +537,19 @@ pub trait SdkBackendRuntime: Send + Sync {
             ));
         }
         let payload = response.payload.unwrap_or(serde_json::Value::Null);
+        let sink_error = std::cell::RefCell::new(None);
         sdkwork_agent_provider_transport_ipc::expand_buffered_stream_payload(payload, |frame| {
-            sink(frame).map_err(|error| TransportError::new(error.message))
+            sink(frame).map_err(|error| {
+                let message = error.message.clone();
+                sink_error.replace(Some(error));
+                TransportError::new(message)
+            })
         })
-        .map_err(|error| SdkRuntimeError::new("stream_transport", error.message))
+        .map_err(|error| {
+            sink_error
+                .into_inner()
+                .unwrap_or_else(|| SdkRuntimeError::new("stream_transport", error.message))
+        })
     }
 
     fn cancel_inflight(&self, _request_id: &str) -> Result<bool, SdkRuntimeError> {

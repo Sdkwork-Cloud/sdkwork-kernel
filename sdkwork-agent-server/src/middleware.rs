@@ -518,6 +518,7 @@ pub fn cors_layer(config: &ServerConfig) -> tower_http::cors::CorsLayer {
         .allow_headers([
             axum::http::header::CONTENT_TYPE,
             axum::http::header::AUTHORIZATION,
+            HeaderName::from_static("access-token"),
             HeaderName::from_static("idempotency-key"),
             HeaderName::from_static("x-request-id"),
             HeaderName::from_static("x-api-key"),
@@ -532,6 +533,44 @@ pub fn cors_layer(config: &ServerConfig) -> tower_http::cors::CorsLayer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{body::Body, routing::post, Router};
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn cors_allows_canonical_dual_token_access_header() {
+        let app = Router::new()
+            .route("/app/v3/api/auth/sessions", post(|| async {}))
+            .layer(cors_layer(&ServerConfig::default()));
+        let request = axum::http::Request::builder()
+            .method(axum::http::Method::OPTIONS)
+            .uri("/app/v3/api/auth/sessions")
+            .header(axum::http::header::ORIGIN, "http://127.0.0.1:5173")
+            .header(axum::http::header::ACCESS_CONTROL_REQUEST_METHOD, "POST")
+            .header(
+                axum::http::header::ACCESS_CONTROL_REQUEST_HEADERS,
+                "access-token,content-type",
+            )
+            .body(Body::empty())
+            .expect("CORS preflight request should build");
+
+        let response = app
+            .oneshot(request)
+            .await
+            .expect("CORS preflight should complete");
+        assert_eq!(response.status(), axum::http::StatusCode::OK);
+        let allowed_headers = response
+            .headers()
+            .get(axum::http::header::ACCESS_CONTROL_ALLOW_HEADERS)
+            .expect("CORS response should declare allowed headers")
+            .to_str()
+            .expect("allowed headers should be valid ASCII");
+        assert!(
+            allowed_headers
+                .split(',')
+                .any(|header| header.trim().eq_ignore_ascii_case("access-token")),
+            "canonical Access-Token header must be allowed: {allowed_headers}"
+        );
+    }
 
     #[test]
     fn request_context_from_headers() {

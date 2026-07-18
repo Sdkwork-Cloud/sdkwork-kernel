@@ -116,6 +116,73 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
         });
     }
 
+    if config.is_production_kernel_profile() {
+        match config.cursor_signing_secret.as_deref() {
+            Some(secret) if secret.len() >= 32 => {
+                let reused = [
+                    config.ingress_token.as_deref(),
+                    config.ingress_jwt_secret.as_deref(),
+                    config.metrics_token.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+                .any(|other| sdkwork_utils_rust::secure_compare(secret, other));
+                if reused {
+                    checks.push(PreflightCheck {
+                        name: "cursor_signing_secret_isolation".to_string(),
+                        status: PreflightStatus::Failed,
+                        message: "SDKWORK_CURSOR_SIGNING_SECRET must not reuse ingress, JWT, or metrics credentials"
+                            .to_string(),
+                    });
+                }
+            }
+            _ => checks.push(PreflightCheck {
+                name: "cursor_signing_secret".to_string(),
+                status: PreflightStatus::Failed,
+                message: "Production requires SDKWORK_CURSOR_SIGNING_SECRET with at least 32 bytes"
+                    .to_string(),
+            }),
+        }
+        match config.approval_payload_encryption_key.as_deref() {
+            Some(encoded_key) => match sdkwork_utils_rust::base64url_decode(encoded_key) {
+                Some(key) if key.len() == 32 => {
+                    let reused = [
+                        config.ingress_token.as_deref(),
+                        config.ingress_jwt_secret.as_deref(),
+                        config.metrics_token.as_deref(),
+                        config.cursor_signing_secret.as_deref(),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    .any(|other| {
+                        sdkwork_utils_rust::secure_compare(encoded_key, other)
+                            || secure_compare_bytes(&key, other.as_bytes())
+                    });
+                    if reused {
+                        checks.push(PreflightCheck {
+                            name: "approval_payload_key_isolation".to_string(),
+                            status: PreflightStatus::Failed,
+                            message: "SDKWORK_APPROVAL_PAYLOAD_ENCRYPTION_KEY must not reuse ingress, JWT, metrics, or cursor credentials"
+                                .to_string(),
+                        });
+                    }
+                }
+                _ => checks.push(PreflightCheck {
+                    name: "approval_payload_key".to_string(),
+                    status: PreflightStatus::Failed,
+                    message: "SDKWORK_APPROVAL_PAYLOAD_ENCRYPTION_KEY must be base64url and decode to exactly 32 bytes"
+                        .to_string(),
+                }),
+            },
+            None => checks.push(PreflightCheck {
+                name: "approval_payload_key".to_string(),
+                status: PreflightStatus::Failed,
+                message: "Production requires SDKWORK_APPROVAL_PAYLOAD_ENCRYPTION_KEY"
+                    .to_string(),
+            }),
+        }
+    }
+
     if config.otel_export_enabled() && !cfg!(feature = "observability-otel") {
         checks.push(PreflightCheck {
             name: "otel_feature".to_string(),
@@ -270,6 +337,18 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
     let passed = checks.iter().all(|c| c.status != PreflightStatus::Failed);
 
     PreflightResult { checks, passed }
+}
+
+fn secure_compare_bytes(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter()
+        .zip(right)
+        .fold(0_u8, |difference, (left, right)| {
+            difference | (left ^ right)
+        })
+        == 0
 }
 
 fn postgres_runtime_uri_configured() -> bool {
@@ -427,6 +506,98 @@ mod tests {
             .checks
             .iter()
             .any(|check| check.name == "ingress_jwt_jwks_url_https"));
+    }
+
+    #[test]
+    fn production_requires_an_isolated_cursor_signing_secret() {
+        let base = ServerConfig {
+            environment: "production".to_string(),
+            ingress_auth_mode: "token".to_string(),
+            ingress_token: Some("ingress-secret-with-at-least-32-bytes".to_string()),
+            metrics_auth_mode: "token".to_string(),
+            metrics_token: Some("metrics-secret-with-at-least-32-bytes".to_string()),
+            rate_limit_rps: 100,
+            idempotency_require_key: true,
+            ..Default::default()
+        };
+        let missing = validate(&base);
+        assert!(missing.checks.iter().any(|check| {
+            check.name == "cursor_signing_secret" && check.status == PreflightStatus::Failed
+        }));
+
+        let reused = validate(&ServerConfig {
+            cursor_signing_secret: base.ingress_token.clone(),
+            ..base.clone()
+        });
+        assert!(reused.checks.iter().any(|check| {
+            check.name == "cursor_signing_secret_isolation"
+                && check.status == PreflightStatus::Failed
+        }));
+
+        let isolated = validate(&ServerConfig {
+            cursor_signing_secret: Some(
+                "cursor-only-signing-secret-with-at-least-32-bytes".to_string(),
+            ),
+            ..base
+        });
+        assert!(!isolated.checks.iter().any(|check| {
+            matches!(
+                check.name.as_str(),
+                "cursor_signing_secret" | "cursor_signing_secret_isolation"
+            )
+        }));
+    }
+
+    #[test]
+    fn production_requires_a_valid_isolated_approval_payload_key() {
+        let reused_raw_key = "0123456789abcdef0123456789abcdef";
+        let base = ServerConfig {
+            environment: "production".to_string(),
+            ingress_auth_mode: "token".to_string(),
+            ingress_token: Some(reused_raw_key.to_string()),
+            metrics_auth_mode: "token".to_string(),
+            metrics_token: Some("metrics-secret-with-at-least-32-bytes".to_string()),
+            cursor_signing_secret: Some(
+                "cursor-only-signing-secret-with-at-least-32-bytes".to_string(),
+            ),
+            rate_limit_rps: 100,
+            idempotency_require_key: true,
+            ..Default::default()
+        };
+        let missing = validate(&base);
+        assert!(missing.checks.iter().any(|check| {
+            check.name == "approval_payload_key" && check.status == PreflightStatus::Failed
+        }));
+
+        let invalid = validate(&ServerConfig {
+            approval_payload_encryption_key: Some(sdkwork_utils_rust::base64url_encode(&[1; 16])),
+            ..base.clone()
+        });
+        assert!(invalid.checks.iter().any(|check| {
+            check.name == "approval_payload_key" && check.status == PreflightStatus::Failed
+        }));
+
+        let reused = validate(&ServerConfig {
+            approval_payload_encryption_key: Some(sdkwork_utils_rust::base64url_encode(
+                reused_raw_key.as_bytes(),
+            )),
+            ..base.clone()
+        });
+        assert!(reused.checks.iter().any(|check| {
+            check.name == "approval_payload_key_isolation"
+                && check.status == PreflightStatus::Failed
+        }));
+
+        let isolated = validate(&ServerConfig {
+            approval_payload_encryption_key: Some(sdkwork_utils_rust::base64url_encode(&[9; 32])),
+            ..base
+        });
+        assert!(!isolated.checks.iter().any(|check| {
+            matches!(
+                check.name.as_str(),
+                "approval_payload_key" | "approval_payload_key_isolation"
+            )
+        }));
     }
 
     #[test]

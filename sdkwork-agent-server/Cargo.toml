@@ -42,6 +42,7 @@ anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 subtle = "2"
+aes-gcm = "0.10"
 jsonwebtoken = "9"
 ureq = { version = "2.12", default-features = false, features = ["tls"] }
 uuid = { version = "1", features = ["v7"] }

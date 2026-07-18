@@ -638,14 +638,13 @@ assert.deepEqual(newThreadCapture.start_thread_options, {
   sandboxMode: 'workspace-write',
   approvalPolicy: 'on-failure',
 });
-await assert.rejects(
-  invokeModelChatLive('@openai/codex-sdk', {
-    model_request_id: 'req-codex-sdk-dangerous',
-    messages: ['reject unsafe sandbox'],
-    execution_options: { sandbox_mode: 'danger-full-access' },
-  }),
-  /danger-full-access is prohibited/,
-);
+await invokeModelChatLive('@openai/codex-sdk', {
+  model_request_id: 'req-codex-sdk-full-access',
+  messages: ['allow configured full access'],
+  execution_options: { sandbox_mode: 'danger-full-access' },
+});
+const fullAccessCapture = JSON.parse(fs.readFileSync(codexCapturePath, 'utf8'));
+assert.equal(fullAccessCapture.start_thread_options.sandboxMode, 'danger-full-access');
 
 process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({ openai: openaiSdkMirror });
 process.env.OPENCLAW_GATEWAY_URL = 'http://127.0.0.1:18789';

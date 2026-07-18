@@ -1,10 +1,13 @@
 use sdkwork_agent_database::{
-    EventRow, MessageRow, PermissionRepository, PermissionRow, PostgresDatabase,
-    RuntimeMaintenance, RuntimePurgeCounts, RuntimeSchemaStatus, SessionRow, SqliteDatabase,
-    TaskRow,
+    ClaimedPermissionOperation, ClaimedRun, EventRow, MessageRow, PermissionOperationRepository,
+    PermissionOperationRow, PermissionRepository, PermissionRow, PostgresDatabase,
+    RunControlAction, RunRow, RuntimeExecutionRepository, RuntimeMaintenance, RuntimePurgeCounts,
+    RuntimeSchemaStatus, SessionRow, SqliteDatabase, StepRow, TaskRow,
 };
 use sdkwork_agent_session::{MessageConfig, SessionConfig, SessionQuery, UnifiedSessionManager};
-use std::sync::Arc;
+use std::sync::{Arc, RwLock, Weak};
+use std::time::Duration;
+use tokio::sync::{Semaphore, TryAcquireError};
 
 use crate::config::ServerConfig;
 use crate::event_bus::SessionEventBus;
@@ -30,6 +33,348 @@ enum PermissionDb {
 enum MaintenanceDb {
     Sqlite(SqliteDatabase),
     Postgres(Arc<PostgresDatabase>),
+}
+
+#[derive(Clone)]
+enum ExecutionDb {
+    Sqlite(SqliteDatabase),
+    Postgres(Arc<PostgresDatabase>),
+}
+
+impl RuntimeExecutionRepository for ExecutionDb {
+    fn create_task_execution(
+        &self,
+        task: &TaskRow,
+        run: &RunRow,
+        step: &StepRow,
+        event: &EventRow,
+    ) -> Result<(), sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.create_task_execution(task, run, step, event),
+            Self::Postgres(db) => db.create_task_execution(task, run, step, event),
+        }
+    }
+
+    fn load_run(
+        &self,
+        run_id: &str,
+    ) -> Result<Option<RunRow>, sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.load_run(run_id),
+            Self::Postgres(db) => db.load_run(run_id),
+        }
+    }
+
+    fn load_steps(
+        &self,
+        run_id: &str,
+    ) -> Result<Vec<StepRow>, sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.load_steps(run_id),
+            Self::Postgres(db) => db.load_steps(run_id),
+        }
+    }
+
+    fn next_task_attempt(
+        &self,
+        task_id: &str,
+    ) -> Result<i64, sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.next_task_attempt(task_id),
+            Self::Postgres(db) => db.next_task_attempt(task_id),
+        }
+    }
+
+    fn claim_ready_run(
+        &self,
+        worker_id: &str,
+        now: &str,
+        lease_expires_at: &str,
+    ) -> Result<Option<ClaimedRun>, sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.claim_ready_run(worker_id, now, lease_expires_at),
+            Self::Postgres(db) => db.claim_ready_run(worker_id, now, lease_expires_at),
+        }
+    }
+
+    fn renew_run_lease(
+        &self,
+        run_id: &str,
+        worker_id: &str,
+        fencing_token: i64,
+        now: &str,
+        lease_expires_at: &str,
+    ) -> Result<bool, sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => {
+                db.renew_run_lease(run_id, worker_id, fencing_token, now, lease_expires_at)
+            }
+            Self::Postgres(db) => {
+                db.renew_run_lease(run_id, worker_id, fencing_token, now, lease_expires_at)
+            }
+        }
+    }
+
+    fn start_claimed_run(
+        &self,
+        claim: &ClaimedRun,
+        started_at: &str,
+        event: &EventRow,
+    ) -> Result<(), sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.start_claimed_run(claim, started_at, event),
+            Self::Postgres(db) => db.start_claimed_run(claim, started_at, event),
+        }
+    }
+
+    fn complete_claimed_run(
+        &self,
+        claim: &ClaimedRun,
+        result_json: Option<&str>,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> Result<(), sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.complete_claimed_run(claim, result_json, finished_at, event),
+            Self::Postgres(db) => db.complete_claimed_run(claim, result_json, finished_at, event),
+        }
+    }
+
+    fn complete_claimed_run_with_messages(
+        &self,
+        claim: &ClaimedRun,
+        messages: &[MessageRow],
+        result_json: Option<&str>,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> Result<(), sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.complete_claimed_run_with_messages(
+                claim,
+                messages,
+                result_json,
+                finished_at,
+                event,
+            ),
+            Self::Postgres(db) => db.complete_claimed_run_with_messages(
+                claim,
+                messages,
+                result_json,
+                finished_at,
+                event,
+            ),
+        }
+    }
+
+    fn fail_claimed_run(
+        &self,
+        claim: &ClaimedRun,
+        error_kind: &str,
+        error_code: Option<&str>,
+        error_detail: &str,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> Result<(), sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.fail_claimed_run(
+                claim,
+                error_kind,
+                error_code,
+                error_detail,
+                finished_at,
+                event,
+            ),
+            Self::Postgres(db) => db.fail_claimed_run(
+                claim,
+                error_kind,
+                error_code,
+                error_detail,
+                finished_at,
+                event,
+            ),
+        }
+    }
+
+    fn request_task_cancellation(
+        &self,
+        task_id: &str,
+        requested_at: &str,
+        event: &EventRow,
+    ) -> Result<(TaskRow, bool), sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.request_task_cancellation(task_id, requested_at, event),
+            Self::Postgres(db) => db.request_task_cancellation(task_id, requested_at, event),
+        }
+    }
+
+    fn retry_task_execution(
+        &self,
+        task_id: &str,
+        run: &RunRow,
+        step: &StepRow,
+        event: &EventRow,
+    ) -> Result<TaskRow, sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.retry_task_execution(task_id, run, step, event),
+            Self::Postgres(db) => db.retry_task_execution(task_id, run, step, event),
+        }
+    }
+
+    fn control_run(
+        &self,
+        run_id: &str,
+        action: RunControlAction,
+        changed_at: &str,
+        event: &EventRow,
+    ) -> Result<RunRow, sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.control_run(run_id, action, changed_at, event),
+            Self::Postgres(db) => db.control_run(run_id, action, changed_at, event),
+        }
+    }
+}
+
+impl PermissionOperationRepository for ExecutionDb {
+    fn create_permission_execution(
+        &self,
+        permission: &PermissionRow,
+        task: &TaskRow,
+        run: &RunRow,
+        step: &StepRow,
+        operation: &PermissionOperationRow,
+        event: &EventRow,
+    ) -> Result<(), sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => {
+                db.create_permission_execution(permission, task, run, step, operation, event)
+            }
+            Self::Postgres(db) => {
+                db.create_permission_execution(permission, task, run, step, operation, event)
+            }
+        }
+    }
+
+    fn load_permission_operation(
+        &self,
+        permission_request_id: &str,
+    ) -> Result<Option<PermissionOperationRow>, sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.load_permission_operation(permission_request_id),
+            Self::Postgres(db) => db.load_permission_operation(permission_request_id),
+        }
+    }
+
+    fn decide_permission_operation(
+        &self,
+        permission_request_id: &str,
+        decision: &str,
+        decided_at: &str,
+        event: &EventRow,
+    ) -> Result<PermissionOperationRow, sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => {
+                db.decide_permission_operation(permission_request_id, decision, decided_at, event)
+            }
+            Self::Postgres(db) => {
+                db.decide_permission_operation(permission_request_id, decision, decided_at, event)
+            }
+        }
+    }
+
+    fn claim_permission_operation(
+        &self,
+        worker_id: &str,
+        now: &str,
+        lease_expires_at: &str,
+    ) -> Result<Option<ClaimedPermissionOperation>, sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.claim_permission_operation(worker_id, now, lease_expires_at),
+            Self::Postgres(db) => db.claim_permission_operation(worker_id, now, lease_expires_at),
+        }
+    }
+
+    fn renew_permission_operation_lease(
+        &self,
+        permission_request_id: &str,
+        worker_id: &str,
+        fencing_token: i64,
+        now: &str,
+        lease_expires_at: &str,
+    ) -> Result<bool, sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.renew_permission_operation_lease(
+                permission_request_id,
+                worker_id,
+                fencing_token,
+                now,
+                lease_expires_at,
+            ),
+            Self::Postgres(db) => db.renew_permission_operation_lease(
+                permission_request_id,
+                worker_id,
+                fencing_token,
+                now,
+                lease_expires_at,
+            ),
+        }
+    }
+
+    fn expire_permission_operations(
+        &self,
+        now: &str,
+        batch_size: i64,
+    ) -> Result<Vec<EventRow>, sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.expire_permission_operations(now, batch_size),
+            Self::Postgres(db) => db.expire_permission_operations(now, batch_size),
+        }
+    }
+
+    fn complete_permission_operation(
+        &self,
+        claim: &ClaimedPermissionOperation,
+        result_json: &str,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> Result<(), sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => {
+                db.complete_permission_operation(claim, result_json, finished_at, event)
+            }
+            Self::Postgres(db) => {
+                db.complete_permission_operation(claim, result_json, finished_at, event)
+            }
+        }
+    }
+
+    fn fail_permission_operation(
+        &self,
+        claim: &ClaimedPermissionOperation,
+        error_kind: &str,
+        error_code: Option<&str>,
+        error_detail: &str,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> Result<(), sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.fail_permission_operation(
+                claim,
+                error_kind,
+                error_code,
+                error_detail,
+                finished_at,
+                event,
+            ),
+            Self::Postgres(db) => db.fail_permission_operation(
+                claim,
+                error_kind,
+                error_code,
+                error_detail,
+                finished_at,
+                event,
+            ),
+        }
+    }
 }
 
 impl RuntimeMaintenance for MaintenanceDb {
@@ -135,8 +480,115 @@ pub struct PersistenceState {
     manager: ManagerInner,
     permission_db: PermissionDb,
     maintenance_db: MaintenanceDb,
+    execution_db: ExecutionDb,
     event_bus: SessionEventBus,
     backend: PersistenceBackend,
+    admission: Arc<PersistenceAdmission>,
+}
+
+#[derive(Debug)]
+struct PersistenceAdmission {
+    active: Arc<Semaphore>,
+    waiting: Arc<Semaphore>,
+    timeout: Duration,
+    metrics: RwLock<Option<Weak<crate::metrics::MetricsRegistry>>>,
+}
+
+struct PersistenceAdmissionLease {
+    _permit: tokio::sync::OwnedSemaphorePermit,
+    _active_guard: Option<crate::metrics::PersistenceAdmissionActiveGuard>,
+}
+
+impl PersistenceAdmission {
+    fn from_config(config: &ServerConfig) -> Self {
+        Self {
+            active: Arc::new(Semaphore::new(config.persistence_max_concurrency)),
+            waiting: Arc::new(Semaphore::new(config.persistence_max_waiters)),
+            timeout: Duration::from_millis(config.persistence_admission_timeout_ms),
+            metrics: RwLock::new(None),
+        }
+    }
+
+    fn attach_metrics(&self, metrics: &Arc<crate::metrics::MetricsRegistry>) {
+        let mut attached = self
+            .metrics
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *attached = Some(Arc::downgrade(metrics));
+    }
+
+    fn metrics(&self) -> Option<Arc<crate::metrics::MetricsRegistry>> {
+        self.metrics
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .and_then(Weak::upgrade)
+    }
+
+    async fn acquire(&self) -> Result<PersistenceAdmissionLease, String> {
+        use crate::metrics::ProviderAdmissionRejection;
+
+        let metrics = self.metrics();
+        let wait_guard = metrics
+            .as_ref()
+            .map(crate::metrics::MetricsRegistry::begin_persistence_admission_wait);
+        match self.active.clone().try_acquire_owned() {
+            Ok(permit) => Ok(PersistenceAdmissionLease {
+                _permit: permit,
+                _active_guard: wait_guard.map(|guard| guard.acquired()),
+            }),
+            Err(TryAcquireError::Closed) => {
+                if let Some(metrics) = &metrics {
+                    metrics
+                        .record_persistence_admission_rejection(ProviderAdmissionRejection::Closed);
+                }
+                Err("persistence admission closed".to_string())
+            }
+            Err(TryAcquireError::NoPermits) => {
+                let waiting = self.waiting.clone().try_acquire_owned().map_err(|error| {
+                    let (message, reason) = match error {
+                        TryAcquireError::Closed => (
+                            "persistence admission closed",
+                            ProviderAdmissionRejection::Closed,
+                        ),
+                        TryAcquireError::NoPermits => (
+                            "persistence admission queue full",
+                            ProviderAdmissionRejection::QueueFull,
+                        ),
+                    };
+                    if let Some(metrics) = &metrics {
+                        metrics.record_persistence_admission_rejection(reason);
+                    }
+                    message.to_string()
+                })?;
+                let acquired =
+                    tokio::time::timeout(self.timeout, self.active.clone().acquire_owned()).await;
+                drop(waiting);
+                match acquired {
+                    Ok(Ok(permit)) => Ok(PersistenceAdmissionLease {
+                        _permit: permit,
+                        _active_guard: wait_guard.map(|guard| guard.acquired()),
+                    }),
+                    Ok(Err(_)) => {
+                        if let Some(metrics) = &metrics {
+                            metrics.record_persistence_admission_rejection(
+                                ProviderAdmissionRejection::Closed,
+                            );
+                        }
+                        Err("persistence admission closed".to_string())
+                    }
+                    Err(_) => {
+                        if let Some(metrics) = &metrics {
+                            metrics.record_persistence_admission_rejection(
+                                ProviderAdmissionRejection::Timeout,
+                            );
+                        }
+                        Err("persistence admission timeout".to_string())
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,19 +599,21 @@ pub enum PersistenceBackend {
 
 impl PersistenceState {
     pub async fn open_from_config_async(config: &ServerConfig) -> anyhow::Result<Self> {
-        if config.uses_postgres_runtime_database() {
+        let state = if config.uses_postgres_runtime_database() {
             Self::open_postgres_with_event_bus_async(SessionEventBus::new()).await
         } else {
             Self::open_with_event_bus(&config.database_path, SessionEventBus::new())
-        }
+        }?;
+        Ok(state.with_admission_config(config))
     }
 
     pub fn open_from_config(config: &ServerConfig) -> anyhow::Result<Self> {
-        if config.uses_postgres_runtime_database() {
+        let state = if config.uses_postgres_runtime_database() {
             Self::open_postgres_with_event_bus(SessionEventBus::new())
         } else {
             Self::open_with_event_bus(&config.database_path, SessionEventBus::new())
-        }
+        }?;
+        Ok(state.with_admission_config(config))
     }
 
     pub fn open(database_path: &str) -> anyhow::Result<Self> {
@@ -212,6 +666,7 @@ impl PersistenceState {
 
     fn from_sqlite_database(db: SqliteDatabase, event_bus: SessionEventBus) -> Self {
         let permission_db = db.clone();
+        let execution_db = db.clone();
         let mut manager = UnifiedSessionManager::new(db.clone());
         let bus = event_bus.clone();
         manager.set_event_listener(Arc::new(move |event| bus.publish(event)));
@@ -219,8 +674,10 @@ impl PersistenceState {
             manager: ManagerInner::Sqlite(Arc::new(manager)),
             permission_db: PermissionDb::Sqlite(permission_db),
             maintenance_db: MaintenanceDb::Sqlite(db),
+            execution_db: ExecutionDb::Sqlite(execution_db),
             event_bus,
             backend: PersistenceBackend::Sqlite,
+            admission: Arc::new(PersistenceAdmission::from_config(&ServerConfig::default())),
         }
     }
 
@@ -232,10 +689,21 @@ impl PersistenceState {
         Self {
             manager: ManagerInner::Postgres(Arc::new(manager)),
             permission_db: PermissionDb::Postgres(shared_db.clone()),
-            maintenance_db: MaintenanceDb::Postgres(shared_db),
+            maintenance_db: MaintenanceDb::Postgres(shared_db.clone()),
+            execution_db: ExecutionDb::Postgres(shared_db),
             event_bus,
             backend: PersistenceBackend::Postgres,
+            admission: Arc::new(PersistenceAdmission::from_config(&ServerConfig::default())),
         }
+    }
+
+    fn with_admission_config(mut self, config: &ServerConfig) -> Self {
+        self.admission = Arc::new(PersistenceAdmission::from_config(config));
+        self
+    }
+
+    pub fn attach_metrics(&self, metrics: &Arc<crate::metrics::MetricsRegistry>) {
+        self.admission.attach_metrics(metrics);
     }
 
     pub fn event_bus(&self) -> &SessionEventBus {
@@ -374,6 +842,296 @@ impl PersistenceState {
         with_manager!(self, |manager| manager.create_task(session_id, instruction))
     }
 
+    pub fn create_task_execution(
+        &self,
+        task: &TaskRow,
+        run: &RunRow,
+        step: &StepRow,
+        event: &EventRow,
+    ) -> Result<(), String> {
+        self.execution_db
+            .create_task_execution(task, run, step, event)
+            .map_err(|error| format!("failed to create task execution: {error}"))?;
+        self.event_bus.publish(event.clone());
+        Ok(())
+    }
+
+    pub fn load_run(&self, run_id: &str) -> Result<Option<RunRow>, String> {
+        self.execution_db
+            .load_run(run_id)
+            .map_err(|error| format!("failed to load run: {error}"))
+    }
+
+    pub fn load_steps(&self, run_id: &str) -> Result<Vec<StepRow>, String> {
+        self.execution_db
+            .load_steps(run_id)
+            .map_err(|error| format!("failed to load run steps: {error}"))
+    }
+
+    pub fn next_task_attempt(&self, task_id: &str) -> Result<i64, String> {
+        self.execution_db
+            .next_task_attempt(task_id)
+            .map_err(|error| format!("failed to resolve next task attempt: {error}"))
+    }
+
+    pub fn claim_ready_run(
+        &self,
+        worker_id: &str,
+        now: &str,
+        lease_expires_at: &str,
+    ) -> Result<Option<ClaimedRun>, String> {
+        self.execution_db
+            .claim_ready_run(worker_id, now, lease_expires_at)
+            .map_err(|error| format!("failed to claim ready run: {error}"))
+    }
+
+    pub fn renew_run_lease(
+        &self,
+        run_id: &str,
+        worker_id: &str,
+        fencing_token: i64,
+        now: &str,
+        lease_expires_at: &str,
+    ) -> Result<bool, String> {
+        self.execution_db
+            .renew_run_lease(run_id, worker_id, fencing_token, now, lease_expires_at)
+            .map_err(|error| format!("failed to renew run lease: {error}"))
+    }
+
+    pub fn complete_claimed_run(
+        &self,
+        claim: &ClaimedRun,
+        result_json: Option<&str>,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> Result<(), String> {
+        self.execution_db
+            .complete_claimed_run(claim, result_json, finished_at, event)
+            .map_err(|error| format!("failed to complete claimed run: {error}"))?;
+        self.event_bus.publish(event.clone());
+        Ok(())
+    }
+
+    pub fn start_claimed_run(
+        &self,
+        claim: &ClaimedRun,
+        started_at: &str,
+        event: &EventRow,
+    ) -> Result<(), String> {
+        self.execution_db
+            .start_claimed_run(claim, started_at, event)
+            .map_err(|error| format!("failed to start claimed run: {error}"))?;
+        self.event_bus.publish(event.clone());
+        Ok(())
+    }
+
+    pub fn complete_claimed_run_with_messages(
+        &self,
+        claim: &ClaimedRun,
+        messages: &[MessageRow],
+        result_json: Option<&str>,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> Result<(), String> {
+        self.execution_db
+            .complete_claimed_run_with_messages(claim, messages, result_json, finished_at, event)
+            .map_err(|error| format!("failed to complete claimed run with messages: {error}"))?;
+        self.event_bus.publish(event.clone());
+        Ok(())
+    }
+
+    pub fn fail_claimed_run(
+        &self,
+        claim: &ClaimedRun,
+        error_kind: &str,
+        error_code: Option<&str>,
+        error_detail: &str,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> Result<(), String> {
+        self.execution_db
+            .fail_claimed_run(
+                claim,
+                error_kind,
+                error_code,
+                error_detail,
+                finished_at,
+                event,
+            )
+            .map_err(|error| format!("failed to fail claimed run: {error}"))?;
+        self.event_bus.publish(event.clone());
+        Ok(())
+    }
+
+    pub fn request_task_cancellation(
+        &self,
+        task_id: &str,
+        requested_at: &str,
+        event: &EventRow,
+    ) -> Result<(TaskRow, bool), String> {
+        let result = self
+            .execution_db
+            .request_task_cancellation(task_id, requested_at, event)
+            .map_err(|error| format!("failed to request task cancellation: {error}"))?;
+        if result.1 {
+            self.event_bus.publish(event.clone());
+        }
+        Ok(result)
+    }
+
+    pub fn retry_task_execution(
+        &self,
+        task_id: &str,
+        run: &RunRow,
+        step: &StepRow,
+        event: &EventRow,
+    ) -> Result<TaskRow, String> {
+        let task = self
+            .execution_db
+            .retry_task_execution(task_id, run, step, event)
+            .map_err(|error| format!("failed to retry task execution: {error}"))?;
+        self.event_bus.publish(event.clone());
+        Ok(task)
+    }
+
+    pub fn control_run(
+        &self,
+        run_id: &str,
+        action: RunControlAction,
+        changed_at: &str,
+        event: &EventRow,
+    ) -> Result<RunRow, String> {
+        let run = self
+            .execution_db
+            .control_run(run_id, action, changed_at, event)
+            .map_err(|error| format!("failed to control run: {error}"))?;
+        self.event_bus.publish(event.clone());
+        Ok(run)
+    }
+
+    pub fn create_permission_execution(
+        &self,
+        permission: &PermissionRow,
+        task: &TaskRow,
+        run: &RunRow,
+        step: &StepRow,
+        operation: &PermissionOperationRow,
+        event: &EventRow,
+    ) -> Result<(), String> {
+        self.execution_db
+            .create_permission_execution(permission, task, run, step, operation, event)
+            .map_err(|error| format!("failed to create permission execution: {error}"))?;
+        self.event_bus.publish(event.clone());
+        Ok(())
+    }
+
+    pub fn load_permission_operation(
+        &self,
+        permission_request_id: &str,
+    ) -> Result<Option<PermissionOperationRow>, String> {
+        self.execution_db
+            .load_permission_operation(permission_request_id)
+            .map_err(|error| format!("failed to load permission operation: {error}"))
+    }
+
+    pub fn decide_permission_operation(
+        &self,
+        permission_request_id: &str,
+        decision: &str,
+        decided_at: &str,
+        event: &EventRow,
+    ) -> Result<PermissionOperationRow, String> {
+        let operation = self
+            .execution_db
+            .decide_permission_operation(permission_request_id, decision, decided_at, event)
+            .map_err(|error| format!("failed to decide permission operation: {error}"))?;
+        self.event_bus.publish(event.clone());
+        Ok(operation)
+    }
+
+    pub fn claim_permission_operation(
+        &self,
+        worker_id: &str,
+        now: &str,
+        lease_expires_at: &str,
+    ) -> Result<Option<ClaimedPermissionOperation>, String> {
+        self.execution_db
+            .claim_permission_operation(worker_id, now, lease_expires_at)
+            .map_err(|error| format!("failed to claim permission operation: {error}"))
+    }
+
+    pub fn renew_permission_operation_lease(
+        &self,
+        permission_request_id: &str,
+        worker_id: &str,
+        fencing_token: i64,
+        now: &str,
+        lease_expires_at: &str,
+    ) -> Result<bool, String> {
+        self.execution_db
+            .renew_permission_operation_lease(
+                permission_request_id,
+                worker_id,
+                fencing_token,
+                now,
+                lease_expires_at,
+            )
+            .map_err(|error| format!("failed to renew permission operation lease: {error}"))
+    }
+
+    pub fn expire_permission_operations(
+        &self,
+        now: &str,
+        batch_size: i64,
+    ) -> Result<usize, String> {
+        let events = self
+            .execution_db
+            .expire_permission_operations(now, batch_size)
+            .map_err(|error| format!("failed to expire permission operations: {error}"))?;
+        let count = events.len();
+        for event in events {
+            self.event_bus.publish(event);
+        }
+        Ok(count)
+    }
+
+    pub fn complete_permission_operation(
+        &self,
+        claim: &ClaimedPermissionOperation,
+        result_json: &str,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> Result<(), String> {
+        self.execution_db
+            .complete_permission_operation(claim, result_json, finished_at, event)
+            .map_err(|error| format!("failed to complete permission operation: {error}"))?;
+        self.event_bus.publish(event.clone());
+        Ok(())
+    }
+
+    pub fn fail_permission_operation(
+        &self,
+        claim: &ClaimedPermissionOperation,
+        error_kind: &str,
+        error_code: Option<&str>,
+        error_detail: &str,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> Result<(), String> {
+        self.execution_db
+            .fail_permission_operation(
+                claim,
+                error_kind,
+                error_code,
+                error_detail,
+                finished_at,
+                event,
+            )
+            .map_err(|error| format!("failed to fail permission operation: {error}"))?;
+        self.event_bus.publish(event.clone());
+        Ok(())
+    }
+
     pub fn get_task(&self, task_id: &str) -> Result<TaskRow, String> {
         with_manager!(self, |manager| manager.get_task(task_id))
     }
@@ -456,16 +1214,21 @@ impl PersistenceState {
         F: FnOnce(&PersistenceState) -> Result<T, String> + Send + 'static,
         T: Send + 'static,
     {
+        let permit = self.admission.acquire().await?;
         let state = self.clone();
-        tokio::task::spawn_blocking(move || operation(&state))
-            .await
-            .map_err(|error| format!("persistence worker failed: {error}"))?
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            operation(&state)
+        })
+        .await
+        .map_err(|error| format!("persistence worker failed: {error}"))?
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::mpsc;
 
     #[test]
     fn create_session_publishes_event() {
@@ -478,5 +1241,94 @@ mod tests {
         assert_eq!(event.session_id.as_deref(), Some(row.session_id.as_str()));
         assert_eq!(event.event_type, "session.created");
         assert_eq!(persistence.backend(), PersistenceBackend::Sqlite);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn persistence_admission_rejects_when_execution_and_wait_queue_are_full() {
+        let config = ServerConfig {
+            persistence_max_concurrency: 1,
+            persistence_max_waiters: 0,
+            persistence_admission_timeout_ms: 100,
+            ..Default::default()
+        };
+        let persistence = PersistenceState::memory()
+            .expect("persistence")
+            .with_admission_config(&config);
+        let metrics = crate::metrics::MetricsRegistry::from_config(&config);
+        persistence.attach_metrics(&metrics);
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let first = {
+            let persistence = persistence.clone();
+            tokio::spawn(async move {
+                persistence
+                    .run(move |_| {
+                        started_tx.send(()).expect("started");
+                        release_rx.recv().expect("released");
+                        Ok(())
+                    })
+                    .await
+            })
+        };
+        tokio::task::spawn_blocking(move || started_rx.recv_timeout(Duration::from_secs(1)))
+            .await
+            .expect("start waiter")
+            .expect("first operation started");
+
+        let error = persistence
+            .run(|_| Ok(()))
+            .await
+            .expect_err("full admission must reject");
+        assert_eq!(error, "persistence admission queue full");
+        let rendered = metrics.render_prometheus(
+            true,
+            &crate::metrics::OperationalProfile::from_runtime("sqlite", false),
+        );
+        assert!(rendered.contains(
+            "sdkwork_kernel_persistence_admission_rejected_total{service=\"sdkwork-agent-server\",environment=\"development\",deployment_profile=\"standalone\",runtime_target=\"server\",reason=\"queue_full\"} 1"
+        ));
+
+        release_tx.send(()).expect("release first operation");
+        first.await.expect("first join").expect("first operation");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn persistence_admission_times_out_a_bounded_waiter() {
+        let config = ServerConfig {
+            persistence_max_concurrency: 1,
+            persistence_max_waiters: 1,
+            persistence_admission_timeout_ms: 20,
+            ..Default::default()
+        };
+        let persistence = PersistenceState::memory()
+            .expect("persistence")
+            .with_admission_config(&config);
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let first = {
+            let persistence = persistence.clone();
+            tokio::spawn(async move {
+                persistence
+                    .run(move |_| {
+                        started_tx.send(()).expect("started");
+                        release_rx.recv().expect("released");
+                        Ok(())
+                    })
+                    .await
+            })
+        };
+        tokio::task::spawn_blocking(move || started_rx.recv_timeout(Duration::from_secs(1)))
+            .await
+            .expect("start waiter")
+            .expect("first operation started");
+
+        let error = persistence
+            .run(|_| Ok(()))
+            .await
+            .expect_err("waiter must time out");
+        assert_eq!(error, "persistence admission timeout");
+
+        release_tx.send(()).expect("release first operation");
+        first.await.expect("first join").expect("first operation");
     }
 }

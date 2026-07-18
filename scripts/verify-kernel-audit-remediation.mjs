@@ -121,6 +121,7 @@ if (runtimePostgresUri) {
       '-q',
       'live_postgres_session_message_roundtrip_when_uri_configured',
       '--',
+      '--ignored',
       '--nocapture'
     ]
   ]);

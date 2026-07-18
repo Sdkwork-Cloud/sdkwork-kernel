@@ -472,6 +472,35 @@ pub struct ToolExecutionRequest {
     pub tool_call: ToolCall,
 }
 
+/// One-shot authorization for resuming a previously approved tool call.
+///
+/// The caller must load this data from the fenced durable permission operation.
+/// The execution service still re-evaluates current policy and verifies provider
+/// revisions before invoking the tool.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovedToolExecution {
+    pub permission_request_id: String,
+    pub provider_id: String,
+    pub descriptor_revision: String,
+    pub policy_revision: String,
+}
+
+impl ApprovedToolExecution {
+    pub fn new(
+        permission_request_id: impl Into<String>,
+        provider_id: impl Into<String>,
+        descriptor_revision: impl Into<String>,
+        policy_revision: impl Into<String>,
+    ) -> Self {
+        Self {
+            permission_request_id: permission_request_id.into(),
+            provider_id: provider_id.into(),
+            descriptor_revision: descriptor_revision.into(),
+            policy_revision: policy_revision.into(),
+        }
+    }
+}
+
 impl ToolExecutionRequest {
     pub fn new(tool_execution_id: impl Into<String>, tool_call: ToolCall) -> Self {
         Self {
@@ -556,6 +585,80 @@ impl ToolExecutionService {
         })
     }
 
+    pub fn invoke_approved(
+        &self,
+        runtime: &AgentRuntime,
+        request: ToolExecutionRequest,
+        approval: &ApprovedToolExecution,
+    ) -> KernelResult<ToolExecutionResponse> {
+        let provider = self.select_provider(runtime, Some(&approval.provider_id))?;
+        let descriptor = provider.describe_tool(&request.tool_call.tool_id)?;
+        let provider_manifest = provider.provider_manifest();
+        let descriptor_revision = descriptor
+            .version
+            .as_deref()
+            .unwrap_or(provider_manifest.version.as_str());
+        if descriptor.provider_id != approval.provider_id
+            || descriptor_revision != approval.descriptor_revision
+        {
+            return Err(KernelError::PolicyDenied {
+                reason_code: "tool_descriptor_revision_changed".to_string(),
+            });
+        }
+
+        let policy_provider = runtime.policy_provider()?;
+        if policy_provider.provider_manifest().version != approval.policy_revision {
+            return Err(KernelError::PolicyDenied {
+                reason_code: "policy_revision_changed".to_string(),
+            });
+        }
+
+        let policy_request = provider.authorize_tool_call(&descriptor, &request.tool_call)?;
+        let current_decision = policy_provider.evaluate(policy_request)?;
+        let policy_decision = match current_decision.decision {
+            PolicyDecisionValue::Allow => current_decision,
+            PolicyDecisionValue::NeedsApproval
+                if current_decision.request_id == approval.permission_request_id =>
+            {
+                let approved = PolicyDecision::allow(
+                    format!("permission-approval.{}", approval.permission_request_id),
+                    current_decision.request_id,
+                    current_decision.policy_provider_id,
+                )
+                .with_safe_reason("approved one-shot tool execution")
+                .require_audit();
+                policy_provider.record_decision(&approved)?;
+                approved
+            }
+            PolicyDecisionValue::NeedsApproval => {
+                return Err(KernelError::PolicyDenied {
+                    reason_code: "permission_request_identity_changed".to_string(),
+                });
+            }
+            PolicyDecisionValue::Deny => {
+                return Err(KernelError::PolicyDenied {
+                    reason_code: current_decision.reason_code,
+                });
+            }
+            PolicyDecisionValue::Defer => {
+                return Err(KernelError::provider_error(
+                    "policy.deferred",
+                    current_decision.reason_code,
+                ));
+            }
+        };
+
+        let tool_call = self.with_policy_metadata(request.tool_call, &descriptor, &policy_decision);
+        let result = provider.invoke_tool(tool_call)?;
+        Ok(ToolExecutionResponse {
+            tool_execution_id: request.tool_execution_id,
+            provider_id: descriptor.provider_id.clone(),
+            descriptor,
+            policy_decision,
+            result,
+        })
+    }
+
     pub fn stream(
         &self,
         runtime: &AgentRuntime,
@@ -612,7 +715,26 @@ impl ToolExecutionService {
         let descriptor = provider.describe_tool(&tool_call.tool_id)?;
         let policy_request = provider.authorize_tool_call(&descriptor, tool_call)?;
         let policy_decision = runtime.policy_provider()?.evaluate(policy_request)?;
-        self.ensure_allowed(&policy_decision, &descriptor, tool_call)?;
+        self.ensure_allowed(&policy_decision, &descriptor, tool_call)
+            .map_err(|error| {
+                if error.kind() != crate::KernelErrorKind::PermissionRequired {
+                    return error;
+                }
+                let provider_manifest = provider.provider_manifest();
+                let descriptor_revision = descriptor
+                    .version
+                    .as_deref()
+                    .unwrap_or(provider_manifest.version.as_str());
+                let policy_revision = runtime
+                    .policy_provider_by_id(&policy_decision.policy_provider_id)
+                    .map(|policy| policy.provider_manifest().version)
+                    .unwrap_or_default();
+                error
+                    .with_detail("tool_call_id", tool_call.tool_call_id.clone())
+                    .with_detail("provider_id", descriptor.provider_id.clone())
+                    .with_detail("descriptor_revision", descriptor_revision)
+                    .with_detail("policy_revision", policy_revision)
+            })?;
         Ok((descriptor, policy_decision))
     }
 

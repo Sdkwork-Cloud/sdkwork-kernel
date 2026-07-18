@@ -66,13 +66,22 @@ pub fn build_internal_runtime_routes(
         )
         .route(
             "/sessions/{session_id}/tasks",
-            post(internal_runtime::submit_task).get(internal_runtime::list_tasks),
+            get(internal_runtime::list_tasks),
+        )
+        .route(
+            "/sessions/{session_id}/tasks/submit",
+            post(internal_runtime::submit_task),
         )
         .route("/tasks/{task_id}", get(internal_runtime::get_task))
+        .route("/runs/{run_id}", get(internal_runtime::get_run))
+        .route("/runs/{run_id}/pause", post(internal_runtime::pause_run))
+        .route("/runs/{run_id}/resume", post(internal_runtime::resume_run))
+        .route("/runs/{run_id}/cancel", post(internal_runtime::cancel_run))
         .route(
             "/tasks/{task_id}/cancel",
             post(internal_runtime::cancel_task),
         )
+        .route("/tasks/{task_id}/retry", post(internal_runtime::retry_task))
         .route("/models", get(internal_runtime::list_models))
         .route(
             "/sessions/{session_id}/model/invoke",

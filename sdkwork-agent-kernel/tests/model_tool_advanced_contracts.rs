@@ -1,15 +1,15 @@
 use sdkwork_agent_kernel::{
     AgentSkillDescriptor, AgentSkillInvocationMode, AgentSkillRequest, AgentSkillResult,
-    AgentSkillStatus, ContextFrame, KernelError, KernelErrorKind, KernelEvent,
-    KernelEventRedaction, KernelEventSeverity, KernelResult, McpProvider, McpServerDescriptor,
-    McpToolExecutionRequest, McpToolExecutionService, ModelCancellationRequest,
-    ModelExecutionRequest, ModelExecutionService, ModelProvider, ModelRequest, ModelResponse,
-    ModelResponseFormat, ModelStatus, ModelStreamChunk, ModelStructuredOutputValidation,
-    ModelUsage, PolicyCategory, PolicyDecision, PolicyDecisionValue, PolicyProvider, PolicyRequest,
-    ProviderHealth, ProviderManifest, RedactionClassification, SideEffectLevel, ToolCall,
-    ToolCallStatus, ToolCancellationRequest, ToolDescriptor, ToolExecutionRequest,
-    ToolExecutionService, ToolProvider, ToolResult, ToolSchema, ToolStreamChunk, TraceContext,
-    TrustLevel,
+    AgentSkillStatus, ApprovedToolExecution, ContextFrame, KernelError, KernelErrorKind,
+    KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelResult, McpProvider,
+    McpServerDescriptor, McpToolExecutionRequest, McpToolExecutionService,
+    ModelCancellationRequest, ModelExecutionRequest, ModelExecutionService, ModelProvider,
+    ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus, ModelStreamChunk,
+    ModelStructuredOutputValidation, ModelUsage, PolicyCategory, PolicyDecision,
+    PolicyDecisionValue, PolicyProvider, PolicyRequest, ProviderHealth, ProviderManifest,
+    RedactionClassification, SideEffectLevel, ToolCall, ToolCallStatus, ToolCancellationRequest,
+    ToolDescriptor, ToolExecutionRequest, ToolExecutionService, ToolProvider, ToolResult,
+    ToolSchema, ToolStreamChunk, TraceContext, TrustLevel,
 };
 use std::sync::{Arc, Mutex};
 
@@ -801,6 +801,70 @@ fn tool_execution_service_fails_closed_when_policy_denies_or_requires_approval()
         .expect_err("approval policy blocks tool execution until approved");
     assert_eq!(approval_error.kind(), KernelErrorKind::PermissionRequired);
     assert!(approval_calls.lock().unwrap().is_empty());
+}
+
+#[test]
+fn approved_tool_execution_is_one_shot_and_revision_bound() {
+    let captured_calls = Arc::new(Mutex::new(Vec::new()));
+    let runtime = sdkwork_agent_kernel::RuntimeBuilder::new(
+        "runtime.tool.approved",
+        tool_execution_agent_manifest("agent.tool.approved", "Tool Approved"),
+    )
+    .register_tool_provider(
+        "provider.tool.execution",
+        "0.1.0",
+        CountingToolProvider::new(captured_calls.clone()),
+    )
+    .register_policy_provider(
+        "provider.policy.execution",
+        "0.1.0",
+        StaticPolicyProvider::needs_approval(),
+    )
+    .bootstrap()
+    .expect("approved tool runtime bootstraps")
+    .runtime;
+
+    let service = ToolExecutionService::new();
+    let request = || {
+        ToolExecutionRequest::new(
+            "tool.execution.approved",
+            ToolCall::new("tool-call.approved", "tool.protected", "{}"),
+        )
+    };
+    let approval = ApprovedToolExecution::new(
+        "policy-request.tool-call.approved",
+        "provider.tool.execution",
+        "0.1.0",
+        "0.1.0",
+    );
+    let response = service
+        .invoke_approved(&runtime, request(), &approval)
+        .expect("matching one-shot approval invokes tool");
+    assert!(response.policy_decision.is_allow());
+    assert_eq!(captured_calls.lock().unwrap().len(), 1);
+
+    let mismatched = ApprovedToolExecution::new(
+        "policy-request.other",
+        "provider.tool.execution",
+        "0.1.0",
+        "0.1.0",
+    );
+    let error = service
+        .invoke_approved(&runtime, request(), &mismatched)
+        .expect_err("mismatched permission identity fails closed");
+    assert_eq!(error.kind(), KernelErrorKind::PolicyDenied);
+
+    let stale = ApprovedToolExecution::new(
+        "policy-request.tool-call.approved",
+        "provider.tool.execution",
+        "0.0.9",
+        "0.1.0",
+    );
+    let error = service
+        .invoke_approved(&runtime, request(), &stale)
+        .expect_err("stale descriptor revision fails closed");
+    assert_eq!(error.kind(), KernelErrorKind::PolicyDenied);
+    assert_eq!(captured_calls.lock().unwrap().len(), 1);
 }
 
 #[test]

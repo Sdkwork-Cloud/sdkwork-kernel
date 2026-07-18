@@ -560,7 +560,7 @@ function normalizeCodexSandboxMode(value) {
     return 'workspace-write';
   }
   if (compact === 'danger-full-access' || compact === 'dangerfullaccess') {
-    throw new Error('danger-full-access is prohibited for kernel-owned Codex SDK execution');
+    return 'danger-full-access';
   }
   throw new Error(`unsupported Codex sandbox mode: ${normalized}`);
 }

@@ -3,8 +3,10 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use sdkwork_agent_server::{
-    api::internal_runtime, app, config::ServerConfig, health, persistence::PersistenceState,
+    api::internal_runtime, app, config::ServerConfig, health,
+    permission_operation_worker::PermissionOperationWorker, persistence::PersistenceState,
     preflight, runtime_cleanup_worker::RuntimeCleanupWorker, shutdown,
+    task_execution_worker::TaskExecutionWorker,
 };
 
 #[tokio::main]
@@ -48,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
         config.clone(),
         health_state,
         persistence.clone(),
-        runtime_state,
+        runtime_state.clone(),
     )
     .await?;
 
@@ -65,6 +67,16 @@ async fn main() -> anyhow::Result<()> {
     let mut deadline_rx = shutdown_tx.subscribe();
     let cleanup_worker =
         RuntimeCleanupWorker::spawn(persistence.clone(), config.clone(), shutdown_tx.subscribe());
+    let task_worker = TaskExecutionWorker::spawn(
+        runtime_state.clone(),
+        config.clone(),
+        shutdown_tx.subscribe(),
+    );
+    let permission_worker = PermissionOperationWorker::spawn(
+        runtime_state.clone(),
+        config.clone(),
+        shutdown_tx.subscribe(),
+    );
     let signal_shutdown_tx = shutdown_tx.clone();
     tokio::spawn(async move {
         shutdown::shutdown_signal().await;
@@ -95,6 +107,8 @@ async fn main() -> anyhow::Result<()> {
     }
     let _ = shutdown_tx.send(true);
     cleanup_worker.join().await;
+    task_worker.join().await;
+    permission_worker.join().await;
 
     info!("Server shutdown complete");
 

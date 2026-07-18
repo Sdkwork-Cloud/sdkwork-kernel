@@ -23,8 +23,11 @@ pub struct CleanupCycleSummary {
     pub sessions: u64,
     pub messages: u64,
     pub tasks: u64,
+    pub runs: u64,
+    pub steps: u64,
     pub events: u64,
     pub permissions: u64,
+    pub permission_operations: u64,
     pub batches: u32,
 }
 
@@ -33,8 +36,13 @@ impl CleanupCycleSummary {
         self.sessions = self.sessions.saturating_add(counts.sessions);
         self.messages = self.messages.saturating_add(counts.messages);
         self.tasks = self.tasks.saturating_add(counts.tasks);
+        self.runs = self.runs.saturating_add(counts.runs);
+        self.steps = self.steps.saturating_add(counts.steps);
         self.events = self.events.saturating_add(counts.events);
         self.permissions = self.permissions.saturating_add(counts.permissions);
+        self.permission_operations = self
+            .permission_operations
+            .saturating_add(counts.permission_operations);
         self.batches = self.batches.saturating_add(1);
     }
 
@@ -42,8 +50,11 @@ impl CleanupCycleSummary {
         self.sessions
             .saturating_add(self.messages)
             .saturating_add(self.tasks)
+            .saturating_add(self.runs)
+            .saturating_add(self.steps)
             .saturating_add(self.events)
             .saturating_add(self.permissions)
+            .saturating_add(self.permission_operations)
     }
 }
 
@@ -121,8 +132,11 @@ async fn run_worker(
                             sessions = summary.sessions,
                             messages = summary.messages,
                             tasks = summary.tasks,
+                            runs = summary.runs,
+                            steps = summary.steps,
                             events = summary.events,
                             permissions = summary.permissions,
+                            permission_operations = summary.permission_operations,
                             "runtime retention cleanup completed"
                         );
                     }

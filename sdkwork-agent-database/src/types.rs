@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::str::FromStr;
 
 pub const RUNTIME_TIMESTAMP_PATTERN: &str = "%Y-%m-%dT%H:%M:%S%.9fZ";
 
@@ -11,7 +13,7 @@ pub fn runtime_now_timestamp() -> String {
 }
 
 /// Latest runtime schema migration version required by all supported stores.
-pub const CURRENT_SCHEMA_VERSION: i64 = 4;
+pub const CURRENT_SCHEMA_VERSION: i64 = 5;
 
 /// Bounded result returned by one runtime retention pass.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -19,8 +21,11 @@ pub struct RuntimePurgeCounts {
     pub sessions: u64,
     pub messages: u64,
     pub tasks: u64,
+    pub runs: u64,
+    pub steps: u64,
     pub events: u64,
     pub permissions: u64,
+    pub permission_operations: u64,
 }
 
 impl RuntimePurgeCounts {
@@ -28,8 +33,11 @@ impl RuntimePurgeCounts {
         self.sessions
             .saturating_add(self.messages)
             .saturating_add(self.tasks)
+            .saturating_add(self.runs)
+            .saturating_add(self.steps)
             .saturating_add(self.events)
             .saturating_add(self.permissions)
+            .saturating_add(self.permission_operations)
     }
 }
 
@@ -153,6 +161,179 @@ pub struct TaskRow {
     pub state: String,
     pub created_at: String,
     pub updated_at: Option<String>,
+}
+
+macro_rules! string_enum {
+    ($name:ident { $($variant:ident => $wire:literal),+ $(,)? }) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+        #[serde(rename_all = "snake_case")]
+        pub enum $name {
+            $($variant),+
+        }
+
+        impl $name {
+            pub const fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $wire),+
+                }
+            }
+        }
+
+        impl fmt::Display for $name {
+            fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str(self.as_str())
+            }
+        }
+
+        impl FromStr for $name {
+            type Err = String;
+
+            fn from_str(value: &str) -> Result<Self, Self::Err> {
+                match value {
+                    $($wire => Ok(Self::$variant)),+,
+                    _ => Err(format!("unknown {} value: {value}", stringify!($name))),
+                }
+            }
+        }
+    };
+}
+
+string_enum!(RunState {
+    Created => "created",
+    Planning => "planning",
+    Executing => "executing",
+    AwaitingPermission => "awaiting_permission",
+    Paused => "paused",
+    Completed => "completed",
+    Failed => "failed",
+    Cancelled => "cancelled",
+});
+
+string_enum!(StepState {
+    Created => "created",
+    Ready => "ready",
+    Running => "running",
+    AwaitingPermission => "awaiting_permission",
+    Completed => "completed",
+    Failed => "failed",
+    Skipped => "skipped",
+    Cancelled => "cancelled",
+});
+
+string_enum!(ActionKind {
+    ModelCall => "model_call",
+    ToolCall => "tool_call",
+    MemoryRead => "memory_read",
+    MemoryWrite => "memory_write",
+    HostOperation => "host_operation",
+    ProtocolSend => "protocol_send",
+    Handoff => "handoff",
+    WaitForUser => "wait_for_user",
+    Internal => "internal",
+});
+
+string_enum!(PermissionOperationState {
+    Pending => "pending",
+    Decided => "decided",
+    Claimable => "claimable",
+    Executing => "executing",
+    Completed => "completed",
+    Failed => "failed",
+    Expired => "expired",
+    Cancelled => "cancelled",
+});
+
+string_enum!(PermissionPayloadKind {
+    Ciphertext => "ciphertext",
+    SecretRef => "secret_ref",
+});
+
+string_enum!(RunControlAction {
+    Pause => "pause",
+    Resume => "resume",
+    Cancel => "cancel",
+});
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunRow {
+    pub run_id: String,
+    pub task_id: String,
+    pub session_id: String,
+    pub attempt: i64,
+    pub state: RunState,
+    pub next_attempt_at: Option<String>,
+    pub lease_owner: Option<String>,
+    pub lease_expires_at: Option<String>,
+    pub fencing_token: i64,
+    pub cancel_requested_at: Option<String>,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub error_kind: Option<String>,
+    pub error_code: Option<String>,
+    pub error_detail: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StepRow {
+    pub step_id: String,
+    pub run_id: String,
+    pub sequence_no: i64,
+    pub action_kind: ActionKind,
+    pub state: StepState,
+    pub provider_id: Option<String>,
+    pub descriptor_revision: Option<String>,
+    pub policy_revision: Option<String>,
+    pub causation_step_id: Option<String>,
+    pub idempotency_key_hash: Option<String>,
+    pub result_json: Option<String>,
+    pub error_kind: Option<String>,
+    pub error_code: Option<String>,
+    pub error_detail: Option<String>,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionOperationRow {
+    pub permission_request_id: String,
+    pub run_id: String,
+    pub step_id: String,
+    pub tool_call_id: String,
+    pub provider_id: String,
+    pub descriptor_revision: String,
+    pub policy_revision: String,
+    pub payload_kind: PermissionPayloadKind,
+    pub payload_ref: String,
+    pub payload_digest: String,
+    pub encryption_key_id: Option<String>,
+    pub state: PermissionOperationState,
+    pub expires_at: String,
+    pub lease_owner: Option<String>,
+    pub lease_expires_at: Option<String>,
+    pub fencing_token: i64,
+    pub result_json: Option<String>,
+    pub error_kind: Option<String>,
+    pub error_code: Option<String>,
+    pub error_detail: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClaimedRun {
+    pub run: RunRow,
+    pub step: StepRow,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClaimedPermissionOperation {
+    pub operation: PermissionOperationRow,
+    pub run: RunRow,
+    pub step: StepRow,
 }
 
 /// Event row for database persistence

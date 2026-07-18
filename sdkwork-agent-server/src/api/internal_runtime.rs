@@ -13,7 +13,9 @@ use sdkwork_agent_api_bridge::{
     MAX_MODEL_STREAM_CHUNK_BYTES,
 };
 use sdkwork_agent_database::{
-    EventRow, MessageQuery, MessageRow, PermissionRow, SessionRow, TaskQuery, TaskRow,
+    ActionKind, EventRow, MessageQuery, MessageRow, PermissionOperationRow,
+    PermissionOperationState, PermissionPayloadKind, PermissionRow, RunControlAction, RunRow,
+    RunState, SessionRow, StepRow, StepState, TaskQuery, TaskRow,
 };
 use sdkwork_agent_kernel::{AgentMessage, AgentMessageRole, AgentPart};
 use sdkwork_agent_session::{SessionConfig, SessionQuery};
@@ -37,9 +39,11 @@ use crate::access::{
     assert_permission_access, assert_session_access, stamp_session_ownership, AccessPolicy,
 };
 use crate::agent_registry::{apply_hosted_agent_defaults, validate_hosted_agent_id};
+use crate::approval_payload_vault::ApprovalPayloadContext;
 use crate::config::ServerConfig;
 use crate::http_response::{
-    api_created, api_item, api_no_content, catalog_list_response, cursor_list_response, ApiError,
+    api_accepted, api_created, api_item, api_no_content, catalog_list_response,
+    cursor_list_response, ApiError,
 };
 use crate::metrics::MetricsRegistry;
 use crate::middleware::RequestContext;
@@ -79,6 +83,7 @@ pub struct InternalRuntimeApiState {
     pub tenant_token_quota: Arc<TenantTokenQuotaState>,
     pub sse_event_counter: Arc<tokio::sync::Mutex<u64>>,
     pub sse_connection_count: Arc<AtomicU32>,
+    pub approval_payload_vault: Option<Arc<crate::approval_payload_vault::ApprovalPayloadVault>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -436,6 +441,50 @@ pub struct TaskViewJson {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AsyncOperationJson {
+    pub accepted: bool,
+    pub operation_id: String,
+    pub status: String,
+    pub poll_url: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunViewJson {
+    pub run_id: String,
+    pub task_id: String,
+    pub session_id: String,
+    pub attempt: i64,
+    pub state: String,
+    pub fencing_token: i64,
+    pub cancel_requested_at: Option<String>,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub error_kind: Option<String>,
+    pub error_code: Option<String>,
+    pub error_detail: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub steps: Vec<StepViewJson>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StepViewJson {
+    pub step_id: String,
+    pub sequence_no: i64,
+    pub action_kind: String,
+    pub state: String,
+    pub provider_id: Option<String>,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+    pub error_kind: Option<String>,
+    pub error_code: Option<String>,
+    pub error_detail: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ModelDescriptorJson {
     pub model_id: String,
     pub provider_id: String,
@@ -591,6 +640,12 @@ impl InternalRuntimeApiState {
         config: Arc<ServerConfig>,
         tenant_token_quota: TenantTokenQuotaState,
     ) -> Result<Self, sdkwork_agent_kernel::KernelError> {
+        let approval_payload_vault = config
+            .approval_payload_encryption_key
+            .as_deref()
+            .map(crate::approval_payload_vault::ApprovalPayloadVault::from_encoded_key)
+            .transpose()
+            .map_err(sdkwork_agent_kernel::KernelError::validation)?;
         Ok(Self {
             persistence,
             config: config.clone(),
@@ -599,6 +654,7 @@ impl InternalRuntimeApiState {
             tenant_token_quota: Arc::new(tenant_token_quota),
             sse_event_counter: Arc::new(tokio::sync::Mutex::new(0)),
             sse_connection_count: Arc::new(AtomicU32::new(0)),
+            approval_payload_vault: approval_payload_vault.map(Arc::new),
         })
     }
 
@@ -1108,6 +1164,40 @@ fn task_row_to_view(row: TaskRow) -> TaskViewJson {
     }
 }
 
+fn run_to_view(run: RunRow, steps: Vec<StepRow>) -> RunViewJson {
+    RunViewJson {
+        run_id: run.run_id,
+        task_id: run.task_id,
+        session_id: run.session_id,
+        attempt: run.attempt,
+        state: run.state.to_string(),
+        fencing_token: run.fencing_token,
+        cancel_requested_at: run.cancel_requested_at,
+        started_at: run.started_at,
+        finished_at: run.finished_at,
+        error_kind: run.error_kind,
+        error_code: run.error_code,
+        error_detail: run.error_detail,
+        created_at: run.created_at,
+        updated_at: run.updated_at,
+        steps: steps
+            .into_iter()
+            .map(|step| StepViewJson {
+                step_id: step.step_id,
+                sequence_no: step.sequence_no,
+                action_kind: step.action_kind.to_string(),
+                state: step.state.to_string(),
+                provider_id: step.provider_id,
+                started_at: step.started_at,
+                finished_at: step.finished_at,
+                error_kind: step.error_kind,
+                error_code: step.error_code,
+                error_detail: step.error_detail,
+            })
+            .collect(),
+    }
+}
+
 fn event_row_to_sse(row: &EventRow, sequence: u32) -> Event {
     let payload = event_row_to_stream(row, sequence);
     Event::default()
@@ -1378,7 +1468,8 @@ fn live_event_stream(
     sequence: u32,
     last_event_id: Option<String>,
 ) -> SessionEventStream {
-    const EVENT_POLL_INTERVAL: Duration = Duration::from_secs(1);
+    const EVENT_POLL_MIN_INTERVAL: Duration = Duration::from_secs(1);
+    const EVENT_POLL_MAX_INTERVAL: Duration = Duration::from_secs(5);
     const EVENT_POLL_BATCH: i64 = 200;
     const MAX_SEEN_EVENT_IDS: usize = 1024;
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(64);
@@ -1418,12 +1509,13 @@ fn live_event_stream(
             sequence = sequence.saturating_add(1);
         }
 
-        let mut interval = tokio::time::interval(EVENT_POLL_INTERVAL);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut poll_delay = EVENT_POLL_MIN_INTERVAL;
+        let poll_sleep = tokio::time::sleep(poll_delay);
+        tokio::pin!(poll_sleep);
 
         loop {
             tokio::select! {
-                _ = interval.tick() => {
+                _ = &mut poll_sleep => {
                     let session_for_poll = session_id.clone();
                     let after_event_id = cursor.clone();
                     match persistence.run(move |state| {
@@ -1434,6 +1526,7 @@ fn live_event_stream(
                         )
                     }).await {
                         Ok(rows) => {
+                            let had_rows = !rows.is_empty();
                             for row in rows {
                                 if !remember_event_id(
                                     &mut seen_event_ids,
@@ -1452,11 +1545,24 @@ fn live_event_stream(
                                 }
                                 sequence = sequence.saturating_add(1);
                             }
+                            poll_delay = next_event_poll_delay(
+                                poll_delay,
+                                had_rows,
+                                EVENT_POLL_MIN_INTERVAL,
+                                EVENT_POLL_MAX_INTERVAL,
+                            );
                         }
                         Err(error) => {
                             tracing::warn!(session_id = %session_id, error = %error, "durable SSE event poll failed");
+                            poll_delay = next_event_poll_delay(
+                                poll_delay,
+                                false,
+                                EVENT_POLL_MIN_INTERVAL,
+                                EVENT_POLL_MAX_INTERVAL,
+                            );
                         }
                     }
+                    poll_sleep.as_mut().reset(tokio::time::Instant::now() + poll_delay);
                 }
                 received = async {
                     match receiver.as_mut() {
@@ -1482,10 +1588,14 @@ fn live_event_stream(
                                 return;
                             }
                             sequence = sequence.saturating_add(1);
+                            poll_delay = EVENT_POLL_MIN_INTERVAL;
+                            poll_sleep.as_mut().reset(tokio::time::Instant::now() + poll_delay);
                         }
                         Ok(_) => {}
                         Err(broadcast::error::RecvError::Lagged(skipped)) => {
                             tracing::warn!(session_id = %session_id, skipped, "SSE event bus lagged; durable poll will recover events");
+                            poll_delay = EVENT_POLL_MIN_INTERVAL;
+                            poll_sleep.as_mut().reset(tokio::time::Instant::now() + poll_delay);
                         }
                         Err(broadcast::error::RecvError::Closed) => {
                             receiver_open = false;
@@ -1498,6 +1608,18 @@ fn live_event_stream(
     });
 
     Box::pin(ReceiverStream::new(rx))
+}
+
+fn next_event_poll_delay(
+    current: Duration,
+    had_rows: bool,
+    minimum: Duration,
+    maximum: Duration,
+) -> Duration {
+    if had_rows {
+        return minimum;
+    }
+    current.saturating_mul(2).min(maximum).max(minimum)
 }
 
 fn remember_event_id(
@@ -1860,8 +1982,32 @@ pub async fn decide_permission(
 
     let decision = body.decision.clone();
     let permission_id = permission_request_id.clone();
+    let decided_at = sdkwork_agent_database::runtime_now_timestamp();
+    let decision_event = EventRow {
+        event_id: format!("event.{}", sdkwork_utils_rust::uuid()),
+        session_id: permission.session_id.clone(),
+        event_type: format!("permission.{decision}"),
+        severity: if decision == "allow" { "info" } else { "warn" }.to_string(),
+        payload: Some(
+            serde_json::json!({
+                "permissionRequestId": permission_request_id,
+                "decision": decision,
+            })
+            .to_string(),
+        ),
+        created_at: decided_at.clone(),
+    };
     state
-        .persist(move |persistence| persistence.update_permission_status(&permission_id, &decision))
+        .persist(move |persistence| {
+            persistence
+                .decide_permission_operation(
+                    &permission_id,
+                    &decision,
+                    &decided_at,
+                    &decision_event,
+                )
+                .map(|_| ())
+        })
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
 
@@ -2157,12 +2303,201 @@ pub async fn submit_task(
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &session, &trace_id)?;
     ensure_session_active_api(&session, &trace_id)?;
-    let instruction = request.instruction.clone();
-    let row = state
-        .persist(move |persistence| persistence.create_task(&session_id, &instruction))
+    let created_at = sdkwork_agent_database::runtime_now_timestamp();
+    let task_id = format!("task.{}", sdkwork_utils_rust::uuid());
+    let run_id = format!("run.{}", sdkwork_utils_rust::uuid());
+    let step_id = format!("step.{}", sdkwork_utils_rust::uuid());
+    let task = TaskRow {
+        task_id: task_id.clone(),
+        session_id: session_id.clone(),
+        instruction: request.instruction,
+        state: "accepted".to_string(),
+        created_at: created_at.clone(),
+        updated_at: Some(created_at.clone()),
+    };
+    let run = RunRow {
+        run_id: run_id.clone(),
+        task_id: task_id.clone(),
+        session_id: session_id.clone(),
+        attempt: 1,
+        state: RunState::Created,
+        next_attempt_at: None,
+        lease_owner: None,
+        lease_expires_at: None,
+        fencing_token: 0,
+        cancel_requested_at: None,
+        started_at: None,
+        finished_at: None,
+        error_kind: None,
+        error_code: None,
+        error_detail: None,
+        created_at: created_at.clone(),
+        updated_at: created_at.clone(),
+    };
+    let step = StepRow {
+        step_id: step_id.clone(),
+        run_id: run_id.clone(),
+        sequence_no: 0,
+        action_kind: ActionKind::ModelCall,
+        state: StepState::Ready,
+        provider_id: session.provider_id.clone(),
+        descriptor_revision: None,
+        policy_revision: None,
+        causation_step_id: None,
+        idempotency_key_hash: None,
+        result_json: None,
+        error_kind: None,
+        error_code: None,
+        error_detail: None,
+        started_at: None,
+        finished_at: None,
+        created_at: created_at.clone(),
+        updated_at: created_at.clone(),
+    };
+    let event = EventRow {
+        event_id: format!("event.{}", sdkwork_utils_rust::uuid()),
+        session_id: Some(session_id),
+        event_type: "task.accepted".to_string(),
+        severity: "info".to_string(),
+        payload: Some(
+            serde_json::json!({
+                "taskId": task_id,
+                "runId": run_id,
+                "stepId": step_id,
+                "attempt": 1,
+            })
+            .to_string(),
+        ),
+        created_at,
+    };
+    state
+        .persist(move |persistence| persistence.create_task_execution(&task, &run, &step, &event))
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
-    Ok(api_created(task_row_to_view(row), &trace_id))
+    Ok(api_accepted(
+        AsyncOperationJson {
+            accepted: true,
+            operation_id: run_id.clone(),
+            status: "pending".to_string(),
+            poll_url: format!("/internal/v3/api/intelligence/runtime/runs/{run_id}"),
+        },
+        &trace_id,
+    ))
+}
+
+pub async fn get_run(
+    State(state): State<Arc<InternalRuntimeApiState>>,
+    Extension(ctx): Extension<RequestContext>,
+    Path(run_id): Path<String>,
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
+    let run_key = run_id.clone();
+    let (run, steps) = state
+        .persist(move |persistence| {
+            let run = persistence
+                .load_run(&run_key)?
+                .ok_or_else(|| "run not found".to_string())?;
+            let steps = persistence.load_steps(&run_key)?;
+            Ok((run, steps))
+        })
+        .await
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    if steps.len() > MAX_CATALOG_ITEMS {
+        return Err(ApiError::service_unavailable(
+            "run step count exceeds the bounded response contract",
+            &trace_id,
+        ));
+    }
+    let session_key = run.session_id.clone();
+    let session = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &session, &trace_id)?;
+    Ok(api_item(run_to_view(run, steps), &trace_id))
+}
+
+pub async fn pause_run(
+    State(state): State<Arc<InternalRuntimeApiState>>,
+    Extension(ctx): Extension<RequestContext>,
+    Path(run_id): Path<String>,
+) -> Result<Response, ApiError> {
+    control_run(state, ctx, run_id, RunControlAction::Pause).await
+}
+
+pub async fn resume_run(
+    State(state): State<Arc<InternalRuntimeApiState>>,
+    Extension(ctx): Extension<RequestContext>,
+    Path(run_id): Path<String>,
+) -> Result<Response, ApiError> {
+    control_run(state, ctx, run_id, RunControlAction::Resume).await
+}
+
+pub async fn cancel_run(
+    State(state): State<Arc<InternalRuntimeApiState>>,
+    Extension(ctx): Extension<RequestContext>,
+    Path(run_id): Path<String>,
+) -> Result<Response, ApiError> {
+    control_run(state, ctx, run_id, RunControlAction::Cancel).await
+}
+
+async fn control_run(
+    state: Arc<InternalRuntimeApiState>,
+    ctx: RequestContext,
+    run_id: String,
+    action: RunControlAction,
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
+    let run_key = run_id.clone();
+    let run = state
+        .persist(move |persistence| {
+            persistence
+                .load_run(&run_key)?
+                .ok_or_else(|| "run not found".to_string())
+        })
+        .await
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    let session_key = run.session_id.clone();
+    let session = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &session, &trace_id)?;
+    let changed_at = sdkwork_agent_database::runtime_now_timestamp();
+    let event = EventRow {
+        event_id: format!("event.{}", sdkwork_utils_rust::uuid()),
+        session_id: Some(run.session_id),
+        event_type: format!("run.{}", action.as_str()),
+        severity: "info".to_string(),
+        payload: Some(
+            serde_json::json!({
+                "taskId": run.task_id,
+                "runId": run_id,
+                "action": action.as_str(),
+            })
+            .to_string(),
+        ),
+        created_at: changed_at.clone(),
+    };
+    let controlled_run_id = run_id.clone();
+    let updated = state
+        .persist(move |persistence| {
+            persistence.control_run(&controlled_run_id, action, &changed_at, &event)
+        })
+        .await
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    let step_run_id = updated.run_id.clone();
+    let steps = state
+        .persist(move |persistence| persistence.load_steps(&step_run_id))
+        .await
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    if steps.len() > MAX_CATALOG_ITEMS {
+        return Err(ApiError::service_unavailable(
+            "run step count exceeds the bounded response contract",
+            &trace_id,
+        ));
+    }
+    Ok(api_item(run_to_view(updated, steps), &trace_id))
 }
 
 pub async fn get_task(
@@ -2246,12 +2581,125 @@ pub async fn cancel_task(
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     ensure_session_access_api(&state, &ctx, &session, &trace_id)?;
+    let cancelled_at = sdkwork_agent_database::runtime_now_timestamp();
+    let event = EventRow {
+        event_id: format!("event.{}", sdkwork_utils_rust::uuid()),
+        session_id: Some(task.session_id),
+        event_type: "task.cancelled".to_string(),
+        severity: "info".to_string(),
+        payload: Some(serde_json::json!({ "taskId": task_id }).to_string()),
+        created_at: cancelled_at.clone(),
+    };
     let view = state
-        .persist(move |persistence| persistence.cancel_task(&task_id))
+        .persist(move |persistence| {
+            persistence
+                .request_task_cancellation(&task_id, &cancelled_at, &event)
+                .map(|(task, _)| task)
+        })
         .await
         .map(task_row_to_view)
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
     Ok(api_item(view, &trace_id))
+}
+
+pub async fn retry_task(
+    State(state): State<Arc<InternalRuntimeApiState>>,
+    Extension(ctx): Extension<RequestContext>,
+    Path(task_id): Path<String>,
+) -> Result<Response, ApiError> {
+    let trace_id = ctx.problem_trace_id();
+    let task_key = task_id.clone();
+    let (task, attempt) = state
+        .persist(move |persistence| {
+            let task = persistence.get_task(&task_key)?;
+            let attempt = persistence.next_task_attempt(&task_key)?;
+            Ok((task, attempt))
+        })
+        .await
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    let session_key = task.session_id.clone();
+    let session = state
+        .persist(move |persistence| persistence.get_session(&session_key))
+        .await
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    ensure_session_access_api(&state, &ctx, &session, &trace_id)?;
+    ensure_session_active_api(&session, &trace_id)?;
+
+    let created_at = sdkwork_agent_database::runtime_now_timestamp();
+    let run_id = format!("run.{}", sdkwork_utils_rust::uuid());
+    let step_id = format!("step.{}", sdkwork_utils_rust::uuid());
+    let run = RunRow {
+        run_id: run_id.clone(),
+        task_id: task_id.clone(),
+        session_id: task.session_id.clone(),
+        attempt,
+        state: RunState::Created,
+        next_attempt_at: None,
+        lease_owner: None,
+        lease_expires_at: None,
+        fencing_token: 0,
+        cancel_requested_at: None,
+        started_at: None,
+        finished_at: None,
+        error_kind: None,
+        error_code: None,
+        error_detail: None,
+        created_at: created_at.clone(),
+        updated_at: created_at.clone(),
+    };
+    let step = StepRow {
+        step_id: step_id.clone(),
+        run_id: run_id.clone(),
+        sequence_no: 0,
+        action_kind: ActionKind::ModelCall,
+        state: StepState::Ready,
+        provider_id: session.provider_id,
+        descriptor_revision: None,
+        policy_revision: None,
+        causation_step_id: None,
+        idempotency_key_hash: None,
+        result_json: None,
+        error_kind: None,
+        error_code: None,
+        error_detail: None,
+        started_at: None,
+        finished_at: None,
+        created_at: created_at.clone(),
+        updated_at: created_at.clone(),
+    };
+    let event = EventRow {
+        event_id: format!("event.{}", sdkwork_utils_rust::uuid()),
+        session_id: Some(task.session_id),
+        event_type: "task.retried".to_string(),
+        severity: "info".to_string(),
+        payload: Some(
+            serde_json::json!({
+                "taskId": task_id,
+                "runId": run_id,
+                "stepId": step_id,
+                "attempt": attempt,
+            })
+            .to_string(),
+        ),
+        created_at,
+    };
+    state
+        .persist(move |persistence| {
+            persistence
+                .retry_task_execution(&task_id, &run, &step, &event)
+                .map(|_| ())
+        })
+        .await
+        .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
+    Ok(api_accepted(
+        AsyncOperationJson {
+            accepted: true,
+            operation_id: run_id.clone(),
+            status: "pending".to_string(),
+            poll_url: format!("/internal/v3/api/intelligence/runtime/runs/{run_id}"),
+        },
+        &trace_id,
+    ))
 }
 
 pub async fn list_models(
@@ -2494,8 +2942,51 @@ pub async fn execute_tool(
                     ApiError::internal("permission request identity is missing", &trace_id)
                 })?
                 .to_string();
+            let required_detail = |name: &str| {
+                error
+                    .detail_value(name)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .ok_or_else(|| {
+                        ApiError::internal(
+                            format!("permission operation {name} is missing"),
+                            &trace_id,
+                        )
+                    })
+            };
+            let tool_call_id = required_detail("tool_call_id")?;
+            let provider_id = required_detail("provider_id")?;
+            let descriptor_revision = required_detail("descriptor_revision")?;
+            let policy_revision = required_detail("policy_revision")?;
+            let vault = state.approval_payload_vault.as_ref().ok_or_else(|| {
+                ApiError::internal("approval payload encryption is not configured", &trace_id)
+            })?;
+            let now = sdkwork_agent_database::runtime_now_timestamp();
+            let task_id = format!("task.{}", sdkwork_utils_rust::uuid());
+            let run_id = format!("run.{}", sdkwork_utils_rust::uuid());
+            let step_id = format!("step.{}", sdkwork_utils_rust::uuid());
+            let aad = ApprovalPayloadContext {
+                permission_request_id: &permission_request_id,
+                session_id: &session_id,
+                task_id: &task_id,
+                run_id: &run_id,
+                step_id: &step_id,
+                tool_call_id: &tool_call_id,
+                provider_id: &provider_id,
+                descriptor_revision: &descriptor_revision,
+                policy_revision: &policy_revision,
+            }
+            .to_aad()
+            .map_err(|vault_error| ApiError::internal(vault_error, &trace_id))?;
+            let sealed = vault
+                .seal(&request.input, &aad)
+                .map_err(|vault_error| ApiError::internal(vault_error, &trace_id))?;
+            let expires_at = sdkwork_agent_database::format_runtime_timestamp(
+                chrono::Utc::now()
+                    + chrono::Duration::seconds(state.config.permission_operation_ttl_secs as i64),
+            );
             let permission = PermissionRow {
-                permission_request_id,
+                permission_request_id: permission_request_id.clone(),
                 session_id: Some(session_id.clone()),
                 category: error
                     .detail_value("policy_category")
@@ -2513,14 +3004,106 @@ pub async fn execute_tool(
                 status: "pending".to_string(),
                 owner_tenant_id: row.owner_tenant_id.clone(),
                 owner_user_ref: row.owner_user_ref.clone(),
-                created_at: chrono::Utc::now().to_rfc3339(),
+                created_at: now.clone(),
                 updated_at: None,
+            };
+            let task = TaskRow {
+                task_id: task_id.clone(),
+                session_id: session_id.clone(),
+                instruction: format!("Execute approved tool {tool_name}"),
+                state: "accepted".to_string(),
+                created_at: now.clone(),
+                updated_at: Some(now.clone()),
+            };
+            let run = RunRow {
+                run_id: run_id.clone(),
+                task_id: task_id.clone(),
+                session_id: session_id.clone(),
+                attempt: 1,
+                state: RunState::AwaitingPermission,
+                next_attempt_at: None,
+                lease_owner: None,
+                lease_expires_at: None,
+                fencing_token: 0,
+                cancel_requested_at: None,
+                started_at: None,
+                finished_at: None,
+                error_kind: None,
+                error_code: None,
+                error_detail: None,
+                created_at: now.clone(),
+                updated_at: now.clone(),
+            };
+            let step = StepRow {
+                step_id: step_id.clone(),
+                run_id: run_id.clone(),
+                sequence_no: 0,
+                action_kind: ActionKind::ToolCall,
+                state: StepState::AwaitingPermission,
+                provider_id: Some(provider_id.clone()),
+                descriptor_revision: Some(descriptor_revision.clone()),
+                policy_revision: Some(policy_revision.clone()),
+                causation_step_id: None,
+                idempotency_key_hash: None,
+                result_json: None,
+                error_kind: None,
+                error_code: None,
+                error_detail: None,
+                started_at: None,
+                finished_at: None,
+                created_at: now.clone(),
+                updated_at: now.clone(),
+            };
+            let operation = PermissionOperationRow {
+                permission_request_id: permission_request_id.clone(),
+                run_id,
+                step_id,
+                tool_call_id,
+                provider_id,
+                descriptor_revision,
+                policy_revision,
+                payload_kind: PermissionPayloadKind::Ciphertext,
+                payload_ref: sealed.payload_ref,
+                payload_digest: sealed.payload_digest,
+                encryption_key_id: Some(sealed.encryption_key_id),
+                state: PermissionOperationState::Pending,
+                expires_at,
+                lease_owner: None,
+                lease_expires_at: None,
+                fencing_token: 0,
+                result_json: None,
+                error_kind: None,
+                error_code: None,
+                error_detail: None,
+                created_at: now.clone(),
+                updated_at: now.clone(),
+            };
+            let permission_event = EventRow {
+                event_id: format!("event.{}", sdkwork_utils_rust::uuid()),
+                session_id: Some(session_id.clone()),
+                event_type: "permission.requested".to_string(),
+                severity: "warn".to_string(),
+                payload: Some(
+                    serde_json::json!({
+                        "permissionRequestId": permission_request_id,
+                        "taskId": task_id,
+                        "runId": operation.run_id,
+                        "stepId": operation.step_id,
+                    })
+                    .to_string(),
+                ),
+                created_at: now,
             };
             state
                 .persist(move |persistence| {
-                    persistence
-                        .create_permission_if_absent(&permission)
-                        .map(|_| ())
+                    persistence.create_permission_execution(
+                        &permission,
+                        &task,
+                        &run,
+                        &step,
+                        &operation,
+                        &permission_event,
+                    )
                 })
                 .await
                 .map_err(|persistence_error| {
@@ -2673,6 +3256,10 @@ pub async fn stream_session_events(
     Query(query): Query<StreamEventsQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     let trace_id = ctx.problem_trace_id();
+    let permit =
+        SseConnectionPermit::acquire(state.sse_connection_count.clone()).ok_or_else(|| {
+            ApiError::service_unavailable("too many concurrent SSE streams", &trace_id)
+        })?;
     let session_key = session_id.clone();
     let row = state
         .persist(move |persistence| persistence.get_session(&session_key))
@@ -2699,10 +3286,6 @@ pub async fn stream_session_events(
         .await
         .map_err(|error| ApiError::from_persistence(error, &trace_id))?;
 
-    let permit =
-        SseConnectionPermit::acquire(state.sse_connection_count.clone()).ok_or_else(|| {
-            ApiError::service_unavailable("too many concurrent SSE streams", &trace_id)
-        })?;
     let stream: SessionEventStream = if live {
         let live_stream = live_event_stream(
             live_receiver.expect("live receiver is present when live streaming is enabled"),
@@ -2758,14 +3341,8 @@ struct ResourceCursor {
     sort_key: String,
 }
 
-fn cursor_signing_secret(config: &ServerConfig) -> String {
-    config
-        .ingress_token
-        .as_deref()
-        .or(config.ingress_jwt_secret.as_deref())
-        .or(config.metrics_token.as_deref())
-        .map(|secret| format!("sdkwork-kernel-cursor-v2:{secret}"))
-        .unwrap_or_else(|| "sdkwork-kernel-local-cursor-v2".to_string())
+fn cursor_signing_secret(config: &ServerConfig) -> &str {
+    config.effective_cursor_signing_secret()
 }
 
 fn encode_resource_cursor(
@@ -2860,6 +3437,55 @@ mod tests {
         assert!(decode_resource_cursor(&config, "sessions", &cursor).is_err());
     }
 
+    #[tokio::test]
+    async fn saturated_event_stream_rejects_before_session_persistence_lookup() {
+        let state = test_state();
+        state
+            .sse_connection_count
+            .store(MAX_CONCURRENT_SSE_STREAMS, Ordering::Relaxed);
+
+        let error = stream_session_events(
+            State(state),
+            test_context(),
+            HeaderMap::new(),
+            Path("session.does-not-exist".to_string()),
+            Query(StreamEventsQuery {
+                last_event_id: None,
+                live: Some(true),
+            }),
+        )
+        .await
+        .expect_err("saturated SSE admission must reject before persistence lookup");
+
+        assert_eq!(
+            error.code,
+            sdkwork_utils_rust::SdkWorkResultCode::ServiceUnavailable
+        );
+        assert_eq!(error.detail, "too many concurrent SSE streams");
+    }
+
+    #[test]
+    fn durable_event_poll_backoff_is_bounded_and_resets_on_activity() {
+        let minimum = Duration::from_secs(1);
+        let maximum = Duration::from_secs(5);
+        assert_eq!(
+            next_event_poll_delay(minimum, false, minimum, maximum),
+            Duration::from_secs(2)
+        );
+        assert_eq!(
+            next_event_poll_delay(Duration::from_secs(4), false, minimum, maximum),
+            maximum
+        );
+        assert_eq!(
+            next_event_poll_delay(maximum, false, minimum, maximum),
+            maximum
+        );
+        assert_eq!(
+            next_event_poll_delay(maximum, true, minimum, maximum),
+            minimum
+        );
+    }
+
     #[test]
     fn resource_cursor_rejects_tampering() {
         let config = ServerConfig::default();
@@ -2872,6 +3498,30 @@ mod tests {
         tampered[index] = if tampered[index] == b'a' { b'b' } else { b'a' };
         let tampered = String::from_utf8(tampered).expect("ASCII cursor");
         assert!(decode_resource_cursor(&config, "tasks", &tampered).is_err());
+    }
+
+    #[test]
+    fn resource_cursor_uses_only_the_dedicated_signing_secret() {
+        let first = ServerConfig {
+            ingress_token: Some("ingress-token-one".to_string()),
+            metrics_token: Some("metrics-token-one".to_string()),
+            cursor_signing_secret: Some("cursor-signing-secret-one-with-32-bytes".to_string()),
+            ..Default::default()
+        };
+        let cursor = encode_resource_cursor(&first, "tasks", "task.1", "2026-07-16T00:00:00Z");
+
+        let rotated_unrelated_credentials = ServerConfig {
+            ingress_token: Some("ingress-token-two".to_string()),
+            metrics_token: Some("metrics-token-two".to_string()),
+            ..first.clone()
+        };
+        assert!(decode_resource_cursor(&rotated_unrelated_credentials, "tasks", &cursor).is_ok());
+
+        let rotated_cursor_secret = ServerConfig {
+            cursor_signing_secret: Some("cursor-signing-secret-two-with-32-bytes".to_string()),
+            ..rotated_unrelated_credentials
+        };
+        assert!(decode_resource_cursor(&rotated_cursor_secret, "tasks", &cursor).is_err());
     }
 
     #[test]

@@ -44,7 +44,7 @@ impl SqliteDatabase {
 
 fn sqlite_terminal_state_sql(column: &str) -> String {
     format!(
-        "lower({column}) IN ('closed','completed','complete','failed','cancelled','canceled','terminated','expired','orphaned','rejected','denied','approved')"
+        "lower({column}) IN ('closed','completed','complete','failed','cancelled','canceled','terminated','expired','orphaned','rejected','denied','approved','allow','deny')"
     )
 }
 
@@ -71,7 +71,10 @@ fn sqlite_delete_ids(
         .map_err(|error| DatabaseError::Query(format!("failed to purge {table}: {error}")))
 }
 
-fn sqlite_save_event_idempotent(conn: &Connection, event: &EventRow) -> DatabaseResult<()> {
+pub(crate) fn sqlite_save_event_idempotent(
+    conn: &Connection,
+    event: &EventRow,
+) -> DatabaseResult<()> {
     let inserted = conn
         .execute(
             crate::upsert_sql::sqlite::SAVE_EVENT,
@@ -184,6 +187,30 @@ impl RuntimeMaintenance for SqliteDatabase {
                     })?;
                 *count = (*count).saturating_add(value.max(0) as u64);
             }
+            for (sql, count) in [
+                (
+                    format!("SELECT COUNT(*) FROM runs WHERE session_id IN ({clause})"),
+                    &mut counts.runs,
+                ),
+                (
+                    format!(
+                        "SELECT COUNT(*) FROM steps WHERE run_id IN
+                         (SELECT run_id FROM runs WHERE session_id IN ({clause}))"
+                    ),
+                    &mut counts.steps,
+                ),
+                (
+                    format!(
+                        "SELECT COUNT(*) FROM permission_operations WHERE run_id IN
+                         (SELECT run_id FROM runs WHERE session_id IN ({clause}))"
+                    ),
+                    &mut counts.permission_operations,
+                ),
+            ] {
+                let value: i64 =
+                    tx.query_row(&sql, params_from_iter(session_ids.iter()), |row| row.get(0))?;
+                *count = count.saturating_add(value.max(0) as u64);
+            }
             let deleted = sqlite_delete_ids(&tx, "sessions", "session_id", &session_ids)?;
             counts.sessions = deleted as u64;
         }
@@ -255,9 +282,36 @@ impl RuntimeMaintenance for SqliteDatabase {
                 DatabaseError::Query(format!("failed to collect expired tasks: {error}"))
             })?
         };
-        counts.tasks = counts
-            .tasks
-            .saturating_add(sqlite_delete_ids(&tx, "tasks", "task_id", &task_ids)? as u64);
+        if !task_ids.is_empty() {
+            let clause = sqlite_in_clause(task_ids.len());
+            for (sql, count) in [
+                (
+                    format!("SELECT COUNT(*) FROM runs WHERE task_id IN ({clause})"),
+                    &mut counts.runs,
+                ),
+                (
+                    format!(
+                        "SELECT COUNT(*) FROM steps WHERE run_id IN
+                         (SELECT run_id FROM runs WHERE task_id IN ({clause}))"
+                    ),
+                    &mut counts.steps,
+                ),
+                (
+                    format!(
+                        "SELECT COUNT(*) FROM permission_operations WHERE run_id IN
+                         (SELECT run_id FROM runs WHERE task_id IN ({clause}))"
+                    ),
+                    &mut counts.permission_operations,
+                ),
+            ] {
+                let value: i64 =
+                    tx.query_row(&sql, params_from_iter(task_ids.iter()), |row| row.get(0))?;
+                *count = count.saturating_add(value.max(0) as u64);
+            }
+            counts.tasks = counts
+                .tasks
+                .saturating_add(sqlite_delete_ids(&tx, "tasks", "task_id", &task_ids)? as u64);
+        }
 
         let event_ids: Vec<String> = {
             let mut statement = tx
@@ -280,6 +334,54 @@ impl RuntimeMaintenance for SqliteDatabase {
         counts.events = counts
             .events
             .saturating_add(sqlite_delete_ids(&tx, "events", "event_id", &event_ids)? as u64);
+
+        let operation_ids: Vec<String> = {
+            let mut statement = tx.prepare(
+                "SELECT permission_request_id FROM permission_operations
+                 WHERE updated_at < ?1
+                   AND state IN ('completed','failed','expired','cancelled')
+                 ORDER BY updated_at, permission_request_id LIMIT ?2",
+            )?;
+            let rows = statement.query_map(params![cutoff, batch_size], |row| row.get(0))?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        counts.permission_operations =
+            counts
+                .permission_operations
+                .saturating_add(sqlite_delete_ids(
+                    &tx,
+                    "permission_operations",
+                    "permission_request_id",
+                    &operation_ids,
+                )? as u64);
+
+        let run_ids: Vec<String> = {
+            let mut statement = tx.prepare(
+                "SELECT run_id FROM runs
+                 WHERE COALESCE(finished_at, updated_at) < ?1
+                   AND state IN ('completed','failed','cancelled')
+                 ORDER BY COALESCE(finished_at, updated_at), run_id LIMIT ?2",
+            )?;
+            let rows = statement.query_map(params![cutoff, batch_size], |row| row.get(0))?;
+            rows.collect::<Result<Vec<_>, _>>()?
+        };
+        if !run_ids.is_empty() {
+            let clause = sqlite_in_clause(run_ids.len());
+            for (table, count) in [
+                ("steps", &mut counts.steps),
+                ("permission_operations", &mut counts.permission_operations),
+            ] {
+                let value: i64 = tx.query_row(
+                    &format!("SELECT COUNT(*) FROM {table} WHERE run_id IN ({clause})"),
+                    params_from_iter(run_ids.iter()),
+                    |row| row.get(0),
+                )?;
+                *count = count.saturating_add(value.max(0) as u64);
+            }
+            counts.runs = counts
+                .runs
+                .saturating_add(sqlite_delete_ids(&tx, "runs", "run_id", &run_ids)? as u64);
+        }
 
         let permission_ids: Vec<String> = {
             let mut statement = tx
@@ -382,7 +484,7 @@ fn map_message_row(row: &Row<'_>) -> rusqlite::Result<MessageRow> {
     })
 }
 
-fn map_task_row(row: &Row<'_>) -> rusqlite::Result<TaskRow> {
+pub(crate) fn map_task_row(row: &Row<'_>) -> rusqlite::Result<TaskRow> {
     Ok(TaskRow {
         task_id: row.get("task_id")?,
         session_id: row.get("session_id")?,

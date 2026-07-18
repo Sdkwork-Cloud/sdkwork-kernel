@@ -85,4 +85,14 @@ entries:
     layer: work
     audience: [engineering, architecture]
     status: accepted
+  - id: ADR-20260716-durable-runtime-execution
+    path: docs/architecture/decisions/ADR-20260716-durable-runtime-execution.md
+    layer: work
+    audience: [engineering, architecture, security, release]
+    status: accepted
+  - id: MIG-2026-0001-durable-runtime-execution
+    path: docs/migrations/MIG-2026-0001-durable-runtime-execution.md
+    layer: evidence
+    audience: [engineering, architecture, security, release]
+    status: active
 domains: []

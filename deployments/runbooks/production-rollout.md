@@ -13,7 +13,9 @@ staging smoke fixture only; it is never a production data plane.
 - Use topology profile `cloud.production` or an approved customer equivalent.
 - Provision unique ingress and metrics credentials through the environment
   secret manager. `SDKWORK_KERNEL_METRICS_TOKEN` must not reuse the ingress
-  token.
+  credential. `SDKWORK_CURSOR_SIGNING_SECRET` and the base64url-encoded 32-byte
+  `SDKWORK_APPROVAL_PAYLOAD_ENCRYPTION_KEY` must be mutually independent and
+  must not reuse ingress, JWT, or metrics credentials.
 - Provision managed HA PostgreSQL across failure domains with TLS,
   least-privilege credentials, backups/PITR, restore evidence, failover
   monitoring, and tested connection limits.
@@ -56,6 +58,8 @@ Required protected values:
 SDKWORK_AGENT_SERVER_IMAGE=registry.example.invalid/sdkwork-agent-server@sha256:<verified-digest>
 SDKWORK_KERNEL_INGRESS_TOKEN=<secret>
 SDKWORK_KERNEL_METRICS_TOKEN=<dedicated-secret>
+SDKWORK_CURSOR_SIGNING_SECRET=<dedicated-secret-at-least-32-bytes>
+SDKWORK_APPROVAL_PAYLOAD_ENCRYPTION_KEY=<dedicated-base64url-encoded-32-byte-key>
 SDKWORK_CORS_ORIGINS=<explicit-allowlist>
 SDKWORK_AGENT_RUNTIME_DATABASE_URL=<managed-postgresql-url>
 SDKWORK_RATE_LIMIT_REDIS_URL=<managed-redis-url>
@@ -80,6 +84,8 @@ deployment.
 
    - `ingress-token`
    - `metrics-token`
+   - `cursor-signing-secret`
+   - `approval-payload-encryption-key`
    - `runtime-database-url`
    - `runtime-redis-url`
 
@@ -148,7 +154,8 @@ failover and the provider runtime before promotion.
   load tests for concurrent SSE, cancellation, rate limits, quota reservation,
   and database pool saturation before setting customer limits.
 - Capacity planning must include the per-pod SSE cap, connection churn, event
-  replay queries, and PostgreSQL/Redis limits.
+  replay queries, durable task and permission worker counts, encrypted approval
+  payload size, and PostgreSQL/Redis limits.
 - Exercise application-pod, node, and zone loss; PostgreSQL failover/restore;
   Redis failover; secret rotation; and graceful shutdown before promotion.
 

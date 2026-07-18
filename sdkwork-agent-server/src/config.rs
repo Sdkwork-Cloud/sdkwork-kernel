@@ -96,6 +96,12 @@ pub struct ServerConfig {
     pub metrics_auth_mode: String,
     /// Bearer token for `/metrics` when metrics_auth_mode is token.
     pub metrics_token: Option<String>,
+    /// Dedicated HMAC secret for opaque pagination cursor signatures.
+    pub cursor_signing_secret: Option<String>,
+    /// Dedicated base64url-encoded 256-bit key for resumable approval payloads.
+    pub approval_payload_encryption_key: Option<String>,
+    /// Maximum lifetime of an unexecuted approval-gated operation.
+    pub permission_operation_ttl_secs: u64,
     /// Optional OTLP HTTP endpoint for distributed tracing export.
     pub otel_exporter_otlp_endpoint: Option<String>,
     /// SSE/streaming request timeout in seconds (long-lived connections).
@@ -106,6 +112,18 @@ pub struct ServerConfig {
     pub provider_max_waiters: usize,
     /// Maximum time a provider invocation may wait for execution capacity.
     pub provider_admission_timeout_ms: u64,
+    /// Maximum concurrent blocking persistence operations per server instance.
+    pub persistence_max_concurrency: usize,
+    /// Maximum persistence operations allowed to wait for blocking capacity.
+    pub persistence_max_waiters: usize,
+    /// Maximum time a persistence operation may wait for blocking capacity.
+    pub persistence_admission_timeout_ms: u64,
+    /// Number of durable task workers per server instance.
+    pub task_worker_max_concurrency: usize,
+    /// Idle polling interval for durable task claims.
+    pub task_worker_poll_interval_ms: u64,
+    /// Lease duration for one claimed task run.
+    pub task_worker_lease_secs: u64,
 }
 
 impl Default for ServerConfig {
@@ -153,11 +171,20 @@ impl Default for ServerConfig {
             tenant_token_quota_overrides: HashMap::new(),
             metrics_auth_mode: "open".to_string(),
             metrics_token: None,
+            cursor_signing_secret: None,
+            approval_payload_encryption_key: None,
+            permission_operation_ttl_secs: 15 * 60,
             otel_exporter_otlp_endpoint: None,
             sse_request_timeout_secs: 3600,
             provider_max_concurrency: 64,
             provider_max_waiters: 64,
             provider_admission_timeout_ms: 5_000,
+            persistence_max_concurrency: 64,
+            persistence_max_waiters: 128,
+            persistence_admission_timeout_ms: 2_000,
+            task_worker_max_concurrency: 4,
+            task_worker_poll_interval_ms: 250,
+            task_worker_lease_secs: 120,
         }
     }
 }
@@ -354,6 +381,42 @@ impl ServerConfig {
         if !(1..=60_000).contains(&config.provider_admission_timeout_ms) {
             anyhow::bail!("SDKWORK_PROVIDER_ADMISSION_TIMEOUT_MS must be between 1 and 60000");
         }
+        if let Ok(concurrency) = std::env::var("SDKWORK_PERSISTENCE_MAX_CONCURRENCY") {
+            config.persistence_max_concurrency = concurrency.parse()?;
+        }
+        if !(1..=1024).contains(&config.persistence_max_concurrency) {
+            anyhow::bail!("SDKWORK_PERSISTENCE_MAX_CONCURRENCY must be between 1 and 1024");
+        }
+        if let Ok(waiters) = std::env::var("SDKWORK_PERSISTENCE_MAX_WAITERS") {
+            config.persistence_max_waiters = waiters.parse()?;
+        }
+        if config.persistence_max_waiters > 4096 {
+            anyhow::bail!("SDKWORK_PERSISTENCE_MAX_WAITERS must be between 0 and 4096");
+        }
+        if let Ok(timeout_ms) = std::env::var("SDKWORK_PERSISTENCE_ADMISSION_TIMEOUT_MS") {
+            config.persistence_admission_timeout_ms = timeout_ms.parse()?;
+        }
+        if !(1..=60_000).contains(&config.persistence_admission_timeout_ms) {
+            anyhow::bail!("SDKWORK_PERSISTENCE_ADMISSION_TIMEOUT_MS must be between 1 and 60000");
+        }
+        if let Ok(concurrency) = std::env::var("SDKWORK_TASK_WORKER_MAX_CONCURRENCY") {
+            config.task_worker_max_concurrency = concurrency.parse()?;
+        }
+        if !(1..=128).contains(&config.task_worker_max_concurrency) {
+            anyhow::bail!("SDKWORK_TASK_WORKER_MAX_CONCURRENCY must be between 1 and 128");
+        }
+        if let Ok(interval_ms) = std::env::var("SDKWORK_TASK_WORKER_POLL_INTERVAL_MS") {
+            config.task_worker_poll_interval_ms = interval_ms.parse()?;
+        }
+        if !(50..=60_000).contains(&config.task_worker_poll_interval_ms) {
+            anyhow::bail!("SDKWORK_TASK_WORKER_POLL_INTERVAL_MS must be between 50 and 60000");
+        }
+        if let Ok(lease_secs) = std::env::var("SDKWORK_TASK_WORKER_LEASE_SECS") {
+            config.task_worker_lease_secs = lease_secs.parse()?;
+        }
+        if !(10..=3_600).contains(&config.task_worker_lease_secs) {
+            anyhow::bail!("SDKWORK_TASK_WORKER_LEASE_SECS must be between 10 and 3600");
+        }
         if let Ok(mode) = std::env::var("SDKWORK_KERNEL_METRICS_AUTH_MODE") {
             config.metrics_auth_mode = mode;
         }
@@ -362,6 +425,34 @@ impl ServerConfig {
             if !trimmed.is_empty() {
                 config.metrics_token = Some(trimmed);
             }
+        }
+        if let Ok(secret) = std::env::var("SDKWORK_CURSOR_SIGNING_SECRET") {
+            let trimmed = secret.trim().to_string();
+            if !trimmed.is_empty() {
+                config.cursor_signing_secret = Some(trimmed);
+            }
+        }
+        if let Ok(key) = std::env::var("SDKWORK_APPROVAL_PAYLOAD_ENCRYPTION_KEY") {
+            let trimmed = key.trim().to_string();
+            if !trimmed.is_empty() {
+                let decoded = sdkwork_utils_rust::base64url_decode(&trimmed).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "SDKWORK_APPROVAL_PAYLOAD_ENCRYPTION_KEY must be base64url encoded"
+                    )
+                })?;
+                if decoded.len() != 32 {
+                    anyhow::bail!(
+                        "SDKWORK_APPROVAL_PAYLOAD_ENCRYPTION_KEY must decode to exactly 32 bytes"
+                    );
+                }
+                config.approval_payload_encryption_key = Some(trimmed);
+            }
+        }
+        if let Ok(ttl_secs) = std::env::var("SDKWORK_PERMISSION_OPERATION_TTL_SECS") {
+            config.permission_operation_ttl_secs = ttl_secs.parse()?;
+        }
+        if !(60..=86_400).contains(&config.permission_operation_ttl_secs) {
+            anyhow::bail!("SDKWORK_PERMISSION_OPERATION_TTL_SECS must be between 60 and 86400");
         }
         if let Ok(endpoint) = std::env::var("SDKWORK_OTEL_EXPORTER_OTLP_ENDPOINT") {
             let trimmed = endpoint.trim().to_string();
@@ -457,6 +548,12 @@ impl ServerConfig {
             self.runtime_database_engine.to_ascii_lowercase().as_str(),
             "postgres" | "postgresql"
         )
+    }
+
+    pub fn effective_cursor_signing_secret(&self) -> &str {
+        self.cursor_signing_secret
+            .as_deref()
+            .unwrap_or("sdkwork-kernel-local-cursor-v2")
     }
 
     pub fn effective_rate_limit_redis_url(&self) -> Option<&str> {
@@ -600,6 +697,9 @@ mod tests {
         assert_eq!(config.provider_max_concurrency, 64);
         assert_eq!(config.provider_max_waiters, 64);
         assert_eq!(config.provider_admission_timeout_ms, 5_000);
+        assert_eq!(config.persistence_max_concurrency, 64);
+        assert_eq!(config.persistence_max_waiters, 128);
+        assert_eq!(config.persistence_admission_timeout_ms, 2_000);
     }
 
     #[test]
@@ -622,6 +722,30 @@ mod tests {
         assert!(error
             .to_string()
             .contains("SDKWORK_PROVIDER_ADMISSION_TIMEOUT_MS must be between 1 and 60000"));
+    }
+
+    #[test]
+    fn persistence_admission_config_rejects_unbounded_waiters() {
+        let _lock = crate::testing::env::lock();
+        let _waiters =
+            crate::testing::env::VarGuard::set("SDKWORK_PERSISTENCE_MAX_WAITERS", Some("4097"));
+        let error = ServerConfig::from_env().expect_err("unbounded waiters must fail startup");
+        assert!(error
+            .to_string()
+            .contains("SDKWORK_PERSISTENCE_MAX_WAITERS must be between 0 and 4096"));
+    }
+
+    #[test]
+    fn persistence_admission_config_rejects_invalid_timeout() {
+        let _lock = crate::testing::env::lock();
+        let _timeout = crate::testing::env::VarGuard::set(
+            "SDKWORK_PERSISTENCE_ADMISSION_TIMEOUT_MS",
+            Some("0"),
+        );
+        let error = ServerConfig::from_env().expect_err("zero admission timeout must fail startup");
+        assert!(error
+            .to_string()
+            .contains("SDKWORK_PERSISTENCE_ADMISSION_TIMEOUT_MS must be between 1 and 60000"));
     }
 
     #[test]

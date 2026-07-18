@@ -1,24 +1,29 @@
 //! Live PostgreSQL contract tests for agent runtime session persistence.
 
 use sdkwork_agent_database::{
-    EventQuery, EventRepository, EventRow, MessageRepository, MessageRow, PermissionRepository,
-    PermissionRow, PostgresDatabase, RuntimeSessionWrites, SessionRepository, SessionRow,
-    TaskRepository, TaskRow,
+    ActionKind, EventQuery, EventRepository, EventRow, MessageRepository, MessageRow,
+    PermissionOperationRepository, PermissionOperationRow, PermissionOperationState,
+    PermissionPayloadKind, PermissionRepository, PermissionRow, PostgresDatabase, RunRow, RunState,
+    RuntimeSessionWrites, SessionRepository, SessionRow, StepRow, StepState, TaskRepository,
+    TaskRow,
 };
 
-fn runtime_postgres_uri() -> Option<String> {
-    std::env::var("SDKWORK_AGENT_RUNTIME_POSTGRES_URI")
+fn runtime_postgres_uri() -> String {
+    let value = std::env::var("SDKWORK_AGENT_RUNTIME_POSTGRES_URI")
         .or_else(|_| std::env::var("SDKWORK_AGENT_BUSINESS_POSTGRES_URI"))
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+        .expect("set SDKWORK_AGENT_RUNTIME_POSTGRES_URI to a disposable live PostgreSQL database");
+    let value = value.trim();
+    assert!(
+        !value.is_empty(),
+        "SDKWORK_AGENT_RUNTIME_POSTGRES_URI must not be blank"
+    );
+    value.to_string()
 }
 
 #[test]
+#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
 fn live_postgres_conditional_session_sync_rejects_stale_snapshot_when_uri_configured() {
-    let Some(uri) = runtime_postgres_uri() else {
-        return;
-    };
+    let uri = runtime_postgres_uri();
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
     let session_id = format!("session.conditional.pg.{}", uuid_like_suffix());
     let mut session = SessionRow {
@@ -252,10 +257,9 @@ fn live_postgres_conditional_session_sync_rejects_stale_snapshot_when_uri_config
 }
 
 #[test]
+#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
 fn live_postgres_session_message_roundtrip_when_uri_configured() {
-    let Some(uri) = runtime_postgres_uri() else {
-        return;
-    };
+    let uri = runtime_postgres_uri();
 
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
     let session_id = format!("session.runtime.pg.{}", uuid_like_suffix());
@@ -306,10 +310,9 @@ fn live_postgres_session_message_roundtrip_when_uri_configured() {
 }
 
 #[test]
+#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
 fn live_postgres_event_identity_and_session_association_are_immutable_when_uri_configured() {
-    let Some(uri) = runtime_postgres_uri() else {
-        return;
-    };
+    let uri = runtime_postgres_uri();
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
     let session_id = format!("session.event.identity.pg.{}", uuid_like_suffix());
     let session = SessionRow {
@@ -404,10 +407,9 @@ fn live_postgres_event_identity_and_session_association_are_immutable_when_uri_c
 }
 
 #[test]
+#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
 fn live_postgres_message_count_overflow_is_rejected_atomically_when_uri_configured() {
-    let Some(uri) = runtime_postgres_uri() else {
-        return;
-    };
+    let uri = runtime_postgres_uri();
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
     let session_id = format!("session.message-count.max.pg.{}", uuid_like_suffix());
     let session = SessionRow {
@@ -481,10 +483,9 @@ fn live_postgres_message_count_overflow_is_rejected_atomically_when_uri_configur
 }
 
 #[test]
+#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
 fn live_postgres_update_session_preserves_messages_when_uri_configured() {
-    let Some(uri) = runtime_postgres_uri() else {
-        return;
-    };
+    let uri = runtime_postgres_uri();
 
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
     let session_id = format!("session.runtime.pg.upsert.{}", uuid_like_suffix());
@@ -538,11 +539,10 @@ fn live_postgres_update_session_preserves_messages_when_uri_configured() {
 }
 
 #[test]
+#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
 fn live_postgres_save_message_rejects_duplicate_message_id_with_different_content_when_uri_configured(
 ) {
-    let Some(uri) = runtime_postgres_uri() else {
-        return;
-    };
+    let uri = runtime_postgres_uri();
 
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
     let session_id = format!("session.runtime.pg.save-conflict.{}", uuid_like_suffix());
@@ -603,11 +603,10 @@ fn live_postgres_save_message_rejects_duplicate_message_id_with_different_conten
 }
 
 #[test]
+#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
 fn live_postgres_save_message_rejects_duplicate_message_id_for_different_session_when_uri_configured(
 ) {
-    let Some(uri) = runtime_postgres_uri() else {
-        return;
-    };
+    let uri = runtime_postgres_uri();
 
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
     let first_session_id = format!("session.runtime.pg.save-conflict-a.{}", uuid_like_suffix());
@@ -680,10 +679,9 @@ fn live_postgres_save_message_rejects_duplicate_message_id_for_different_session
 }
 
 #[test]
+#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
 fn live_postgres_permissions_roundtrip_when_uri_configured() {
-    let Some(uri) = runtime_postgres_uri() else {
-        return;
-    };
+    let uri = runtime_postgres_uri();
 
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
     let permission_id = format!("perm.runtime.pg.{}", uuid_like_suffix());
@@ -729,10 +727,9 @@ fn live_postgres_permissions_roundtrip_when_uri_configured() {
 }
 
 #[test]
+#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
 fn live_postgres_append_message_with_event_is_idempotent_when_uri_configured() {
-    let Some(uri) = runtime_postgres_uri() else {
-        return;
-    };
+    let uri = runtime_postgres_uri();
 
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
     let session_id = format!("session.runtime.pg.idempotent.{}", uuid_like_suffix());
@@ -820,11 +817,10 @@ fn live_postgres_append_message_with_event_is_idempotent_when_uri_configured() {
 }
 
 #[test]
+#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
 fn live_postgres_append_message_with_event_does_not_write_event_for_duplicate_message_id_when_uri_configured(
 ) {
-    let Some(uri) = runtime_postgres_uri() else {
-        return;
-    };
+    let uri = runtime_postgres_uri();
 
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
     let session_id = format!("session.runtime.pg.duplicate-event.{}", uuid_like_suffix());
@@ -889,10 +885,9 @@ fn live_postgres_append_message_with_event_does_not_write_event_for_duplicate_me
 }
 
 #[test]
+#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
 fn live_postgres_append_message_with_event_rejects_cross_session_duplicate_when_uri_configured() {
-    let Some(uri) = runtime_postgres_uri() else {
-        return;
-    };
+    let uri = runtime_postgres_uri();
 
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
     let first_session_id = format!("session.runtime.pg.conflict-a.{}", uuid_like_suffix());
@@ -973,10 +968,9 @@ fn live_postgres_append_message_with_event_rejects_cross_session_duplicate_when_
 }
 
 #[test]
+#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
 fn live_postgres_task_ownership_terminal_and_cancel_contracts_when_uri_configured() {
-    let Some(uri) = runtime_postgres_uri() else {
-        return;
-    };
+    let uri = runtime_postgres_uri();
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
     let suffix = uuid_like_suffix();
     let session_id = format!("session.task.pg.{suffix}");
@@ -1132,10 +1126,9 @@ fn live_postgres_task_ownership_terminal_and_cancel_contracts_when_uri_configure
 }
 
 #[test]
+#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
 fn live_postgres_completed_turn_retry_contract_when_uri_configured() {
-    let Some(uri) = runtime_postgres_uri() else {
-        return;
-    };
+    let uri = runtime_postgres_uri();
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
     let session_id = format!("session.turn.retry.pg.{}", uuid_like_suffix());
     let mut session = SessionRow {
@@ -1245,6 +1238,188 @@ fn live_postgres_completed_turn_retry_contract_when_uri_configured() {
             .len(),
         2
     );
+    let _ = db.delete_session_cascade(&session_id);
+}
+
+#[test]
+#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+fn live_postgres_permission_operation_claim_is_skip_locked_and_fenced_when_uri_configured() {
+    let uri = runtime_postgres_uri();
+    let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
+    let suffix = uuid_like_suffix();
+    let session_id = format!("session.permission.pg.{suffix}");
+    let permission_id = format!("permission.pg.{suffix}");
+    let task_id = format!("task.permission.pg.{suffix}");
+    let run_id = format!("run.permission.pg.{suffix}");
+    let step_id = format!("step.permission.pg.{suffix}");
+    let now = sdkwork_agent_database::runtime_now_timestamp();
+    db.save_session(&SessionRow {
+        session_id: session_id.clone(),
+        agent_id: "agent.runtime".into(),
+        kind: "main".into(),
+        source: "contract-test".into(),
+        state: "active".into(),
+        title: None,
+        model: None,
+        cwd: None,
+        provider_id: None,
+        bridge_id: None,
+        token_usage_json: None,
+        message_count: 0,
+        owner_tenant_id: Some("tenant.test".into()),
+        owner_user_ref: Some("user.test".into()),
+        created_at: now.clone(),
+        updated_at: None,
+        metadata_json: None,
+    })
+    .expect("session");
+    let permission = PermissionRow {
+        permission_request_id: permission_id.clone(),
+        session_id: Some(session_id.clone()),
+        category: "tool.invoke".into(),
+        resource: "tool.protected".into(),
+        side_effect_level: "side_effectful".into(),
+        reason: "approval required".into(),
+        status: "pending".into(),
+        owner_tenant_id: Some("tenant.test".into()),
+        owner_user_ref: Some("user.test".into()),
+        created_at: now.clone(),
+        updated_at: None,
+    };
+    let task = TaskRow {
+        task_id: task_id.clone(),
+        session_id: session_id.clone(),
+        instruction: "execute approved tool".into(),
+        state: "accepted".into(),
+        created_at: now.clone(),
+        updated_at: Some(now.clone()),
+    };
+    let run = RunRow {
+        run_id: run_id.clone(),
+        task_id: task_id.clone(),
+        session_id: session_id.clone(),
+        attempt: 1,
+        state: RunState::AwaitingPermission,
+        next_attempt_at: None,
+        lease_owner: None,
+        lease_expires_at: None,
+        fencing_token: 0,
+        cancel_requested_at: None,
+        started_at: None,
+        finished_at: None,
+        error_kind: None,
+        error_code: None,
+        error_detail: None,
+        created_at: now.clone(),
+        updated_at: now.clone(),
+    };
+    let step = StepRow {
+        step_id: step_id.clone(),
+        run_id: run_id.clone(),
+        sequence_no: 0,
+        action_kind: ActionKind::ToolCall,
+        state: StepState::AwaitingPermission,
+        provider_id: Some("provider.tool".into()),
+        descriptor_revision: Some("1.0.0".into()),
+        policy_revision: Some("1.0.0".into()),
+        causation_step_id: None,
+        idempotency_key_hash: None,
+        result_json: None,
+        error_kind: None,
+        error_code: None,
+        error_detail: None,
+        started_at: None,
+        finished_at: None,
+        created_at: now.clone(),
+        updated_at: now.clone(),
+    };
+    let operation = PermissionOperationRow {
+        permission_request_id: permission_id.clone(),
+        run_id: run_id.clone(),
+        step_id,
+        tool_call_id: format!("tool-call.pg.{suffix}"),
+        provider_id: "provider.tool".into(),
+        descriptor_revision: "1.0.0".into(),
+        policy_revision: "1.0.0".into(),
+        payload_kind: PermissionPayloadKind::Ciphertext,
+        payload_ref: "ciphertext".into(),
+        payload_digest: "digest".into(),
+        encryption_key_id: Some("key.v1".into()),
+        state: PermissionOperationState::Pending,
+        expires_at: "2099-01-01T00:00:00.000000000Z".into(),
+        lease_owner: None,
+        lease_expires_at: None,
+        fencing_token: 0,
+        result_json: None,
+        error_kind: None,
+        error_code: None,
+        error_detail: None,
+        created_at: now.clone(),
+        updated_at: now.clone(),
+    };
+    let requested = EventRow {
+        event_id: format!("event.permission.requested.pg.{suffix}"),
+        session_id: Some(session_id.clone()),
+        event_type: "permission.requested".into(),
+        severity: "warn".into(),
+        payload: None,
+        created_at: now.clone(),
+    };
+    db.create_permission_execution(&permission, &task, &run, &step, &operation, &requested)
+        .expect("permission execution");
+    db.decide_permission_operation(
+        &permission_id,
+        "allow",
+        &now,
+        &EventRow {
+            event_id: format!("event.permission.allowed.pg.{suffix}"),
+            event_type: "permission.allowed".into(),
+            ..requested
+        },
+    )
+    .expect("allow");
+
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let handles = ["worker.one", "worker.two"].map(|worker| {
+        let db = db.clone();
+        let barrier = barrier.clone();
+        std::thread::spawn(move || {
+            barrier.wait();
+            db.claim_permission_operation(
+                worker,
+                "2026-07-17T00:00:00.000000000Z",
+                "2099-01-01T00:00:00.000000000Z",
+            )
+            .expect("claim")
+        })
+    });
+    let claims = handles
+        .into_iter()
+        .map(|handle| handle.join().expect("claim thread"))
+        .collect::<Vec<_>>();
+    assert_eq!(claims.iter().filter(|claim| claim.is_some()).count(), 1);
+    let claim = claims.into_iter().flatten().next().expect("one claim");
+    assert_eq!(claim.operation.fencing_token, 1);
+    db.complete_permission_operation(
+        &claim,
+        r#"{"output":"done"}"#,
+        &sdkwork_agent_database::runtime_now_timestamp(),
+        &EventRow {
+            event_id: format!("event.permission.completed.pg.{suffix}"),
+            session_id: Some(session_id.clone()),
+            event_type: "permission.operation.completed".into(),
+            severity: "info".into(),
+            payload: None,
+            created_at: sdkwork_agent_database::runtime_now_timestamp(),
+        },
+    )
+    .expect("complete");
+    let stored = db
+        .load_permission_operation(&permission_id)
+        .expect("load")
+        .expect("operation");
+    assert_eq!(stored.state, PermissionOperationState::Completed);
+    assert!(stored.payload_ref.is_empty());
     let _ = db.delete_session_cascade(&session_id);
 }
 

@@ -264,9 +264,10 @@ pub use telemetry::{
     TelemetryProvider, TelemetrySpan, TelemetrySpanStatus,
 };
 pub use tool::{
-    SideEffectLevel, ToolCall, ToolCallStatus, ToolCancellationRequest, ToolCancellationResponse,
-    ToolDescriptor, ToolExecutionRequest, ToolExecutionResponse, ToolExecutionService,
-    ToolProvider, ToolResult, ToolSchema, ToolStreamChunk, ToolStreamExecutionResponse,
+    ApprovedToolExecution, SideEffectLevel, ToolCall, ToolCallStatus, ToolCancellationRequest,
+    ToolCancellationResponse, ToolDescriptor, ToolExecutionRequest, ToolExecutionResponse,
+    ToolExecutionService, ToolProvider, ToolResult, ToolSchema, ToolStreamChunk,
+    ToolStreamExecutionResponse,
 };
 
 pub const AGENT_KERNEL_SPEC_VERSION: &str = "0.1.0";

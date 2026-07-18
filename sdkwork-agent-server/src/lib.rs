@@ -2,6 +2,7 @@ pub mod access;
 pub mod agent_registry;
 pub mod api;
 pub mod app;
+pub mod approval_payload_vault;
 
 pub mod backend_health_worker;
 pub mod config;
@@ -17,6 +18,7 @@ pub mod message_dispatch;
 pub mod metrics;
 pub mod middleware;
 pub mod observability;
+pub mod permission_operation_worker;
 pub mod persistence;
 pub mod preflight;
 pub mod problem_details;
@@ -27,6 +29,7 @@ pub mod runtime_cleanup_worker;
 pub mod runtime_routes;
 pub mod security_audit;
 pub mod shutdown;
+pub mod task_execution_worker;
 pub mod tenant_token_quota;
 pub mod usage_meter;
 

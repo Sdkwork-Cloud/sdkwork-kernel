@@ -141,6 +141,7 @@ paths:
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/permissions/{permissionRequestId}:
+  /internal/v3/api/intelligence/runtime/sessions/{sessionId}/tasks/submit:
     post:
       x-sdkwork-owner: sdkwork-kernel
       x-sdkwork-api-authority: sdkwork-agent-internal-api
@@ -455,12 +456,12 @@ paths:
             schema:
               $ref: '#/components/schemas/SubmitTaskRequest'
       responses:
-        '201':
-          description: Task created
+        '202':
+          description: Task execution accepted
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TaskItemResponse'
+                $ref: '#/components/schemas/AsyncOperationResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/tasks/{taskId}:
@@ -492,6 +493,128 @@ paths:
                 $ref: '#/components/schemas/TaskItemResponse'
         default:
           $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/runs/{runId}:
+    get:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Retrieve a runtime task run
+      operationId: runtime.runs.retrieve
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      parameters:
+        - $ref: '#/components/parameters/RunIdPath'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
+      responses:
+        '200':
+          description: Runtime task run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunItemResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/runs/{runId}/pause:
+    post:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Pause a runtime task run
+      operationId: runtime.runs.pause
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      x-sdkwork-idempotent: true
+      parameters:
+        - $ref: '#/components/parameters/RunIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
+      responses:
+        '200':
+          description: Paused runtime task run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunItemResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/runs/{runId}/resume:
+    post:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Resume a paused runtime task run
+      operationId: runtime.runs.resume
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      x-sdkwork-idempotent: true
+      parameters:
+        - $ref: '#/components/parameters/RunIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
+      responses:
+        '200':
+          description: Resumed runtime task run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunItemResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/runs/{runId}/cancel:
+    post:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Cancel a runtime task run
+      operationId: runtime.runs.cancel
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      x-sdkwork-idempotent: true
+      parameters:
+        - $ref: '#/components/parameters/RunIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
+      responses:
+        '200':
+          description: Cancelled runtime task run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunItemResponse'
+        default:
+          $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/tasks/{taskId}/cancel:
     post:
       x-sdkwork-owner: sdkwork-kernel
@@ -521,6 +644,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TaskItemResponse'
+        default:
+          $ref: '#/components/responses/Problem'
+  /internal/v3/api/intelligence/runtime/tasks/{taskId}/retry:
+    post:
+      x-sdkwork-owner: sdkwork-kernel
+      x-sdkwork-api-authority: sdkwork-agent-internal-api
+      tags: [intelligence]
+      summary: Retry a failed or cancelled task
+      operationId: runtime.tasks.retry
+      security:
+        - ApiKey: []
+      x-sdkwork-request-context: WebRequestContext
+      x-sdkwork-api-surface: internal-api
+      x-sdkwork-auth-mode: ingress-token
+      x-sdkwork-domain: intelligence
+      x-sdkwork-resource: runtime
+      x-sdkwork-tenant-scope: application
+      x-sdkwork-idempotent: true
+      parameters:
+        - $ref: '#/components/parameters/TaskIdPath'
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/SdkworkTenantIdHeader'
+        - $ref: '#/components/parameters/SdkworkUserIdHeader'
+        - $ref: '#/components/parameters/SdkworkIdentityMacHeader'
+      responses:
+        '202':
+          description: Retry execution accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AsyncOperationResponse'
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/models:
@@ -833,6 +987,12 @@ components:
       name: x-sdkwork-identity-mac
       in: header
       required: false
+      schema:
+        type: string
+    RunIdPath:
+      name: runId
+      in: path
+      required: true
       schema:
         type: string
       description: HMAC-SHA256 hex proof over "{tenantId}\n{userId}" keyed by the ingress token; required for non-loopback signed identity mode.
@@ -1612,6 +1772,31 @@ components:
           type: string
           minLength: 1
           maxLength: 65536
+    SdkWorkAsyncData:
+      type: object
+      additionalProperties: false
+      required: [accepted, operationId, status]
+      properties:
+        accepted:
+          type: boolean
+          enum: [true]
+        operationId:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, succeeded, failed, cancelled]
+        pollUrl:
+          type: string
+          format: uri-reference
+    AsyncOperationResponse:
+      description: Accepted asynchronous operation following SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              $ref: '#/components/schemas/SdkWorkAsyncData'
     TaskResponse:
       type: object
       required: [taskId, sessionId, instruction, state]
@@ -1647,6 +1832,103 @@ components:
                       type: array
                       items:
                         $ref: '#/components/schemas/TaskResponse'
+    StepResponse:
+      type: object
+      required: [stepId, sequenceNo, actionKind, state]
+      properties:
+        stepId:
+          type: string
+        sequenceNo:
+          type: integer
+          format: int64
+          minimum: 0
+        actionKind:
+          type: string
+          enum: [model_call, tool_call, memory_read, memory_write, host_operation, protocol_send, handoff, wait_for_user, internal]
+        state:
+          type: string
+          enum: [created, ready, running, awaiting_permission, completed, failed, skipped, cancelled]
+        providerId:
+          type: string
+          nullable: true
+        startedAt:
+          type: string
+          nullable: true
+        finishedAt:
+          type: string
+          nullable: true
+        errorKind:
+          type: string
+          nullable: true
+        errorCode:
+          type: string
+          nullable: true
+        errorDetail:
+          type: string
+          nullable: true
+    RunResponse:
+      type: object
+      required: [runId, taskId, sessionId, attempt, state, fencingToken, createdAt, updatedAt, steps]
+      properties:
+        runId:
+          type: string
+        taskId:
+          type: string
+        sessionId:
+          type: string
+        attempt:
+          type: integer
+          format: int64
+          minimum: 1
+        state:
+          type: string
+          enum: [created, planning, executing, awaiting_permission, paused, completed, failed, cancelled]
+        fencingToken:
+          type: integer
+          format: int64
+          minimum: 0
+        cancelRequestedAt:
+          type: string
+          nullable: true
+        startedAt:
+          type: string
+          nullable: true
+        finishedAt:
+          type: string
+          nullable: true
+        errorKind:
+          type: string
+          nullable: true
+        errorCode:
+          type: string
+          nullable: true
+        errorDetail:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        steps:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/StepResponse'
+    RunItemResponse:
+      description: Runtime run resource SdkWorkApiResponse envelope.
+      allOf:
+        - $ref: '#/components/schemas/SdkWorkApiResponse'
+        - type: object
+          required: [data]
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/SdkWorkResourceData'
+                - type: object
+                  required: [item]
+                  properties:
+                    item:
+                      $ref: '#/components/schemas/RunResponse'
     ModelDescriptor:
       type: object
       required: [modelId, providerId, displayName, family, capabilities]

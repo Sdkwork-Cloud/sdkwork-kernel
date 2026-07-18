@@ -39,7 +39,7 @@ fn map_message_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<MessageRow> {
     })
 }
 
-fn map_task_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<TaskRow> {
+pub(crate) fn map_task_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<TaskRow> {
     Ok(TaskRow {
         task_id: row.try_get("task_id").map_err(map_sqlx_error)?,
         session_id: row.try_get("session_id").map_err(map_sqlx_error)?,
@@ -61,7 +61,10 @@ fn map_event_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<EventRow> {
     })
 }
 
-async fn postgres_save_event_idempotent<'e, E>(executor: E, event: &EventRow) -> DatabaseResult<()>
+pub(crate) async fn postgres_save_event_idempotent<'e, E>(
+    executor: E,
+    event: &EventRow,
+) -> DatabaseResult<()>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
@@ -161,7 +164,7 @@ impl RuntimeMaintenance for PostgresDatabase {
                  WHERE COALESCE(updated_at, created_at) < $1
                    AND lower(state) IN (
                      'closed','completed','complete','failed','cancelled','canceled',
-                     'terminated','expired','orphaned','rejected','denied','approved'
+                     'terminated','expired','orphaned','rejected','denied','approved','allow','deny'
                    )
                  ORDER BY COALESCE(updated_at, created_at), session_id
                  FOR UPDATE SKIP LOCKED LIMIT $2",
@@ -185,6 +188,29 @@ impl RuntimeMaintenance for PostgresDatabase {
                         .await
                         .map_err(map_sqlx_error)?;
                     *count = (*count).saturating_add(value.max(0) as u64);
+                }
+                for (sql, count) in [
+                    (
+                        "SELECT COUNT(*) FROM runs WHERE session_id = ANY($1)",
+                        &mut counts.runs,
+                    ),
+                    (
+                        "SELECT COUNT(*) FROM steps WHERE run_id IN
+                         (SELECT run_id FROM runs WHERE session_id = ANY($1))",
+                        &mut counts.steps,
+                    ),
+                    (
+                        "SELECT COUNT(*) FROM permission_operations WHERE run_id IN
+                         (SELECT run_id FROM runs WHERE session_id = ANY($1))",
+                        &mut counts.permission_operations,
+                    ),
+                ] {
+                    let value = sqlx::query_scalar::<_, i64>(sql)
+                        .bind(&session_ids)
+                        .fetch_one(&mut *tx)
+                        .await
+                        .map_err(map_sqlx_error)?;
+                    *count = count.saturating_add(value.max(0) as u64);
                 }
                 let result = sqlx::query("DELETE FROM sessions WHERE session_id = ANY($1)")
                     .bind(&session_ids)
@@ -249,7 +275,7 @@ impl RuntimeMaintenance for PostgresDatabase {
                  WHERE COALESCE(updated_at, created_at) < $1
                    AND lower(state) IN (
                      'closed','completed','complete','failed','cancelled','canceled',
-                     'terminated','expired','orphaned','rejected','denied','approved'
+                     'terminated','expired','orphaned','rejected','denied','approved','allow','deny'
                    )
                  ORDER BY COALESCE(updated_at, created_at), task_id
                  FOR UPDATE SKIP LOCKED LIMIT $2",
@@ -260,6 +286,29 @@ impl RuntimeMaintenance for PostgresDatabase {
             .await
             .map_err(map_sqlx_error)?;
             if !task_ids.is_empty() {
+                for (sql, count) in [
+                    (
+                        "SELECT COUNT(*) FROM runs WHERE task_id = ANY($1)",
+                        &mut counts.runs,
+                    ),
+                    (
+                        "SELECT COUNT(*) FROM steps WHERE run_id IN
+                         (SELECT run_id FROM runs WHERE task_id = ANY($1))",
+                        &mut counts.steps,
+                    ),
+                    (
+                        "SELECT COUNT(*) FROM permission_operations WHERE run_id IN
+                         (SELECT run_id FROM runs WHERE task_id = ANY($1))",
+                        &mut counts.permission_operations,
+                    ),
+                ] {
+                    let value = sqlx::query_scalar::<_, i64>(sql)
+                        .bind(&task_ids)
+                        .fetch_one(&mut *tx)
+                        .await
+                        .map_err(map_sqlx_error)?;
+                    *count = count.saturating_add(value.max(0) as u64);
+                }
                 let result = sqlx::query("DELETE FROM tasks WHERE task_id = ANY($1)")
                     .bind(&task_ids)
                     .execute(&mut *tx)
@@ -286,12 +335,71 @@ impl RuntimeMaintenance for PostgresDatabase {
                 counts.events = counts.events.saturating_add(result.rows_affected());
             }
 
+            let operation_ids = sqlx::query_scalar::<_, String>(
+                "SELECT permission_request_id FROM permission_operations
+                 WHERE updated_at < $1
+                   AND state IN ('completed','failed','expired','cancelled')
+                 ORDER BY updated_at, permission_request_id
+                 FOR UPDATE SKIP LOCKED LIMIT $2",
+            )
+            .bind(&cutoff)
+            .bind(batch_size)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
+            if !operation_ids.is_empty() {
+                let result = sqlx::query(
+                    "DELETE FROM permission_operations WHERE permission_request_id = ANY($1)",
+                )
+                .bind(&operation_ids)
+                .execute(&mut *tx)
+                .await
+                .map_err(map_sqlx_error)?;
+                counts.permission_operations = counts
+                    .permission_operations
+                    .saturating_add(result.rows_affected());
+            }
+
+            let run_ids = sqlx::query_scalar::<_, String>(
+                "SELECT run_id FROM runs
+                 WHERE COALESCE(finished_at, updated_at) < $1
+                   AND state IN ('completed','failed','cancelled')
+                 ORDER BY COALESCE(finished_at, updated_at), run_id
+                 FOR UPDATE SKIP LOCKED LIMIT $2",
+            )
+            .bind(&cutoff)
+            .bind(batch_size)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
+            if !run_ids.is_empty() {
+                for (table, count) in [
+                    ("steps", &mut counts.steps),
+                    ("permission_operations", &mut counts.permission_operations),
+                ] {
+                    let value = sqlx::query_scalar::<_, i64>(&format!(
+                        "SELECT COUNT(*) FROM {table} WHERE run_id = ANY($1)"
+                    ))
+                    .bind(&run_ids)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(map_sqlx_error)?;
+                    *count = count.saturating_add(value.max(0) as u64);
+                }
+                let result = sqlx::query("DELETE FROM runs WHERE run_id = ANY($1)")
+                    .bind(&run_ids)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(map_sqlx_error)?;
+                counts.runs = counts.runs.saturating_add(result.rows_affected());
+            }
+
             let permission_ids = sqlx::query_scalar::<_, String>(
                 "SELECT permission_request_id FROM permissions
                  WHERE COALESCE(updated_at, created_at) < $1
                    AND lower(status) IN (
                      'closed','completed','complete','failed','cancelled','canceled',
-                     'terminated','expired','orphaned','rejected','denied','approved'
+                     'terminated','expired','orphaned','rejected','denied','approved','allow','deny'
                    )
                  ORDER BY COALESCE(updated_at, created_at), permission_request_id
                  FOR UPDATE SKIP LOCKED LIMIT $2",

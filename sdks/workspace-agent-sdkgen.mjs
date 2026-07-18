@@ -21,8 +21,11 @@ const requestedFamily = args.family;
 const families = requestedFamily
   ? [resolveAgentSdkFamily(args.family)]
   : AGENT_SDK_FAMILIES;
-const sdkgenPath = resolveSdkgenEntrypoint();
-const sdkgenReportPath = toReportPath(sdkgenPath);
+const configuredSdkgenPath = resolveSdkgenEntrypoint();
+const sdkgenPath = path.resolve(root, configuredSdkgenPath);
+const sdkgenReportPath = process.env[SDKWORK_SDKGEN_STANDARD.envOverride]
+  ? toReportPath(sdkgenPath)
+  : SDKWORK_SDKGEN_STANDARD.canonicalEntrypointPosix;
 
 if (!fs.existsSync(sdkgenPath)) {
   throw new Error(

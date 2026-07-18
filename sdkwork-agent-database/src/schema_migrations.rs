@@ -8,6 +8,8 @@ const SQLITE_PAGINATION_MIGRATION_SQL: &str =
     include_str!("../migrations/agent_runtime.sqlite.v3.sql");
 const SQLITE_RETENTION_MIGRATION_SQL: &str =
     include_str!("../migrations/agent_runtime.sqlite.v4.sql");
+const SQLITE_EXECUTION_MIGRATION_SQL: &str =
+    include_str!("../migrations/agent_runtime.sqlite.v5.sql");
 
 #[cfg(any(feature = "postgres-sync", test))]
 pub const POSTGRES_MIGRATION_SQL: &str = include_str!("../migrations/agent_runtime.postgres.sql");
@@ -20,6 +22,9 @@ const POSTGRES_PAGINATION_MIGRATION_SQL: &str =
 #[cfg(feature = "postgres-sync")]
 const POSTGRES_RETENTION_MIGRATION_SQL: &str =
     include_str!("../migrations/agent_runtime.postgres.v4.sql");
+#[cfg(feature = "postgres-sync")]
+const POSTGRES_EXECUTION_MIGRATION_SQL: &str =
+    include_str!("../migrations/agent_runtime.postgres.v5.sql");
 
 const SQLITE_LEGACY_REPAIR_CHECKSUM_SOURCE: &str =
     "agent-runtime-sqlite-v2:columns+orphan-recovery+foreign-key-table-rebuild:1";
@@ -68,6 +73,11 @@ const SQLITE_SQL_MIGRATIONS: &[SqlMigration] = &[
         name: "add_runtime_retention_indexes",
         sql: SQLITE_RETENTION_MIGRATION_SQL,
     },
+    SqlMigration {
+        version: 5,
+        name: "add_durable_runtime_execution",
+        sql: SQLITE_EXECUTION_MIGRATION_SQL,
+    },
 ];
 
 /// Apply all SQLite migrations inside one immediate transaction.
@@ -87,6 +97,7 @@ pub fn apply_sqlite_connection(conn: &rusqlite::Connection) -> DatabaseResult<()
     apply_sqlite_legacy_repair(&tx)?;
     apply_sqlite_sql_migration(&tx, SQLITE_SQL_MIGRATIONS[1])?;
     apply_sqlite_sql_migration(&tx, SQLITE_SQL_MIGRATIONS[2])?;
+    apply_sqlite_sql_migration(&tx, SQLITE_SQL_MIGRATIONS[3])?;
     validate_sqlite_schema(&tx)?;
 
     tx.commit().map_err(|error| {
@@ -396,6 +407,24 @@ fn sqlite_has_session_cascade_foreign_key(
     conn: &rusqlite::Connection,
     table: &str,
 ) -> DatabaseResult<bool> {
+    sqlite_has_foreign_key(
+        conn,
+        table,
+        "session_id",
+        "sessions",
+        "session_id",
+        "CASCADE",
+    )
+}
+
+fn sqlite_has_foreign_key(
+    conn: &rusqlite::Connection,
+    table: &str,
+    source: &str,
+    expected_target_table: &str,
+    target: &str,
+    on_delete_action: &str,
+) -> DatabaseResult<bool> {
     let sql = format!(
         "PRAGMA foreign_key_list({})",
         quote_sqlite_identifier(table)
@@ -422,10 +451,10 @@ fn sqlite_has_session_cascade_foreign_key(
         let on_delete: String = row
             .get(6)
             .map_err(|error| migration_error("read SQLite foreign-key action", error))?;
-        if target_table == "sessions"
-            && source_column == "session_id"
-            && target_column == "session_id"
-            && on_delete.eq_ignore_ascii_case("CASCADE")
+        if target_table == expected_target_table
+            && source_column == source
+            && target_column == target
+            && on_delete.eq_ignore_ascii_case(on_delete_action)
         {
             return Ok(true);
         }
@@ -453,6 +482,51 @@ pub(crate) fn validate_sqlite_schema(conn: &rusqlite::Connection) -> DatabaseRes
             )));
         }
     }
+    for (table, required_columns) in [
+        (
+            "runs",
+            &["run_id", "task_id", "session_id", "state", "fencing_token"][..],
+        ),
+        ("steps", &["step_id", "run_id", "action_kind", "state"][..]),
+        (
+            "permission_operations",
+            &[
+                "permission_request_id",
+                "run_id",
+                "step_id",
+                "payload_kind",
+                "payload_ref",
+                "fencing_token",
+            ][..],
+        ),
+    ] {
+        for column in required_columns {
+            if !sqlite_column_exists(conn, table, column)? {
+                return Err(DatabaseError::Migration(format!(
+                    "SQLite schema drift: {table}.{column} is missing"
+                )));
+            }
+        }
+    }
+    for (table, source, target_table, target) in [
+        ("runs", "task_id", "tasks", "task_id"),
+        ("runs", "session_id", "sessions", "session_id"),
+        ("steps", "run_id", "runs", "run_id"),
+        (
+            "permission_operations",
+            "permission_request_id",
+            "permissions",
+            "permission_request_id",
+        ),
+        ("permission_operations", "run_id", "runs", "run_id"),
+        ("permission_operations", "step_id", "steps", "step_id"),
+    ] {
+        if !sqlite_has_foreign_key(conn, table, source, target_table, target, "CASCADE")? {
+            return Err(DatabaseError::Migration(format!(
+                "SQLite schema drift: {table}.{source} cascade foreign key is missing"
+            )));
+        }
+    }
     for index in [
         "idx_messages_session_created_at_message_id",
         "idx_tasks_session_created_at_task_id",
@@ -462,6 +536,16 @@ pub(crate) fn validate_sqlite_schema(conn: &rusqlite::Connection) -> DatabaseRes
         "idx_messages_retention_created_id",
         "idx_tasks_retention_state_time_id",
         "idx_permissions_retention_time_id",
+        "idx_runs_claim",
+        "idx_runs_task_created",
+        "idx_runs_session_created",
+        "idx_runs_lease_expiry",
+        "idx_runs_retention_state_time_id",
+        "idx_steps_run_sequence",
+        "idx_steps_retention_state_time_id",
+        "idx_permission_operations_claim",
+        "idx_permission_operations_run_step",
+        "idx_permission_operations_retention_state_time_id",
     ] {
         let present: i64 = conn
             .query_row(
@@ -528,6 +612,11 @@ pub async fn apply_postgres_pool(pool: &sqlx::PgPool) -> DatabaseResult<()> {
             name: "add_runtime_retention_indexes",
             sql: POSTGRES_RETENTION_MIGRATION_SQL,
         },
+        SqlMigration {
+            version: 5,
+            name: "add_durable_runtime_execution",
+            sql: POSTGRES_EXECUTION_MIGRATION_SQL,
+        },
     ] {
         let checksum = migration_checksum(migration.sql);
         let applied = sqlx::query_scalar::<_, String>(
@@ -572,6 +661,18 @@ pub async fn apply_postgres_pool(pool: &sqlx::PgPool) -> DatabaseResult<()> {
 pub(crate) async fn validate_postgres_schema(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> DatabaseResult<()> {
+    for table in ["runs", "steps", "permission_operations"] {
+        let present = sqlx::query_scalar::<_, bool>("SELECT to_regclass($1) IS NOT NULL")
+            .bind(table)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(postgres_migration_error)?;
+        if !present {
+            return Err(DatabaseError::Migration(format!(
+                "PostgreSQL schema drift: table {table} is missing"
+            )));
+        }
+    }
     for index in [
         "idx_messages_session_created_at_message_id",
         "idx_tasks_session_created_at_task_id",
@@ -581,6 +682,16 @@ pub(crate) async fn validate_postgres_schema(
         "idx_messages_retention_created_id",
         "idx_tasks_retention_state_time_id",
         "idx_permissions_retention_time_id",
+        "idx_runs_claim",
+        "idx_runs_task_created",
+        "idx_runs_session_created",
+        "idx_runs_lease_expiry",
+        "idx_runs_retention_state_time_id",
+        "idx_steps_run_sequence",
+        "idx_steps_retention_state_time_id",
+        "idx_permission_operations_claim",
+        "idx_permission_operations_run_step",
+        "idx_permission_operations_retention_state_time_id",
     ] {
         let present = sqlx::query_scalar::<_, bool>("SELECT to_regclass($1) IS NOT NULL")
             .bind(index)
@@ -608,6 +719,22 @@ pub(crate) async fn validate_postgres_schema(
     if cascade_foreign_keys < 4 {
         return Err(DatabaseError::Migration(
             "PostgreSQL schema drift: runtime child cascade foreign keys are incomplete".into(),
+        ));
+    }
+    let execution_cascade_foreign_keys = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)
+         FROM pg_constraint
+         WHERE conrelid IN ('runs'::regclass, 'steps'::regclass,
+                            'permission_operations'::regclass)
+           AND contype = 'f'
+           AND confdeltype = 'c'",
+    )
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(postgres_migration_error)?;
+    if execution_cascade_foreign_keys < 6 {
+        return Err(DatabaseError::Migration(
+            "PostgreSQL schema drift: execution cascade foreign keys are incomplete".into(),
         ));
     }
     Ok(())
@@ -712,7 +839,7 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("history count");
-        assert_eq!(applied, 4);
+        assert_eq!(applied, 5);
     }
 
     #[test]

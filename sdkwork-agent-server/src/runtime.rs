@@ -64,6 +64,30 @@ impl RuntimeState {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn from_agent_runtime_for_test(
+        agent_runtime: AgentRuntime,
+        config: &ServerConfig,
+    ) -> Self {
+        let agent_runtime = Arc::new(agent_runtime);
+        let backend_health = Arc::new(BackendHealthWorker::spawn_default(agent_runtime.clone()));
+        let bridge = Arc::new(RwLock::new(AgentRuntimeBridge::with_agent_runtime(
+            agent_runtime.clone(),
+            false,
+        )));
+        Self {
+            bridge,
+            agent_runtime,
+            allow_mock_fallback: false,
+            backend_health,
+            session_turn_locks: Arc::new(Mutex::new(HashMap::new())),
+            provider_admission: Arc::new(Semaphore::new(config.provider_max_concurrency)),
+            provider_waiting_admission: Arc::new(Semaphore::new(config.provider_max_waiters)),
+            provider_admission_timeout: Duration::from_millis(config.provider_admission_timeout_ms),
+            provider_metrics: Arc::new(RwLock::new(None)),
+        }
+    }
+
     pub fn attach_metrics(&self, metrics: &Arc<MetricsRegistry>) {
         let mut attached = self
             .provider_metrics
@@ -78,6 +102,25 @@ impl RuntimeState {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .as_ref()
             .and_then(Weak::upgrade)
+    }
+
+    pub(crate) fn begin_durable_worker_operation(
+        &self,
+        kind: crate::metrics::DurableWorkerKind,
+    ) -> Option<crate::metrics::DurableWorkerActiveGuard> {
+        self.provider_metrics()
+            .map(|metrics| metrics.begin_durable_worker_operation(kind))
+    }
+
+    pub(crate) fn record_durable_worker_outcome(
+        &self,
+        kind: crate::metrics::DurableWorkerKind,
+        outcome: &'static str,
+        amount: u64,
+    ) {
+        if let Some(metrics) = self.provider_metrics() {
+            metrics.record_durable_worker_outcome(kind, outcome, amount);
+        }
     }
 
     pub(crate) async fn acquire_provider_admission(&self) -> KernelResult<ProviderAdmissionLease> {
@@ -354,6 +397,17 @@ impl RuntimeState {
         model_bridge.invoke(&request, provider_id.as_deref())
     }
 
+    /// Execute one durable task model step without mutating bridge history.
+    pub(crate) fn invoke_task_instruction_for_session(
+        &self,
+        session_id: &str,
+        instruction: String,
+    ) -> KernelResult<sdkwork_agent_api_bridge::BridgeModelResult> {
+        let (model_bridge, request, provider_id) =
+            self.prepare_model_request_for_session(session_id, None, Some(vec![instruction]))?;
+        model_bridge.invoke(&request, provider_id.as_deref())
+    }
+
     /// Run a synchronous provider invocation on a bounded blocking pool so a
     /// slow or stuck provider cannot consume an unbounded number of Tokio
     /// worker threads. The permit is held until the blocking call returns.
@@ -472,6 +526,17 @@ impl RuntimeState {
         self.with_bridge_write(|bridge| {
             Ok(bridge.commit_tool_execution(session_id, tool_name, call, result))
         })
+    }
+
+    /// Execute a previously approved tool call without mutating bridge event
+    /// state. The durable permission transaction is the completion boundary.
+    pub fn execute_approved_tool(
+        &self,
+        call: sdkwork_agent_kernel::ToolCall,
+        approval: sdkwork_agent_kernel::ApprovedToolExecution,
+    ) -> KernelResult<sdkwork_agent_kernel::ToolResult> {
+        let tool_bridge = self.with_bridge_read(|bridge| Ok(bridge.tool_bridge().clone()))?;
+        tool_bridge.execute_approved(&call, &approval)
     }
 
     /// Register a session (write — uses exclusive lock).

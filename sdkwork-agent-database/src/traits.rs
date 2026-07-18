@@ -175,6 +175,173 @@ pub trait PermissionRepository: Send + Sync {
     ) -> DatabaseResult<()>;
 }
 
+/// Atomic durable execution operations shared by SQLite, PostgreSQL, and the
+/// in-memory contract backend.
+pub trait RuntimeExecutionRepository: Send + Sync {
+    /// Create a task, its initial run and step, and the acceptance event in one transaction.
+    fn create_task_execution(
+        &self,
+        task: &TaskRow,
+        run: &RunRow,
+        step: &StepRow,
+        event: &EventRow,
+    ) -> DatabaseResult<()>;
+
+    fn load_run(&self, run_id: &str) -> DatabaseResult<Option<RunRow>>;
+    fn load_steps(&self, run_id: &str) -> DatabaseResult<Vec<StepRow>>;
+    fn next_task_attempt(&self, task_id: &str) -> DatabaseResult<i64>;
+
+    /// Claim at most one ready run and increment its database-owned fencing token.
+    fn claim_ready_run(
+        &self,
+        worker_id: &str,
+        now: &str,
+        lease_expires_at: &str,
+    ) -> DatabaseResult<Option<ClaimedRun>>;
+
+    /// Renew only the current fenced owner's lease.
+    fn renew_run_lease(
+        &self,
+        run_id: &str,
+        worker_id: &str,
+        fencing_token: i64,
+        now: &str,
+        lease_expires_at: &str,
+    ) -> DatabaseResult<bool>;
+
+    /// Move the fenced claim into executing state and append its start event.
+    fn start_claimed_run(
+        &self,
+        claim: &ClaimedRun,
+        started_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<()>;
+
+    /// Atomically complete the current step/run/task and append its event.
+    fn complete_claimed_run(
+        &self,
+        claim: &ClaimedRun,
+        result_json: Option<&str>,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<()>;
+
+    /// Atomically append the completed turn and finish the fenced run.
+    fn complete_claimed_run_with_messages(
+        &self,
+        claim: &ClaimedRun,
+        messages: &[MessageRow],
+        result_json: Option<&str>,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<()>;
+
+    /// Atomically fail the current step/run/task and append its event.
+    fn fail_claimed_run(
+        &self,
+        claim: &ClaimedRun,
+        error_kind: &str,
+        error_code: Option<&str>,
+        error_detail: &str,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<()>;
+
+    /// Request cancellation for the task and its active run in one transaction.
+    fn request_task_cancellation(
+        &self,
+        task_id: &str,
+        requested_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<(TaskRow, bool)>;
+
+    /// Create a new run/step for a terminal failed or cancelled task.
+    fn retry_task_execution(
+        &self,
+        task_id: &str,
+        run: &RunRow,
+        step: &StepRow,
+        event: &EventRow,
+    ) -> DatabaseResult<TaskRow>;
+
+    /// Apply a legal pause/resume/cancel command to one run and its task/steps.
+    fn control_run(
+        &self,
+        run_id: &str,
+        action: RunControlAction,
+        changed_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<RunRow>;
+}
+
+/// Atomic storage contract for resumable, approval-gated tool execution.
+pub trait PermissionOperationRepository: Send + Sync {
+    fn create_permission_execution(
+        &self,
+        permission: &PermissionRow,
+        task: &TaskRow,
+        run: &RunRow,
+        step: &StepRow,
+        operation: &PermissionOperationRow,
+        event: &EventRow,
+    ) -> DatabaseResult<()>;
+
+    fn load_permission_operation(
+        &self,
+        permission_request_id: &str,
+    ) -> DatabaseResult<Option<PermissionOperationRow>>;
+
+    fn decide_permission_operation(
+        &self,
+        permission_request_id: &str,
+        decision: &str,
+        decided_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<PermissionOperationRow>;
+
+    fn claim_permission_operation(
+        &self,
+        worker_id: &str,
+        now: &str,
+        lease_expires_at: &str,
+    ) -> DatabaseResult<Option<ClaimedPermissionOperation>>;
+
+    /// Expire a bounded batch of unexecuted operations and crypto-erase their
+    /// payloads. Returned events were committed in the same transactions.
+    fn expire_permission_operations(
+        &self,
+        now: &str,
+        batch_size: i64,
+    ) -> DatabaseResult<Vec<EventRow>>;
+
+    fn renew_permission_operation_lease(
+        &self,
+        permission_request_id: &str,
+        worker_id: &str,
+        fencing_token: i64,
+        now: &str,
+        lease_expires_at: &str,
+    ) -> DatabaseResult<bool>;
+
+    fn complete_permission_operation(
+        &self,
+        claim: &ClaimedPermissionOperation,
+        result_json: &str,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<()>;
+
+    fn fail_permission_operation(
+        &self,
+        claim: &ClaimedPermissionOperation,
+        error_kind: &str,
+        error_code: Option<&str>,
+        error_detail: &str,
+        finished_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<()>;
+}
+
 // Default implementations for DatabaseParam
 impl DatabaseParam for String {
     fn as_sql_value(&self) -> String {

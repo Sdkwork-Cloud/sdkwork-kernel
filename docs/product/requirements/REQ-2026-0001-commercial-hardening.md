@@ -13,6 +13,7 @@ goals:
   - Require `pnpm verify:commercial` to validate live runtime PostgreSQL, staging SDK credentials, and Hermes-specific staging gateway proof before release promotion
   - Require production deployments to use managed HA Postgres and managed HA Redis, not bundled single-node reference manifests
   - Require production deployments to inject secrets externally, use a dedicated metrics credential, apply exact NetworkPolicy egress, and deploy immutable image digests
+  - Require a dedicated cursor-signing credential that is isolated from ingress, JWT, and metrics secrets and is rotated through the target secret manager
   - Require target-environment load, memory, cancellation, failover, restore, and graceful-shutdown evidence before commercial promotion
   - Complete MiMo Code agents facade registration and staging live SDK proof
   - Route IM PC agent surfaces exclusively through sdkwork-agents SDK
@@ -36,11 +37,14 @@ acceptance_criteria:
   - Synchronous model, tool, message-turn, and SSE provider calls use one bounded blocking admission executor and cannot create unbounded Tokio blocking workers
   - Provider admission exports fixed-series execution/wait capacity, active, waiting, rejection-reason, and acquisition-latency metrics with cancellation-safe lifecycle accounting
   - Provider admission bounds queued requests independently from active executions and fails queue-full or admission-timeout requests with retryable provider-unavailable errors
+  - Persistence operations share one bounded blocking admission executor with independent active and wait capacities, admission timeout, fixed-series saturation metrics, and standard service-unavailable rejection semantics
+  - SSE event-stream admission is acquired before session persistence lookup, broadcast subscription, and durable replay so rejected streams cannot consume database or replay-memory capacity
   - Provider-capable HTTP paths acquire a typed admission lease before bounded session-history hydration, and hydration cannot be called without that lease
   - Managed Node/Python stdio unary, streaming, and health calls enforce hard process deadlines; timeout kills and reaps the request-scoped child and prevents worker reuse
   - Provider blocking admission is configurable through `SDKWORK_PROVIDER_MAX_CONCURRENCY` with a strict `1..=1024` startup bound
-  - SQLite, PostgreSQL, and memory permission stores enforce atomic `pending -> allow|deny` transitions with same-value idempotency
-  - Permission-required tool calls persist typed pending requests through insert-if-absent storage before returning the standard permission error
+  - SQLite/PostgreSQL permission execution stores atomically create permission/task/run/step/operation/event rows and apply allow, deny, expiry, completion, and failure transitions with lease fencing
+  - Permission-required tool calls persist only authenticated AES-256-GCM ciphertext, bind all execution/provider/revision identities as AAD, and crypto-erase payload material on terminal paths
+  - Bounded permission workers preserve the original tool-call id, re-evaluate current policy and provider/descriptor/policy revisions, and fail closed on identity, expiry, digest, or authentication mismatch
   - Task cancellation is idempotent, emits one cancellation event, and rejects completed/failed terminal states
   - Task cancellation state change and cancellation event commit atomically in SQLite, PostgreSQL, and memory implementations
   - Session updates cannot overwrite database-owned message counts, owner identity, or creation time from stale rows, and unknown-session updates fail closed

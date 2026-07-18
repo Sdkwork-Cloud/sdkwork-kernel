@@ -83,6 +83,16 @@ spec:
                 secretKeyRef:
                   name: sdkwork-agent-server
                   key: metrics-token
+            - name: SDKWORK_CURSOR_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sdkwork-agent-server
+                  key: cursor-signing-secret
+            - name: SDKWORK_APPROVAL_PAYLOAD_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sdkwork-agent-server
+                  key: approval-payload-encryption-key
             - name: SDKWORK_AGENT_RUNTIME_DATABASE_URL
               valueFrom:
                 secretKeyRef:

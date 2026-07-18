@@ -1,7 +1,7 @@
 import { customApiPath } from './paths';
 import type { HttpClient } from '../http/client';
 
-import type { CancelModelRequest, CancelModelResponse, CreateSessionRequest, ExecuteToolRequest, ExecuteToolResponse, InvokeModelRequest, InvokeModelResponse, MessageResponse, MessageTurnResponse, ModelDescriptor, PermissionDecisionRequest, PermissionRequest, RuntimeDiagnostics, RuntimeHealth, RuntimeManifest, RuntimeSnapshot, SdkWorkPageData, SdkWorkResourceData, SendMessageRequest, SessionResponse, StreamModelRequest, SubmitTaskRequest, TaskResponse, ToolDescriptor } from '../types';
+import type { CancelModelRequest, CancelModelResponse, CreateSessionRequest, ExecuteToolRequest, ExecuteToolResponse, InvokeModelRequest, InvokeModelResponse, MessageResponse, MessageTurnResponse, ModelDescriptor, PermissionDecisionRequest, PermissionRequest, RunResponse, RuntimeDiagnostics, RuntimeHealth, RuntimeManifest, RuntimeSnapshot, SdkWorkAsyncData, SdkWorkPageData, SdkWorkResourceData, SendMessageRequest, SessionResponse, StreamModelRequest, SubmitTaskRequest, TaskResponse, ToolDescriptor } from '../types';
 
 
 export interface IntelligenceRuntimeModelsListParams {
@@ -32,6 +32,97 @@ export class IntelligenceRuntimeModelsApi {
   }
 }
 
+export interface IntelligenceRuntimeRunsRetrieveParams {
+  xSdkworkTenantId?: string;
+  xSdkworkUserId?: string;
+  xSdkworkIdentityMac?: string;
+}
+
+export interface IntelligenceRuntimeRunsPauseParams {
+  idempotencyKey: string;
+  xSdkworkTenantId?: string;
+  xSdkworkUserId?: string;
+  xSdkworkIdentityMac?: string;
+}
+
+export interface IntelligenceRuntimeRunsResumeParams {
+  idempotencyKey: string;
+  xSdkworkTenantId?: string;
+  xSdkworkUserId?: string;
+  xSdkworkIdentityMac?: string;
+}
+
+export interface IntelligenceRuntimeRunsCancelParams {
+  idempotencyKey: string;
+  xSdkworkTenantId?: string;
+  xSdkworkUserId?: string;
+  xSdkworkIdentityMac?: string;
+}
+
+export class IntelligenceRuntimeRunsApi {
+  private client: HttpClient;
+
+  constructor(client: HttpClient) {
+    this.client = client;
+  }
+
+
+/** Retrieve a runtime task run */
+  async retrieve(runId: string, params?: IntelligenceRuntimeRunsRetrieveParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
+    const requestHeaders = buildRequestHeaders(
+      {
+        'x-sdkwork-tenant-id': { value: params?.xSdkworkTenantId, style: 'simple', explode: false },
+        'x-sdkwork-user-id': { value: params?.xSdkworkUserId, style: 'simple', explode: false },
+        'x-sdkwork-identity-mac': { value: params?.xSdkworkIdentityMac, style: 'simple', explode: false },
+      },
+      {}
+    );
+    return this.client.get<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/runs/${serializePathParameter(runId, { name: 'runId', style: 'simple', explode: false })}`), undefined, requestHeaders);
+  }
+
+/** Pause a runtime task run */
+  async pause(runId: string, params: IntelligenceRuntimeRunsPauseParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
+    const requestHeaders = buildRequestHeaders(
+      {
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+        'x-sdkwork-tenant-id': { value: params.xSdkworkTenantId, style: 'simple', explode: false },
+        'x-sdkwork-user-id': { value: params.xSdkworkUserId, style: 'simple', explode: false },
+        'x-sdkwork-identity-mac': { value: params.xSdkworkIdentityMac, style: 'simple', explode: false },
+      },
+      {}
+    );
+    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/runs/${serializePathParameter(runId, { name: 'runId', style: 'simple', explode: false })}/pause`), undefined, undefined, requestHeaders);
+  }
+
+/** Resume a paused runtime task run */
+  async resume(runId: string, params: IntelligenceRuntimeRunsResumeParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
+    const requestHeaders = buildRequestHeaders(
+      {
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+        'x-sdkwork-tenant-id': { value: params.xSdkworkTenantId, style: 'simple', explode: false },
+        'x-sdkwork-user-id': { value: params.xSdkworkUserId, style: 'simple', explode: false },
+        'x-sdkwork-identity-mac': { value: params.xSdkworkIdentityMac, style: 'simple', explode: false },
+      },
+      {}
+    );
+    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/runs/${serializePathParameter(runId, { name: 'runId', style: 'simple', explode: false })}/resume`), undefined, undefined, requestHeaders);
+  }
+
+/** Cancel a runtime task run */
+  async cancel(runId: string, params: IntelligenceRuntimeRunsCancelParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
+    const requestHeaders = buildRequestHeaders(
+      {
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+        'x-sdkwork-tenant-id': { value: params.xSdkworkTenantId, style: 'simple', explode: false },
+        'x-sdkwork-user-id': { value: params.xSdkworkUserId, style: 'simple', explode: false },
+        'x-sdkwork-identity-mac': { value: params.xSdkworkIdentityMac, style: 'simple', explode: false },
+      },
+      {}
+    );
+    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/runs/${serializePathParameter(runId, { name: 'runId', style: 'simple', explode: false })}/cancel`), undefined, undefined, requestHeaders);
+  }
+}
+
 export interface IntelligenceRuntimeTasksRetrieveParams {
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
@@ -39,6 +130,13 @@ export interface IntelligenceRuntimeTasksRetrieveParams {
 }
 
 export interface IntelligenceRuntimeTasksCancelParams {
+  idempotencyKey: string;
+  xSdkworkTenantId?: string;
+  xSdkworkUserId?: string;
+  xSdkworkIdentityMac?: string;
+}
+
+export interface IntelligenceRuntimeTasksRetryParams {
   idempotencyKey: string;
   xSdkworkTenantId?: string;
   xSdkworkUserId?: string;
@@ -78,6 +176,20 @@ export class IntelligenceRuntimeTasksApi {
       {}
     );
     return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/tasks/${serializePathParameter(taskId, { name: 'taskId', style: 'simple', explode: false })}/cancel`), undefined, undefined, requestHeaders);
+  }
+
+/** Retry a failed or cancelled task */
+  async retry(taskId: string, params: IntelligenceRuntimeTasksRetryParams): Promise<SdkWorkAsyncData> {
+    const requestHeaders = buildRequestHeaders(
+      {
+        'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
+        'x-sdkwork-tenant-id': { value: params.xSdkworkTenantId, style: 'simple', explode: false },
+        'x-sdkwork-user-id': { value: params.xSdkworkUserId, style: 'simple', explode: false },
+        'x-sdkwork-identity-mac': { value: params.xSdkworkIdentityMac, style: 'simple', explode: false },
+      },
+      {}
+    );
+    return this.client.post<SdkWorkAsyncData>(customApiPath(`/intelligence/runtime/tasks/${serializePathParameter(taskId, { name: 'taskId', style: 'simple', explode: false })}/retry`), undefined, undefined, requestHeaders);
   }
 }
 
@@ -275,7 +387,7 @@ export class IntelligenceRuntimeSessionsTasksApi {
   }
 
 /** Submit a session task */
-  async submit(sessionId: string, body: SubmitTaskRequest, params: IntelligenceRuntimeSessionsTasksSubmitParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
+  async submit(sessionId: string, body: SubmitTaskRequest, params: IntelligenceRuntimeSessionsTasksSubmitParams): Promise<SdkWorkAsyncData> {
     const requestHeaders = buildRequestHeaders(
       {
         'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
@@ -285,7 +397,7 @@ export class IntelligenceRuntimeSessionsTasksApi {
       },
       {}
     );
-    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tasks`), body, undefined, requestHeaders, 'application/json');
+    return this.client.post<SdkWorkAsyncData>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tasks`), body, undefined, requestHeaders, 'application/json');
   }
 }
 
@@ -484,7 +596,7 @@ export class IntelligenceRuntimePermissionsApi {
 
 
 /** Decide a permission request */
-  async decide(permissionRequestId: string, body: PermissionDecisionRequest, params: IntelligenceRuntimePermissionsDecideParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
+  async decide(sessionId: string | number, body: PermissionDecisionRequest, params: IntelligenceRuntimePermissionsDecideParams): Promise<SdkWorkResourceData & Record<string, unknown>> {
     const requestHeaders = buildRequestHeaders(
       {
         'Idempotency-Key': { value: params.idempotencyKey, style: 'simple', explode: false },
@@ -494,7 +606,7 @@ export class IntelligenceRuntimePermissionsApi {
       },
       {}
     );
-    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/permissions/${serializePathParameter(permissionRequestId, { name: 'permissionRequestId', style: 'simple', explode: false })}`), body, undefined, requestHeaders, 'application/json');
+    return this.client.post<SdkWorkResourceData & Record<string, unknown>>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tasks/submit`), body, undefined, requestHeaders, 'application/json');
   }
 }
 
@@ -619,6 +731,7 @@ export class IntelligenceRuntimeApi {
   public readonly permissions: IntelligenceRuntimePermissionsApi;
   public readonly sessions: IntelligenceRuntimeSessionsApi;
   public readonly tasks: IntelligenceRuntimeTasksApi;
+  public readonly runs: IntelligenceRuntimeRunsApi;
   public readonly models: IntelligenceRuntimeModelsApi;
 
   constructor(client: HttpClient) {
@@ -630,6 +743,7 @@ export class IntelligenceRuntimeApi {
     this.permissions = new IntelligenceRuntimePermissionsApi(client);
     this.sessions = new IntelligenceRuntimeSessionsApi(client);
     this.tasks = new IntelligenceRuntimeTasksApi(client);
+    this.runs = new IntelligenceRuntimeRunsApi(client);
     this.models = new IntelligenceRuntimeModelsApi(client);
   }
 

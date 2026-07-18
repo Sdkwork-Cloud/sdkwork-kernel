@@ -116,13 +116,13 @@ assertIncludesPair(capture.args, 'resume', 'thread-existing-456');
 assertIncludesPair(capture.args, '--sandbox', 'workspace-write');
 assertIncludesPair(capture.args, '--config', 'approval_policy="on-request"');
 
-assert.throws(
-  () =>
-    buildCodexCliArgs({
-      ...operation,
-      execution_options: { sandbox_mode: 'danger-full-access' },
-    }),
-  /danger-full-access is prohibited/,
+assertIncludesPair(
+  buildCodexCliArgs({
+    ...operation,
+    execution_options: { sandbox_mode: 'danger-full-access' },
+  }),
+  '--sandbox',
+  'danger-full-access',
 );
 assert.throws(
   () => buildCodexCliArgs({ ...operation, working_directory: path.join(tempRoot, 'missing') }),

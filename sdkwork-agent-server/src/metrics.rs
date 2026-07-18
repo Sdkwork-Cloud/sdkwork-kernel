@@ -141,6 +141,29 @@ pub struct MetricsRegistry {
     provider_admission_timeout_total: AtomicU64,
     provider_admission_closed_total: AtomicU64,
     provider_admission_acquire_duration: Mutex<DurationHistogram>,
+    persistence_admission_capacity: AtomicU64,
+    persistence_admission_wait_capacity: AtomicU64,
+    persistence_admission_active: AtomicU64,
+    persistence_admission_waiting: AtomicU64,
+    persistence_admission_queue_full_total: AtomicU64,
+    persistence_admission_timeout_total: AtomicU64,
+    persistence_admission_closed_total: AtomicU64,
+    persistence_admission_acquire_duration: Mutex<DurationHistogram>,
+    task_worker_capacity: AtomicU64,
+    permission_worker_capacity: AtomicU64,
+    task_worker_active: AtomicU64,
+    permission_worker_active: AtomicU64,
+    task_worker_claimed_total: AtomicU64,
+    permission_worker_claimed_total: AtomicU64,
+    task_worker_completed_total: AtomicU64,
+    permission_worker_completed_total: AtomicU64,
+    task_worker_failed_total: AtomicU64,
+    permission_worker_failed_total: AtomicU64,
+    task_worker_lease_lost_total: AtomicU64,
+    permission_worker_lease_lost_total: AtomicU64,
+    task_worker_claim_error_total: AtomicU64,
+    permission_worker_claim_error_total: AtomicU64,
+    permission_worker_expired_total: AtomicU64,
     render_lock: Mutex<()>,
 }
 
@@ -156,11 +179,34 @@ pub struct ProviderAdmissionActiveGuard {
     metrics: Arc<MetricsRegistry>,
 }
 
+/// RAII observation for one request waiting on persistence admission.
+pub struct PersistenceAdmissionWaitGuard {
+    metrics: Arc<MetricsRegistry>,
+    started_at: Instant,
+    finished: bool,
+}
+
+/// RAII observation for one admitted persistence operation.
+pub struct PersistenceAdmissionActiveGuard {
+    metrics: Arc<MetricsRegistry>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderAdmissionRejection {
     QueueFull,
     Timeout,
     Closed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DurableWorkerKind {
+    Task,
+    Permission,
+}
+
+pub struct DurableWorkerActiveGuard {
+    metrics: Arc<MetricsRegistry>,
+    kind: DurableWorkerKind,
 }
 
 impl MetricsRegistry {
@@ -191,6 +237,33 @@ impl MetricsRegistry {
             provider_admission_timeout_total: AtomicU64::new(0),
             provider_admission_closed_total: AtomicU64::new(0),
             provider_admission_acquire_duration: Mutex::new(DurationHistogram::default()),
+            persistence_admission_capacity: AtomicU64::new(
+                config.persistence_max_concurrency as u64,
+            ),
+            persistence_admission_wait_capacity: AtomicU64::new(
+                config.persistence_max_waiters as u64,
+            ),
+            persistence_admission_active: AtomicU64::new(0),
+            persistence_admission_waiting: AtomicU64::new(0),
+            persistence_admission_queue_full_total: AtomicU64::new(0),
+            persistence_admission_timeout_total: AtomicU64::new(0),
+            persistence_admission_closed_total: AtomicU64::new(0),
+            persistence_admission_acquire_duration: Mutex::new(DurationHistogram::default()),
+            task_worker_capacity: AtomicU64::new(config.task_worker_max_concurrency as u64),
+            permission_worker_capacity: AtomicU64::new(config.task_worker_max_concurrency as u64),
+            task_worker_active: AtomicU64::new(0),
+            permission_worker_active: AtomicU64::new(0),
+            task_worker_claimed_total: AtomicU64::new(0),
+            permission_worker_claimed_total: AtomicU64::new(0),
+            task_worker_completed_total: AtomicU64::new(0),
+            permission_worker_completed_total: AtomicU64::new(0),
+            task_worker_failed_total: AtomicU64::new(0),
+            permission_worker_failed_total: AtomicU64::new(0),
+            task_worker_lease_lost_total: AtomicU64::new(0),
+            permission_worker_lease_lost_total: AtomicU64::new(0),
+            task_worker_claim_error_total: AtomicU64::new(0),
+            permission_worker_claim_error_total: AtomicU64::new(0),
+            permission_worker_expired_total: AtomicU64::new(0),
             render_lock: Mutex::new(()),
         })
     }
@@ -211,6 +284,68 @@ impl MetricsRegistry {
             ProviderAdmissionRejection::Closed => &self.provider_admission_closed_total,
         };
         saturating_atomic_add(counter, 1);
+    }
+
+    pub fn begin_persistence_admission_wait(self: &Arc<Self>) -> PersistenceAdmissionWaitGuard {
+        saturating_atomic_add(&self.persistence_admission_waiting, 1);
+        PersistenceAdmissionWaitGuard {
+            metrics: self.clone(),
+            started_at: Instant::now(),
+            finished: false,
+        }
+    }
+
+    pub fn record_persistence_admission_rejection(&self, reason: ProviderAdmissionRejection) {
+        let counter = match reason {
+            ProviderAdmissionRejection::QueueFull => &self.persistence_admission_queue_full_total,
+            ProviderAdmissionRejection::Timeout => &self.persistence_admission_timeout_total,
+            ProviderAdmissionRejection::Closed => &self.persistence_admission_closed_total,
+        };
+        saturating_atomic_add(counter, 1);
+    }
+
+    pub fn begin_durable_worker_operation(
+        self: &Arc<Self>,
+        kind: DurableWorkerKind,
+    ) -> DurableWorkerActiveGuard {
+        saturating_atomic_add(
+            match kind {
+                DurableWorkerKind::Task => &self.task_worker_active,
+                DurableWorkerKind::Permission => &self.permission_worker_active,
+            },
+            1,
+        );
+        DurableWorkerActiveGuard {
+            metrics: self.clone(),
+            kind,
+        }
+    }
+
+    pub fn record_durable_worker_outcome(
+        &self,
+        kind: DurableWorkerKind,
+        outcome: &'static str,
+        amount: u64,
+    ) {
+        let counter = match (kind, outcome) {
+            (DurableWorkerKind::Task, "claimed") => &self.task_worker_claimed_total,
+            (DurableWorkerKind::Permission, "claimed") => &self.permission_worker_claimed_total,
+            (DurableWorkerKind::Task, "completed") => &self.task_worker_completed_total,
+            (DurableWorkerKind::Permission, "completed") => &self.permission_worker_completed_total,
+            (DurableWorkerKind::Task, "failed") => &self.task_worker_failed_total,
+            (DurableWorkerKind::Permission, "failed") => &self.permission_worker_failed_total,
+            (DurableWorkerKind::Task, "lease_lost") => &self.task_worker_lease_lost_total,
+            (DurableWorkerKind::Permission, "lease_lost") => {
+                &self.permission_worker_lease_lost_total
+            }
+            (DurableWorkerKind::Task, "claim_error") => &self.task_worker_claim_error_total,
+            (DurableWorkerKind::Permission, "claim_error") => {
+                &self.permission_worker_claim_error_total
+            }
+            (DurableWorkerKind::Permission, "expired") => &self.permission_worker_expired_total,
+            _ => return,
+        };
+        saturating_atomic_add(counter, amount);
     }
 
     pub fn record_request(
@@ -467,10 +602,150 @@ impl MetricsRegistry {
                 "Provider invocations currently waiting for an admission permit.",
                 self.provider_admission_waiting.load(Ordering::Relaxed),
             ),
+            (
+                "sdkwork_kernel_persistence_admission_capacity",
+                "Configured persistence admission capacity in this server process.",
+                self.persistence_admission_capacity.load(Ordering::Relaxed),
+            ),
+            (
+                "sdkwork_kernel_persistence_admission_active",
+                "Persistence operations currently holding an admission permit.",
+                self.persistence_admission_active.load(Ordering::Relaxed),
+            ),
+            (
+                "sdkwork_kernel_persistence_admission_wait_capacity",
+                "Configured persistence admission waiting capacity in this server process.",
+                self.persistence_admission_wait_capacity
+                    .load(Ordering::Relaxed),
+            ),
+            (
+                "sdkwork_kernel_persistence_admission_waiting",
+                "Persistence operations currently waiting for an admission permit.",
+                self.persistence_admission_waiting.load(Ordering::Relaxed),
+            ),
         ] {
             let _ = writeln!(output, "# HELP {name} {help}");
             let _ = writeln!(output, "# TYPE {name} gauge");
             let _ = writeln!(output, "{name}{{{base}}} {value}");
+        }
+
+        for (name, help, task_value, permission_value) in [
+            (
+                "sdkwork_kernel_durable_worker_capacity",
+                "Configured durable worker capacity by fixed worker kind.",
+                self.task_worker_capacity.load(Ordering::Relaxed),
+                self.permission_worker_capacity.load(Ordering::Relaxed),
+            ),
+            (
+                "sdkwork_kernel_durable_worker_active",
+                "Durable operations currently executing by fixed worker kind.",
+                self.task_worker_active.load(Ordering::Relaxed),
+                self.permission_worker_active.load(Ordering::Relaxed),
+            ),
+        ] {
+            let _ = writeln!(output, "# HELP {name} {help}");
+            let _ = writeln!(output, "# TYPE {name} gauge");
+            let _ = writeln!(output, "{name}{{{base},worker=\"task\"}} {task_value}");
+            let _ = writeln!(
+                output,
+                "{name}{{{base},worker=\"permission\"}} {permission_value}"
+            );
+        }
+        let _ = writeln!(
+            output,
+            "# HELP sdkwork_kernel_durable_worker_outcomes_total Durable worker outcomes using fixed worker and outcome labels."
+        );
+        let _ = writeln!(
+            output,
+            "# TYPE sdkwork_kernel_durable_worker_outcomes_total counter"
+        );
+        for (worker, outcome, counter) in [
+            ("task", "claimed", &self.task_worker_claimed_total),
+            ("task", "completed", &self.task_worker_completed_total),
+            ("task", "failed", &self.task_worker_failed_total),
+            ("task", "lease_lost", &self.task_worker_lease_lost_total),
+            ("task", "claim_error", &self.task_worker_claim_error_total),
+            (
+                "permission",
+                "claimed",
+                &self.permission_worker_claimed_total,
+            ),
+            (
+                "permission",
+                "completed",
+                &self.permission_worker_completed_total,
+            ),
+            ("permission", "failed", &self.permission_worker_failed_total),
+            (
+                "permission",
+                "lease_lost",
+                &self.permission_worker_lease_lost_total,
+            ),
+            (
+                "permission",
+                "claim_error",
+                &self.permission_worker_claim_error_total,
+            ),
+            (
+                "permission",
+                "expired",
+                &self.permission_worker_expired_total,
+            ),
+        ] {
+            let _ = writeln!(
+                output,
+                "sdkwork_kernel_durable_worker_outcomes_total{{{base},worker=\"{worker}\",outcome=\"{outcome}\"}} {}",
+                counter.load(Ordering::Relaxed)
+            );
+        }
+
+        let _ = writeln!(
+            output,
+            "# HELP sdkwork_kernel_persistence_admission_rejected_total Persistence operations rejected before blocking execution."
+        );
+        let _ = writeln!(
+            output,
+            "# TYPE sdkwork_kernel_persistence_admission_rejected_total counter"
+        );
+        for (reason, counter) in [
+            ("queue_full", &self.persistence_admission_queue_full_total),
+            ("timeout", &self.persistence_admission_timeout_total),
+            ("closed", &self.persistence_admission_closed_total),
+        ] {
+            let _ = writeln!(
+                output,
+                "sdkwork_kernel_persistence_admission_rejected_total{{{base},reason=\"{reason}\"}} {}",
+                counter.load(Ordering::Relaxed)
+            );
+        }
+
+        let _ = writeln!(
+            output,
+            "# HELP sdkwork_kernel_persistence_admission_acquire_duration_seconds Persistence admission permit acquisition duration histogram."
+        );
+        let _ = writeln!(
+            output,
+            "# TYPE sdkwork_kernel_persistence_admission_acquire_duration_seconds histogram"
+        );
+        {
+            let histogram = lock_recover(&self.persistence_admission_acquire_duration);
+            for (index, (_, le)) in DURATION_BUCKETS_SECS.iter().enumerate() {
+                let _ = writeln!(
+                    output,
+                    "sdkwork_kernel_persistence_admission_acquire_duration_seconds_bucket{{{base},le=\"{le}\"}} {}",
+                    histogram.buckets[index]
+                );
+            }
+            let _ = writeln!(
+                output,
+                "sdkwork_kernel_persistence_admission_acquire_duration_seconds_count{{{base}}} {}",
+                histogram.count
+            );
+            let _ = writeln!(
+                output,
+                "sdkwork_kernel_persistence_admission_acquire_duration_seconds_sum{{{base}}} {}",
+                histogram.sum
+            );
         }
 
         let _ = writeln!(
@@ -640,6 +915,46 @@ impl ProviderAdmissionWaitGuard {
     }
 }
 
+impl PersistenceAdmissionWaitGuard {
+    pub fn acquired(mut self) -> PersistenceAdmissionActiveGuard {
+        self.finish_wait();
+        PersistenceAdmissionActiveGuard {
+            metrics: self.metrics.clone(),
+        }
+    }
+
+    fn finish_wait(&mut self) {
+        if self.finished {
+            return;
+        }
+        self.finished = true;
+        saturating_atomic_sub(&self.metrics.persistence_admission_waiting, 1);
+        saturating_atomic_add(&self.metrics.persistence_admission_active, 1);
+        record_histogram_observation(
+            &mut lock_recover(&self.metrics.persistence_admission_acquire_duration),
+            self.started_at.elapsed().as_secs_f64(),
+        );
+    }
+}
+
+impl Drop for PersistenceAdmissionWaitGuard {
+    fn drop(&mut self) {
+        if !self.finished {
+            saturating_atomic_sub(&self.metrics.persistence_admission_waiting, 1);
+            record_histogram_observation(
+                &mut lock_recover(&self.metrics.persistence_admission_acquire_duration),
+                self.started_at.elapsed().as_secs_f64(),
+            );
+        }
+    }
+}
+
+impl Drop for PersistenceAdmissionActiveGuard {
+    fn drop(&mut self) {
+        saturating_atomic_sub(&self.metrics.persistence_admission_active, 1);
+    }
+}
+
 impl Drop for ProviderAdmissionWaitGuard {
     fn drop(&mut self) {
         if !self.finished {
@@ -651,6 +966,18 @@ impl Drop for ProviderAdmissionWaitGuard {
 impl Drop for ProviderAdmissionActiveGuard {
     fn drop(&mut self) {
         saturating_atomic_sub(&self.metrics.provider_admission_active, 1);
+    }
+}
+
+impl Drop for DurableWorkerActiveGuard {
+    fn drop(&mut self) {
+        saturating_atomic_sub(
+            match self.kind {
+                DurableWorkerKind::Task => &self.metrics.task_worker_active,
+                DurableWorkerKind::Permission => &self.metrics.permission_worker_active,
+            },
+            1,
+        );
     }
 }
 
@@ -867,6 +1194,17 @@ mod tests {
         assert!(body.contains("sdkwork_kernel_provider_admission_waiting"));
         assert!(body.contains("sdkwork_kernel_provider_admission_rejected_total"));
         assert!(body.contains("sdkwork_kernel_provider_admission_acquire_duration_seconds_bucket"));
+        assert!(body.contains("sdkwork_kernel_persistence_admission_capacity"));
+        assert!(body.contains("sdkwork_kernel_persistence_admission_wait_capacity"));
+        assert!(body.contains("sdkwork_kernel_persistence_admission_active"));
+        assert!(body.contains("sdkwork_kernel_persistence_admission_waiting"));
+        assert!(body.contains("sdkwork_kernel_persistence_admission_rejected_total"));
+        assert!(
+            body.contains("sdkwork_kernel_persistence_admission_acquire_duration_seconds_bucket")
+        );
+        assert!(body.contains("sdkwork_kernel_durable_worker_capacity"));
+        assert!(body.contains("sdkwork_kernel_durable_worker_active"));
+        assert!(body.contains("sdkwork_kernel_durable_worker_outcomes_total"));
         assert!(body.contains("sdkwork_kernel_metrics_series_overflow_total"));
     }
 

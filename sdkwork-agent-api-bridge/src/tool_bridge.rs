@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use sdkwork_agent_kernel::{
-    AgentRuntime, KernelResult, SideEffectLevel, ToolCall, ToolDescriptor, ToolExecutionRequest,
-    ToolExecutionService, ToolResult, ToolSchema,
+    AgentRuntime, ApprovedToolExecution, KernelResult, SideEffectLevel, ToolCall, ToolDescriptor,
+    ToolExecutionRequest, ToolExecutionService, ToolResult, ToolSchema,
 };
 
 /// Handles tool registration, discovery, and execution
@@ -87,6 +87,26 @@ impl ToolBridge {
         }
 
         self.execute_mock(call)
+    }
+
+    /// Resume a durable approval-gated call. Mock fallback is intentionally
+    /// forbidden because approval identity must be verified by typed providers.
+    pub fn execute_approved(
+        &self,
+        call: &ToolCall,
+        approval: &ApprovedToolExecution,
+    ) -> KernelResult<ToolResult> {
+        let runtime = self.agent_runtime.as_ref().ok_or_else(|| {
+            sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: approval.provider_id.clone(),
+            }
+        })?;
+        let response = ToolExecutionService::new().invoke_approved(
+            runtime,
+            ToolExecutionRequest::new(call.tool_call_id.clone(), call.clone()),
+            approval,
+        )?;
+        Ok(response.result)
     }
 
     /// Check if a tool requires policy approval

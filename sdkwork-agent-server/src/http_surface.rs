@@ -42,6 +42,9 @@ fn internal_runtime_route_template(path: &str) -> &'static str {
         p if p.starts_with("/sessions/") && p.ends_with("/tasks") => {
             "/internal/v3/api/intelligence/runtime/sessions/{session_id}/tasks"
         }
+        p if p.starts_with("/sessions/") && p.ends_with("/tasks/submit") => {
+            "/internal/v3/api/intelligence/runtime/sessions/{session_id}/tasks/submit"
+        }
         p if p.starts_with("/sessions/") && p.ends_with("/model/invoke") => {
             "/internal/v3/api/intelligence/runtime/sessions/{session_id}/model/invoke"
         }
@@ -63,7 +66,20 @@ fn internal_runtime_route_template(path: &str) -> &'static str {
         p if p.starts_with("/tasks/") && p.ends_with("/cancel") => {
             "/internal/v3/api/intelligence/runtime/tasks/{task_id}/cancel"
         }
+        p if p.starts_with("/tasks/") && p.ends_with("/retry") => {
+            "/internal/v3/api/intelligence/runtime/tasks/{task_id}/retry"
+        }
         p if p.starts_with("/tasks/") => "/internal/v3/api/intelligence/runtime/tasks/{task_id}",
+        p if p.starts_with("/runs/") && p.ends_with("/pause") => {
+            "/internal/v3/api/intelligence/runtime/runs/{run_id}/pause"
+        }
+        p if p.starts_with("/runs/") && p.ends_with("/resume") => {
+            "/internal/v3/api/intelligence/runtime/runs/{run_id}/resume"
+        }
+        p if p.starts_with("/runs/") && p.ends_with("/cancel") => {
+            "/internal/v3/api/intelligence/runtime/runs/{run_id}/cancel"
+        }
+        p if p.starts_with("/runs/") => "/internal/v3/api/intelligence/runtime/runs/{run_id}",
         "/models" => "/internal/v3/api/intelligence/runtime/models",
         _ => "/internal/v3/api/intelligence/runtime/*",
     }

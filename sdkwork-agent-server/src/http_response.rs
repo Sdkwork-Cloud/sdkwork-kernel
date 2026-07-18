@@ -64,6 +64,9 @@ impl ApiError {
         if lower.contains("not found") {
             return Self::not_found("resource not found", trace_id);
         }
+        if lower.contains("persistence admission") {
+            return Self::service_unavailable("persistence capacity unavailable", trace_id);
+        }
         if lower.contains("constraint violation")
             || lower.contains("unique constraint")
             || lower.contains("is not active")
@@ -163,6 +166,12 @@ pub fn api_created<T: serde::Serialize>(item: T, trace_id: &str) -> Response {
     with_trace_header((StatusCode::CREATED, Json(body)).into_response(), trace_id)
 }
 
+/// Serialize an accepted asynchronous operation envelope (`202`).
+pub fn api_accepted<T: serde::Serialize>(data: T, trace_id: &str) -> Response {
+    let body = SdkWorkApiResponse::success(data, trace_id);
+    with_trace_header((StatusCode::ACCEPTED, Json(body)).into_response(), trace_id)
+}
+
 /// Serialize a single-resource success envelope (`200`, `data.item`).
 pub fn api_item<T: serde::Serialize>(item: T, trace_id: &str) -> Response {
     api_success(SdkWorkResourceData { item }, trace_id)
@@ -255,5 +264,18 @@ mod tests {
         );
         assert_eq!(error.code, SdkWorkResultCode::InternalError);
         assert_eq!(error.detail, "persistence operation failed");
+    }
+
+    #[test]
+    fn persistence_admission_errors_map_to_service_unavailable() {
+        for message in [
+            "persistence admission queue full",
+            "persistence admission timeout",
+            "persistence admission closed",
+        ] {
+            let error = ApiError::from_persistence(message.to_string(), "trace.capacity");
+            assert_eq!(error.code, SdkWorkResultCode::ServiceUnavailable);
+            assert_eq!(error.detail, "persistence capacity unavailable");
+        }
     }
 }

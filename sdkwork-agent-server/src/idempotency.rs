@@ -122,13 +122,19 @@ pub fn route_requires_idempotency(method: &Method, path: &str) -> bool {
         p if p.starts_with("/permissions/") => true,
         p if p.starts_with("/sessions/") && p.ends_with("/close") => true,
         p if p.starts_with("/sessions/") && p.ends_with("/messages") => true,
-        p if p.starts_with("/sessions/") && p.ends_with("/tasks") => true,
+        p if p.starts_with("/sessions/") && p.ends_with("/tasks/submit") => true,
         p if p.starts_with("/sessions/") && p.ends_with("/model/invoke") => true,
         p if p.starts_with("/sessions/") && p.ends_with("/model/cancel") => true,
         p if p.starts_with("/sessions/") && p.contains("/tools/") && p.ends_with("/execute") => {
             true
         }
         p if p.starts_with("/tasks/") && p.ends_with("/cancel") => true,
+        p if p.starts_with("/tasks/") && p.ends_with("/retry") => true,
+        p if p.starts_with("/runs/")
+            && (p.ends_with("/pause") || p.ends_with("/resume") || p.ends_with("/cancel")) =>
+        {
+            true
+        }
         _ => false,
     }
 }

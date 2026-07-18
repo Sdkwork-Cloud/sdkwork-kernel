@@ -667,7 +667,9 @@ async fn internal_runtime_tasks_support_cursor_pagination() {
     for instruction in ["task-one", "task-two", "task-three"] {
         let submit = Request::builder()
             .method("POST")
-            .uri(runtime_path(&format!("/sessions/{session_id}/tasks")))
+            .uri(runtime_path(&format!(
+                "/sessions/{session_id}/tasks/submit"
+            )))
             .header(CONTENT_TYPE, "application/json")
             .body(Body::from(
                 json!({ "instruction": instruction }).to_string(),
@@ -678,7 +680,7 @@ async fn internal_runtime_tasks_support_cursor_pagination() {
             .oneshot(submit)
             .await
             .expect("submit should succeed");
-        assert_eq!(response.status(), StatusCode::CREATED);
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
     }
 
     let first_page = app
@@ -1041,7 +1043,9 @@ async fn token_policy_blocks_foreign_task_access() {
     let submit = with_signed_identity(
         Request::builder()
             .method("POST")
-            .uri(runtime_path(&format!("/sessions/{session_id}/tasks")))
+            .uri(runtime_path(&format!(
+                "/sessions/{session_id}/tasks/submit"
+            )))
             .header(CONTENT_TYPE, "application/json"),
         TEST_INGRESS_TOKEN,
         "tenant.owner",
@@ -1057,10 +1061,47 @@ async fn token_policy_blocks_foreign_task_access() {
         .oneshot(submit)
         .await
         .expect("submit request should succeed");
-    assert_eq!(response.status(), StatusCode::CREATED);
-    let task_payload = read_json(response).await;
-    let task = item_value(&task_payload);
-    let task_id = task["taskId"].as_str().expect("taskId should be present");
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let submit_payload = read_json(response).await;
+    let run_id = submit_payload["data"]["operationId"]
+        .as_str()
+        .expect("operationId should be present");
+
+    let foreign_run = app
+        .clone()
+        .oneshot(
+            with_signed_identity(
+                Request::builder().uri(runtime_path(&format!("/runs/{run_id}"))),
+                TEST_INGRESS_TOKEN,
+                "tenant.other",
+                "user.other",
+            )
+            .body(Body::empty())
+            .expect("get run request should be built"),
+        )
+        .await
+        .expect("get run request should complete");
+    assert_eq!(foreign_run.status(), StatusCode::FORBIDDEN);
+
+    let owner_run = app
+        .clone()
+        .oneshot(
+            with_signed_identity(
+                Request::builder().uri(runtime_path(&format!("/runs/{run_id}"))),
+                TEST_INGRESS_TOKEN,
+                "tenant.owner",
+                "user.owner",
+            )
+            .body(Body::empty())
+            .expect("get owner run request should be built"),
+        )
+        .await
+        .expect("get owner run request should succeed");
+    assert_eq!(owner_run.status(), StatusCode::OK);
+    let run_payload = read_json(owner_run).await;
+    let task_id = item_value(&run_payload)["taskId"]
+        .as_str()
+        .expect("taskId should be present");
 
     let response = app
         .oneshot(

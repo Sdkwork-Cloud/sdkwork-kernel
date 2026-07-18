@@ -455,13 +455,16 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
   request-scoped child, and the failed worker is never returned to the bounded
   pool. Provider-specific cancellation-latency, long-running soak, and resource
   ceiling evidence remain release-environment gates.
-- **Permission state transitions**: SQLite, PostgreSQL, and in-memory stores
-  atomically accept only `pending -> allow|deny`; repeating the same decision is
-  idempotent while a conflicting terminal decision fails. This protects the
-  approval record from concurrent overwrite. Permission-required tool errors
-  carry typed request details and the internal runtime creates the pending row
-  with an insert-if-absent operation before returning the standard permission
-  error. Approval-to-execution resume is still a separate runtime capability.
+- **Permission execution resume**: v5 SQLite and PostgreSQL persistence creates
+  the permission, internal task/run/tool step, encrypted operation, and event in
+  one transaction. AES-256-GCM payloads bind permission/session/task/run/step,
+  tool-call, provider, descriptor, and policy revisions as authenticated data.
+  Allow/deny/expiry transitions are atomic; bounded workers use leases and
+  fencing, re-evaluate current policy and revisions, preserve the original
+  tool-call id, and crypto-erase payloads on every terminal path. Local SQLite,
+  kernel one-shot approval, and end-to-end worker contracts pass. Live
+  PostgreSQL `SKIP LOCKED` contention, key-rotation, failure-injection, and
+  target-load evidence remain production promotion gates.
 - **Task cancellation transition**: Task cancellation uses a repository-owned
   transaction that checks the current state and writes the `task.cancelled`
   event together with the state change. Repeated cancellation returns the
@@ -470,8 +473,16 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
 - **PersistenceState**: Uses `Arc<UnifiedSessionManager>` instead of
   `Arc<Mutex<...>>` — the session manager methods take `&self`, and
   underlying repositories handle their own concurrency (SQLite internal
-  Mutex, Postgres connection pool). Blocking persistence operations
-  are offloaded via `spawn_blocking`. Completed message turns are atomic across
+  Mutex, Postgres connection pool). Blocking persistence operations acquire a
+  shared bounded admission lease before they are offloaded via
+  `spawn_blocking`. Active operations default to 64, the independent wait queue
+  defaults to 128, and waiters time out after two seconds. The three bounds use
+  `SDKWORK_PERSISTENCE_MAX_CONCURRENCY`, `SDKWORK_PERSISTENCE_MAX_WAITERS`, and
+  `SDKWORK_PERSISTENCE_ADMISSION_TIMEOUT_MS`; invalid or unbounded startup
+  values fail closed. Queue-full, timeout, and closed admission return the
+  standard service-unavailable problem response. Fixed-series Prometheus
+  metrics expose capacity, active work, waiters, rejection reasons, and acquire
+  latency without tenant, session, or request labels. Completed message turns are atomic across
   SQLite/PostgreSQL: the user message, optional assistant message, all
   `message.sent` events, one `turn.completed` event, and `message_count` commit
   together, and any late conflict rolls back the entire turn. Retrying the same
@@ -501,7 +512,12 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
   reconnection.
 - **SSE connection cap**: `AtomicU32` counter enforces a per-server
   maximum of 256 concurrent streams with RAII decrement via
-  `CountedStream`.
+  `CountedStream`. Event-stream admission occurs before session lookup,
+  broadcast subscription, or persistence replay, so saturated requests cannot
+  consume database or replay-memory capacity. Durable per-connection polling
+  starts at one second, exponentially backs off to five seconds while idle, and
+  resets after activity or broadcast lag. It remains a bounded recovery path; a shared cross-pod notification transport
+  and target-cluster fan-out evidence remain commercial scale gates.
 - **Model stream provider state**: In-memory stream provider slots are released
   by `finalize_stream`, so completed streams do not keep occupying
   `max_concurrent` capacity in long-running runtimes.
@@ -521,6 +537,10 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
   continuation. `page_size` defaults to 20, rejects values outside `1..=200`,
   and each query fetches at most `page_size + 1` rows to determine `hasMore`
   and `nextCursor` per `PAGINATION_SPEC.md`.
+  Cursor signatures use the dedicated `SDKWORK_CURSOR_SIGNING_SECRET`; production
+  requires at least 32 bytes and rejects reuse of ingress, JWT, or metrics
+  credentials. Rotating unrelated credentials does not invalidate pagination
+  cursors, while rotating the cursor key intentionally invalidates old cursors.
 - **sdkwork-utils-rust**: Shared utility library provides SHA-256,
   HMAC, AES-256-GCM, HKDF, and ID generation to reduce cross-crate
   code duplication.
@@ -554,6 +574,7 @@ SPI gap and commercial scorecard: [TECH-03-spi-implementation-gap-tracker.md](TE
 | [ADR-20260612](../decisions/ADR-20260612-agent-implementation-type.md) | Agent implementation type | Accepted |
 | [ADR-20260612](../decisions/ADR-20260612-sdkwork-kernel-root-dictionary.md) | Kernel root dictionary | Accepted |
 | [ADR-20260628](../decisions/ADR-20260628-KERNEL-SPI-COMPREHENSIVE-ASSESSMENT.md) | SPI comprehensive assessment | Accepted |
+| [ADR-20260716](../decisions/ADR-20260716-durable-runtime-execution.md) | Durable task execution and permission resume | Accepted; v5, async single-step execution, and encrypted permission resume implemented; multi-step and production evidence pending |
 
 ## 10. Verification
 

@@ -3,7 +3,7 @@
 Status: active
 Owner: SDKWork kernel maintainers
 Application: sdkwork-kernel
-Updated: 2026-07-06
+Updated: 2026-07-19
 Parent: [PRD.md](PRD.md)
 Specs: [MODULE_SPEC.md](../../../../sdkwork-specs/MODULE_SPEC.md), [APPLICATION_SPEC.md](../../../../sdkwork-specs/APPLICATION_SPEC.md), [API_SPEC.md](../../../../sdkwork-specs/API_SPEC.md)
 
@@ -75,9 +75,11 @@ flowchart TB
 | Agent SPI (18 core + 6 extension families) | `sdkwork-kernel` | Business CRUD, tenant policy, marketplace |
 | Provider binding & transport | `sdkwork-kernel` | Agent catalog tables |
 | Runtime transient state (active session, SSE cursor, in-flight task) | `sdkwork-kernel` (`sdkwork-agent-database`) | Long-term session archive, agent config catalog |
+| Runtime node/process inventory, actual runtime placement, session/execution leases, drain and failover | `sdkwork-kernel` | Desired deployment catalog, marketplace metadata, long-term history |
 | Internal runtime HTTP `/internal/v3/api/intelligence/runtime/*` | `sdkwork-kernel` | `/app`, `/backend`, `/agent` product APIs |
 | Code-agent SPI (workspace, patch, terminal, VCS) | `sdkwork-code-kernel` | BirdCoder product routes |
 | Managed agent identity, composition, audit | `sdkwork-agents` (`ai_*` tables) | Kernel provider crates |
+| Desired agent deployment, replicas, rollout policy, and configuration profiles | `sdkwork-agents` | Runtime process leases and actual slot ownership |
 | Open / App / Backend HTTP + SDK families | `sdkwork-agents` | Direct `sdkwork-agent-provider-*` in products |
 | Memory tier implementations (permanent, user, growth) | `sdkwork-memory` (+ agents composition) | Kernel `MemoryProvider` SPI definition only |
 | Knowledge, skills, prompts, files, MCP catalogs | Sibling modules | Duplicate tables in agents |
@@ -168,6 +170,7 @@ do not add a product → kernel shortcut.
 | Live official SDK invokes (staging) | Optional gate | Kernel |
 | SPI P0 gaps (sandbox wiring, A2A adapter, provider health loop in production router) | Partial — see gap tracker | Kernel |
 | Published artifact registry / SBOM | Pending P4 | Release |
+| Single/cluster runtime coordination | Draft P5 product requirement | Kernel + Agents + Operations |
 
 Gap detail: [TECH-03-spi-implementation-gap-tracker.md](../../architecture/tech/TECH-03-spi-implementation-gap-tracker.md),
 [PRD-03-commercial-readiness-baseline.md](PRD-03-commercial-readiness-baseline.md).
@@ -177,6 +180,7 @@ Gap detail: [TECH-03-spi-implementation-gap-tracker.md](../../architecture/tech/
 | Document | Repository |
 | --- | --- |
 | [TECH_ARCHITECTURE.md](../../architecture/tech/TECH_ARCHITECTURE.md) | sdkwork-kernel |
+| [PRD-05-distributed-agent-runtime.md](PRD-05-distributed-agent-runtime.md) | sdkwork-kernel |
 | [TECH-api-specification.md](../../../../sdkwork-agents/docs/architecture/tech/TECH-api-specification.md) | sdkwork-agents |
 | [AGENTS_LAYERING.md](../../../../sdkwork-agents/docs/architecture/AGENTS_LAYERING.md) | sdkwork-agents |
 | [TECH-30-kernel-birdcoder-boundariesstandard.md](../../../../sdkwork-birdcoder/docs/architecture/tech/TECH-30-kernel-birdcoder-boundariesstandard.md) | sdkwork-birdcoder |

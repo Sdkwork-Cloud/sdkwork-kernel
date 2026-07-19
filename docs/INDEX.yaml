@@ -25,6 +25,11 @@ entries:
     layer: canon-shard
     audience: [product, engineering, architecture]
     status: active
+  - id: PRD-05-distributed-agent-runtime
+    path: docs/product/prd/PRD-05-distributed-agent-runtime.md
+    layer: canon-shard
+    audience: [product, engineering, architecture, release, operations]
+    status: draft
   - id: REQ-2026-0001-commercial-hardening
     path: docs/product/requirements/REQ-2026-0001-commercial-hardening.md
     layer: work

@@ -10,7 +10,9 @@ This directory owns the product Canon for the repository.
 
 - [PRD-01-product-design-and-scope.md](PRD-01-product-design-and-scope.md) — positioning, users, goals, scope
 - [PRD-02-provider-integration-requirements.md](PRD-02-provider-integration-requirements.md) — provider integration product acceptance (normative rules in `specs/`)
-- [PRD-03-commercial-readiness-baseline.md](PRD-03-commercial-readiness-baseline.md) — phases, readiness matrix, deployment
+- [PRD-03-commercial-readiness-baseline.md](PRD-03-commercial-readiness-baseline.md) - phases, readiness matrix, deployment
+- [PRD-04-ecosystem-architecture.md](PRD-04-ecosystem-architecture.md) - kernel, agents, and product ownership boundaries
+- [PRD-05-distributed-agent-runtime.md](PRD-05-distributed-agent-runtime.md) - single/cluster parity, distributed agent management, conversation routing, and controlled mode transitions
 
 ## Splitting Rules
 

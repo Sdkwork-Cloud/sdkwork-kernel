@@ -3,7 +3,7 @@
 Status: active
 Owner: SDKWork kernel maintainers
 Application: sdkwork-kernel
-Updated: 2026-07-11
+Updated: 2026-07-19
 Parent: [PRD.md](PRD.md)
 Specs: [REQUIREMENTS_SPEC.md](../../../../sdkwork-specs/REQUIREMENTS_SPEC.md), [RELEASE_SPEC.md](../../../../sdkwork-specs/RELEASE_SPEC.md), [QUALITY_GATE_SPEC.md](../../../../sdkwork-specs/QUALITY_GATE_SPEC.md)
 
@@ -18,9 +18,10 @@ Authoritative source for phases, readiness matrix, success metrics, and deployme
 | Publish status | BETA |
 | Platforms | API, CLI |
 | Deployment profiles | `standalone`, `cloud` |
+| Runtime coordination modes | `single` baseline; `cluster` proposed in [PRD-05](PRD-05-distributed-agent-runtime.md) |
 | Artifacts | Linux tar.gz, Windows zip server binaries |
 
-## 2. Readiness Matrix (2026-07-11)
+## 2. Readiness Matrix (2026-07-19)
 
 Status is evidence-based. "Implementation present" means the authored path
 exists; it does not waive the listed verification or target-environment gate.
@@ -58,6 +59,7 @@ No row in this matrix by itself authorizes production or GA promotion.
 | SSE event connection admission | **Implementation present; cluster fan-out evidence pending** | The 256-stream per-process permit is acquired before session lookup, broadcast subscription, and durable replay, so saturated requests cannot allocate replay vectors or issue persistence reads. Output and deduplication buffers remain bounded. Durable recovery polling exponentially backs off from one to five seconds while idle and resets after activity or lag. A shared cross-pod notification transport and target-cluster slow-consumer/disconnect/fan-out evidence remain required before commercial scale claims |
 | Permission state consistency | **Implementation present; production evidence pending** | SQLite/PostgreSQL v5 stores atomically persist permission execution context, AES-256-GCM ciphertext, revision bindings, expiry, lease, and fencing state. Allow/deny/expiry and terminal crypto-erasure are transactional; a bounded worker revalidates policy/revisions and resumes with the original tool-call id. SQLite and end-to-end contracts pass; live PostgreSQL contention, key rotation, provider idempotency, restart/failure injection, and load evidence remain P0 release gates |
 | Runtime task execution | **Partial implementation; multi-step execution pending** | Async submit, durable task/run/step state, leases/fencing, retry/control APIs, and a bounded real model worker are implemented. The current worker completes one model-call step and explicitly fails rather than fabricating requested tool steps. Durable planner integration, multi-step dependency/reconciliation, retry classification/backoff, provider request-id persistence, and real in-flight cancellation remain P0 |
+| Dual-mode runtime coordination | **Product requirement drafted; implementation not started** | [PRD-05](PRD-05-distributed-agent-runtime.md) defines single/cluster parity, unified runtime inventory, agent placement and distribution, session routing, controlled mode transitions, and cluster recovery; engineering REQ and ADR remain pending PRD acceptance |
 | Production data plane HA | **Target-environment release gate** | Managed HA Postgres/Redis, exact NetworkPolicy egress, backup/restore, failover, node/zone loss, and capacity evidence are mandatory; bundled data manifests are local/staging only |
 | Target-scoped release package evidence | **Local pipeline implementation present; publication pending** | Package-scoped SBOM/checksum validation exists; immutable registry digest, provenance/attestation, and published rollback evidence are still required |
 | Published artifact registry | **Pending** | Target package evidence is local/CI validated; external registry publication and signed checksum records remain in [REQ-2026-0001](../requirements/REQ-2026-0001-commercial-hardening.md) |
@@ -82,7 +84,8 @@ a failed gate, not an accepted technical debt item.
 | P2 | Multi-framework provider integration | Baseline implemented; provider release gates remain |
 | P3 | Application layer separation (`sdkwork-agents`) | Boundary implemented; cross-repository gate remains |
 | P4 | Commercial hardening | In progress — [REQ-2026-0001](../requirements/REQ-2026-0001-commercial-hardening.md) |
-| P5 | ZeroClaw, gRPC client, dynamic plugins, discovery | Deferred |
+| P5 | Dual-mode distributed agent runtime | Draft product requirement - [PRD-05](PRD-05-distributed-agent-runtime.md) |
+| P6 | ZeroClaw, dynamic plugins, expanded RPC/A2A integration | Deferred |
 
 ## 4. Success Metrics
 
@@ -98,6 +101,9 @@ a failed gate, not an accepted technical debt item.
 | Managed data-service restore and failover drills | 100% passed for the release environment |
 | Pagination/store query bounds | 100% of list/search paths bounded at the authoritative store |
 | Capacity evidence | Load and soak targets pass without OOM, unbounded queue growth, or deadlock |
+| Single/cluster contract parity | 100% of shared runtime API and SDK contract tests pass in both modes |
+| Cluster ownership safety | 0 duplicate valid session/run owners and 0 accepted stale-fence completions in contention and failure tests |
+| Mode transition safety | 100% of supported single-to-cluster and cluster-to-single transition drills preserve one active coordination authority |
 
 ## 5. Verification Commands
 
@@ -152,4 +158,5 @@ node scripts/kernel-birdcoder-alignment-contract.test.mjs
 | --- | --- |
 | P4 rollout items | [REQ-2026-0001](../requirements/REQ-2026-0001-commercial-hardening.md) |
 | Root component contract | [specs/component.spec.json](../../../specs/component.spec.json) |
+| P5 distributed runtime product requirement | [PRD-05](PRD-05-distributed-agent-runtime.md) |
 | Open product questions | [PRD.md §9](PRD.md#9-open-questions) |

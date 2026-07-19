@@ -3,7 +3,7 @@
 Status: active
 Owner: SDKWork kernel maintainers
 Application: sdkwork-kernel
-Updated: 2026-07-11
+Updated: 2026-07-19
 Specs: [REQUIREMENTS_SPEC.md](../../../sdkwork-specs/REQUIREMENTS_SPEC.md), [DOCUMENTATION_SPEC.md](../../../sdkwork-specs/DOCUMENTATION_SPEC.md)
 
 Canon entry and index. Product depth lives in linked shards; normative contracts live in `specs/` and `sdkwork-specs/`.
@@ -16,6 +16,7 @@ Canon entry and index. Product depth lives in linked shards; normative contracts
 | [PRD-02-provider-integration-requirements.md](PRD-02-provider-integration-requirements.md) | Provider integration product acceptance |
 | [PRD-03-commercial-readiness-baseline.md](PRD-03-commercial-readiness-baseline.md) | Phases, readiness matrix, deployment checklist |
 | [PRD-04-ecosystem-architecture.md](PRD-04-ecosystem-architecture.md) | Kernel · Agents · BirdCoder ecosystem, dependency rules, API ownership |
+| [PRD-05-distributed-agent-runtime.md](PRD-05-distributed-agent-runtime.md) | Single/cluster mode parity, distributed agent management, placement, conversation routing, recovery, and controlled mode transitions |
 | [TECH_ARCHITECTURE.md](../../architecture/tech/TECH_ARCHITECTURE.md) | Technical architecture canon |
 | [TECH-02-provider-framework-matrix.md](../../architecture/tech/TECH-02-provider-framework-matrix.md) | Codex, Claude Code, Gemini CLI, OpenCode, MiMo Code, OpenClaw, Hermes, Rig capability matrix |
 | [TECH-03-spi-implementation-gap-tracker.md](../../architecture/tech/TECH-03-spi-implementation-gap-tracker.md) | SPI spec/implementation gaps and commercial scorecard |
@@ -27,6 +28,11 @@ Canon entry and index. Product depth lives in linked shards; normative contracts
 SDKWork Kernel is the **shared intelligence mechanism layer** for BirdCoder, IM PC,
 and future agent surfaces. Application business lives in `sdkwork-agents`; products
 must not depend on `sdkwork-agent-provider-*` crates directly.
+
+The runtime must operate as one product in both single-machine non-cluster mode
+and multi-node cluster mode. Coordination mode changes runtime placement and
+recovery mechanisms without changing the product-facing agent and conversation
+contracts.
 
 Detail: [PRD-01 §1](PRD-01-product-design-and-scope.md#1-product-positioning).
 
@@ -77,11 +83,35 @@ Canonical product scenarios. Implementation detail: [TECH_ARCHITECTURE.md](../..
 5. Deploy only an immutable image digest, keep `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS` unset, and verify node/zone placement, PDB, HPA, and graceful drain.
 6. Run `pnpm verify:commercial` with live PostgreSQL, provider staging credentials/endpoints, and Hermes gateway proof before any commercial promotion.
 
+### US-5: Developer runs the non-cluster runtime
+
+1. Start the default standalone development runtime in single coordination mode.
+2. Load and use a local agent without discovery, internal RPC, or cluster event infrastructure.
+3. Create sessions, exchange messages, submit durable work, and inspect diagnostics through the same internal SDK contracts used by cluster deployments.
+
+### US-6: Operator manages agents across a cluster
+
+1. Register serving runtime processes and their effective capabilities.
+2. Reconcile desired agent deployments from `sdkwork-agents` into healthy runtime instances.
+3. Route sessions and durable work only to compatible runtimes with valid ownership.
+4. Drain, upgrade, recover, and roll back runtimes without exposing worker topology to product clients.
+
+### US-7: Operator changes runtime coordination mode
+
+1. Drain the current coordination authority and reconcile active durable state.
+2. Start and verify the target single or cluster runtime.
+3. Cut over application ingress only after the target is ready and stale owners can no longer commit.
+4. Keep product SDK and conversation behavior unchanged through the transition.
+
 ## 6. Success Metrics
 
 Detail: [PRD-03 §4](PRD-03-commercial-readiness-baseline.md#4-success-metrics).
 
 ## 7. Phases
+
+The active P4 work remains in the commercial-hardening requirement. Proposed P5
+work for dual-mode distributed runtime behavior is defined in
+[PRD-05-distributed-agent-runtime.md](PRD-05-distributed-agent-runtime.md#11-delivery-phases).
 
 Detail: [PRD-03 §3](PRD-03-commercial-readiness-baseline.md#3-phase-roadmap) and [REQ-2026-0001](../requirements/REQ-2026-0001-commercial-hardening.md) for active P4 work.
 
@@ -101,6 +131,7 @@ Detail: [PRD-03 §3](PRD-03-commercial-readiness-baseline.md#3-phase-roadmap) an
 | Platform framework adoption | [ADR-20260618-platform-framework-adoption.md](../../architecture/decisions/ADR-20260618-platform-framework-adoption.md) |
 | Internal API surface | [ADR-20260622-sdkwork-internal-api-surface.md](../../architecture/decisions/ADR-20260622-sdkwork-internal-api-surface.md) |
 | Ecosystem architecture | [PRD-04-ecosystem-architecture.md](PRD-04-ecosystem-architecture.md) |
+| Dual-mode distributed runtime | [PRD-05-distributed-agent-runtime.md](PRD-05-distributed-agent-runtime.md) |
 | Provider framework matrix | [TECH-02-provider-framework-matrix.md](../../architecture/tech/TECH-02-provider-framework-matrix.md) |
 | SPI gap tracker | [TECH-03-spi-implementation-gap-tracker.md](../../architecture/tech/TECH-03-spi-implementation-gap-tracker.md) |
 | SPI comprehensive assessment | [ADR-20260628-KERNEL-SPI-COMPREHENSIVE-ASSESSMENT.md](../../architecture/decisions/ADR-20260628-KERNEL-SPI-COMPREHENSIVE-ASSESSMENT.md) |
@@ -119,7 +150,13 @@ Detail: [PRD-04-ecosystem-architecture.md](PRD-04-ecosystem-architecture.md).
 
 ## 10. Open Questions
 
+The current P5 product questions are tracked in
+[PRD-05-distributed-agent-runtime.md](PRD-05-distributed-agent-runtime.md#13-open-decisions).
+Cluster mode now requires standard SDKWork discovery when dynamic internal RPC
+resolution is introduced; the remaining decision is the first process and
+service shape.
+
+
 1. **Default production plugin** — When should Codex/OpenClaw become profile-specific defaults per product?
 2. **Facade versioning** — Should `sdkwork-agents-runtime-facade` semver independently from kernel provider crates?
 3. **IPC standardization** — Should `jsonrpc_stdio` become a shared authority for Python/Node subprocess bridges?
-4. **Discovery Phase 2** — Which kernel RPC hosts register first when `sdkwork-discovery` ships?

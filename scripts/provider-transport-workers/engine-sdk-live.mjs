@@ -1062,9 +1062,10 @@ export async function invokeModelChatRuntime(packageName, operation) {
   if (cliProbe?.available) {
     try {
       const prompt = resolveModelChatPrompt(operation);
-      return codexPackage
+      const result = codexPackage
         ? await invokeCodexCliModelChat(operation, { packageName, prompt })
         : await invokeProviderCliModelChat(packageName, operation, { prompt });
+      return markVerifiedCliNativeSession(result);
     } catch (error) {
       cliError = error;
     }
@@ -1091,6 +1092,18 @@ export async function invokeModelChatRuntime(packageName, operation) {
     throw sdkError ?? cliError;
   }
   throw new Error(`package not resolved: ${packageName}`);
+}
+
+function markVerifiedCliNativeSession(result) {
+  const nativeSessionId = result?.native_session_id;
+  if (typeof nativeSessionId !== 'string' || !nativeSessionId.trim()) {
+    return result;
+  }
+  return {
+    ...result,
+    native_session_id: nativeSessionId.trim(),
+    [VERIFIED_NATIVE_SESSION_ID]: true,
+  };
 }
 
 function formatError(error) {

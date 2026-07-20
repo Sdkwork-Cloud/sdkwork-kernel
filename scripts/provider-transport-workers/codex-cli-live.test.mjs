@@ -34,7 +34,9 @@ if (capturePath) {
 }
 
 const emit = () => {
-  process.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: 'thread-fixture-123' }) + '\\n');
+  if (prompt !== 'without-provider-session') {
+    process.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: 'thread-fixture-123' }) + '\\n');
+  }
   process.stdout.write(JSON.stringify({
     type: 'item.completed',
     item: { type: 'agent_message', text: 'answer:' + prompt },
@@ -115,6 +117,17 @@ assertIncludesPair(capture.args, '--model', 'codex-test-model');
 assertIncludesPair(capture.args, 'resume', 'thread-existing-456');
 assertIncludesPair(capture.args, '--sandbox', 'workspace-write');
 assertIncludesPair(capture.args, '--config', 'approval_policy="on-request"');
+
+const resultWithoutProviderSession = await invokeCodexCliModelChat(operation, {
+  env: cliEnvironment,
+  packageName: '@openai/codex-sdk',
+  prompt: 'without-provider-session',
+});
+assert.equal(
+  resultWithoutProviderSession.native_session_id,
+  null,
+  'the CLI adapter must not treat a requested resume id as provider-verified terminal metadata',
+);
 
 assertIncludesPair(
   buildCodexCliArgs({

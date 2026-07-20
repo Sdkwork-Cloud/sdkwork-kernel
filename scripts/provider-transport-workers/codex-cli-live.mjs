@@ -165,8 +165,7 @@ export async function invokeCodexCliModelChat(operation, options = {}) {
     messages: parsed.messages,
     finish_reason: parsed.finish_reason,
     model_request_id: operation.model_request_id ?? null,
-    native_session_id:
-      parsed.native_session_id ?? optionalNonBlankString(operation.session_id, 'session_id'),
+    native_session_id: parsed.native_session_id,
     package: options.packageName ?? '@openai/codex-sdk',
   };
 }

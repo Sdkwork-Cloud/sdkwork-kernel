@@ -5,7 +5,6 @@ import path from 'node:path';
 import process from 'node:process';
 
 import {
-  API_GATEWAY_REPO,
   bridgeLegacyServiceEnv,
   DEFAULT_DEV_PROFILE_ID,
   IAM_APPLICATION_BOOTSTRAP_ENV,
@@ -15,9 +14,7 @@ import {
   mergeRuntimeEnv,
   REPO_ROOT,
   resolveDevProfileId,
-  resolveGatewayBind,
   resolveSurfaceHttpUrl,
-  shouldAutostartGateway,
   waitForHttpHealthy,
 } from './lib/kernel-topology.mjs';
 
@@ -148,35 +145,8 @@ function createPnpmProcess({ label, packageName, script, env }) {
   };
 }
 
-function createPlatformGatewayProcess(env) {
-  const bind = resolveGatewayBind(
-    env,
-    env.SDKWORK_KERNEL_DEPLOYMENT_PROFILE ?? 'standalone',
-  );
-  return {
-    label: 'sdkwork-api-cloud-gateway',
-    command: cargoCommand(),
-    args: [
-      'run',
-      '-p',
-      'sdkwork-api-cloud-gateway',
-      '--bin',
-      'sdkwork-api-cloud-gateway',
-    ],
-    cwd: API_GATEWAY_REPO,
-    env: {
-      ...env,
-      SDKWORK_API_CLOUD_GATEWAY_BIND: bind,
-    },
-  };
-}
-
 function buildProcessEntries(profileId, env) {
   const entries = [];
-  if (shouldAutostartGateway(env)) {
-    entries.push(createPlatformGatewayProcess(env));
-  }
-
   for (const processSpec of listOrchestrationProcesses(profileId)) {
     if (processSpec.crate && processSpec.binary) {
       entries.push(

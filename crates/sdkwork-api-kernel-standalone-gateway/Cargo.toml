@@ -1,0 +1,9 @@
+[package]
+name = "sdkwork-api-kernel-standalone-gateway"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1.48", features = ["macros", "net", "rt-multi-thread"] }
+sdkwork-api-kernel-assembly = { path = "../sdkwork-api-kernel-assembly" }

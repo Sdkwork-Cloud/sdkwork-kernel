@@ -2824,6 +2824,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "sdkwork-api-kernel-assembly"
+version = "0.1.0"
+dependencies = [
+ "axum 0.8.9",
+ "tokio",
+]
+
+[[package]]
+name = "sdkwork-api-kernel-standalone-gateway"
+version = "0.1.0"
+dependencies = [
+ "sdkwork-api-kernel-assembly",
+ "sdkwork-web-bootstrap",
+ "tokio",
+]
+
+[[package]]
 name = "sdkwork-code-kernel"
 version = "0.1.0"
 dependencies = [
@@ -2852,12 +2869,14 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "url",
 ]
 
 [[package]]
 name = "sdkwork-drive-config"
 version = "0.1.0"
 dependencies = [
+ "sdkwork-database-config",
  "serde",
  "toml",
 ]

@@ -1,0 +1,13 @@
+[package]
+name = "sdkwork-api-kernel-assembly"
+edition.workspace = true
+version.workspace = true
+description = "Generated API assembly for sdkwork-kernel application HTTP plane."
+
+[lib]
+name = "sdkwork_api_kernel_assembly"
+path = "src/lib.rs"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }

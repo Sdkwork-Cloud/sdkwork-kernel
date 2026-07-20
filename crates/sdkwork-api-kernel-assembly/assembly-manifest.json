@@ -1,0 +1,9 @@
+{
+  "kind": "sdkwork.api.assembly",
+  "schemaVersion": 1,
+  "applicationCode": "kernel",
+  "apiMode": "none",
+  "packageName": "sdkwork-api-kernel-assembly",
+  "crateDir": "crates/sdkwork-api-kernel-assembly",
+  "routeCrates": []
+}

@@ -28,7 +28,7 @@ This repository adopts the shared SDKWork runtime topology framework.
 ```bash
 pnpm dev                                      # standalone.development default
 pnpm dev:server:postgres:standalone           # standalone.development
-pnpm dev:server:postgres:cloud                # cloud.development
+pnpm dev:server:cloud                # cloud.development
 pnpm topology:validate                                # validate specs/topology.spec.json
 ```
 

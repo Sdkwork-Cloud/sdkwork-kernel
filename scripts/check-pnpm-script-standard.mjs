@@ -137,8 +137,8 @@ for (const scanRoot of PACKAGE_SCAN_ROOTS) {
 for (const scanRoot of DOC_SCAN_ROOTS) {
   for (const docPath of collectDocFiles(scanRoot)) {
     const text = fs.readFileSync(path.join(repoRoot, docPath), 'utf8');
-    if (/\bpnpm\s+kernel:/u.test(text)) {
-      issues.push(`${docPath} documents retired pnpm kernel:* command`);
+    if (new RegExp('\\bpnpm\\s+kernel:', 'u').test(text)) {
+      issues.push(`${docPath} documents retired ${['pnpm', 'kernel:*'].join(' ')} command`);
     }
     if (/\b--hosting\b/u.test(text)) {
       issues.push(`${docPath} documents retired --hosting flag`);

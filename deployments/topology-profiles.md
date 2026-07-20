@@ -22,7 +22,7 @@ Use PNPM standard commands (`PNPM_SCRIPT_SPEC.md`):
 ```bash
 pnpm dev
 pnpm dev:server:postgres:standalone
-pnpm dev:server:postgres:cloud
+pnpm dev:server:cloud
 ```
 
 These dispatch through `scripts/sdkwork-command.mjs` into `scripts/kernel-dev.mjs`, which loads the matching topology profile env bundle.

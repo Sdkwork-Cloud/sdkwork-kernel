@@ -12,7 +12,7 @@ Human summary: `../../docs/topology-standard.md`
 ```bash
 pnpm dev
 pnpm dev:server:postgres:standalone
-pnpm dev:server:postgres:cloud
+pnpm dev:server:cloud
 pnpm topology:validate
 pnpm test:topology-baggage
 ```

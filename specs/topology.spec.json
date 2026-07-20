@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "kind": "sdkwork.app.topology",
   "appId": "sdkwork-kernel",
   "archetype": "realtime-application-platform",
@@ -40,7 +40,6 @@
   "envKeys": {
     "environment": "SDKWORK_KERNEL_ENVIRONMENT",
     "profileId": "SDKWORK_KERNEL_PROFILE_ID",
-    "gatewayAutostart": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_AUTOSTART",
     "clientApiGatewayBaseUrl": "VITE_SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL",
     "apiGatewayBaseUrl": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL",
     "deploymentProfile": "SDKWORK_KERNEL_DEPLOYMENT_PROFILE",
@@ -70,11 +69,8 @@
       "protocols": [
         "http"
       ],
-      "owner": "sdkwork-api-cloud-gateway",
-      "bindEnv": "SDKWORK_API_CLOUD_GATEWAY_BIND",
       "httpUrlEnv": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL",
-      "clientHttpEnv": "VITE_SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL",
-      "autostartEnv": "SDKWORK_KERNEL_PLATFORM_API_GATEWAY_AUTOSTART"
+      "clientHttpEnv": "VITE_SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL"
     }
   },
   "cloudPublicHosts": {
@@ -89,12 +85,6 @@
     "agentServer": {
       "crate": "sdkwork-agent-server",
       "binary": "sdkwork-agent-server"
-    },
-    "cloudGateway": {
-      "crate": "sdkwork-api-cloud-gateway",
-      "binary": "sdkwork-api-cloud-gateway",
-      "repository": "sdkwork-api-cloud-gateway",
-      "configGlob": "configs/sdkwork-api-cloud-gateway.kernel.{profile}.toml"
     }
   },
   "orchestration": {
@@ -105,7 +95,8 @@
             "id": "application.public-ingress",
             "crate": "sdkwork-agent-server",
             "binary": "sdkwork-agent-server",
-            "required": true
+            "required": true,
+            "role": "api-standalone-gateway"
           }
         ],
         "capabilitySubset": [
@@ -122,7 +113,8 @@
             "id": "application.public-ingress",
             "crate": "sdkwork-agent-server",
             "binary": "sdkwork-agent-server",
-            "required": true
+            "required": true,
+            "role": "api-standalone-gateway"
           }
         ],
         "healthSurfaces": [
@@ -130,14 +122,7 @@
         ]
       },
       "cloud.development": {
-        "processes": [
-          {
-            "id": "application.public-ingress",
-            "crate": "sdkwork-agent-server",
-            "binary": "sdkwork-agent-server",
-            "required": true
-          }
-        ],
+        "processes": [],
         "healthSurfaces": [
           "application.public-ingress",
           "platform.api-gateway"
@@ -149,7 +134,8 @@
             "id": "application.public-ingress",
             "crate": "sdkwork-agent-server",
             "binary": "sdkwork-agent-server",
-            "required": true
+            "required": true,
+            "role": "api-standalone-gateway"
           }
         ],
         "healthSurfaces": [
@@ -181,10 +167,7 @@
     }
   },
   "packaging": {
-    "cloudConfigFiles": [
-      "sdkwork-api-cloud-gateway.kernel.development.toml",
-      "sdkwork-api-cloud-gateway.kernel.production.toml"
-    ],
+    "cloudConfigFiles": [],
     "targets": [
       {
         "id": "container-noarch-cloud-container-config-bundle-tar-gz",

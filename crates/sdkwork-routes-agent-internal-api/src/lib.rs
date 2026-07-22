@@ -15,3 +15,10 @@ pub fn build_router(
 ) -> axum::Router {
     build_internal_runtime_routes(state)
 }
+
+/// Builds the host-neutral internal-api route tree at its canonical mount prefix.
+pub fn gateway_mount(
+    state: std::sync::Arc<sdkwork_agent_server::api::internal_runtime::InternalRuntimeApiState>,
+) -> axum::Router {
+    axum::Router::new().nest(INTERNAL_RUNTIME_MOUNT_PREFIX, build_router(state))
+}

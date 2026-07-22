@@ -1,5 +1,5 @@
 use sdkwork_routes_agent_internal_api::{
-    internal_route_manifest, INTERNAL_ROUTES, INTERNAL_RUNTIME_MOUNT_PREFIX,
+    gateway_mount, internal_route_manifest, INTERNAL_ROUTES, INTERNAL_RUNTIME_MOUNT_PREFIX,
 };
 use sdkwork_web_contract::{HttpMethod, RouteAuth};
 
@@ -63,4 +63,11 @@ fn internal_route_manifest_covers_all_openapi_operations() {
         assert_eq!(matched.auth, RouteAuth::ApiKey);
         assert_eq!(matched.operation_id, entry.operation_id);
     }
+}
+
+#[test]
+fn exports_the_canonical_gateway_mount() {
+    let _mount: fn(
+        std::sync::Arc<sdkwork_agent_server::api::internal_runtime::InternalRuntimeApiState>,
+    ) -> axum::Router = gateway_mount;
 }

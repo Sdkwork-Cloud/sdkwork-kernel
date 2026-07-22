@@ -10,4 +10,6 @@ path = "src/lib.rs"
 
 [dependencies]
 axum = "0.8"
-tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
+tokio.workspace = true
+sdkwork-agent-server.workspace = true
+sdkwork-routes-agent-internal-api.workspace = true

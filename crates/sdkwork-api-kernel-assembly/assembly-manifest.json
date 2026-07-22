@@ -2,8 +2,20 @@
   "kind": "sdkwork.api.assembly",
   "schemaVersion": 1,
   "applicationCode": "kernel",
-  "apiMode": "none",
+  "apiMode": "served",
   "packageName": "sdkwork-api-kernel-assembly",
   "crateDir": "crates/sdkwork-api-kernel-assembly",
-  "routeCrates": []
+  "routeCrates": [
+    {
+      "packageName": "sdkwork-routes-agent-internal-api",
+      "memberDir": "crates/sdkwork-routes-agent-internal-api",
+      "libName": "sdkwork_routes_agent_internal_api",
+      "surface": "internal-api",
+      "pathPrefix": null,
+      "mountOrder": 0,
+      "componentRef": "crates/sdkwork-routes-agent-internal-api/specs/component.spec.json",
+      "routeManifestRef": "apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml",
+      "sourceRef": "crates/sdkwork-routes-agent-internal-api/Cargo.toml"
+    }
+  ]
 }

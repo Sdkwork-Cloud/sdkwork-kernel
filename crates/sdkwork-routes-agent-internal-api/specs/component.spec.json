@@ -6,7 +6,7 @@
     "displayName": "SDKWork Router Agent Internal API",
     "version": "0.1.0",
     "type": "rust-route-crate",
-    "root": "sdkwork-kernel/crates/sdkwork-routes-agent-internal-api",
+    "root": "crates/sdkwork-routes-agent-internal-api",
     "domain": "intelligence",
     "capability": "agent-server",
     "languages": ["rust"],
@@ -50,10 +50,11 @@
     "publicExports": ["."],
     "runtimeEntrypoints": [
       "build_router",
+      "gateway_mount",
       "internal_route_manifest",
       "INTERNAL_RUNTIME_MOUNT_PREFIX"
     ],
-    "routeManifest": "apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml",
+    "routeManifest": "../../apis/internal-api/intelligence/sdkwork-agent-internal-api.openapi.yaml",
     "authMode": "ingress-token",
     "sdkClients": [],
     "events": [],

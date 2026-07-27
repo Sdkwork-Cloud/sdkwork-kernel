@@ -2,6 +2,7 @@
 //!
 //! See `specs/AGENT_PROVIDER_INTEGRATION_SPEC.md` and `specs/AGENT_PROVIDER_BINDING_SPEC.md`.
 
+mod activity;
 mod backend;
 mod binding;
 mod bridge;
@@ -14,6 +15,10 @@ mod registry;
 mod runtime;
 mod selector;
 
+pub use activity::{
+    ProviderSessionActivityRuntimeSink, SdkRuntimeActivityEvent, SdkRuntimeActivityEventSink,
+    SdkRuntimeActivityInteractionHint, SdkRuntimeActivityPhase, SdkRuntimeTerminalState,
+};
 pub use backend::{
     default_backend_priority, default_transport_priority, ProviderTransportKind, SdkBackendKind,
 };

@@ -104,6 +104,16 @@ class FakeThread {
     this.id = id;
   }
 
+  async run(prompt) {
+    if (!this.id) {
+      this.id = 'thread-sdk-live-invoke';
+    }
+    return {
+      finalResponse: 'invoke:' + prompt,
+      items: [{ type: 'agent_message', text: 'invoke:' + prompt }],
+    };
+  }
+
   async runStreamed(prompt) {
     const thread = this;
     const completionMarkerPath = process.env.SDKWORK_CODEX_STREAM_COMPLETION_MARKER;
@@ -150,6 +160,33 @@ export class Codex {
 );
 
 try {
+  const codexActivityFrames = await invokeWorkerFrames(
+    '@openai/codex-sdk',
+    {
+      operation: 'model_chat',
+      model_request_id: 'req-codex-live-activity',
+      session_id: 'thread-sdk-existing',
+      messages: ['invoke now'],
+      timeout_ms: 5_000,
+      execution_options: { require_live_provider: true },
+    },
+    {
+      SDKWORK_AGENT_SDK_PACKAGE_PATHS: JSON.stringify({
+        '@openai/codex-sdk': codexSdkMirror,
+      }),
+      SDKWORK_CODEX_CLI_BIN: path.join(tempRoot, 'missing-codex'),
+    },
+    undefined,
+    true,
+  );
+  const activityPhases = codexActivityFrames
+    .filter((frame) => frame.response.result?.event === 'session.activity')
+    .map((frame) => frame.response.result.phase);
+  assert.deepEqual(activityPhases, ['started', 'working', 'idle', 'terminal']);
+  const invokeDone = codexActivityFrames.at(-1)?.response.result;
+  assert.equal(invokeDone?.event, 'invoke.done');
+  assert.equal(invokeDone?.payload?.provider_session_id, 'thread-sdk-existing');
+
   let completionMarkerExistedAtFirstChunk = null;
   const codexStreamFrames = await invokeWorkerFrames(
     '@openai/codex-sdk',
@@ -198,7 +235,7 @@ try {
   );
   assert.ok(codexDone, 'Codex stream must terminate with stream.done');
   assert.equal(codexDone.response.result.model_request_id, 'req-codex-live-stream');
-  assert.equal(codexDone.response.result.native_session_id, 'thread-sdk-live-streamed');
+  assert.equal(codexDone.response.result.provider_session_id, 'thread-sdk-live-streamed');
 
   const failedCodexStreamFrames = await invokeWorkerFrames(
     '@openai/codex-sdk',
@@ -246,9 +283,9 @@ try {
   );
   assert.ok(stubDone, 'buffered fallback stream must still terminate');
   assert.equal(
-    Object.hasOwn(stubDone.response.result, 'native_session_id'),
+    Object.hasOwn(stubDone.response.result, 'provider_session_id'),
     false,
-    'providers without a verified native session id must not receive a fabricated terminal id',
+    'providers without a verified provider session id must not receive a fabricated terminal id',
   );
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -256,7 +293,7 @@ try {
 
 console.log('generic-ts-sdk-worker production fail-closed contract passed.');
 
-function invokeWorkerFrames(packageName, operation, env = {}, onFrame) {
+function invokeWorkerFrames(packageName, operation, env = {}, onFrame, activityStream = false) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
@@ -307,6 +344,7 @@ function invokeWorkerFrames(packageName, operation, env = {}, onFrame) {
       frames.push(frame);
       if (
         response.result?.event === 'stream.done' ||
+        response.result?.event === 'invoke.done' ||
         response.result?.ok === false ||
         response.error
       ) {
@@ -328,7 +366,7 @@ function invokeWorkerFrames(packageName, operation, env = {}, onFrame) {
         jsonrpc: '2.0',
         id: 1,
         method: 'sdkwork/capability.invoke',
-        params: { operation },
+        params: { operation, activity_stream: activityStream },
       })}\n`,
     );
   });

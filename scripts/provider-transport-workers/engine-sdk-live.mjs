@@ -24,8 +24,8 @@ const PACKAGE_PATHS_ENV = 'SDKWORK_AGENT_SDK_PACKAGE_PATHS';
 const WORKSPACE_ROOT_ENV = 'SDKWORK_AGENT_SDK_WORKSPACE_ROOT';
 
 // This marker stays inside the Node worker process. A provider must set it only
-// after it has received the native session id from its own runtime.
-export const VERIFIED_NATIVE_SESSION_ID = Symbol('sdkwork.verifiedNativeSessionId');
+// after it has received the provider session id from its own runtime.
+export const VERIFIED_PROVIDER_SESSION_ID = Symbol('sdkwork.verifiedProviderSessionId');
 
 export function isProductionKernelProfile() {
   const environment = (process.env[ENVIRONMENT_ENV] ?? '').trim().toLowerCase();
@@ -268,6 +268,86 @@ function liveSuccess(messages, operation, extra = {}) {
   };
 }
 
+function createRuntimeActivityReporter(operation, onActivity) {
+  if (onActivity != null && typeof onActivity !== 'function') {
+    throw new Error('runtime onActivity must be a function');
+  }
+  let providerSessionId = null;
+  let started = false;
+  let terminal = false;
+  let lastObservedAtMillis = 0;
+
+  const nextObservedAt = () => {
+    const now = Date.now();
+    lastObservedAtMillis = Math.max(now, lastObservedAtMillis + 1);
+    return new Date(lastObservedAtMillis).toISOString();
+  };
+  const emit = async (phase, extra = {}) => {
+    if (!onActivity || !providerSessionId) {
+      return;
+    }
+    await onActivity({
+      provider_session_id: providerSessionId,
+      phase,
+      observed_at: nextObservedAt(),
+      ...extra,
+    });
+  };
+  const establish = async (candidate) => {
+    const next = readProviderSessionId(candidate);
+    if (!next) {
+      return;
+    }
+    if (providerSessionId && providerSessionId !== next) {
+      throw new Error('provider emitted inconsistent provider session identities');
+    }
+    providerSessionId = next;
+    if (!started) {
+      started = true;
+      await emit('started');
+      await emit('working');
+    }
+  };
+  const verifyEstablishedIdentity = (candidate) => {
+    const next = readProviderSessionId(candidate);
+    if (providerSessionId && next && providerSessionId !== next) {
+      throw new Error('provider emitted inconsistent provider session identities');
+    }
+  };
+
+  return {
+    establish,
+    async working(candidate) {
+      await establish(candidate);
+      await emit('working');
+    },
+    async waiting(candidate, interactionHint) {
+      await establish(candidate);
+      await emit('waiting', { interaction_hint: interactionHint });
+    },
+    async succeed(candidate) {
+      if (terminal) {
+        return;
+      }
+      verifyEstablishedIdentity(candidate);
+      if (!providerSessionId) {
+        return;
+      }
+      terminal = true;
+      await emit('idle');
+      await emit('terminal', { terminal_state: 'idle' });
+    },
+    async fail() {
+      if (terminal || !providerSessionId) {
+        return;
+      }
+      terminal = true;
+      await emit('failed');
+      await emit('terminal', { terminal_state: 'failed' });
+    },
+  };
+}
+
 function extractTextParts(parts) {
   if (!Array.isArray(parts)) {
     return '';
@@ -347,15 +427,26 @@ export function resolveOpenClawWireMessages(operation) {
   }));
 }
 
-async function invokeCodexModelChat(prompt, operation, packageName) {
+async function invokeCodexModelChat(prompt, operation, packageName, activity) {
   const { thread } = await createCodexThread(operation, packageName);
+  const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
+  const initialProviderSessionId = verifiedCodexProviderSessionId(thread);
+  if (initialProviderSessionId) {
+    await activity.establish(
+      verifyProviderSessionId('codex_sdk', initialProviderSessionId, requestedSessionId),
+    );
+  }
   const turn = await runCodexThread(thread, prompt, operation.timeout_ms);
   const text = turn?.finalResponse ?? turn?.items?.map((item) => item?.text ?? '').join('\n') ?? '';
-  const nativeSessionId = verifiedCodexNativeSessionId(thread);
+  const providerSessionId = verifyProviderSessionId(
+    'codex_sdk',
+    verifiedCodexProviderSessionId(thread),
+    requestedSessionId,
+  );
   return liveSuccess(text, operation, {
     package: packageName,
-    native_session_id: nativeSessionId,
-    [VERIFIED_NATIVE_SESSION_ID]: Boolean(nativeSessionId),
+    provider_session_id: providerSessionId,
+    [VERIFIED_PROVIDER_SESSION_ID]: Boolean(providerSessionId),
   });
 }
 
@@ -375,8 +466,15 @@ async function createCodexThread(operation, packageName) {
   return { thread };
 }
 
-async function invokeCodexModelChatStream(prompt, operation, packageName, onChunk) {
+async function invokeCodexModelChatStream(prompt, operation, packageName, onChunk, activity) {
   const { thread } = await createCodexThread(operation, packageName);
+  const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
+  const initialProviderSessionId = verifiedCodexProviderSessionId(thread);
+  if (initialProviderSessionId) {
+    await activity.establish(
+      verifyProviderSessionId('codex_sdk', initialProviderSessionId, requestedSessionId),
+    );
+  }
   if (typeof thread.runStreamed !== 'function') {
     throw new Error('Codex thread is missing runStreamed() in @openai/codex-sdk');
   }
@@ -390,6 +488,13 @@ async function invokeCodexModelChatStream(prompt, operation, packageName, onChun
   await runCodexOperation(operation.timeout_ms, async (turnOptions) => {
     const streamed = await thread.runStreamed(prompt, turnOptions);
     for await (const event of streamed.events) {
+      const eventProviderSessionId =
+        event?.thread_id ?? event?.threadId ?? verifiedCodexProviderSessionId(thread);
+      if (eventProviderSessionId) {
+        await activity.establish(
+          verifyProviderSessionId('codex_sdk', eventProviderSessionId, requestedSessionId),
+        );
+      }
       if (event?.type === 'turn.failed') {
         throw new Error(event?.error?.message ?? 'Codex streamed turn failed');
       }
@@ -434,23 +539,27 @@ async function invokeCodexModelChatStream(prompt, operation, packageName, onChun
   if (sequence === 0) {
     throw new Error('Codex streamed turn completed without an agent message');
   }
-  const nativeSessionId = verifiedCodexNativeSessionId(thread);
+  const providerSessionId = verifyProviderSessionId(
+    'codex_sdk',
+    verifiedCodexProviderSessionId(thread),
+    requestedSessionId,
+  );
   return {
     ...liveSuccess(collectChunks ? chunks.map((chunk) => chunk.content) : [], operation, {
       package: packageName,
-      native_session_id: nativeSessionId,
-      [VERIFIED_NATIVE_SESSION_ID]: Boolean(nativeSessionId),
+      provider_session_id: providerSessionId,
+      [VERIFIED_PROVIDER_SESSION_ID]: Boolean(providerSessionId),
     }),
     chunks,
   };
 }
 
-function verifiedCodexNativeSessionId(thread) {
-  const nativeSessionId = thread?.id;
-  if (typeof nativeSessionId !== 'string') {
+function verifiedCodexProviderSessionId(thread) {
+  const providerSessionId = thread?.id;
+  if (typeof providerSessionId !== 'string') {
     return null;
   }
-  const normalized = nativeSessionId.trim();
+  const normalized = providerSessionId.trim();
   return normalized || null;
 }
 
@@ -587,11 +696,11 @@ function normalizeCodexApprovalPolicy(value) {
   return mapped;
 }
 
-async function invokeClaudeModelChat(prompt, operation, packageName) {
+async function invokeClaudeModelChat(prompt, operation, packageName, activity) {
   const moduleNamespace = await loadPackage(packageName);
   if (typeof moduleNamespace.query !== 'function') {
     throw new Error(
-      'claude agent sdk must expose query() to establish and resume provider-native sessions',
+      'claude agent sdk must expose query() to establish and resume provider sessions',
     );
   }
 
@@ -607,14 +716,23 @@ async function invokeClaudeModelChat(prompt, operation, packageName) {
     let text = '';
     let completed = false;
     let resultText = null;
-    let nativeSessionId = null;
+    let providerSessionId = null;
 
     for await (const event of moduleNamespace.query({ prompt, options })) {
-      nativeSessionId = collectProviderNativeSessionId(
+      providerSessionId = collectProviderSessionId(
         'claude_agent_sdk',
-        nativeSessionId,
+        providerSessionId,
         event?.session_id ?? event?.sessionId ?? event?.message?.session_id,
       );
+      if (providerSessionId) {
+        verifyProviderSessionId('claude_agent_sdk', providerSessionId, requestedSessionId);
+        await activity.establish(providerSessionId);
+      }
+      if (event?.type === 'permission_request') {
+        await activity.waiting(providerSessionId, 'approval_required');
+      } else if (event?.type === 'assistant' || event?.type === 'tool_use') {
+        await activity.working(providerSessionId);
+      }
       if (event?.type === 'assistant') {
         text += extractClaudeAssistantText(event);
       }
@@ -637,9 +755,9 @@ async function invokeClaudeModelChat(prompt, operation, packageName) {
     if (!completed) {
       throw new Error('claude agent sdk completed without a successful result event');
     }
-    const verifiedSessionId = verifyProviderNativeSessionId(
+    const verifiedSessionId = verifyProviderSessionId(
       'claude_agent_sdk',
-      nativeSessionId,
+      providerSessionId,
       requestedSessionId,
     );
     const output = resultText ?? text;
@@ -648,13 +766,13 @@ async function invokeClaudeModelChat(prompt, operation, packageName) {
     }
     return liveSuccess(output, operation, {
       package: packageName,
-      native_session_id: verifiedSessionId,
-      [VERIFIED_NATIVE_SESSION_ID]: true,
+      provider_session_id: verifiedSessionId,
+      [VERIFIED_PROVIDER_SESSION_ID]: true,
     });
   });
 }
 
-async function invokeGeminiModelChat(prompt, operation, packageName) {
+async function invokeGeminiModelChat(prompt, operation, packageName, activity) {
   const moduleNamespace = await loadPackage(packageName);
   const Agent = moduleNamespace.GeminiCliAgent;
   if (typeof Agent !== 'function') {
@@ -665,11 +783,22 @@ async function invokeGeminiModelChat(prompt, operation, packageName) {
     const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
     const agent = new Agent(buildGeminiAgentOptions(operation));
     const session = await resolveGeminiSession(agent, requestedSessionId);
+    const verifiedSessionId = verifyProviderSessionId(
+      'gemini_cli_sdk',
+      session?.id,
+      requestedSessionId,
+    );
+    await activity.establish(verifiedSessionId);
     let text = '';
 
     if (typeof session.sendStream === 'function') {
       let completed = false;
       for await (const event of session.sendStream(prompt, abortController.signal)) {
+        if (event?.type === 'elicitation_request') {
+          await activity.waiting(verifiedSessionId, 'user_input_required');
+        } else if (event?.type === 'tool_request' || event?.type === 'content') {
+          await activity.working(verifiedSessionId);
+        }
         if (event?.type === 'error') {
           throw new Error(
             `gemini cli sdk turn failed: ${readProviderError(event?.value?.error ?? event?.error) ?? 'unknown error'}`,
@@ -701,20 +830,15 @@ async function invokeGeminiModelChat(prompt, operation, packageName) {
     if (!text.trim()) {
       throw new Error('gemini cli sdk completed without assistant content');
     }
-    const verifiedSessionId = verifyProviderNativeSessionId(
-      'gemini_cli_sdk',
-      session?.id,
-      requestedSessionId,
-    );
     return liveSuccess(text, operation, {
       package: packageName,
-      native_session_id: verifiedSessionId,
-      [VERIFIED_NATIVE_SESSION_ID]: true,
+      provider_session_id: verifiedSessionId,
+      [VERIFIED_PROVIDER_SESSION_ID]: true,
     });
   });
 }
 
-async function invokeOpencodeModelChat(prompt, operation, packageName) {
+async function invokeOpencodeModelChat(prompt, operation, packageName, activity) {
   const moduleNamespace = await loadPackage(packageName);
   const createOpencode = moduleNamespace.createOpencode;
   const createOpencodeClient = moduleNamespace.createOpencodeClient;
@@ -733,6 +857,7 @@ async function invokeOpencodeModelChat(prompt, operation, packageName) {
         operation,
         packageName,
         abortController.signal,
+        activity,
       );
     }
 
@@ -748,6 +873,7 @@ async function invokeOpencodeModelChat(prompt, operation, packageName) {
           operation,
           packageName,
           abortController.signal,
+          activity,
         );
       } finally {
         await server?.close?.();
@@ -768,6 +894,7 @@ async function invokeOpencodeModelChat(prompt, operation, packageName) {
           operation,
           packageName,
           abortController.signal,
+          activity,
         );
       } finally {
         await server?.close?.();
@@ -830,12 +957,16 @@ function extractClaudeAssistantText(event) {
   return extractTextParts(content);
 }
 
-async function invokeOpencodeClient(client, prompt, operation, packageName, signal) {
+async function invokeOpencodeClient(client, prompt, operation, packageName, signal, activity) {
   if (!client?.session?.prompt || !client?.session?.create) {
     throw new Error('opencode sdk client is missing session.create/session.prompt');
   }
   const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
-  const sessionId = requestedSessionId ?? await createOpencodeSession(client, signal);
+  const createdSessionId = requestedSessionId ? null : await createOpencodeSession(client, signal);
+  const sessionId = requestedSessionId
+    ? await verifyOpencodeSession(client, requestedSessionId, signal)
+    : createdSessionId;
+  await activity.establish(sessionId);
   const response = await client.session.prompt({
     signal,
     path: { id: sessionId },
@@ -854,9 +985,34 @@ async function invokeOpencodeClient(client, prompt, operation, packageName, sign
   }
   return liveSuccess(text, operation, {
     package: packageName,
-    native_session_id: sessionId,
-    [VERIFIED_NATIVE_SESSION_ID]: true,
+    provider_session_id: sessionId,
+    [VERIFIED_PROVIDER_SESSION_ID]: true,
   });
+}
+
+async function verifyOpencodeSession(client, requestedSessionId, signal) {
+  if (typeof client?.session?.get !== 'function') {
+    throw new Error(
+      'opencode sdk client is missing session.get required to verify a resumed provider session',
+    );
+  }
+  const response = await client.session.get({
+    signal,
+    path: { id: requestedSessionId },
+  });
+  const error = readProviderError(response?.error);
+  if (error) {
+    throw new Error(`opencode session.get failed: ${error}`);
+  }
+  const providerSessionId = requireProviderSessionId(
+    'opencode_sdk',
+    response?.data?.id ?? response?.id,
+  );
+  return verifyProviderSessionId(
+    'opencode_sdk',
+    providerSessionId,
+    requestedSessionId,
+  );
 }
 
 async function createOpencodeSession(client, signal) {
@@ -865,7 +1021,7 @@ async function createOpencodeSession(client, signal) {
   if (error) {
     throw new Error(`opencode session.create failed: ${error}`);
   }
-  return requireProviderNativeSessionId('opencode_sdk', created?.data?.id ?? created?.id);
+  return requireProviderSessionId('opencode_sdk', created?.data?.id ?? created?.id);
 }
 
 function buildOpencodePromptBody(operation) {
@@ -891,34 +1047,34 @@ function resolveOpencodeModelSelection(operation) {
   };
 }
 
-function collectProviderNativeSessionId(provider, current, candidate) {
-  const next = readProviderNativeSessionId(candidate);
+function collectProviderSessionId(provider, current, candidate) {
+  const next = readProviderSessionId(candidate);
   if (!next) {
     return current;
   }
   if (current && current !== next) {
-    throw new Error(`${provider} emitted inconsistent provider-native session identities`);
+    throw new Error(`${provider} emitted inconsistent provider session identities`);
   }
   return next;
 }
 
-function verifyProviderNativeSessionId(provider, candidate, requestedSessionId) {
-  const nativeSessionId = requireProviderNativeSessionId(provider, candidate);
-  if (requestedSessionId && nativeSessionId !== requestedSessionId) {
-    throw new Error(`${provider} resumed a different provider-native session than requested`);
+function verifyProviderSessionId(provider, candidate, requestedSessionId) {
+  const providerSessionId = requireProviderSessionId(provider, candidate);
+  if (requestedSessionId && providerSessionId !== requestedSessionId) {
+    throw new Error(`${provider} resumed a different provider session than requested`);
   }
-  return nativeSessionId;
+  return providerSessionId;
 }
 
-function requireProviderNativeSessionId(provider, value) {
-  const nativeSessionId = readProviderNativeSessionId(value);
-  if (!nativeSessionId) {
-    throw new Error(`${provider} completed without a provider-native session id`);
+function requireProviderSessionId(provider, value) {
+  const providerSessionId = readProviderSessionId(value);
+  if (!providerSessionId) {
+    throw new Error(`${provider} completed without a provider session id`);
   }
-  return nativeSessionId;
+  return providerSessionId;
 }
 
-function readProviderNativeSessionId(value) {
+function readProviderSessionId(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
@@ -1014,14 +1170,22 @@ const LIVE_MODEL_CHAT_HANDLERS = {
   openai: invokeOpenClawModelChat,
 };
 
-export async function invokeModelChatLive(packageName, operation) {
+export async function invokeModelChatLive(packageName, operation, options = {}) {
   const handler = LIVE_MODEL_CHAT_HANDLERS[packageName];
   if (!handler) {
     throw new Error(`no live model_chat handler for package ${packageName}`);
   }
 
   const prompt = resolveModelChatPrompt(operation);
-  return handler(prompt, operation, packageName);
+  const activity = options.activityReporter ?? createRuntimeActivityReporter(operation, options.onActivity);
+  try {
+    const result = await handler(prompt, operation, packageName, activity);
+    await activity.succeed(result?.provider_session_id);
+    return result;
+  } catch (error) {
+    await activity.fail();
+    throw error;
+  }
 }
 
 export async function invokeModelChatStreamLive(packageName, operation, options = {}) {
@@ -1030,9 +1194,25 @@ export async function invokeModelChatStreamLive(packageName, operation, options 
     throw new Error('stream onChunk must be a function');
   }
   if (isCodexPackage(packageName)) {
-    return invokeCodexModelChatStream(resolveModelChatPrompt(operation), operation, packageName, onChunk);
+    const activity = createRuntimeActivityReporter(operation, options?.onActivity);
+    try {
+      const result = await invokeCodexModelChatStream(
+        resolveModelChatPrompt(operation),
+        operation,
+        packageName,
+        onChunk,
+        activity,
+      );
+      await activity.succeed(result?.provider_session_id);
+      return result;
+    } catch (error) {
+      await activity.fail();
+      throw error;
+    }
   }
-  const result = buildModelChatStreamResult(await invokeModelChatLive(packageName, operation));
+  const result = buildModelChatStreamResult(
+    await invokeModelChatLive(packageName, operation, { onActivity: options?.onActivity }),
+  );
   if (onChunk) {
     for (const chunk of result.chunks) {
       await onChunk(chunk);
@@ -1045,7 +1225,7 @@ export async function invokeModelChatStreamLive(packageName, operation, options 
   return result;
 }
 
-export async function invokeModelChatRuntime(packageName, operation) {
+export async function invokeModelChatRuntime(packageName, operation, options = {}) {
   const packageProbe = probePackage(packageName);
   const codexPackage = isCodexPackage(packageName);
   const providerCliPackage = isProviderCliPackage(packageName);
@@ -1056,16 +1236,20 @@ export async function invokeModelChatRuntime(packageName, operation) {
       : null;
   let sdkError = null;
   let cliError = null;
+  const activity = createRuntimeActivityReporter(operation, options?.onActivity);
 
   // The CLI transport is the production-complete Codex lane. Prefer it when
   // present so an incomplete or version-skewed SDK facade cannot shadow it.
   if (cliProbe?.available) {
     try {
       const prompt = resolveModelChatPrompt(operation);
+      const onEvent = createCliActivityHandler(packageName, operation, activity);
       const result = codexPackage
-        ? await invokeCodexCliModelChat(operation, { packageName, prompt })
-        : await invokeProviderCliModelChat(packageName, operation, { prompt });
-      return markVerifiedCliNativeSession(result);
+        ? await invokeCodexCliModelChat(operation, { packageName, prompt, onEvent })
+        : await invokeProviderCliModelChat(packageName, operation, { prompt, onEvent });
+      const verified = markVerifiedCliProviderSession(result);
+      await activity.succeed(verified?.provider_session_id);
+      return verified;
     } catch (error) {
       cliError = error;
     }
@@ -1073,7 +1257,7 @@ export async function invokeModelChatRuntime(packageName, operation) {
 
   if (packageProbe.resolved) {
     try {
-      return await invokeModelChatLive(packageName, operation);
+      return await invokeModelChatLive(packageName, operation, { activityReporter: activity });
     } catch (error) {
       sdkError = error;
     }
@@ -1084,6 +1268,7 @@ export async function invokeModelChatRuntime(packageName, operation) {
   }
 
   if (sdkError || cliError) {
+    await activity.fail();
     if (sdkError && cliError) {
       throw new Error(
         `Provider CLI invoke failed (${formatError(cliError)}); Provider SDK invoke failed (${formatError(sdkError)})`,
@@ -1091,18 +1276,91 @@ export async function invokeModelChatRuntime(packageName, operation) {
     }
     throw sdkError ?? cliError;
   }
+  await activity.fail();
   throw new Error(`package not resolved: ${packageName}`);
 }
 
-function markVerifiedCliNativeSession(result) {
-  const nativeSessionId = result?.native_session_id;
-  if (typeof nativeSessionId !== 'string' || !nativeSessionId.trim()) {
+function createCliActivityHandler(packageName, operation, activity) {
+  const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
+  const transport = isCodexPackage(packageName)
+    ? 'codex_cli'
+    : packageName === '@anthropic-ai/claude-agent-sdk'
+      ? 'claude_cli'
+      : packageName === '@google/gemini-cli-sdk'
+        ? 'gemini_cli'
+        : 'opencode_cli';
+
+  return async (event) => {
+    const candidate = cliEventProviderSessionId(packageName, event);
+    const providerSessionId = candidate
+      ? verifyProviderSessionId(transport, candidate, requestedSessionId)
+      : null;
+    const phase = cliEventActivityPhase(packageName, event);
+    if (!phase) {
+      return;
+    }
+    if (phase === 'approval_required' || phase === 'user_input_required') {
+      await activity.waiting(providerSessionId, phase);
+      return;
+    }
+    await activity.working(providerSessionId);
+  };
+}
+
+function cliEventProviderSessionId(packageName, event) {
+  if (isCodexPackage(packageName)) {
+    return event?.thread_id ?? event?.threadId;
+  }
+  if (packageName === '@anthropic-ai/claude-agent-sdk') {
+    return event?.session_id ?? event?.sessionId ?? event?.message?.session_id;
+  }
+  if (packageName === '@google/gemini-cli-sdk') {
+    return event?.session_id ?? event?.sessionId ?? event?.session?.id;
+  }
+  return (
+    event?.sessionID ??
+    event?.session_id ??
+    event?.sessionId ??
+    event?.part?.sessionID ??
+    event?.properties?.sessionID
+  );
+}
+
+function cliEventActivityPhase(packageName, event) {
+  const type = String(event?.type ?? '').trim().toLowerCase();
+  if (isCodexPackage(packageName)) {
+    return ['thread.started', 'turn.started', 'item.started', 'item.updated'].includes(type)
+      ? 'working'
+      : null;
+  }
+  if (packageName === '@anthropic-ai/claude-agent-sdk') {
+    if (type === 'permission_request') {
+      return 'approval_required';
+    }
+    return ['system', 'assistant', 'tool_use'].includes(type) ? 'working' : null;
+  }
+  if (packageName === '@google/gemini-cli-sdk') {
+    if (type === 'elicitation_request') {
+      return 'user_input_required';
+    }
+    return ['init', 'content', 'message', 'tool_request', 'tool_use'].includes(type)
+      ? 'working'
+      : null;
+  }
+  return ['step_start', 'tool_use', 'tool', 'text', 'message'].includes(type)
+    ? 'working'
+    : null;
+}
+
+function markVerifiedCliProviderSession(result) {
+  const providerSessionId = result?.provider_session_id;
+  if (typeof providerSessionId !== 'string' || !providerSessionId.trim()) {
     return result;
   }
   return {
     ...result,
-    native_session_id: nativeSessionId.trim(),
-    [VERIFIED_NATIVE_SESSION_ID]: true,
+    provider_session_id: providerSessionId.trim(),
+    [VERIFIED_PROVIDER_SESSION_ID]: true,
   };
 }
 

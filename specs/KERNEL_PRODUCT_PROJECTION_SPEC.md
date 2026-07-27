@@ -9,7 +9,7 @@ Authority for mapping **sdkwork-kernel** agent/runtime events to **BirdCoder** `
 | Layer | Owns |
 | --- | --- |
 | **sdkwork-kernel** | `agent.*` turn execution, model/tool providers, kernel events, official SDK bindings |
-| **BirdCoder** | `coding_session*`, canonical event dialect, workbench projection, native-session catalog |
+| **BirdCoder** | `coding_session*`, canonical event dialect, workbench projection, provider-session catalog |
 | **Integration boundary** | `sdkwork-birdcoder-kernel-bridge` + `@sdkwork/birdcoder-pc-projection` |
 
 Kernel MUST NOT emit BirdCoder OpenAPI shapes directly. BirdCoder MUST NOT execute agent turns outside the kernel bridge.
@@ -91,7 +91,7 @@ an explicit recovery state rather than a claim of external exactly-once.
 | OpenCode permission / user-question replies (product API) | `sdkwork-birdcoder-kernel-bridge/live_interaction.rs` | `sdkwork-kernel` `agent.live_interaction` |
 | Approval / question during **agent turn** | `sdkwork-birdcoder-kernel-bridge` | `sdkwork-kernel` unified live interaction SPI |
 
-Native-session catalog inventory remains BirdCoder-owned. Live replies route through kernel bridge, not deprecated `pc-chat` paths.
+Provider Session catalog inventory remains BirdCoder-owned. Live replies route through kernel bridge, not deprecated `pc-chat` paths.
 
 ## SDK Runtime Modes (production)
 

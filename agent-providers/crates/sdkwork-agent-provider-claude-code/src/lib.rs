@@ -1,18 +1,21 @@
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult, ModelDescriptor,
     ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStreamChunk,
-    ProviderHealth, ProviderManifest, SessionKind, SessionSource,
+    ProviderHealth, ProviderManifest, SessionActivityEvidenceKind, SessionActivityInteractionHint,
+    SessionActivitySnapshot, SessionActivityState, SessionKind, SessionSource,
 };
 use sdkwork_agent_provider_core::{
-    create_session_from_config, finalize_provider_session_snapshot, uuid_simple, MessageAdapter,
-    SessionAdapter, SessionConfig,
+    create_session_from_config, finalize_provider_session_snapshot,
+    session_activity_from_provider_observation, uuid_simple, MessageAdapter,
+    ProviderSessionActivityAdapter, SessionAdapter, SessionConfig,
+    DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL,
 };
 
-mod native_sessions;
+mod provider_sessions;
 
-pub use native_sessions::{
-    discover_claude_code_native_session_messages, discover_claude_code_native_sessions,
-    read_claude_code_native_session_messages, read_claude_code_native_sessions,
+pub use provider_sessions::{
+    discover_claude_code_provider_session_messages, discover_claude_code_provider_sessions,
+    read_claude_code_provider_session_messages, read_claude_code_provider_sessions,
 };
 
 #[cfg(test)]
@@ -76,6 +79,23 @@ pub struct ClaudeCodeProcessState {
     pub updated_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClaudeCodeHookEventKind {
+    UserPromptSubmit,
+    PreToolUse,
+    PostToolUse,
+    PermissionRequest,
+    Stop,
+    SessionEnd,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClaudeCodeActivityObservation {
+    pub provider_session_id: String,
+    pub event: ClaudeCodeHookEventKind,
+    pub observed_at: String,
+}
+
 pub struct ClaudeCodeAdapter;
 
 impl ClaudeCodeAdapter {
@@ -132,6 +152,36 @@ impl SessionAdapter for ClaudeCodeAdapter {
         session.updated_at = external.updated_at.clone();
 
         finalize_provider_session_snapshot("claude-code", session)
+    }
+}
+
+impl ProviderSessionActivityAdapter for ClaudeCodeAdapter {
+    type ExternalActivity = ClaudeCodeActivityObservation;
+
+    fn to_session_activity(
+        &self,
+        external: &Self::ExternalActivity,
+    ) -> KernelResult<SessionActivitySnapshot> {
+        let (state, interaction_hint) = match external.event {
+            ClaudeCodeHookEventKind::UserPromptSubmit
+            | ClaudeCodeHookEventKind::PreToolUse
+            | ClaudeCodeHookEventKind::PostToolUse => (SessionActivityState::Working, None),
+            ClaudeCodeHookEventKind::PermissionRequest => (
+                SessionActivityState::Waiting,
+                Some(SessionActivityInteractionHint::ApprovalRequired),
+            ),
+            ClaudeCodeHookEventKind::Stop | ClaudeCodeHookEventKind::SessionEnd => {
+                (SessionActivityState::Idle, None)
+            }
+        };
+        session_activity_from_provider_observation(
+            &external.provider_session_id,
+            state,
+            SessionActivityEvidenceKind::ProviderEvent,
+            interaction_hint,
+            &external.observed_at,
+            DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL,
+        )
     }
 }
 
@@ -367,6 +417,40 @@ mod tests {
             created_at: Some("2026-01-01T00:00:00Z".to_string()),
             updated_at: Some("2026-01-01T01:00:00Z".to_string()),
         }
+    }
+
+    #[test]
+    fn hook_events_project_fresh_activity_without_history_heuristics() {
+        let adapter = ClaudeCodeAdapter::new();
+        let waiting = adapter
+            .to_session_activity(&ClaudeCodeActivityObservation {
+                provider_session_id: "cc.session.1".to_string(),
+                event: ClaudeCodeHookEventKind::PermissionRequest,
+                observed_at: sdkwork_agent_provider_core::now_iso(),
+            })
+            .expect("waiting activity");
+        let stale = adapter
+            .to_session_activity(&ClaudeCodeActivityObservation {
+                provider_session_id: "cc.session.1".to_string(),
+                event: ClaudeCodeHookEventKind::PreToolUse,
+                observed_at: "2000-01-01T00:00:00Z".to_string(),
+            })
+            .expect("stale activity");
+
+        assert_eq!(waiting.state, Some(SessionActivityState::Waiting));
+        assert_eq!(
+            waiting.interaction_hint,
+            Some(SessionActivityInteractionHint::ApprovalRequired)
+        );
+        assert!(waiting.is_authoritative());
+        assert_eq!(
+            stale.freshness,
+            sdkwork_agent_kernel::SessionActivityFreshness::Stale
+        );
+        assert_eq!(
+            stale.project_lifecycle_state(SessionState::Active),
+            SessionState::Created
+        );
     }
 
     // --- Session Adapter Tests ---

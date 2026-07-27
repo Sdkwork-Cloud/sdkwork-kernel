@@ -6,10 +6,11 @@ mod worker_pool;
 mod worker_process;
 
 pub use protocol::{
-    is_stream_chunk_frame, is_stream_terminal_frame, stream_chunk_frame, stream_done_frame,
+    invoke_done_frame, is_invoke_terminal_frame, is_session_activity_frame, is_stream_chunk_frame,
+    is_stream_terminal_frame, stream_chunk_frame, stream_done_frame,
     stream_done_frame_with_completion, JsonRpcErrorObject, JsonRpcRequest, JsonRpcResponse,
-    SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_PING_METHOD, SDKWORK_STREAM_EVENT_CHUNK,
-    SDKWORK_STREAM_EVENT_DONE,
+    SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_INVOKE_EVENT_DONE, SDKWORK_PING_METHOD,
+    SDKWORK_SESSION_ACTIVITY_EVENT, SDKWORK_STREAM_EVENT_CHUNK, SDKWORK_STREAM_EVENT_DONE,
 };
 pub use transport::{
     expand_buffered_stream_payload, provider_worker_concurrency_limit,

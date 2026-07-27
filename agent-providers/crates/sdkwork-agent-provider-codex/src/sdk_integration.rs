@@ -1,8 +1,18 @@
-use crate::{CodexAdapter, CodexLifecycleProvider, CodexMessageAdapter, CodexModelProvider};
+use crate::{
+    CodexAdapter, CodexLifecycleProvider, CodexMessageAdapter, CodexModelProvider,
+    CodexThreadActivityObservation,
+};
+use sdkwork_agent_kernel::{
+    KernelResult, ProviderSessionActivityProvider, SessionActivitySnapshot,
+};
+use sdkwork_agent_provider_core::{
+    InMemoryProviderSessionActivityProvider, ProviderSessionActivityAdapter,
+};
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
-    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider, SdkRuntimeRequest,
-    SdkRuntimeResponse, SdkRuntimeRouter, CODEX_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
+    DriverRegistry, ProviderSessionActivityRuntimeSink, SdkNegotiationError,
+    SdkRuntimeBackedModelProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
+    CODEX_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -28,6 +38,7 @@ pub struct CodexSdkIntegration {
     pub model: SdkRuntimeBackedModelProvider,
     pub session_adapter: CodexAdapter,
     pub message_adapter: CodexMessageAdapter,
+    activity: Arc<InMemoryProviderSessionActivityProvider>,
 }
 
 impl CodexSdkIntegration {
@@ -43,15 +54,19 @@ impl CodexSdkIntegration {
             "codex-1",
         ));
 
+        let activity = Arc::new(InMemoryProviderSessionActivityProvider::new());
+        let runtime_activity_sink =
+            Arc::new(ProviderSessionActivityRuntimeSink::new(activity.clone()));
         let mut bootstrap = ProviderTransportBootstrap::new();
         bootstrap.register_host(Arc::new(RustNativeTransportHost::new("codex-core")));
         bootstrap.register_host(Arc::new(TypeScriptNodeTransportHost::new(
             "@openai/codex-sdk",
         )));
         bootstrap.register_host(Arc::new(IpcProtocolTransportHost::new("jsonrpc_stdio")));
-        bootstrap.with_typescript_runtime(Arc::new(NodeSdkBackendRuntime::bootstrap(
-            "@openai/codex-sdk",
-        )));
+        bootstrap.with_typescript_runtime(Arc::new(
+            NodeSdkBackendRuntime::bootstrap("@openai/codex-sdk")
+                .with_activity_sink(runtime_activity_sink),
+        ));
         bootstrap.with_rust_runtime(Arc::new(InProcessRustSdkRuntime::new(rust_handler)));
         let (transports, runtime) = bootstrap.finalize_pair(negotiation.clone())?;
 
@@ -70,6 +85,7 @@ impl CodexSdkIntegration {
             model,
             session_adapter: CodexAdapter::new(),
             message_adapter: CodexMessageAdapter::new(),
+            activity,
         })
     }
 
@@ -83,12 +99,38 @@ impl CodexSdkIntegration {
     ) -> Result<SdkRuntimeResponse, sdkwork_agent_provider_spi::SdkRuntimeError> {
         self.runtime.invoke(request)
     }
+
+    /// Records one status returned by the live Codex app-server thread API.
+    pub fn record_provider_session_activity(
+        &self,
+        observation: &CodexThreadActivityObservation,
+    ) -> KernelResult<SessionActivitySnapshot> {
+        self.activity
+            .record(self.session_adapter.to_session_activity(observation)?)
+    }
+
+    pub fn provider_session_activity_provider(&self) -> Arc<dyn ProviderSessionActivityProvider> {
+        self.activity.clone()
+    }
+}
+
+impl ProviderSessionActivityProvider for CodexSdkIntegration {
+    fn get_provider_session_activity(
+        &self,
+        provider_session_id: &str,
+    ) -> KernelResult<SessionActivitySnapshot> {
+        self.activity
+            .get_provider_session_activity(provider_session_id)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sdkwork_agent_kernel::{ModelProvider, ModelRequest};
+    use sdkwork_agent_kernel::{
+        ModelProvider, ModelRequest, SessionActivityFreshness, SessionActivityInteractionHint,
+        SessionActivityState,
+    };
     use sdkwork_agent_provider_spi::SdkBackendKind;
 
     #[test]
@@ -140,5 +182,45 @@ mod tests {
             .messages
             .iter()
             .any(|message| message.contains("Mock response")));
+    }
+
+    #[test]
+    fn runtime_activity_capability_records_queries_and_expires_codex_status() {
+        let integration = CodexSdkIntegration::bootstrap().expect("bootstrap should succeed");
+        integration
+            .record_provider_session_activity(&CodexThreadActivityObservation {
+                provider_session_id: "codex.provider.1".to_string(),
+                status: crate::CodexThreadRuntimeStatus::Active {
+                    active_flags: vec![crate::CodexThreadActiveFlag::WaitingOnApproval],
+                },
+                observed_at: sdkwork_agent_provider_core::now_iso(),
+            })
+            .expect("record activity");
+        let waiting = integration
+            .get_provider_session_activity("codex.provider.1")
+            .expect("query activity");
+        integration
+            .record_provider_session_activity(&CodexThreadActivityObservation {
+                provider_session_id: "codex.provider.stale".to_string(),
+                status: crate::CodexThreadRuntimeStatus::Active {
+                    active_flags: Vec::new(),
+                },
+                observed_at: "2000-01-01T00:00:00Z".to_string(),
+            })
+            .expect("record stale activity");
+        let stale = integration
+            .get_provider_session_activity("codex.provider.stale")
+            .expect("query stale activity");
+        let unknown = integration
+            .get_provider_session_activity("codex.provider.unknown")
+            .expect("query unknown activity");
+
+        assert_eq!(waiting.state, Some(SessionActivityState::Waiting));
+        assert_eq!(
+            waiting.interaction_hint,
+            Some(SessionActivityInteractionHint::ApprovalRequired)
+        );
+        assert_eq!(stale.freshness, SessionActivityFreshness::Stale);
+        assert_eq!(unknown.freshness, SessionActivityFreshness::Unsupported);
     }
 }

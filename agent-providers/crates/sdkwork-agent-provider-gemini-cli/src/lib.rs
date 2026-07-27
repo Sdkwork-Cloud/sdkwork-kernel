@@ -1,13 +1,22 @@
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
     ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
-    ModelStreamChunk, ProviderHealth, ProviderManifest, SessionKind, SessionSource,
-    SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
+    ModelStreamChunk, ProviderHealth, ProviderManifest, SessionActivityEvidenceKind,
+    SessionActivityInteractionHint, SessionActivitySnapshot, SessionActivityState, SessionKind,
+    SessionSource, SideEffectLevel, ToolCall, ToolDescriptor, ToolProvider, ToolResult, ToolSchema,
 };
 use sdkwork_agent_provider_core::{
-    create_session_from_config, finalize_provider_session_snapshot, uuid_simple, MessageAdapter,
-    SessionAdapter, SessionConfig,
+    create_session_from_config, finalize_provider_session_snapshot,
+    session_activity_from_provider_observation, uuid_simple, MessageAdapter,
+    ProviderSessionActivityAdapter, SessionAdapter, SessionConfig,
+    DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL,
 };
+
+mod agent_definition;
+mod conformance;
+pub mod ids;
+mod manifest;
+mod package;
 
 // ============================================================================
 // Gemini CLI Message Types
@@ -59,6 +68,22 @@ pub struct GeminiConversationRecord {
     pub memory_scratchpad: Option<String>,
     pub model: Option<String>,
     pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GeminiAgentEventKind {
+    AgentStart,
+    AgentEnd,
+    ToolRequest,
+    ElicitationRequest,
+    FatalError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeminiActivityObservation {
+    pub provider_session_id: String,
+    pub event: GeminiAgentEventKind,
+    pub observed_at: String,
 }
 
 pub struct GeminiCliAdapter;
@@ -117,6 +142,35 @@ impl SessionAdapter for GeminiCliAdapter {
         session.summary = external.summary.clone();
 
         finalize_provider_session_snapshot("gemini-cli", session)
+    }
+}
+
+impl ProviderSessionActivityAdapter for GeminiCliAdapter {
+    type ExternalActivity = GeminiActivityObservation;
+
+    fn to_session_activity(
+        &self,
+        external: &Self::ExternalActivity,
+    ) -> KernelResult<SessionActivitySnapshot> {
+        let (state, interaction_hint) = match external.event {
+            GeminiAgentEventKind::AgentStart | GeminiAgentEventKind::ToolRequest => {
+                (SessionActivityState::Working, None)
+            }
+            GeminiAgentEventKind::ElicitationRequest => (
+                SessionActivityState::Waiting,
+                Some(SessionActivityInteractionHint::UserInputRequired),
+            ),
+            GeminiAgentEventKind::AgentEnd => (SessionActivityState::Idle, None),
+            GeminiAgentEventKind::FatalError => (SessionActivityState::Failed, None),
+        };
+        session_activity_from_provider_observation(
+            &external.provider_session_id,
+            state,
+            SessionActivityEvidenceKind::ProviderEvent,
+            interaction_hint,
+            &external.observed_at,
+            DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL,
+        )
     }
 }
 
@@ -415,6 +469,39 @@ mod tests {
             memory_scratchpad: Some("remember: use traits".to_string()),
             model: Some("gemini-2.5-pro".to_string()),
             title: Some("Rust Help".to_string()),
+        }
+    }
+
+    #[test]
+    fn agent_events_project_activity_across_work_wait_and_completion() {
+        let adapter = GeminiCliAdapter::new();
+        let observed_at = sdkwork_agent_provider_core::now_iso();
+        let cases = [
+            (
+                GeminiAgentEventKind::AgentStart,
+                SessionActivityState::Working,
+            ),
+            (
+                GeminiAgentEventKind::ElicitationRequest,
+                SessionActivityState::Waiting,
+            ),
+            (GeminiAgentEventKind::AgentEnd, SessionActivityState::Idle),
+            (
+                GeminiAgentEventKind::FatalError,
+                SessionActivityState::Failed,
+            ),
+        ];
+
+        for (event, expected) in cases {
+            let activity = adapter
+                .to_session_activity(&GeminiActivityObservation {
+                    provider_session_id: "gemini.conv.1".to_string(),
+                    event,
+                    observed_at: observed_at.clone(),
+                })
+                .expect("Gemini activity");
+            assert_eq!(activity.state, Some(expected));
+            assert!(activity.is_authoritative());
         }
     }
 
@@ -775,4 +862,9 @@ mod tests {
 }
 
 pub mod sdk_integration;
+pub use agent_definition::{gemini_cli_agent_definition, gemini_cli_agent_manifest};
+pub use manifest::{
+    gemini_cli_kernel_plugin_manifest, gemini_cli_provider_manifests, GeminiCliKernelPlugin,
+};
+pub use package::gemini_cli_package_manifest;
 pub use sdk_integration::{gemini_cli_binding_manifest, GeminiCliSdkIntegration};

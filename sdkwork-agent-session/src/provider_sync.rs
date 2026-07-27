@@ -846,12 +846,12 @@ mod tests {
     #[test]
     fn missing_snapshot_after_change_converges_to_delete() {
         let manager = UnifiedSessionManager::new(InMemoryDatabase::new());
-        let mut native_session = sdkwork_agent_kernel::AgentSession::new("test.session.missing")
+        let mut provider_session = sdkwork_agent_kernel::AgentSession::new("test.session.missing")
             .with_agent_id("agent.test")
             .created_at("2026-07-15T00:00:00Z");
-        native_session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
+        provider_session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
         let session = manager
-            .synchronize_provider_session("test", None, &native_session)
+            .synchronize_provider_session("test", None, &provider_session)
             .expect("session");
         let provider = MissingSnapshotProvider {
             session_id: session.session_id.clone(),
@@ -875,15 +875,15 @@ mod tests {
     #[test]
     fn missing_snapshot_cannot_delete_another_providers_session() {
         let manager = UnifiedSessionManager::new(InMemoryDatabase::new());
-        let mut native_session = sdkwork_agent_kernel::AgentSession::new("shared.session.id")
+        let mut provider_session = sdkwork_agent_kernel::AgentSession::new("shared.session.id")
             .with_agent_id("agent.codex")
             .created_at("2026-07-15T00:00:00Z");
-        native_session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
+        provider_session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
         manager
-            .synchronize_provider_session("codex", None, &native_session)
+            .synchronize_provider_session("codex", None, &provider_session)
             .expect("codex session");
         let provider = MissingSnapshotProvider {
-            session_id: native_session.session_id.clone(),
+            session_id: provider_session.session_id.clone(),
             batch: None,
             inventory: Vec::new(),
         };
@@ -898,7 +898,7 @@ mod tests {
         )
         .expect_err("cross-provider delete");
         assert!(error.contains("already belongs to provider codex"));
-        assert!(manager.get_session(&native_session.session_id).is_ok());
+        assert!(manager.get_session(&provider_session.session_id).is_ok());
     }
 
     #[test]

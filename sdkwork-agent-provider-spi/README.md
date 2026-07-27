@@ -29,8 +29,8 @@ SPI. It forwards `ModelStreamChunk` values through the normal sink and returns
 `SdkRuntimeStreamCompletion` only after a correlated `stream.done` frame.
 
 The terminal frame must carry the active `model_request_id`. A
-`native_session_id` is optional and is accepted only when the provider runtime
-actually created or resumed that native session. Product facades must keep an
-initial turn invoke-only unless the completion proves a non-empty native
-session id. No adapter may invent a native id to make streaming appear
+`provider_session_id` is optional and is accepted only when the provider runtime
+actually created or resumed that provider session. Product facades must keep an
+initial turn invoke-only unless the completion proves a non-empty provider
+Session ID. No adapter may invent a provider Session ID to make streaming appear
 resumable.

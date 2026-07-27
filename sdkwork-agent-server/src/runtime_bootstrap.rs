@@ -1,11 +1,14 @@
 use sdkwork_agent_kernel::{AgentRuntime, KernelError, KernelResult, RuntimeBuilder};
 use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
+use sdkwork_agent_provider_claude_code::{ids as claude_code_ids, ClaudeCodeKernelPlugin};
 use sdkwork_agent_provider_codex::{ids as codex_ids, CodexKernelPlugin};
+use sdkwork_agent_provider_gemini_cli::{ids as gemini_cli_ids, GeminiCliKernelPlugin};
 use sdkwork_agent_provider_hermes::{ids as hermes_ids, HermesKernelPlugin};
 use sdkwork_agent_provider_openclaw::{ids as openclaw_ids, OpenClawKernelPlugin};
+use sdkwork_agent_provider_opencode::{ids as opencode_ids, OpenCodeKernelPlugin};
 use sdkwork_agent_provider_rig::{ids as rig_ids, RigKernelPlugin};
 
-/// Environment variable selecting the active kernel agent plugin (`rig`, `openclaw`, `hermes`, `codex`).
+/// Environment variable selecting the active kernel agent plugin.
 pub const KERNEL_AGENT_PLUGIN_ENV: &str = "SDKWORK_KERNEL_AGENT_PLUGIN";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -14,6 +17,9 @@ pub enum KernelAgentPluginKind {
     OpenClaw,
     Hermes,
     Codex,
+    ClaudeCode,
+    OpenCode,
+    GeminiCli,
 }
 
 pub fn kernel_agent_plugin_kind_from_env() -> KernelAgentPluginKind {
@@ -29,6 +35,9 @@ pub fn parse_kernel_agent_plugin_kind(value: &str) -> Option<KernelAgentPluginKi
         "openclaw" | "open-claw" => Some(KernelAgentPluginKind::OpenClaw),
         "hermes" | "hermes-agent" => Some(KernelAgentPluginKind::Hermes),
         "codex" | "openai-codex" => Some(KernelAgentPluginKind::Codex),
+        "claude" | "claude-code" => Some(KernelAgentPluginKind::ClaudeCode),
+        "opencode" | "open-code" => Some(KernelAgentPluginKind::OpenCode),
+        "gemini" | "gemini-cli" => Some(KernelAgentPluginKind::GeminiCli),
         _ => None,
     }
 }
@@ -40,6 +49,9 @@ pub fn bootstrap_agent_runtime() -> KernelResult<AgentRuntime> {
         KernelAgentPluginKind::OpenClaw => bootstrap_openclaw_runtime(),
         KernelAgentPluginKind::Hermes => bootstrap_hermes_runtime(),
         KernelAgentPluginKind::Codex => bootstrap_codex_runtime(),
+        KernelAgentPluginKind::ClaudeCode => bootstrap_claude_code_runtime(),
+        KernelAgentPluginKind::OpenCode => bootstrap_opencode_runtime(),
+        KernelAgentPluginKind::GeminiCli => bootstrap_gemini_cli_runtime(),
     }
 }
 
@@ -61,6 +73,30 @@ fn bootstrap_hermes_runtime() -> KernelResult<AgentRuntime> {
 
 fn bootstrap_codex_runtime() -> KernelResult<AgentRuntime> {
     bootstrap_plugin_runtime(&CodexKernelPlugin::new(), codex_ids::AGENT_ID, "codex")
+}
+
+fn bootstrap_claude_code_runtime() -> KernelResult<AgentRuntime> {
+    bootstrap_plugin_runtime(
+        &ClaudeCodeKernelPlugin::new(),
+        claude_code_ids::AGENT_ID,
+        "claude-code",
+    )
+}
+
+fn bootstrap_opencode_runtime() -> KernelResult<AgentRuntime> {
+    bootstrap_plugin_runtime(
+        &OpenCodeKernelPlugin::new(),
+        opencode_ids::AGENT_ID,
+        "opencode",
+    )
+}
+
+fn bootstrap_gemini_cli_runtime() -> KernelResult<AgentRuntime> {
+    bootstrap_plugin_runtime(
+        &GeminiCliKernelPlugin::new(),
+        gemini_cli_ids::AGENT_ID,
+        "gemini-cli",
+    )
 }
 
 fn bootstrap_plugin_runtime(
@@ -106,6 +142,18 @@ mod tests {
             parse_kernel_agent_plugin_kind("openai-codex"),
             Some(KernelAgentPluginKind::Codex)
         );
+        assert_eq!(
+            parse_kernel_agent_plugin_kind("claude-code"),
+            Some(KernelAgentPluginKind::ClaudeCode)
+        );
+        assert_eq!(
+            parse_kernel_agent_plugin_kind("open-code"),
+            Some(KernelAgentPluginKind::OpenCode)
+        );
+        assert_eq!(
+            parse_kernel_agent_plugin_kind("gemini"),
+            Some(KernelAgentPluginKind::GeminiCli)
+        );
         assert_eq!(parse_kernel_agent_plugin_kind("unknown"), None);
     }
 
@@ -148,5 +196,47 @@ mod tests {
         assert!(runtime
             .model_provider_ids()
             .contains(&codex_ids::MODEL_PROVIDER_ID.to_string()));
+        assert!(runtime
+            .provider_session_activity_provider_ids()
+            .contains(&codex_ids::MODEL_PROVIDER_ID.to_string()));
+    }
+
+    #[test]
+    fn bootstrap_selects_claude_code_plugin_from_env() {
+        let _lock = lock();
+        let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, Some("claude-code"));
+        let runtime = bootstrap_agent_runtime().expect("claude-code runtime should bootstrap");
+        assert!(runtime
+            .model_provider_ids()
+            .contains(&claude_code_ids::MODEL_PROVIDER_ID.to_string()));
+        assert!(runtime
+            .provider_session_activity_provider_ids()
+            .contains(&claude_code_ids::MODEL_PROVIDER_ID.to_string()));
+    }
+
+    #[test]
+    fn bootstrap_selects_opencode_plugin_from_env() {
+        let _lock = lock();
+        let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, Some("opencode"));
+        let runtime = bootstrap_agent_runtime().expect("opencode runtime should bootstrap");
+        assert!(runtime
+            .model_provider_ids()
+            .contains(&opencode_ids::MODEL_PROVIDER_ID.to_string()));
+        assert!(runtime
+            .provider_session_activity_provider_ids()
+            .contains(&opencode_ids::MODEL_PROVIDER_ID.to_string()));
+    }
+
+    #[test]
+    fn bootstrap_selects_gemini_cli_plugin_from_env() {
+        let _lock = lock();
+        let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, Some("gemini-cli"));
+        let runtime = bootstrap_agent_runtime().expect("gemini-cli runtime should bootstrap");
+        assert!(runtime
+            .model_provider_ids()
+            .contains(&gemini_cli_ids::MODEL_PROVIDER_ID.to_string()));
+        assert!(runtime
+            .provider_session_activity_provider_ids()
+            .contains(&gemini_cli_ids::MODEL_PROVIDER_ID.to_string()));
     }
 }

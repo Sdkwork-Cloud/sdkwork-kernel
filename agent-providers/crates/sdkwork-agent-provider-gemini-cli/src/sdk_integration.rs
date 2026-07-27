@@ -1,12 +1,19 @@
 use crate::{
-    GeminiCliAdapter, GeminiCliLifecycleProvider, GeminiMessageAdapter, GeminiModelProvider,
-    GeminiToolProvider,
+    ids, GeminiActivityObservation, GeminiCliAdapter, GeminiCliLifecycleProvider,
+    GeminiMessageAdapter, GeminiModelProvider, GeminiToolProvider,
+};
+use sdkwork_agent_kernel::{
+    KernelResult, ProviderSessionActivityProvider, SessionActivitySnapshot,
+};
+use sdkwork_agent_provider_core::{
+    InMemoryProviderSessionActivityProvider, ProviderSessionActivityAdapter,
 };
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
-    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
-    SdkRuntimeBackedToolProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
-    GEMINI_CLI_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT, SDK_CAPABILITY_TOOL_INVOKE,
+    DriverRegistry, ProviderSessionActivityRuntimeSink, SdkNegotiationError,
+    SdkRuntimeBackedModelProvider, SdkRuntimeBackedToolProvider, SdkRuntimeRequest,
+    SdkRuntimeResponse, SdkRuntimeRouter, GEMINI_CLI_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
+    SDK_CAPABILITY_TOOL_INVOKE,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -32,6 +39,7 @@ pub struct GeminiCliSdkIntegration {
     pub tools: SdkRuntimeBackedToolProvider,
     pub session_adapter: GeminiCliAdapter,
     pub message_adapter: GeminiMessageAdapter,
+    activity: Arc<InMemoryProviderSessionActivityProvider>,
 }
 
 impl GeminiCliSdkIntegration {
@@ -41,14 +49,18 @@ impl GeminiCliSdkIntegration {
         let mut bindings = BindingRegistry::new();
         let negotiation = bootstrap_binding(manifest, &mut drivers, &mut bindings)?;
 
+        let activity = Arc::new(InMemoryProviderSessionActivityProvider::new());
+        let runtime_activity_sink =
+            Arc::new(ProviderSessionActivityRuntimeSink::new(activity.clone()));
         let mut bootstrap = ProviderTransportBootstrap::new();
         bootstrap.register_host(Arc::new(TypeScriptNodeTransportHost::new(
             "@google/gemini-cli-sdk",
         )));
         bootstrap.register_host(Arc::new(IpcProtocolTransportHost::new("jsonrpc_stdio")));
-        bootstrap.with_typescript_runtime(Arc::new(NodeSdkBackendRuntime::bootstrap(
-            "@google/gemini-cli-sdk",
-        )));
+        bootstrap.with_typescript_runtime(Arc::new(
+            NodeSdkBackendRuntime::bootstrap("@google/gemini-cli-sdk")
+                .with_activity_sink(runtime_activity_sink),
+        ));
         let (transports, runtime) = bootstrap.finalize_pair(negotiation.clone())?;
 
         let inner_model = Arc::new(GeminiModelProvider::new());
@@ -57,7 +69,7 @@ impl GeminiCliSdkIntegration {
             runtime.clone(),
             inner_model,
             SDK_CAPABILITY_MODEL_CHAT,
-            "provider.model.gemini-cli",
+            ids::MODEL_PROVIDER_ID,
         );
         let tools = SdkRuntimeBackedToolProvider::new(
             runtime.clone(),
@@ -74,6 +86,7 @@ impl GeminiCliSdkIntegration {
             tools,
             session_adapter: GeminiCliAdapter::new(),
             message_adapter: GeminiMessageAdapter::new(),
+            activity,
         })
     }
 
@@ -87,12 +100,38 @@ impl GeminiCliSdkIntegration {
     ) -> Result<SdkRuntimeResponse, sdkwork_agent_provider_spi::SdkRuntimeError> {
         self.runtime.invoke(request)
     }
+
+    /// Records one Gemini CLI `AgentEvent` emitted by the live runtime.
+    pub fn record_provider_session_activity(
+        &self,
+        observation: &GeminiActivityObservation,
+    ) -> KernelResult<SessionActivitySnapshot> {
+        self.activity
+            .record(self.session_adapter.to_session_activity(observation)?)
+    }
+
+    pub fn provider_session_activity_provider(&self) -> Arc<dyn ProviderSessionActivityProvider> {
+        self.activity.clone()
+    }
+}
+
+impl ProviderSessionActivityProvider for GeminiCliSdkIntegration {
+    fn get_provider_session_activity(
+        &self,
+        provider_session_id: &str,
+    ) -> KernelResult<SessionActivitySnapshot> {
+        self.activity
+            .get_provider_session_activity(provider_session_id)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sdkwork_agent_kernel::{ModelProvider, ModelRequest};
+    use sdkwork_agent_kernel::{
+        ModelProvider, ModelRequest, SessionActivityFreshness, SessionActivityInteractionHint,
+        SessionActivityState,
+    };
     use sdkwork_agent_provider_spi::SdkBackendKind;
 
     #[test]
@@ -120,5 +159,41 @@ mod tests {
             .messages
             .iter()
             .any(|message| message.contains("Mock response")));
+    }
+
+    #[test]
+    fn runtime_activity_capability_records_queries_and_expires_gemini_events() {
+        let integration = GeminiCliSdkIntegration::bootstrap().expect("bootstrap should succeed");
+        integration
+            .record_provider_session_activity(&GeminiActivityObservation {
+                provider_session_id: "gemini.provider.1".to_string(),
+                event: crate::GeminiAgentEventKind::ElicitationRequest,
+                observed_at: sdkwork_agent_provider_core::now_iso(),
+            })
+            .expect("record activity");
+        let waiting = integration
+            .get_provider_session_activity("gemini.provider.1")
+            .expect("query activity");
+        integration
+            .record_provider_session_activity(&GeminiActivityObservation {
+                provider_session_id: "gemini.provider.stale".to_string(),
+                event: crate::GeminiAgentEventKind::AgentStart,
+                observed_at: "2000-01-01T00:00:00Z".to_string(),
+            })
+            .expect("record stale activity");
+        let stale = integration
+            .get_provider_session_activity("gemini.provider.stale")
+            .expect("query stale activity");
+        let unknown = integration
+            .get_provider_session_activity("gemini.provider.unknown")
+            .expect("query unknown activity");
+
+        assert_eq!(waiting.state, Some(SessionActivityState::Waiting));
+        assert_eq!(
+            waiting.interaction_hint,
+            Some(SessionActivityInteractionHint::UserInputRequired)
+        );
+        assert_eq!(stale.freshness, SessionActivityFreshness::Stale);
+        assert_eq!(unknown.freshness, SessionActivityFreshness::Unsupported);
     }
 }

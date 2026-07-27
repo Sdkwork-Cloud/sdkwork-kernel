@@ -1,10 +1,18 @@
 use crate::{
-    ClaudeCodeAdapter, ClaudeCodeLifecycleProvider, ClaudeMessageAdapter, ClaudeModelProvider,
+    ClaudeCodeActivityObservation, ClaudeCodeAdapter, ClaudeCodeLifecycleProvider,
+    ClaudeMessageAdapter, ClaudeModelProvider,
+};
+use sdkwork_agent_kernel::{
+    KernelResult, ProviderSessionActivityProvider, SessionActivitySnapshot,
+};
+use sdkwork_agent_provider_core::{
+    InMemoryProviderSessionActivityProvider, ProviderSessionActivityAdapter,
 };
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
-    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider, SdkRuntimeRequest,
-    SdkRuntimeResponse, SdkRuntimeRouter, CLAUDE_CODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
+    DriverRegistry, ProviderSessionActivityRuntimeSink, SdkNegotiationError,
+    SdkRuntimeBackedModelProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
+    CLAUDE_CODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -29,6 +37,7 @@ pub struct ClaudeCodeSdkIntegration {
     pub model: SdkRuntimeBackedModelProvider,
     pub session_adapter: ClaudeCodeAdapter,
     pub message_adapter: ClaudeMessageAdapter,
+    activity: Arc<InMemoryProviderSessionActivityProvider>,
 }
 
 impl ClaudeCodeSdkIntegration {
@@ -38,14 +47,18 @@ impl ClaudeCodeSdkIntegration {
         let mut bindings = BindingRegistry::new();
         let negotiation = bootstrap_binding(manifest, &mut drivers, &mut bindings)?;
 
+        let activity = Arc::new(InMemoryProviderSessionActivityProvider::new());
+        let runtime_activity_sink =
+            Arc::new(ProviderSessionActivityRuntimeSink::new(activity.clone()));
         let mut bootstrap = ProviderTransportBootstrap::new();
         bootstrap.register_host(Arc::new(TypeScriptNodeTransportHost::new(
             "@anthropic-ai/claude-agent-sdk",
         )));
         bootstrap.register_host(Arc::new(IpcProtocolTransportHost::new("jsonrpc_stdio")));
-        bootstrap.with_typescript_runtime(Arc::new(NodeSdkBackendRuntime::bootstrap(
-            "@anthropic-ai/claude-agent-sdk",
-        )));
+        bootstrap.with_typescript_runtime(Arc::new(
+            NodeSdkBackendRuntime::bootstrap("@anthropic-ai/claude-agent-sdk")
+                .with_activity_sink(runtime_activity_sink),
+        ));
         let (transports, runtime) = bootstrap.finalize_pair(negotiation.clone())?;
 
         let inner_model = Arc::new(ClaudeModelProvider::new());
@@ -64,6 +77,7 @@ impl ClaudeCodeSdkIntegration {
             model,
             session_adapter: ClaudeCodeAdapter::new(),
             message_adapter: ClaudeMessageAdapter::new(),
+            activity,
         })
     }
 
@@ -77,12 +91,38 @@ impl ClaudeCodeSdkIntegration {
     ) -> Result<SdkRuntimeResponse, sdkwork_agent_provider_spi::SdkRuntimeError> {
         self.runtime.invoke(request)
     }
+
+    /// Records one Claude Code hook event received by the runtime host.
+    pub fn record_provider_session_activity(
+        &self,
+        observation: &ClaudeCodeActivityObservation,
+    ) -> KernelResult<SessionActivitySnapshot> {
+        self.activity
+            .record(self.session_adapter.to_session_activity(observation)?)
+    }
+
+    pub fn provider_session_activity_provider(&self) -> Arc<dyn ProviderSessionActivityProvider> {
+        self.activity.clone()
+    }
+}
+
+impl ProviderSessionActivityProvider for ClaudeCodeSdkIntegration {
+    fn get_provider_session_activity(
+        &self,
+        provider_session_id: &str,
+    ) -> KernelResult<SessionActivitySnapshot> {
+        self.activity
+            .get_provider_session_activity(provider_session_id)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sdkwork_agent_kernel::{ModelProvider, ModelRequest};
+    use sdkwork_agent_kernel::{
+        ModelProvider, ModelRequest, SessionActivityFreshness, SessionActivityInteractionHint,
+        SessionActivityState,
+    };
     use sdkwork_agent_provider_spi::SdkBackendKind;
 
     #[test]
@@ -110,5 +150,41 @@ mod tests {
             .messages
             .iter()
             .any(|message| message.contains("Mock response")));
+    }
+
+    #[test]
+    fn runtime_activity_capability_records_queries_and_expires_claude_hooks() {
+        let integration = ClaudeCodeSdkIntegration::bootstrap().expect("bootstrap should succeed");
+        integration
+            .record_provider_session_activity(&ClaudeCodeActivityObservation {
+                provider_session_id: "claude.provider.1".to_string(),
+                event: crate::ClaudeCodeHookEventKind::PermissionRequest,
+                observed_at: sdkwork_agent_provider_core::now_iso(),
+            })
+            .expect("record activity");
+        let waiting = integration
+            .get_provider_session_activity("claude.provider.1")
+            .expect("query activity");
+        integration
+            .record_provider_session_activity(&ClaudeCodeActivityObservation {
+                provider_session_id: "claude.provider.stale".to_string(),
+                event: crate::ClaudeCodeHookEventKind::PreToolUse,
+                observed_at: "2000-01-01T00:00:00Z".to_string(),
+            })
+            .expect("record stale activity");
+        let stale = integration
+            .get_provider_session_activity("claude.provider.stale")
+            .expect("query stale activity");
+        let unknown = integration
+            .get_provider_session_activity("claude.provider.unknown")
+            .expect("query unknown activity");
+
+        assert_eq!(waiting.state, Some(SessionActivityState::Waiting));
+        assert_eq!(
+            waiting.interaction_hint,
+            Some(SessionActivityInteractionHint::ApprovalRequired)
+        );
+        assert_eq!(stale.freshness, SessionActivityFreshness::Stale);
+        assert_eq!(unknown.freshness, SessionActivityFreshness::Unsupported);
     }
 }

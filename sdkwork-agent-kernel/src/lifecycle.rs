@@ -1,5 +1,8 @@
 use crate::{parse_agent_input_contract_json, AgentInputContract};
-use crate::{EventRecorder, KernelError, KernelEvent, KernelEventSeverity, KernelResult};
+use crate::{
+    EventRecorder, KernelError, KernelEvent, KernelEventSeverity, KernelResult,
+    SessionActivitySnapshot,
+};
 
 // ============================================================================
 // Session State
@@ -228,6 +231,7 @@ pub struct AgentSession {
 
     // --- Lifecycle State ---
     pub state: SessionState,
+    pub activity: SessionActivitySnapshot,
 
     // --- Temporal ---
     pub created_at: Option<String>,
@@ -273,9 +277,11 @@ pub struct AgentSession {
 
 impl AgentSession {
     pub fn new(session_id: impl Into<String>) -> Self {
+        let session_id = session_id.into();
+        let activity = SessionActivitySnapshot::unsupported(session_id.clone());
         Self {
             // Core Identity
-            session_id: session_id.into(),
+            session_id,
             parent_session_id: None,
             forked_from_id: None,
             slug: None,
@@ -293,6 +299,7 @@ impl AgentSession {
 
             // Lifecycle State
             state: SessionState::Created,
+            activity,
 
             // Temporal
             created_at: None,
@@ -338,6 +345,23 @@ impl AgentSession {
     }
 
     // --- Builder Methods ---
+
+    pub fn with_activity(mut self, activity: SessionActivitySnapshot) -> KernelResult<Self> {
+        self.apply_activity(activity)?;
+        Ok(self)
+    }
+
+    pub fn apply_activity(&mut self, activity: SessionActivitySnapshot) -> KernelResult<()> {
+        if activity.provider_session_id != self.session_id {
+            return Err(KernelError::validation(format!(
+                "provider session activity belongs to {}, expected {}",
+                activity.provider_session_id, self.session_id
+            )));
+        }
+        self.state = activity.project_lifecycle_state(self.state);
+        self.activity = activity;
+        Ok(())
+    }
 
     pub fn with_parent(mut self, parent_session_id: impl Into<String>) -> Self {
         self.parent_session_id = Some(parent_session_id.into());

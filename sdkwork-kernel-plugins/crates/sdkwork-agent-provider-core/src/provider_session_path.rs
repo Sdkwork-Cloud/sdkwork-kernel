@@ -3,9 +3,10 @@ use std::path::Path;
 use sdkwork_utils_rust::sha256_hash;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 
-const NATIVE_SESSION_DIRECTORY_FINGERPRINT_PREFIX: &str = "sdkwork.native-session-directory.v1\n";
+const PROVIDER_SESSION_DIRECTORY_FINGERPRINT_PREFIX: &str =
+    "sdkwork.provider-session-directory.v1\n";
 
-pub fn normalize_native_session_path(value: &str) -> String {
+pub fn normalize_provider_session_path(value: &str) -> String {
     let mut normalized = value.trim().replace('\\', "/");
     if let Some(path) = normalized.strip_prefix("//?/") {
         normalized = path.to_string();
@@ -22,14 +23,14 @@ pub fn normalize_native_session_path(value: &str) -> String {
     normalized
 }
 
-pub fn native_session_path_basename(value: &str) -> Option<String> {
-    normalize_native_session_path(value)
+pub fn provider_session_path_basename(value: &str) -> Option<String> {
+    normalize_provider_session_path(value)
         .rsplit('/')
         .find(|segment| !segment.is_empty())
         .map(|segment| segment.to_ascii_lowercase())
 }
 
-pub fn native_session_directory_fingerprint(value: &str) -> std::io::Result<String> {
+pub fn provider_session_directory_fingerprint(value: &str) -> std::io::Result<String> {
     let path = Path::new(value.trim());
     let mut entries = std::fs::read_dir(path)?
         .map(|entry| {
@@ -47,7 +48,7 @@ pub fn native_session_directory_fingerprint(value: &str) -> std::io::Result<Stri
         .collect::<std::io::Result<Vec<_>>>()?;
     entries.sort_by(|left, right| left.0.as_bytes().cmp(right.0.as_bytes()));
 
-    let mut manifest = String::from(NATIVE_SESSION_DIRECTORY_FINGERPRINT_PREFIX);
+    let mut manifest = String::from(PROVIDER_SESSION_DIRECTORY_FINGERPRINT_PREFIX);
     for (name, kind) in entries {
         manifest.push(kind);
         manifest.push('\0');
@@ -71,11 +72,11 @@ mod tests {
     #[test]
     fn normalizes_windows_extended_paths_and_separators() {
         assert_eq!(
-            normalize_native_session_path(r"\\?\E:\SDKWork-Space\BirdCoder\"),
+            normalize_provider_session_path(r"\\?\E:\SDKWork-Space\BirdCoder\"),
             "e:/sdkwork-space/birdcoder"
         );
         assert_eq!(
-            normalize_native_session_path("E:/sdkwork-space/birdcoder"),
+            normalize_provider_session_path("E:/sdkwork-space/birdcoder"),
             "e:/sdkwork-space/birdcoder"
         );
     }
@@ -95,24 +96,24 @@ mod tests {
             .expect("test clock")
             .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "sdkwork-native-session-directory-{}-{nonce}",
+            "sdkwork-provider-session-directory-{}-{nonce}",
             std::process::id()
         ));
         std::fs::create_dir_all(root.join("src")).expect("create fixture directory");
         std::fs::write(root.join("README.md"), "fixture").expect("create fixture file");
 
-        let first = native_session_directory_fingerprint(root.to_str().expect("fixture path"))
+        let first = provider_session_directory_fingerprint(root.to_str().expect("fixture path"))
             .expect("fingerprint fixture");
-        let second = native_session_directory_fingerprint(root.to_str().expect("fixture path"))
+        let second = provider_session_directory_fingerprint(root.to_str().expect("fixture path"))
             .expect("fingerprint fixture again");
         assert_eq!(first, second);
         assert_eq!(
             first,
-            "sha256:f611049ecf939c2f4f384785cd0de25f5d472a042f87e64aced215c939aabe29"
+            "sha256:501fa61985d3b2c255fdb3816cfa1f20953812554fbeb8dd07c2b18b89388913"
         );
 
         std::fs::write(root.join("package.json"), "{}").expect("create second fixture file");
-        let changed = native_session_directory_fingerprint(root.to_str().expect("fixture path"))
+        let changed = provider_session_directory_fingerprint(root.to_str().expect("fixture path"))
             .expect("fingerprint changed fixture");
         assert_ne!(first, changed);
 

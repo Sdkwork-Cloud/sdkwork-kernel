@@ -7,7 +7,8 @@ use std::collections::HashMap;
 
 mod mock_policy;
 mod model_wire;
-mod native_session_path;
+mod provider_session_activity;
+mod provider_session_path;
 mod provider_session_store;
 
 pub use mock_policy::{
@@ -21,9 +22,15 @@ pub use model_wire::{
     wire_messages_summary, wire_messages_to_anthropic_json, wire_messages_to_openai_json,
     wire_system_text, ModelWireMessage,
 };
-pub use native_session_path::{
-    epoch_millis_to_rfc3339, native_session_directory_fingerprint, native_session_path_basename,
-    normalize_native_session_path,
+pub use provider_session_activity::{
+    refresh_provider_session_activity, refresh_provider_session_activity_at,
+    session_activity_from_provider_observation, session_activity_from_provider_observation_at,
+    InMemoryProviderSessionActivityProvider, ProviderSessionActivityAdapter,
+    DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL, MAX_PROVIDER_SESSION_ACTIVITY_CLOCK_SKEW,
+};
+pub use provider_session_path::{
+    epoch_millis_to_rfc3339, normalize_provider_session_path,
+    provider_session_directory_fingerprint, provider_session_path_basename,
 };
 pub use provider_session_store::{
     finalize_provider_session_snapshot, sort_sessions_by_updated_at, InMemoryProviderSessionStore,
@@ -90,7 +97,7 @@ pub trait SessionLifecycleProvider {
         ))
     }
 
-    /// Read a session without conflating an absent provider-native snapshot
+    /// Read a session without conflating an absent provider Session snapshot
     /// with a provider transport or storage failure.
     fn find_session(&self, session_id: &str) -> KernelResult<Option<AgentSession>> {
         self.get_session(session_id).map(Some)
@@ -108,7 +115,7 @@ pub trait SessionLifecycleProvider {
         ))
     }
 
-    /// Upsert a snapshot discovered from a provider-native session API.
+    /// Upsert a snapshot discovered from a provider session API.
     fn synchronize_session(&self, _session: AgentSession) -> KernelResult<AgentSession> {
         Err(KernelError::validation(
             "synchronize_session requires a provider session store implementation",

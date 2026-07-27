@@ -24,12 +24,12 @@ pub const SDK_CAPABILITY_SKILL_INVOKE: &str = "sdk.skill.invoke";
 ///
 /// A transport may complete a stream without being able to prove a native
 /// provider session id. Callers that need resumable first-turn streaming must
-/// require `native_session_id` instead of synthesizing one.
+/// require `provider_session_id` instead of synthesizing one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SdkRuntimeStreamCompletion {
     pub model_request_id: String,
     pub finish_reason: String,
-    pub native_session_id: Option<String>,
+    pub provider_session_id: Option<String>,
 }
 
 /// Kernel providers wired through a negotiated [`SdkRuntimeRouter`].
@@ -207,7 +207,7 @@ impl SdkRuntimeBackedModelProvider {
     /// Streams model output and returns the runtime completion metadata when
     /// the negotiated provider can prove it. This does not fall back to a
     /// synthetic provider because no fallback can truthfully provide the
-    /// native session identity for the streamed execution.
+    /// provider session identity for the streamed execution.
     pub fn stream_into_with_completion(
         &self,
         request: ModelRequest,
@@ -450,15 +450,15 @@ pub fn model_response_from_runtime(
             .diagnostics
             .push(format!("sdk_runtime_mode={mode}"));
     }
-    if let Some(native_session_id) = payload
-        .get("native_session_id")
+    if let Some(provider_session_id) = payload
+        .get("provider_session_id")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        model_response
-            .diagnostics
-            .push(format!("sdk_runtime_native_session_id={native_session_id}"));
+        model_response.diagnostics.push(format!(
+            "sdk_runtime_provider_session_id={provider_session_id}"
+        ));
     }
 
     Ok(model_response)
@@ -628,8 +628,8 @@ fn runtime_stream_completion_from_terminal_frame(
         .filter(|value| !value.is_empty())
         .unwrap_or("stop")
         .to_string();
-    let native_session_id = frame
-        .get("native_session_id")
+    let provider_session_id = frame
+        .get("provider_session_id")
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -638,7 +638,7 @@ fn runtime_stream_completion_from_terminal_frame(
     Ok(SdkRuntimeStreamCompletion {
         model_request_id: model_request_id.to_string(),
         finish_reason,
-        native_session_id,
+        provider_session_id,
     })
 }
 
@@ -938,7 +938,7 @@ mod tests {
                         "ok": true,
                         "chunks": [{"sequence": 0, "content": "live"}],
                         "model_request_id": request.operation.request_id(),
-                        "native_session_id": "thread-live"
+                        "provider_session_id": "thread-live"
                     }),
                 ))
             }
@@ -1029,7 +1029,10 @@ mod tests {
             .expect("runtime completion must remain available in production");
         assert_eq!(completion_sink.0[0].content, "live");
         assert_eq!(completion.model_request_id, "request-live-completion");
-        assert_eq!(completion.native_session_id.as_deref(), Some("thread-live"));
+        assert_eq!(
+            completion.provider_session_id.as_deref(),
+            Some("thread-live")
+        );
 
         provider
             .cancel("request-live")
@@ -1131,11 +1134,11 @@ mod tests {
             "event": "stream.done",
             "finish_reason": "stop",
             "model_request_id": "req-active",
-            "native_session_id": "thread-1"
+            "provider_session_id": "thread-1"
         });
         let completion = runtime_stream_completion_from_terminal_frame(&frame, "req-active")
             .expect("matching stream completion");
-        assert_eq!(completion.native_session_id.as_deref(), Some("thread-1"));
+        assert_eq!(completion.provider_session_id.as_deref(), Some("thread-1"));
 
         let error = runtime_stream_completion_from_terminal_frame(&frame, "req-other")
             .expect_err("mismatched completion must be rejected");
@@ -1143,15 +1146,15 @@ mod tests {
     }
 
     #[test]
-    fn stream_completion_does_not_invent_a_native_session_id() {
+    fn stream_completion_does_not_invent_a_provider_session_id() {
         let frame = serde_json::json!({
             "event": "stream.done",
             "finish_reason": "stop",
             "model_request_id": "req-active"
         });
         let completion = runtime_stream_completion_from_terminal_frame(&frame, "req-active")
-            .expect("completion without native session is still well-formed");
-        assert_eq!(completion.native_session_id, None);
+            .expect("completion without provider session is still well-formed");
+        assert_eq!(completion.provider_session_id, None);
     }
 
     #[test]
@@ -1216,7 +1219,7 @@ mod tests {
     }
 
     #[test]
-    fn model_response_includes_runtime_mode_and_native_session_diagnostics() {
+    fn model_response_includes_runtime_mode_and_provider_session_diagnostics() {
         let response = SdkRuntimeResponse::success(
             SdkBackendKind::TypeScriptNode,
             SDK_CAPABILITY_MODEL_CHAT,
@@ -1224,7 +1227,7 @@ mod tests {
                 "ok": true,
                 "mode": "sdk_cli",
                 "messages": ["done"],
-                "native_session_id": "thread-test-123"
+                "provider_session_id": "thread-test-123"
             }),
         );
 
@@ -1234,7 +1237,7 @@ mod tests {
             mapped.diagnostics,
             vec![
                 "sdk_runtime_mode=sdk_cli".to_string(),
-                "sdk_runtime_native_session_id=thread-test-123".to_string(),
+                "sdk_runtime_provider_session_id=thread-test-123".to_string(),
             ]
         );
     }

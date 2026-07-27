@@ -9,7 +9,7 @@ import {
   mockProviderInvocationAllowed,
   probePackage,
   probeModelChatRuntime,
-  VERIFIED_NATIVE_SESSION_ID,
+  VERIFIED_PROVIDER_SESSION_ID,
 } from './engine-sdk-live.mjs';
 
 const packageIndex = process.argv.indexOf('--package');
@@ -37,15 +37,37 @@ async function writeStreamChunk(requestId, chunk, modelRequestId) {
   });
 }
 
+async function writeActivity(requestId, activity) {
+  await writeResponse({
+    jsonrpc: '2.0',
+    id: requestId,
+    result: {
+      event: 'session.activity',
+      ...activity,
+    },
+  });
+}
+
+async function writeInvokeDone(requestId, payload) {
+  await writeResponse({
+    jsonrpc: '2.0',
+    id: requestId,
+    result: {
+      event: 'invoke.done',
+      payload,
+    },
+  });
+}
+
 async function writeStreamDone(requestId, result) {
   const terminalResult = {
     event: 'stream.done',
     finish_reason: result.finish_reason ?? 'stop',
     model_request_id: result.model_request_id ?? null,
   };
-  const nativeSessionId = verifiedNativeSessionId(result);
-  if (nativeSessionId) {
-    terminalResult.native_session_id = nativeSessionId;
+  const providerSessionId = verifiedProviderSessionId(result);
+  if (providerSessionId) {
+    terminalResult.provider_session_id = providerSessionId;
   }
   await writeResponse({
     jsonrpc: '2.0',
@@ -63,15 +85,15 @@ async function writeStreamResult(requestId, result) {
   await writeStreamDone(requestId, result);
 }
 
-function verifiedNativeSessionId(result) {
-  if (result?.[VERIFIED_NATIVE_SESSION_ID] !== true) {
+function verifiedProviderSessionId(result) {
+  if (result?.[VERIFIED_PROVIDER_SESSION_ID] !== true) {
     return null;
   }
-  const nativeSessionId = result?.native_session_id;
-  if (typeof nativeSessionId !== 'string') {
+  const providerSessionId = result?.provider_session_id;
+  if (typeof providerSessionId !== 'string') {
     return null;
   }
-  const normalized = nativeSessionId.trim();
+  const normalized = providerSessionId.trim();
   return normalized || null;
 }
 
@@ -170,7 +192,7 @@ async function handleCapabilityInvoke(params, streamOptions = {}) {
 
     if (!fallbackAllowed) {
       try {
-        return handleResult(await invokeModelChatRuntime(packageName, operation));
+        return handleResult(await invokeModelChatRuntime(packageName, operation, streamOptions));
       } catch (error) {
         return {
           ok: false,
@@ -211,6 +233,10 @@ async function handleCapabilityInvoke(params, streamOptions = {}) {
 async function handleStreamingCapabilityInvoke(requestId, params) {
   let emittedChunkCount = 0;
   const result = await handleCapabilityInvoke(params, {
+    onActivity:
+      params.activity_stream === true
+        ? async (activity) => writeActivity(requestId, activity)
+        : undefined,
     onChunk: async (chunk) => {
       await writeStreamChunk(requestId, chunk, params.operation?.model_request_id ?? null);
       emittedChunkCount += 1;
@@ -232,6 +258,13 @@ async function handleStreamingCapabilityInvoke(requestId, params) {
   }
 
   await writeStreamDone(requestId, result);
+}
+
+async function handleActivityCapabilityInvoke(requestId, params) {
+  const result = await handleCapabilityInvoke(params, {
+    onActivity: async (activity) => writeActivity(requestId, activity),
+  });
+  await writeInvokeDone(requestId, result);
 }
 
 async function handleRequest(request) {
@@ -259,6 +292,10 @@ async function handleRequest(request) {
     const op = operation.operation ?? operation;
     if (op === 'model_chat_stream') {
       await handleStreamingCapabilityInvoke(request.id, params);
+      return;
+    }
+    if (op === 'model_chat' && params.activity_stream === true) {
+      await handleActivityCapabilityInvoke(request.id, params);
       return;
     }
     const result = await handleCapabilityInvoke(params);

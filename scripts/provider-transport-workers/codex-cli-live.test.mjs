@@ -34,14 +34,27 @@ if (capturePath) {
 }
 
 const emit = () => {
+  const args = process.argv.slice(2);
+  const resumeIndex = args.indexOf('resume');
+  const resumedSessionId = resumeIndex >= 0 ? args[resumeIndex + 1] : null;
+  const providerSessionId = prompt === 'mismatch-session'
+    ? 'thread-provider-mismatch'
+    : resumedSessionId || 'thread-fixture-123';
   if (prompt !== 'without-provider-session') {
-    process.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: 'thread-fixture-123' }) + '\\n');
+    process.stdout.write(JSON.stringify({ type: 'thread.started', thread_id: providerSessionId }) + '\\n');
   }
-  process.stdout.write(JSON.stringify({
-    type: 'item.completed',
-    item: { type: 'agent_message', text: 'answer:' + prompt },
-  }) + '\\n');
-  process.stdout.write(JSON.stringify({ type: 'turn.completed' }) + '\\n');
+  const complete = () => {
+    process.stdout.write(JSON.stringify({
+      type: 'item.completed',
+      item: { type: 'agent_message', text: 'answer:' + prompt },
+    }) + '\\n');
+    process.stdout.write(JSON.stringify({ type: 'turn.completed' }) + '\\n');
+  };
+  if (prompt === 'live activity') {
+    setTimeout(complete, 250);
+  } else {
+    complete();
+  }
 };
 
 if (prompt === 'timeout') {
@@ -107,7 +120,7 @@ const result = await invokeCodexCliModelChat(operation, {
 });
 assert.equal(result.ok, true);
 assert.equal(result.mode, 'sdk_cli');
-assert.equal(result.native_session_id, 'thread-fixture-123');
+assert.equal(result.provider_session_id, 'thread-existing-456');
 assert.deepEqual(result.messages, ['answer:structured prompt']);
 
 const capture = JSON.parse(fs.readFileSync(capturePath, 'utf8'));
@@ -124,7 +137,7 @@ const resultWithoutProviderSession = await invokeCodexCliModelChat(operation, {
   prompt: 'without-provider-session',
 });
 assert.equal(
-  resultWithoutProviderSession.native_session_id,
+  resultWithoutProviderSession.provider_session_id,
   null,
   'the CLI adapter must not treat a requested resume id as provider-verified terminal metadata',
 );
@@ -153,7 +166,7 @@ const parsed = parseCodexCliJsonl(
   ].join('\n'),
 );
 assert.deepEqual(parsed.messages, ['parsed answer']);
-assert.equal(parsed.native_session_id, 'thread-parser');
+assert.equal(parsed.provider_session_id, 'thread-parser');
 
 await assert.rejects(
   invokeCodexCliModelChat(
@@ -201,7 +214,37 @@ assert.equal(pingResponse.result.runtime_mode, 'sdk_cli');
 const workerResponse = await invokeWorker('@openai/codex-sdk', operation, productionEnvironment);
 assert.equal(workerResponse.result.ok, true, 'production should use a real Codex CLI transport');
 assert.equal(workerResponse.result.mode, 'sdk_cli');
-assert.equal(workerResponse.result.native_session_id, 'thread-fixture-123');
+assert.equal(workerResponse.result.provider_session_id, 'thread-existing-456');
+
+const liveActivityFrames = await invokeWorkerFrames(
+  '@openai/codex-sdk',
+  {
+    ...operation,
+    model_request_id: 'req-cli-live-activity',
+    session_id: undefined,
+    messages: ['live activity'],
+    wire_messages: undefined,
+  },
+  productionEnvironment,
+);
+assertLiveActivityTiming(liveActivityFrames, 'thread-fixture-123', 'Codex');
+
+const mismatchedActivityFrames = await invokeWorkerFrames(
+  '@openai/codex-sdk',
+  {
+    ...operation,
+    model_request_id: 'req-cli-mismatch',
+    messages: ['mismatch-session'],
+    wire_messages: undefined,
+  },
+  productionEnvironment,
+);
+assert.equal(mismatchedActivityFrames.at(-1).frame.result.payload?.ok, false);
+assert.equal(
+  mismatchedActivityFrames.some((entry) => entry.frame.result?.event === 'session.activity'),
+  false,
+  'a mismatched requested/native Codex identity must not emit activity',
+);
 
 const missingCliEnvironment = {
   ...productionEnvironment,
@@ -314,4 +357,75 @@ function invokeWorker(packageName, operation, environment, method = 'sdkwork/cap
       })}\n`,
     );
   });
+}
+
+function invokeWorkerFrames(packageName, operation, environment) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ['scripts/provider-transport-workers/generic-ts-sdk-worker.mjs', '--package', packageName],
+      {
+        cwd: path.resolve('.'),
+        env: { ...process.env, ...environment },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
+    const frames = [];
+    const stderr = [];
+    let stdout = '';
+    child.stderr.on('data', (chunk) => stderr.push(String(chunk)));
+    child.stdout.on('data', (chunk) => {
+      stdout += String(chunk);
+      let newline = stdout.indexOf('\n');
+      while (newline >= 0) {
+        const line = stdout.slice(0, newline).trim();
+        stdout = stdout.slice(newline + 1);
+        if (line) {
+          try {
+            const frame = JSON.parse(line);
+            frames.push({ frame, observedAt: Date.now() });
+            if (frame.result?.event === 'invoke.done' || frame.result?.ok === false) {
+              child.kill();
+              resolve(frames);
+              return;
+            }
+          } catch (error) {
+            child.kill();
+            reject(error);
+            return;
+          }
+        }
+        newline = stdout.indexOf('\n');
+      }
+    });
+    child.once('error', reject);
+    child.once('exit', (code) => {
+      if (code !== 0 && code !== null) {
+        reject(new Error(`worker exited with ${code}: ${stderr.join('')}`));
+      }
+    });
+    child.stdin.write(
+      `${JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'sdkwork/capability.invoke',
+        params: { operation, activity_stream: true },
+      })}\n`,
+    );
+  });
+}
+
+function assertLiveActivityTiming(frames, providerSessionId, provider) {
+  const activity = frames.filter((entry) => entry.frame.result?.event === 'session.activity');
+  const done = frames.find((entry) => entry.frame.result?.event === 'invoke.done');
+  assert.ok(done, `${provider} invocation must emit invoke.done`);
+  assert.deepEqual(
+    activity.map((entry) => entry.frame.result.phase),
+    ['started', 'working', 'working', 'idle', 'terminal'],
+  );
+  assert.equal(activity[0].frame.result.provider_session_id, providerSessionId);
+  assert.ok(
+    done.observedAt - activity[0].observedAt >= 150,
+    `${provider} Working must arrive while the CLI process is still running`,
+  );
 }

@@ -6,8 +6,11 @@ description = "Typed HTTP and SSE client for the SDKWork agent internal API"
 
 [dependencies]
 sdkwork-agent-kernel.workspace = true
+sdkwork-agent-provider-claude-code.workspace = true
 sdkwork-agent-provider-codex.workspace = true
+sdkwork-agent-provider-gemini-cli.workspace = true
 sdkwork-agent-provider-openclaw.workspace = true
+sdkwork-agent-provider-opencode.workspace = true
 sdkwork-agent-provider-hermes.workspace = true
 sdkwork-agent-provider-spi.workspace = true
 sdkwork-agent-database = { workspace = true, features = ["sqlite"] }

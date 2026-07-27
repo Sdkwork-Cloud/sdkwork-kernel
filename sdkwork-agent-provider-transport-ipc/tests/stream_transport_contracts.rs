@@ -1,9 +1,10 @@
 use sdkwork_agent_provider_transport_ipc::{
-    expand_buffered_stream_payload, is_stream_chunk_frame, is_stream_terminal_frame,
-    stream_chunk_frame, stream_done_frame, stream_done_frame_with_completion, JsonRpcTransport,
+    expand_buffered_stream_payload, invoke_done_frame, is_invoke_terminal_frame,
+    is_session_activity_frame, is_stream_chunk_frame, is_stream_terminal_frame, stream_chunk_frame,
+    stream_done_frame, stream_done_frame_with_completion, JsonRpcTransport,
     PackageStubJsonRpcTransport, MAX_STREAM_BUFFER_CHUNKS, MAX_STREAM_CHUNK_BYTES,
-    MAX_STREAM_TOTAL_BYTES, SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_STREAM_EVENT_CHUNK,
-    SDKWORK_STREAM_EVENT_DONE,
+    MAX_STREAM_TOTAL_BYTES, SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_SESSION_ACTIVITY_EVENT,
+    SDKWORK_STREAM_EVENT_CHUNK, SDKWORK_STREAM_EVENT_DONE,
 };
 use serde_json::json;
 use std::sync::{Mutex, OnceLock};
@@ -54,7 +55,7 @@ fn expand_buffered_stream_payload_emits_chunk_and_done_frames() {
         ],
         "finish_reason": "stop",
         "model_request_id": "req.1",
-        "native_session_id": "thread-1"
+        "provider_session_id": "thread-1"
     });
     let mut frames = Vec::new();
     expand_buffered_stream_payload(payload, |frame| {
@@ -74,7 +75,7 @@ fn expand_buffered_stream_payload_emits_chunk_and_done_frames() {
     );
     assert_eq!(
         frames[2]
-            .get("native_session_id")
+            .get("provider_session_id")
             .and_then(|value| value.as_str()),
         Some("thread-1")
     );
@@ -135,9 +136,30 @@ fn stream_frame_helpers_round_trip() {
     );
     assert_eq!(
         completion
-            .get("native_session_id")
+            .get("provider_session_id")
             .and_then(|value| value.as_str()),
         Some("thread-completion")
+    );
+}
+
+#[test]
+fn activity_and_invoke_terminal_frames_are_typed() {
+    let activity = json!({
+        "event": SDKWORK_SESSION_ACTIVITY_EVENT,
+        "provider_session_id": "thread-live",
+        "phase": "working",
+        "observed_at": "2026-01-01T00:00:00Z"
+    });
+    assert!(is_session_activity_frame(&activity));
+    assert!(!is_invoke_terminal_frame(&activity));
+
+    let done = invoke_done_frame(json!({"ok": true}));
+    assert!(is_invoke_terminal_frame(&done));
+    assert_eq!(
+        done.get("payload")
+            .and_then(|payload| payload.get("ok"))
+            .and_then(|ok| ok.as_bool()),
+        Some(true)
     );
 }
 

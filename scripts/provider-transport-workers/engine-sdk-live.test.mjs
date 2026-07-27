@@ -12,7 +12,7 @@ import {
   probePackage,
   resolveModelChatPrompt,
   resolvePackageSpecifier,
-  VERIFIED_NATIVE_SESSION_ID,
+  VERIFIED_PROVIDER_SESSION_ID,
 } from './engine-sdk-live.mjs';
 
 const workerDir = path.dirname(fileURLToPath(import.meta.url));
@@ -77,6 +77,7 @@ export function query({ prompt, options = {} }) {
     : options.resume ?? 'claude-sdk-created';
   return (async function* () {
     yield { type: 'system', subtype: 'init', session_id: sessionId };
+    yield { type: 'permission_request', session_id: sessionId };
     yield {
       type: 'assistant',
       session_id: sessionId,
@@ -205,6 +206,17 @@ export function createOpencodeClient(options = {}) {
         record.session_create = { body, signal_present: Boolean(signal) };
         capture(record);
         return { data: { id: 'opencode-sdk-created' } };
+      },
+      get: async ({ path, signal } = {}) => {
+        record.session_get = { path, signal_present: Boolean(signal) };
+        capture(record);
+        return {
+          data: {
+            id: path.id === 'opencode-sdk-mismatch-request'
+              ? 'opencode-sdk-different'
+              : path.id,
+          },
+        };
       },
       prompt: async ({ path, body, signal } = {}) => {
         record.session_prompt = { path, body, signal_present: Boolean(signal) };
@@ -404,16 +416,28 @@ assert.equal(wirePrompt, 'structured', 'wire_messages should drive live prompt r
 process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
   '@anthropic-ai/claude-agent-sdk': claudeSdkMirror,
 });
-const claudeResult = await invokeModelChatLive('@anthropic-ai/claude-agent-sdk', {
-  model_request_id: 'req-claude-sdk-new',
-  model_id: 'claude-sonnet-4-6',
-  working_directory: 'C:/sdkwork/claude-workspace',
-  timeout_ms: 2_000,
-  messages: ['Claude prompt'],
-});
-assert.equal(claudeResult.native_session_id, 'claude-sdk-created');
-assert.equal(claudeResult[VERIFIED_NATIVE_SESSION_ID], true);
+const claudeActivity = [];
+const claudeResult = await invokeModelChatLive(
+  '@anthropic-ai/claude-agent-sdk',
+  {
+    model_request_id: 'req-claude-sdk-new',
+    model_id: 'claude-sonnet-4-6',
+    working_directory: 'C:/sdkwork/claude-workspace',
+    timeout_ms: 2_000,
+    messages: ['Claude prompt'],
+  },
+  {
+    onActivity: async (event) => claudeActivity.push(event),
+  },
+);
+assert.equal(claudeResult.provider_session_id, 'claude-sdk-created');
+assert.equal(claudeResult[VERIFIED_PROVIDER_SESSION_ID], true);
 assert.deepEqual(claudeResult.messages, ['claude sdk:Claude prompt']);
+assert.deepEqual(
+  claudeActivity.map((event) => event.phase),
+  ['started', 'working', 'waiting', 'working', 'idle', 'terminal'],
+);
+assert.equal(claudeActivity[2].interaction_hint, 'approval_required');
 const claudeCapture = JSON.parse(fs.readFileSync(claudeCapturePath, 'utf8'));
 assert.deepEqual(claudeCapture, {
   prompt: 'Claude prompt',
@@ -428,20 +452,30 @@ const resumedClaudeResult = await invokeModelChatLive('@anthropic-ai/claude-agen
   session_id: 'claude-sdk-existing',
   messages: ['Resume Claude'],
 });
-assert.equal(resumedClaudeResult.native_session_id, 'claude-sdk-existing');
-assert.equal(resumedClaudeResult[VERIFIED_NATIVE_SESSION_ID], true);
+assert.equal(resumedClaudeResult.provider_session_id, 'claude-sdk-existing');
+assert.equal(resumedClaudeResult[VERIFIED_PROVIDER_SESSION_ID], true);
 assert.equal(
   JSON.parse(fs.readFileSync(claudeCapturePath, 'utf8')).options.resume,
   'claude-sdk-existing',
   'Claude resume must use the official query resume option.',
 );
+const mismatchedClaudeActivity = [];
 await assert.rejects(
-  invokeModelChatLive('@anthropic-ai/claude-agent-sdk', {
-    model_request_id: 'req-claude-sdk-mismatch',
-    session_id: 'claude-sdk-existing',
-    messages: ['mismatched Claude session'],
-  }),
-  /resumed a different provider-native session/,
+  invokeModelChatLive(
+    '@anthropic-ai/claude-agent-sdk',
+    {
+      model_request_id: 'req-claude-sdk-mismatch',
+      session_id: 'claude-sdk-existing',
+      messages: ['mismatched Claude session'],
+    },
+    { onActivity: async (event) => mismatchedClaudeActivity.push(event) },
+  ),
+  /resumed a different provider session/,
+);
+assert.deepEqual(
+  mismatchedClaudeActivity,
+  [],
+  'an unverified request session id must not be published as provider activity',
 );
 
 process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
@@ -454,8 +488,8 @@ const geminiResult = await invokeModelChatLive('@google/gemini-cli-sdk', {
   timeout_ms: 2_000,
   messages: ['Gemini prompt'],
 });
-assert.equal(geminiResult.native_session_id, 'gemini-sdk-created');
-assert.equal(geminiResult[VERIFIED_NATIVE_SESSION_ID], true);
+assert.equal(geminiResult.provider_session_id, 'gemini-sdk-created');
+assert.equal(geminiResult[VERIFIED_PROVIDER_SESSION_ID], true);
 assert.deepEqual(geminiResult.messages, ['gemini sdk:Gemini prompt']);
 const geminiCapture = JSON.parse(fs.readFileSync(geminiCapturePath, 'utf8'));
 assert.deepEqual(geminiCapture.constructor_options, {
@@ -473,8 +507,8 @@ const resumedGeminiResult = await invokeModelChatLive('@google/gemini-cli-sdk', 
   session_id: 'gemini-sdk-existing',
   messages: ['Resume Gemini'],
 });
-assert.equal(resumedGeminiResult.native_session_id, 'gemini-sdk-existing');
-assert.equal(resumedGeminiResult[VERIFIED_NATIVE_SESSION_ID], true);
+assert.equal(resumedGeminiResult.provider_session_id, 'gemini-sdk-existing');
+assert.equal(resumedGeminiResult[VERIFIED_PROVIDER_SESSION_ID], true);
 assert.equal(
   JSON.parse(fs.readFileSync(geminiCapturePath, 'utf8')).resume_session_id,
   'gemini-sdk-existing',
@@ -491,8 +525,8 @@ const opencodeResult = await invokeModelChatLive('@opencode-ai/sdk', {
   timeout_ms: 2_000,
   messages: ['OpenCode prompt'],
 });
-assert.equal(opencodeResult.native_session_id, 'opencode-sdk-created');
-assert.equal(opencodeResult[VERIFIED_NATIVE_SESSION_ID], true);
+assert.equal(opencodeResult.provider_session_id, 'opencode-sdk-created');
+assert.equal(opencodeResult[VERIFIED_PROVIDER_SESSION_ID], true);
 assert.deepEqual(opencodeResult.messages, ['opencode sdk:OpenCode prompt']);
 const opencodeCapture = JSON.parse(fs.readFileSync(opencodeCapturePath, 'utf8'));
 assert.deepEqual(opencodeCapture.client_options, {
@@ -511,20 +545,48 @@ assert.deepEqual(opencodeCapture.session_prompt, {
   },
   signal_present: true,
 });
-const resumedOpencodeResult = await invokeModelChatLive('@opencode-ai/sdk', {
-  model_request_id: 'req-opencode-sdk-resume',
-  session_id: 'opencode-sdk-existing',
-  messages: ['Resume OpenCode'],
-});
-assert.equal(resumedOpencodeResult.native_session_id, 'opencode-sdk-existing');
-assert.equal(resumedOpencodeResult[VERIFIED_NATIVE_SESSION_ID], true);
+const resumedOpencodeActivity = [];
+const resumedOpencodeResult = await invokeModelChatLive(
+  '@opencode-ai/sdk',
+  {
+    model_request_id: 'req-opencode-sdk-resume',
+    session_id: 'opencode-sdk-existing',
+    messages: ['Resume OpenCode'],
+  },
+  { onActivity: async (event) => resumedOpencodeActivity.push(event) },
+);
+assert.equal(resumedOpencodeResult.provider_session_id, 'opencode-sdk-existing');
+assert.equal(resumedOpencodeResult[VERIFIED_PROVIDER_SESSION_ID], true);
+assert.deepEqual(
+  resumedOpencodeActivity.map((event) => event.phase),
+  ['started', 'working', 'idle', 'terminal'],
+);
 const resumedOpencodeCapture = JSON.parse(fs.readFileSync(opencodeCapturePath, 'utf8'));
 assert.equal(
   Object.hasOwn(resumedOpencodeCapture, 'session_create'),
   false,
-  'OpenCode resume must not create another provider-native session.',
+  'OpenCode resume must not create another provider session.',
 );
+assert.deepEqual(resumedOpencodeCapture.session_get, {
+  path: { id: 'opencode-sdk-existing' },
+  signal_present: true,
+});
 assert.equal(resumedOpencodeCapture.session_prompt.path.id, 'opencode-sdk-existing');
+
+const mismatchedOpencodeActivity = [];
+await assert.rejects(
+  invokeModelChatLive(
+    '@opencode-ai/sdk',
+    {
+      model_request_id: 'req-opencode-sdk-mismatch',
+      session_id: 'opencode-sdk-mismatch-request',
+      messages: ['Do not invoke the mismatched session'],
+    },
+    { onActivity: async (event) => mismatchedOpencodeActivity.push(event) },
+  ),
+  /resumed a different provider session/,
+);
+assert.deepEqual(mismatchedOpencodeActivity, []);
 
 process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
   '@openai/codex-sdk': codexSdkMirror,
@@ -547,7 +609,7 @@ const codexOperation = {
 const codexResult = await invokeModelChatLive('@openai/codex-sdk', codexOperation);
 assert.equal(codexResult.ok, true);
 assert.equal(codexResult.mode, 'sdk_live');
-assert.equal(codexResult.native_session_id, 'thread-sdk-existing');
+assert.equal(codexResult.provider_session_id, 'thread-sdk-existing');
 assert.deepEqual(codexResult.messages, ['official sdk:official sdk prompt']);
 const codexCapture = JSON.parse(fs.readFileSync(codexCapturePath, 'utf8'));
 assert.deepEqual(codexCapture.constructor_options, {});
@@ -567,7 +629,7 @@ const codexStreamResult = await invokeModelChatStreamLive('@openai/codex-sdk', {
   messages: ['stream prompt'],
   timeout_ms: 2_000,
 });
-assert.equal(codexStreamResult.native_session_id, 'thread-sdk-streamed');
+assert.equal(codexStreamResult.provider_session_id, 'thread-sdk-streamed');
 assert.deepEqual(codexStreamResult.chunks, [
   { sequence: 0, content: 'official' },
   { sequence: 1, content: ' sdk' },
@@ -598,7 +660,7 @@ assert.deepEqual(
   [],
   'callback delivery must not retain every Codex chunk in the worker result',
 );
-assert.equal(callbackCodexStreamResult.native_session_id, 'thread-sdk-streamed');
+assert.equal(callbackCodexStreamResult.provider_session_id, 'thread-sdk-streamed');
 
 const failedCodexChunks = [];
 await assert.rejects(
@@ -632,7 +694,7 @@ const newThreadResult = await invokeModelChatLive('@openai/codex-sdk', {
   messages: ['new thread'],
   execution_options: { full_auto: true },
 });
-assert.equal(newThreadResult.native_session_id, 'thread-sdk-started');
+assert.equal(newThreadResult.provider_session_id, 'thread-sdk-started');
 const newThreadCapture = JSON.parse(fs.readFileSync(codexCapturePath, 'utf8'));
 assert.deepEqual(newThreadCapture.start_thread_options, {
   sandboxMode: 'workspace-write',

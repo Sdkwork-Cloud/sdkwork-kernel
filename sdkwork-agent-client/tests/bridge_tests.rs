@@ -14,6 +14,9 @@ fn test_bridge_type_display() {
     assert_eq!(AgentBridgeType::ZeroClaw.to_string(), "zeroclaw");
     assert_eq!(AgentBridgeType::Hermes.to_string(), "hermes");
     assert_eq!(AgentBridgeType::Codex.to_string(), "codex");
+    assert_eq!(AgentBridgeType::ClaudeCode.to_string(), "claude-code");
+    assert_eq!(AgentBridgeType::OpenCode.to_string(), "opencode");
+    assert_eq!(AgentBridgeType::GeminiCli.to_string(), "gemini-cli");
     assert_eq!(
         AgentBridgeType::Custom("test".to_string()).to_string(),
         "test"
@@ -71,7 +74,7 @@ fn test_plugin_registry_new() {
 #[test]
 fn test_builtin_plugins_create_all() {
     let plugins = BuiltinPlugins::create_all();
-    assert_eq!(plugins.plugins().len(), 4);
+    assert_eq!(plugins.plugins().len(), 7);
 }
 
 #[test]
@@ -80,7 +83,15 @@ fn test_builtin_plugins_register_all() {
     let mut registry = AgentBridgePluginRegistry::new();
 
     plugins.register_all(&mut registry).unwrap();
-    assert_eq!(registry.list_plugins().len(), 4);
+    assert_eq!(registry.list_plugins().len(), 7);
+    let plugin_ids = registry
+        .list_plugins()
+        .into_iter()
+        .map(|plugin| plugin.plugin_id().to_string())
+        .collect::<Vec<_>>();
+    assert!(plugin_ids.contains(&"builtin.claude-code".to_string()));
+    assert!(plugin_ids.contains(&"builtin.opencode".to_string()));
+    assert!(plugin_ids.contains(&"builtin.gemini-cli".to_string()));
 }
 
 #[test]
@@ -97,6 +108,39 @@ fn test_plugin_registry_create_provider() {
 
     assert_eq!(bridge_id, "test-openclaw");
     assert!(registry.get_provider(&bridge_id).is_some());
+}
+
+#[test]
+fn sdk_backed_plugins_initialize_and_release_owned_runtimes() {
+    let plugins = BuiltinPlugins::create_all();
+    let mut registry = AgentBridgePluginRegistry::new();
+    plugins.register_all(&mut registry).unwrap();
+
+    for (index, (plugin_id, bridge_type)) in [
+        ("builtin.claude-code", AgentBridgeType::ClaudeCode),
+        ("builtin.opencode", AgentBridgeType::OpenCode),
+        ("builtin.gemini-cli", AgentBridgeType::GeminiCli),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let bridge_id = format!("test.sdk-backed.{index}");
+        registry
+            .create_provider(
+                plugin_id,
+                bridge_type.clone(),
+                AgentBridgeConfig::new(&bridge_id, bridge_type.clone()),
+            )
+            .expect("provider should create");
+        let provider = registry
+            .get_provider(&bridge_id)
+            .expect("provider should be registered");
+
+        provider.initialize().expect("runtime should initialize");
+        assert_eq!(provider.bridge_type(), &bridge_type);
+        provider.shutdown().expect("runtime should shut down");
+        assert_eq!(provider.health_check().status, AgentBridgeStatus::Unknown);
+    }
 }
 
 #[test]

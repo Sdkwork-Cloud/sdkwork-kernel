@@ -144,6 +144,7 @@ The agent kernel standard is centered on these stable objects:
 | `AgentConfigurationUpgradePlan` | Policy-checkable configuration migration plan for preserving, renaming, defaulting, removing, preserving secrets, or rebinding secrets |
 | `AgentRuntime` | Kernel runtime that creates sessions, executes tasks, dispatches events, and owns provider wiring |
 | `AgentSession` | Long-lived interaction scope containing tasks, memory bindings, policy context, and trace context |
+| `SessionActivitySnapshot` | Provider-neutral live activity observation keyed by provider session id, with explicit evidence, freshness deadline, and interaction hint |
 | `AgentTask` | User or agent requested unit of work |
 | `AgentRun` | One execution attempt for a task |
 | `AgentStep` | Ordered execution unit such as model call, tool call, policy check, observation, or handoff |
@@ -165,6 +166,13 @@ External protocols may map to these objects, but they must not replace the
 kernel model. MCP tools map to `ToolDescriptor` and `ToolCall`. A2A task
 messages map to `AgentTask`, `AgentMessage`, `AgentPart`, and `AgentArtifact`.
 OpenTelemetry trace context maps to `TraceContext`.
+
+Provider session activity is deliberately stricter than session inventory.
+`ProviderSessionActivityProvider` exposes query-by-provider-session-id and
+`ProviderSessionActivitySink` accepts mapped live observations. Only fresh
+provider status, hook/event, lock, or process facts are authoritative. Static
+history and file timestamps remain `Unsupported`; expired observations remain
+`Stale` and cannot make a session appear idle or ready.
 
 ## Runtime Lifecycle
 

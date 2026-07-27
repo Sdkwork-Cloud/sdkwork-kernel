@@ -1,4 +1,4 @@
-use crate::ClaudeCodeSdkIntegration;
+use crate::GeminiCliSdkIntegration;
 use sdkwork_agent_kernel::{
     AgentDefinition, AgentManifest, AgentPackageManifest, ModelProvider, ProviderManifest,
     RuntimeBuilder,
@@ -9,24 +9,24 @@ use sdkwork_agent_plugin_core::{
 };
 
 use crate::{
-    agent_definition::{claude_code_agent_definition, claude_code_agent_manifest},
-    conformance::claude_code_conformance_profile,
+    agent_definition::{gemini_cli_agent_definition, gemini_cli_agent_manifest},
+    conformance::gemini_cli_conformance_profile,
     ids,
-    package::claude_code_package_manifest,
+    package::gemini_cli_package_manifest,
 };
 
 #[derive(Debug, Clone, Default)]
-pub struct ClaudeCodeKernelPlugin;
+pub struct GeminiCliKernelPlugin;
 
-impl ClaudeCodeKernelPlugin {
+impl GeminiCliKernelPlugin {
     pub fn new() -> Self {
         Self
     }
 }
 
-pub fn claude_code_kernel_plugin_manifest() -> KernelPluginManifest {
-    KernelPluginManifest::new(ids::PLUGIN_ID, "Claude Code", "0.2.0", "process-adapter")
-        .with_source_reference("external/claude-code")
+pub fn gemini_cli_kernel_plugin_manifest() -> KernelPluginManifest {
+    KernelPluginManifest::new(ids::PLUGIN_ID, "Gemini CLI", "0.2.0", "process-adapter")
+        .with_source_reference("external/gemini-cli")
         .with_agent_id(ids::AGENT_ID)
         .with_provider_id(ids::MODEL_PROVIDER_ID)
         .with_provider_id(ids::POLICY_PROVIDER_ID)
@@ -37,38 +37,38 @@ pub fn claude_code_kernel_plugin_manifest() -> KernelPluginManifest {
         .with_supported_profile("security-baseline")
 }
 
-pub fn claude_code_provider_manifests() -> Vec<ProviderManifest> {
-    let integration = ClaudeCodeSdkIntegration::bootstrap().expect("claude-code sdk integration");
+pub fn gemini_cli_provider_manifests() -> Vec<ProviderManifest> {
+    let integration = GeminiCliSdkIntegration::bootstrap().expect("gemini-cli sdk integration");
     vec![
         integration.model.provider_manifest(),
         SdkStandardPolicyProvider::new(ids::POLICY_PROVIDER_ID).provider_manifest_for(),
     ]
 }
 
-impl SdkworkKernelPlugin for ClaudeCodeKernelPlugin {
+impl SdkworkKernelPlugin for GeminiCliKernelPlugin {
     fn plugin_manifest(&self) -> KernelPluginManifest {
-        claude_code_kernel_plugin_manifest()
+        gemini_cli_kernel_plugin_manifest()
     }
 
     fn agent_manifest(&self) -> AgentManifest {
-        claude_code_agent_manifest()
+        gemini_cli_agent_manifest()
     }
 
     fn agent_definition(&self) -> AgentDefinition {
-        claude_code_agent_definition()
+        gemini_cli_agent_definition()
     }
 
     fn package_manifest(&self) -> AgentPackageManifest {
-        claude_code_package_manifest()
+        gemini_cli_package_manifest()
     }
 
     fn provider_manifests(&self) -> Vec<ProviderManifest> {
-        claude_code_provider_manifests()
+        gemini_cli_provider_manifests()
     }
 
     fn configure_runtime(&self, builder: RuntimeBuilder) -> RuntimeBuilder {
-        let integration = ClaudeCodeSdkIntegration::bootstrap()
-            .expect("claude-code sdk integration must negotiate required capabilities");
+        let integration = GeminiCliSdkIntegration::bootstrap()
+            .expect("gemini-cli sdk integration must negotiate required capabilities");
         let activity = integration.provider_session_activity_provider();
 
         builder
@@ -82,7 +82,7 @@ impl SdkworkKernelPlugin for ClaudeCodeKernelPlugin {
             .register_agent_installer(
                 ids::INSTALLER_PROVIDER_ID,
                 "0.1.0",
-                ProcessAdapterInstaller::new(ids::AGENT_ID, "claude-code"),
+                ProcessAdapterInstaller::new(ids::AGENT_ID, "gemini"),
             )
             .register_agent_configuration(
                 ids::CONFIGURATION_PROVIDER_ID,
@@ -92,6 +92,6 @@ impl SdkworkKernelPlugin for ClaudeCodeKernelPlugin {
     }
 
     fn conformance_profile(&self) -> KernelPluginConformanceProfile {
-        claude_code_conformance_profile()
+        gemini_cli_conformance_profile()
     }
 }

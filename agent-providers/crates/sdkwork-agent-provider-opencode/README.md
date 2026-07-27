@@ -22,6 +22,18 @@ Direct in-process model and tool execution is intentionally fail-closed with
 SDK/runtime transport worker so the kernel can preserve policy, audit, trace,
 and provider health semantics.
 
+## Provider Session Activity
+
+`OpenCodeSdkIntegration::record_provider_session_activity` accepts live
+`session.status` events. Busy and retry map to working; idle maps to idle.
+SQLite history remains `Unsupported`.
+
+The managed Node transport verifies SDK sessions before invocation and forwards
+incremental CLI JSONL events into the same activity store for operations run by
+this integration. Independently running OpenCode processes remain `Unsupported`
+unless a runtime host attaches an authoritative event subscriber; database
+timestamps are not live evidence.
+
 ## Verification
 
 ```bash

@@ -69,9 +69,11 @@ impl SdkworkKernelPlugin for CodexKernelPlugin {
     fn configure_runtime(&self, builder: RuntimeBuilder) -> RuntimeBuilder {
         let integration = CodexSdkIntegration::bootstrap()
             .expect("codex sdk integration must negotiate required capabilities");
+        let activity = integration.provider_session_activity_provider();
 
         builder
             .register_model_provider(ids::MODEL_PROVIDER_ID, "0.2.0", integration.model)
+            .register_provider_session_activity_provider(ids::MODEL_PROVIDER_ID, activity)
             .register_policy_provider(
                 ids::POLICY_PROVIDER_ID,
                 "0.1.0",

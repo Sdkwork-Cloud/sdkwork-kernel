@@ -5,10 +5,10 @@ use crate::{
     CapabilityRequirement, ContextProvider, EnvFileSecretFallbackHostProvider, HostProvider,
     KernelConformanceCase, KernelConformanceReport, KernelError, KernelEvent, KernelEventSeverity,
     KernelResult, KnowledgeProvider, McpProvider, MemoryProvider, MessageQueryProvider,
-    ModelProvider, PlanningProvider, PlatformSandboxProvider, PolicyCategory, PolicyProvider,
-    ProtocolAdapter, ProviderHealth, ProviderManifest, SandboxProvider, SandboxingHostProvider,
-    SideEffectLevel, TaskSchedulingProvider, TelemetryProvider, ToolProvider,
-    AGENT_KERNEL_SPEC_VERSION,
+    ModelProvider, ProviderSessionActivityProvider, PlanningProvider, PlatformSandboxProvider,
+    PolicyCategory, PolicyProvider, ProtocolAdapter, ProviderHealth, ProviderManifest,
+    SandboxProvider, SandboxingHostProvider, SideEffectLevel, TaskSchedulingProvider,
+    TelemetryProvider, ToolProvider, AGENT_KERNEL_SPEC_VERSION,
 };
 use std::sync::{Arc, Mutex};
 
@@ -191,6 +191,20 @@ impl AgentRuntime {
 
     pub fn model_provider_ids(&self) -> Vec<String> {
         self.provider_registry.model_provider_ids()
+    }
+
+    pub fn provider_session_activity_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<&(dyn ProviderSessionActivityProvider + Send + Sync)> {
+        self.provider_registry
+            .provider_session_activity_provider_by_id(provider_id)
+            .ok_or_else(|| self.provider_error_for_provider_id(provider_id, "session.activity"))
+    }
+
+    pub fn provider_session_activity_provider_ids(&self) -> Vec<String> {
+        self.provider_registry
+            .provider_session_activity_provider_ids()
     }
 
     pub fn tool_provider(&self) -> KernelResult<&(dyn ToolProvider + Send + Sync)> {
@@ -957,6 +971,19 @@ impl RuntimeBuilder {
         self.providers.push(provider_manifest);
         self.provider_registry
             .add_model_provider(provider_id, Arc::new(provider));
+        self
+    }
+
+    /// Registers the live provider-session activity query boundary owned by a
+    /// model provider. This companion registry does not create a new provider
+    /// family or capability manifest entry.
+    pub fn register_provider_session_activity_provider(
+        mut self,
+        provider_id: impl Into<String>,
+        provider: Arc<dyn ProviderSessionActivityProvider + Send + Sync>,
+    ) -> Self {
+        self.provider_registry
+            .add_provider_session_activity_provider(provider_id.into(), provider);
         self
     }
 
@@ -1859,6 +1886,8 @@ pub struct RuntimeProviderRegistry {
     model_provider_id: Option<String>,
     model_provider: Option<Arc<dyn ModelProvider + Send + Sync>>,
     model_providers: Vec<(String, Arc<dyn ModelProvider + Send + Sync>)>,
+    provider_session_activity_providers:
+        Vec<(String, Arc<dyn ProviderSessionActivityProvider + Send + Sync>)>,
     tool_provider_id: Option<String>,
     tool_provider: Option<Arc<dyn ToolProvider + Send + Sync>>,
     tool_providers: Vec<(String, Arc<dyn ToolProvider + Send + Sync>)>,
@@ -1931,6 +1960,32 @@ impl RuntimeProviderRegistry {
 
     pub fn model_provider_ids(&self) -> Vec<String> {
         self.model_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
+    fn add_provider_session_activity_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<dyn ProviderSessionActivityProvider + Send + Sync>,
+    ) {
+        self.provider_session_activity_providers
+            .push((provider_id, provider));
+    }
+
+    fn provider_session_activity_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<&(dyn ProviderSessionActivityProvider + Send + Sync)> {
+        self.provider_session_activity_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.as_ref())
+    }
+
+    pub fn provider_session_activity_provider_ids(&self) -> Vec<String> {
+        self.provider_session_activity_providers
             .iter()
             .map(|(provider_id, _)| provider_id.clone())
             .collect()
@@ -2227,6 +2282,10 @@ impl RuntimeProviderRegistry {
 
     pub fn has_model_provider(&self) -> bool {
         !self.model_providers.is_empty()
+    }
+
+    pub fn has_provider_session_activity_provider(&self) -> bool {
+        !self.provider_session_activity_providers.is_empty()
     }
 
     pub fn has_tool_provider(&self) -> bool {
@@ -2627,6 +2686,14 @@ impl std::fmt::Debug for RuntimeProviderRegistry {
             .field("model_provider_id", &self.model_provider_id)
             .field("model_provider_ids", &self.model_provider_ids())
             .field("has_model_provider", &self.has_model_provider())
+            .field(
+                "provider_session_activity_provider_ids",
+                &self.provider_session_activity_provider_ids(),
+            )
+            .field(
+                "has_provider_session_activity_provider",
+                &self.has_provider_session_activity_provider(),
+            )
             .field("tool_provider_id", &self.tool_provider_id)
             .field("tool_provider_ids", &self.tool_provider_ids())
             .field("has_tool_provider", &self.has_tool_provider())
@@ -2714,6 +2781,10 @@ impl PartialEq for RuntimeProviderRegistry {
             && self.model_provider_id == other.model_provider_id
             && self.model_provider_ids() == other.model_provider_ids()
             && self.has_model_provider() == other.has_model_provider()
+            && self.provider_session_activity_provider_ids()
+                == other.provider_session_activity_provider_ids()
+            && self.has_provider_session_activity_provider()
+                == other.has_provider_session_activity_provider()
             && self.tool_provider_id == other.tool_provider_id
             && self.tool_provider_ids() == other.tool_provider_ids()
             && self.has_tool_provider() == other.has_tool_provider()

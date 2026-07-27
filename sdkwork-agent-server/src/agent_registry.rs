@@ -1,7 +1,10 @@
 use sdkwork_agent_plugin_core::StandardPluginIds;
+use sdkwork_agent_provider_claude_code::ids as claude_code_ids;
 use sdkwork_agent_provider_codex::ids as codex_ids;
+use sdkwork_agent_provider_gemini_cli::ids as gemini_cli_ids;
 use sdkwork_agent_provider_hermes::ids as hermes_ids;
 use sdkwork_agent_provider_openclaw::ids as openclaw_ids;
+use sdkwork_agent_provider_opencode::ids as opencode_ids;
 use sdkwork_agent_provider_rig::ids as rig_ids;
 
 use crate::runtime_bootstrap::{kernel_agent_plugin_kind_from_env, KernelAgentPluginKind};
@@ -36,6 +39,21 @@ pub fn active_hosted_agent() -> RegisteredAgent {
             agent_id: codex_ids::AGENT_ID,
             runtime_agent_id: codex_ids::AGENT_ID,
             default_model_provider_id: codex_ids::MODEL_PROVIDER_ID,
+        },
+        KernelAgentPluginKind::ClaudeCode => RegisteredAgent {
+            agent_id: claude_code_ids::AGENT_ID,
+            runtime_agent_id: claude_code_ids::AGENT_ID,
+            default_model_provider_id: claude_code_ids::MODEL_PROVIDER_ID,
+        },
+        KernelAgentPluginKind::OpenCode => RegisteredAgent {
+            agent_id: opencode_ids::AGENT_ID,
+            runtime_agent_id: opencode_ids::AGENT_ID,
+            default_model_provider_id: opencode_ids::MODEL_PROVIDER_ID,
+        },
+        KernelAgentPluginKind::GeminiCli => RegisteredAgent {
+            agent_id: gemini_cli_ids::AGENT_ID,
+            runtime_agent_id: gemini_cli_ids::AGENT_ID,
+            default_model_provider_id: gemini_cli_ids::MODEL_PROVIDER_ID,
         },
     }
 }
@@ -139,6 +157,32 @@ mod tests {
             agent.default_model_provider_id,
             codex_ids::MODEL_PROVIDER_ID
         );
+    }
+
+    #[test]
+    fn resolves_new_sdk_backed_agents_when_plugin_env_set() {
+        for (plugin, agent_id, model_provider_id) in [
+            (
+                "claude-code",
+                claude_code_ids::AGENT_ID,
+                claude_code_ids::MODEL_PROVIDER_ID,
+            ),
+            (
+                "opencode",
+                opencode_ids::AGENT_ID,
+                opencode_ids::MODEL_PROVIDER_ID,
+            ),
+            (
+                "gemini-cli",
+                gemini_cli_ids::AGENT_ID,
+                gemini_cli_ids::MODEL_PROVIDER_ID,
+            ),
+        ] {
+            let _lock = lock();
+            let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, Some(plugin));
+            let agent = validate_hosted_agent_id(agent_id).expect("agent should resolve");
+            assert_eq!(agent.default_model_provider_id, model_provider_id);
+        }
     }
 
     #[test]

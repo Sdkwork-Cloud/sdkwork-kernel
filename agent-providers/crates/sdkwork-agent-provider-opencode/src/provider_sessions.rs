@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
     SessionState,
@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use crate::{OpenCodeAdapter, OpenCodeSession};
 
-pub fn discover_opencode_native_sessions() -> KernelResult<Vec<AgentSession>> {
+pub fn discover_opencode_provider_sessions() -> KernelResult<Vec<AgentSession>> {
     let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) else {
         return Ok(Vec::new());
     };
@@ -22,10 +22,10 @@ pub fn discover_opencode_native_sessions() -> KernelResult<Vec<AgentSession>> {
     if !database_path.is_file() {
         return Ok(Vec::new());
     }
-    read_opencode_native_sessions(&database_path)
+    read_opencode_provider_sessions(&database_path)
 }
 
-pub fn discover_opencode_native_session_messages(
+pub fn discover_opencode_provider_session_messages(
     session_id: &str,
 ) -> KernelResult<Vec<AgentMessage>> {
     let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) else {
@@ -39,10 +39,10 @@ pub fn discover_opencode_native_session_messages(
     if !database_path.is_file() {
         return Ok(Vec::new());
     }
-    read_opencode_native_session_messages(&database_path, session_id)
+    read_opencode_provider_session_messages(&database_path, session_id)
 }
 
-pub fn read_opencode_native_session_messages(
+pub fn read_opencode_provider_session_messages(
     database_path: &Path,
     session_id: &str,
 ) -> KernelResult<Vec<AgentMessage>> {
@@ -111,7 +111,7 @@ pub fn read_opencode_native_session_messages(
         .collect())
 }
 
-pub fn read_opencode_native_sessions(path: &Path) -> KernelResult<Vec<AgentSession>> {
+pub fn read_opencode_provider_sessions(path: &Path) -> KernelResult<Vec<AgentSession>> {
     let connection = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -161,10 +161,11 @@ pub fn read_opencode_native_sessions(path: &Path) -> KernelResult<Vec<AgentSessi
             worktree,
         ) = row.map_err(opencode_inventory_error)?;
         let model = model_json.as_deref().and_then(opencode_model_id);
+        let title = non_empty(title).or(read_first_opencode_user_message(&connection, &id)?);
         let mut session = adapter.to_agent_session(&OpenCodeSession {
             id,
             parent_session_id,
-            title: Some(title),
+            title,
             message_count: 0,
             prompt_tokens: input_tokens.max(0) as u64,
             completion_tokens: output_tokens.max(0) as u64,
@@ -187,6 +188,46 @@ pub fn read_opencode_native_sessions(path: &Path) -> KernelResult<Vec<AgentSessi
     Ok(sessions)
 }
 
+fn read_first_opencode_user_message(
+    connection: &Connection,
+    session_id: &str,
+) -> KernelResult<Option<String>> {
+    let message_id = connection
+        .query_row(
+            "SELECT id FROM message WHERE session_id = ?1 \
+             AND json_extract(data, '$.role') = 'user' \
+             ORDER BY time_created, id LIMIT 1",
+            [session_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(opencode_inventory_error)?;
+    let Some(message_id) = message_id else {
+        return Ok(None);
+    };
+    let mut statement = connection
+        .prepare(
+            "SELECT json_extract(data, '$.text') FROM part WHERE message_id = ?1 \
+             AND json_extract(data, '$.type') = 'text' ORDER BY time_created, id",
+        )
+        .map_err(opencode_inventory_error)?;
+    let rows = statement
+        .query_map([message_id], |row| row.get::<_, Option<String>>(0))
+        .map_err(opencode_inventory_error)?;
+    let mut parts = Vec::new();
+    for row in rows {
+        if let Some(text) = row.map_err(opencode_inventory_error)?.and_then(non_empty) {
+            parts.push(text);
+        }
+    }
+    Ok(non_empty(parts.join("\n\n")))
+}
+
+fn non_empty(value: String) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
 fn opencode_model_id(value: &str) -> Option<String> {
     serde_json::from_str::<Value>(value)
         .ok()
@@ -195,7 +236,7 @@ fn opencode_model_id(value: &str) -> Option<String> {
 }
 
 fn opencode_inventory_error(error: rusqlite::Error) -> KernelError {
-    KernelError::provider_error("opencode_native_inventory", error.to_string())
+    KernelError::provider_error("opencode_provider_session_inventory", error.to_string())
 }
 
 #[cfg(test)]
@@ -205,7 +246,7 @@ mod tests {
     #[test]
     fn reads_sessions_joined_to_their_project_worktree() {
         let path = std::env::temp_dir().join(format!(
-            "sdkwork-opencode-native-sessions-{}.sqlite",
+            "sdkwork-opencode-provider-sessions-{}.sqlite",
             std::process::id()
         ));
         let connection = Connection::open(&path).expect("fixture database");
@@ -226,24 +267,44 @@ mod tests {
                  INSERT INTO session VALUES ('session-1', 'project-1', NULL, 'OpenCode session', \
                  0, 1000, NULL, '{\"id\":\"opencode-model\"}', 1.25, 10, 20, \
                  'E:/Work/BirdCoder'); \
+                 INSERT INTO session VALUES ('session-2', 'project-1', NULL, '   ', \
+                 50, 2000, NULL, '{\"id\":\"opencode-model\"}', 0, 0, 0, \
+                 'E:/Work/BirdCoder'); \
                  INSERT INTO message VALUES ('message-user', 'session-1', 100, 100, \
+                 '{\"role\":\"user\"}'); \
+                 INSERT INTO message VALUES ('message-user-2', 'session-2', 50, 50, \
                  '{\"role\":\"user\"}'); \
                  INSERT INTO message VALUES ('message-assistant', 'session-1', 200, 200, \
                  '{\"role\":\"assistant\"}'); \
                  INSERT INTO part VALUES ('part-user', 'message-user', 'session-1', 100, 100, \
                  '{\"type\":\"text\",\"text\":\"hello\"}'); \
+                 INSERT INTO part VALUES ('part-user-2', 'message-user-2', 'session-2', 50, 50, \
+                 '{\"type\":\"text\",\"text\":\"fallback OpenCode prompt\"}'); \
                  INSERT INTO part VALUES ('part-assistant', 'message-assistant', 'session-1', 200, 200, \
                  '{\"type\":\"text\",\"text\":\"world\"}');",
             )
             .expect("fixture data");
         drop(connection);
 
-        let sessions = read_opencode_native_sessions(&path).expect("native sessions");
-        assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0].session_id, "session-1");
-        assert_eq!(sessions[0].cost_cents, Some(125));
-        let messages =
-            read_opencode_native_session_messages(&path, "session-1").expect("native transcript");
+        let sessions = read_opencode_provider_sessions(&path).expect("provider sessions");
+        assert_eq!(sessions.len(), 2);
+        let titled = sessions
+            .iter()
+            .find(|session| session.session_id == "session-1")
+            .expect("provider-titled session");
+        assert_eq!(titled.title.as_deref(), Some("OpenCode session"));
+        assert_eq!(titled.cost_cents, Some(125));
+        let fallback = sessions
+            .iter()
+            .find(|session| session.session_id == "session-2")
+            .expect("fallback-titled session");
+        assert_eq!(fallback.title.as_deref(), Some("fallback OpenCode prompt"));
+        assert!(sessions.iter().all(|session| {
+            session.activity.freshness
+                == sdkwork_agent_kernel::SessionActivityFreshness::Unsupported
+        }));
+        let messages = read_opencode_provider_session_messages(&path, "session-1")
+            .expect("provider transcript");
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, AgentMessageRole::User);
         assert_eq!(messages[1].role, AgentMessageRole::Agent);

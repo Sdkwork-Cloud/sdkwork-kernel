@@ -153,7 +153,7 @@ where
         Ok(())
     }
 
-    /// Atomically upsert a provider-native session snapshot into unified runtime state.
+    /// Atomically upsert a provider session snapshot into unified runtime state.
     pub fn synchronize_provider_session(
         &self,
         provider_id: &str,

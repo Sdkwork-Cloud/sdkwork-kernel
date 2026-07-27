@@ -1,12 +1,14 @@
 use sdkwork_agent_provider_core::mock_provider_invocation_allowed;
 use sdkwork_agent_provider_spi::{
-    SdkBackendKind, SdkBackendRuntime, SdkDriverHealth, SdkRuntimeError, SdkRuntimeOperation,
-    SdkRuntimeRequest, SdkRuntimeResponse,
+    SdkBackendKind, SdkBackendRuntime, SdkDriverHealth, SdkRuntimeActivityEvent,
+    SdkRuntimeActivityEventSink, SdkRuntimeError, SdkRuntimeOperation, SdkRuntimeRequest,
+    SdkRuntimeResponse,
 };
 use sdkwork_agent_provider_transport_ipc::{
-    provider_worker_concurrency_limit, FailClosedJsonRpcTransport, JsonRpcTransport,
-    PackageStubJsonRpcTransport, SpawnedWorker, SpawnedWorkerLease, SpawnedWorkerPool,
-    TransportError, SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_PING_METHOD,
+    is_invoke_terminal_frame, is_session_activity_frame, provider_worker_concurrency_limit,
+    FailClosedJsonRpcTransport, JsonRpcTransport, PackageStubJsonRpcTransport, SpawnedWorker,
+    SpawnedWorkerLease, SpawnedWorkerPool, TransportError, SDKWORK_CAPABILITY_INVOKE_METHOD,
+    SDKWORK_PING_METHOD,
 };
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -149,6 +151,7 @@ enum NodeRuntimeBackend {
 pub struct NodeSdkBackendRuntime {
     package_name: String,
     backend: NodeRuntimeBackend,
+    activity_sink: Option<Arc<dyn SdkRuntimeActivityEventSink>>,
 }
 
 impl NodeSdkBackendRuntime {
@@ -181,6 +184,7 @@ impl NodeSdkBackendRuntime {
         Self {
             package_name,
             backend: NodeRuntimeBackend::Stub(transport),
+            activity_sink: None,
         }
     }
 
@@ -207,6 +211,7 @@ impl NodeSdkBackendRuntime {
         Ok(Self {
             package_name: options.package_name.clone(),
             backend: NodeRuntimeBackend::Managed { pool },
+            activity_sink: None,
         })
     }
 
@@ -225,6 +230,7 @@ impl NodeSdkBackendRuntime {
                 package_name,
                 "typescript_node",
             ))),
+            activity_sink: None,
         }
     }
 
@@ -234,7 +240,13 @@ impl NodeSdkBackendRuntime {
             backend: NodeRuntimeBackend::FailClosed(Arc::new(FailClosedJsonRpcTransport::new(
                 reason.into(),
             ))),
+            activity_sink: None,
         }
+    }
+
+    pub fn with_activity_sink(mut self, sink: Arc<dyn SdkRuntimeActivityEventSink>) -> Self {
+        self.activity_sink = Some(sink);
+        self
     }
 
     fn shared_transport(&self) -> Result<Arc<dyn JsonRpcTransport + Send + Sync>, SdkRuntimeError> {
@@ -306,6 +318,56 @@ impl NodeSdkBackendRuntime {
         }
     }
 
+    fn invoke_worker_with_activity(
+        &self,
+        request: &SdkRuntimeRequest,
+    ) -> Result<Value, SdkRuntimeError> {
+        let params = json!({
+            "capability_id": request.capability_id,
+            "operation": request.operation,
+            "payload": request.payload,
+            "package": self.package_name,
+            "activity_stream": true,
+        });
+        let mut terminal_payload = None;
+        match &self.backend {
+            NodeRuntimeBackend::Managed { pool } => {
+                let lease = Self::acquire_worker(pool, request)?;
+                lease
+                    .call_streaming_with_timeout(
+                        SDKWORK_CAPABILITY_INVOKE_METHOD,
+                        Some(params),
+                        worker_operation_timeout(request),
+                        &mut |frame| {
+                            if self
+                                .ingest_activity_frame(&frame)
+                                .map_err(|error| TransportError::new(error.message))?
+                            {
+                                return Ok(true);
+                            }
+                            if is_invoke_terminal_frame(&frame) {
+                                terminal_payload = frame.get("payload").cloned();
+                                return Ok(true);
+                            }
+                            Err(TransportError::new(
+                                "activity-enabled invoke received an unexpected worker frame",
+                            ))
+                        },
+                    )
+                    .map_err(map_transport_error)?;
+            }
+            NodeRuntimeBackend::Stub(_) | NodeRuntimeBackend::FailClosed(_) => {
+                return self.invoke_worker(request);
+            }
+        }
+        terminal_payload.ok_or_else(|| {
+            SdkRuntimeError::new(
+                "transport_error",
+                "activity-enabled invoke completed without invoke.done",
+            )
+        })
+    }
+
     fn invoke_worker_streaming(
         &self,
         request: &SdkRuntimeRequest,
@@ -316,6 +378,7 @@ impl NodeSdkBackendRuntime {
             "operation": request.operation,
             "payload": request.payload,
             "package": self.package_name,
+            "activity_stream": self.activity_sink.is_some(),
         });
         match &self.backend {
             NodeRuntimeBackend::Managed { pool } => {
@@ -326,6 +389,12 @@ impl NodeSdkBackendRuntime {
                         Some(params),
                         worker_operation_timeout(request),
                         &mut |frame| {
+                            if self
+                                .ingest_activity_frame(&frame)
+                                .map_err(|error| TransportError::new(error.message))?
+                            {
+                                return Ok(true);
+                            }
                             sink(frame).map_err(|error| TransportError::new(error.message))
                         },
                     )
@@ -336,10 +405,39 @@ impl NodeSdkBackendRuntime {
                 .call_streaming(
                     SDKWORK_CAPABILITY_INVOKE_METHOD,
                     Some(params),
-                    &mut |frame| sink(frame).map_err(|error| TransportError::new(error.message)),
+                    &mut |frame| {
+                        if self
+                            .ingest_activity_frame(&frame)
+                            .map_err(|error| TransportError::new(error.message))?
+                        {
+                            return Ok(true);
+                        }
+                        sink(frame).map_err(|error| TransportError::new(error.message))
+                    },
                 )
                 .map_err(map_transport_error),
         }
+    }
+
+    fn ingest_activity_frame(&self, frame: &Value) -> Result<bool, SdkRuntimeError> {
+        if !is_session_activity_frame(frame) {
+            return Ok(false);
+        }
+        let sink = self.activity_sink.as_ref().ok_or_else(|| {
+            SdkRuntimeError::new(
+                "unexpected_activity_event",
+                "worker emitted session activity without a configured sink",
+            )
+        })?;
+        let event =
+            serde_json::from_value::<SdkRuntimeActivityEvent>(frame.clone()).map_err(|error| {
+                SdkRuntimeError::new(
+                    "invalid_activity_event",
+                    format!("decode worker activity event failed: {error}"),
+                )
+            })?;
+        sink.ingest_runtime_activity(event)?;
+        Ok(true)
     }
 }
 
@@ -368,7 +466,14 @@ impl SdkBackendRuntime for NodeSdkBackendRuntime {
             ));
         }
 
-        let payload = self.invoke_worker(request)?;
+        let payload = if matches!(request.operation, SdkRuntimeOperation::ModelChat { .. })
+            && self.activity_sink.is_some()
+            && matches!(&self.backend, NodeRuntimeBackend::Managed { .. })
+        {
+            self.invoke_worker_with_activity(request)?
+        } else {
+            self.invoke_worker(request)?
+        };
         if payload.get("ok").and_then(Value::as_bool) == Some(false) {
             let message = payload
                 .get("error")
@@ -465,6 +570,24 @@ mod tests {
     use sdkwork_agent_provider_core::mock_provider_invocation_allowed;
     use sdkwork_agent_provider_spi::SdkDriverStatus;
     use std::sync::{Mutex, OnceLock};
+
+    #[derive(Default)]
+    struct RecordingActivitySink {
+        events: Mutex<Vec<SdkRuntimeActivityEvent>>,
+    }
+
+    impl SdkRuntimeActivityEventSink for RecordingActivitySink {
+        fn ingest_runtime_activity(
+            &self,
+            event: SdkRuntimeActivityEvent,
+        ) -> Result<(), SdkRuntimeError> {
+            self.events
+                .lock()
+                .expect("activity events lock")
+                .push(event);
+            Ok(())
+        }
+    }
 
     const KERNEL_PROFILE_ID_ENV: &str = "SDKWORK_KERNEL_PROFILE_ID";
     const KERNEL_ENVIRONMENT_ENV: &str = "SDKWORK_KERNEL_ENVIRONMENT";
@@ -596,6 +719,29 @@ mod tests {
             .expect("ping should succeed");
         assert!(response.success);
         assert_eq!(response.backend_kind, SdkBackendKind::TypeScriptNode);
+    }
+
+    #[test]
+    fn typed_activity_frame_reaches_configured_sink() {
+        let _lock = env_lock();
+        let _profile = EnvVarGuard::set(KERNEL_PROFILE_ID_ENV, None);
+        let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, Some("development"));
+        let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, Some("1"));
+        let sink = Arc::new(RecordingActivitySink::default());
+        let runtime = NodeSdkBackendRuntime::in_memory_stub("provider-test", true)
+            .with_activity_sink(sink.clone());
+
+        assert!(runtime
+            .ingest_activity_frame(&json!({
+                "event": "session.activity",
+                "provider_session_id": "provider.test",
+                "phase": "working",
+                "observed_at": "2026-01-01T00:00:00Z"
+            }))
+            .expect("activity frame should ingest"));
+        let events = sink.events.lock().expect("activity events lock");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].provider_session_id, "provider.test");
     }
 
     #[test]

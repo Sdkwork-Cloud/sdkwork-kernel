@@ -8,6 +8,9 @@ pub enum AgentBridgeType {
     ZeroClaw,
     Hermes,
     Codex,
+    ClaudeCode,
+    OpenCode,
+    GeminiCli,
     Custom(String),
 }
 
@@ -18,6 +21,9 @@ impl fmt::Display for AgentBridgeType {
             Self::ZeroClaw => write!(f, "zeroclaw"),
             Self::Hermes => write!(f, "hermes"),
             Self::Codex => write!(f, "codex"),
+            Self::ClaudeCode => write!(f, "claude-code"),
+            Self::OpenCode => write!(f, "opencode"),
+            Self::GeminiCli => write!(f, "gemini-cli"),
             Self::Custom(name) => write!(f, "{}", name),
         }
     }

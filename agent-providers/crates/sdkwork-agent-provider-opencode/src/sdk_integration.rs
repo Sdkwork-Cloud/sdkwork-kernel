@@ -1,10 +1,18 @@
 use crate::{
-    OpenCodeAdapter, OpenCodeLifecycleProvider, OpenCodeMessageAdapter, OpenCodeModelProvider,
+    OpenCodeActivityObservation, OpenCodeAdapter, OpenCodeLifecycleProvider,
+    OpenCodeMessageAdapter, OpenCodeModelProvider,
+};
+use sdkwork_agent_kernel::{
+    KernelResult, ProviderSessionActivityProvider, SessionActivitySnapshot,
+};
+use sdkwork_agent_provider_core::{
+    InMemoryProviderSessionActivityProvider, ProviderSessionActivityAdapter,
 };
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
-    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider, SdkRuntimeRequest,
-    SdkRuntimeResponse, SdkRuntimeRouter, OPENCODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
+    DriverRegistry, ProviderSessionActivityRuntimeSink, SdkNegotiationError,
+    SdkRuntimeBackedModelProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
+    OPENCODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -29,6 +37,7 @@ pub struct OpenCodeSdkIntegration {
     pub model: SdkRuntimeBackedModelProvider,
     pub session_adapter: OpenCodeAdapter,
     pub message_adapter: OpenCodeMessageAdapter,
+    activity: Arc<InMemoryProviderSessionActivityProvider>,
 }
 
 impl OpenCodeSdkIntegration {
@@ -38,14 +47,18 @@ impl OpenCodeSdkIntegration {
         let mut bindings = BindingRegistry::new();
         let negotiation = bootstrap_binding(manifest, &mut drivers, &mut bindings)?;
 
+        let activity = Arc::new(InMemoryProviderSessionActivityProvider::new());
+        let runtime_activity_sink =
+            Arc::new(ProviderSessionActivityRuntimeSink::new(activity.clone()));
         let mut bootstrap = ProviderTransportBootstrap::new();
         bootstrap.register_host(Arc::new(TypeScriptNodeTransportHost::new(
             "@opencode-ai/sdk",
         )));
         bootstrap.register_host(Arc::new(IpcProtocolTransportHost::new("jsonrpc_stdio")));
-        bootstrap.with_typescript_runtime(Arc::new(NodeSdkBackendRuntime::bootstrap(
-            "@opencode-ai/sdk",
-        )));
+        bootstrap.with_typescript_runtime(Arc::new(
+            NodeSdkBackendRuntime::bootstrap("@opencode-ai/sdk")
+                .with_activity_sink(runtime_activity_sink),
+        ));
         let (transports, runtime) = bootstrap.finalize_pair(negotiation.clone())?;
 
         let inner_model = Arc::new(OpenCodeModelProvider::new());
@@ -64,6 +77,7 @@ impl OpenCodeSdkIntegration {
             model,
             session_adapter: OpenCodeAdapter::new(),
             message_adapter: OpenCodeMessageAdapter::new(),
+            activity,
         })
     }
 
@@ -77,12 +91,37 @@ impl OpenCodeSdkIntegration {
     ) -> Result<SdkRuntimeResponse, sdkwork_agent_provider_spi::SdkRuntimeError> {
         self.runtime.invoke(request)
     }
+
+    /// Records one OpenCode `session.status` event from the live event stream.
+    pub fn record_provider_session_activity(
+        &self,
+        observation: &OpenCodeActivityObservation,
+    ) -> KernelResult<SessionActivitySnapshot> {
+        self.activity
+            .record(self.session_adapter.to_session_activity(observation)?)
+    }
+
+    pub fn provider_session_activity_provider(&self) -> Arc<dyn ProviderSessionActivityProvider> {
+        self.activity.clone()
+    }
+}
+
+impl ProviderSessionActivityProvider for OpenCodeSdkIntegration {
+    fn get_provider_session_activity(
+        &self,
+        provider_session_id: &str,
+    ) -> KernelResult<SessionActivitySnapshot> {
+        self.activity
+            .get_provider_session_activity(provider_session_id)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sdkwork_agent_kernel::{ModelProvider, ModelRequest};
+    use sdkwork_agent_kernel::{
+        ModelProvider, ModelRequest, SessionActivityFreshness, SessionActivityState,
+    };
     use sdkwork_agent_provider_spi::SdkBackendKind;
 
     #[test]
@@ -120,5 +159,37 @@ mod tests {
             .messages
             .iter()
             .any(|message| message.contains("Mock response")));
+    }
+
+    #[test]
+    fn runtime_activity_capability_records_queries_and_expires_opencode_events() {
+        let integration = OpenCodeSdkIntegration::bootstrap().expect("bootstrap should succeed");
+        integration
+            .record_provider_session_activity(&OpenCodeActivityObservation {
+                provider_session_id: "opencode.provider.1".to_string(),
+                status: crate::OpenCodeSessionStatus::Busy,
+                observed_at: sdkwork_agent_provider_core::now_iso(),
+            })
+            .expect("record activity");
+        let working = integration
+            .get_provider_session_activity("opencode.provider.1")
+            .expect("query activity");
+        integration
+            .record_provider_session_activity(&OpenCodeActivityObservation {
+                provider_session_id: "opencode.provider.stale".to_string(),
+                status: crate::OpenCodeSessionStatus::Busy,
+                observed_at: "2000-01-01T00:00:00Z".to_string(),
+            })
+            .expect("record stale activity");
+        let stale = integration
+            .get_provider_session_activity("opencode.provider.stale")
+            .expect("query stale activity");
+        let unknown = integration
+            .get_provider_session_activity("opencode.provider.unknown")
+            .expect("query unknown activity");
+
+        assert_eq!(working.state, Some(SessionActivityState::Working));
+        assert_eq!(stale.freshness, SessionActivityFreshness::Stale);
+        assert_eq!(unknown.freshness, SessionActivityFreshness::Unsupported);
     }
 }

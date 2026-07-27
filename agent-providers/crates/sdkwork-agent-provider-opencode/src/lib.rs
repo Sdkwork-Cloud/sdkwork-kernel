@@ -1,18 +1,21 @@
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult, ModelDescriptor,
     ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStreamChunk,
-    ProviderHealth, ProviderManifest, SessionKind, SessionSource,
+    ProviderHealth, ProviderManifest, SessionActivityEvidenceKind, SessionActivitySnapshot,
+    SessionActivityState, SessionKind, SessionSource,
 };
 use sdkwork_agent_provider_core::{
-    create_session_from_config, finalize_provider_session_snapshot, uuid_simple, MessageAdapter,
-    SessionAdapter, SessionConfig,
+    create_session_from_config, finalize_provider_session_snapshot,
+    session_activity_from_provider_observation, uuid_simple, MessageAdapter,
+    ProviderSessionActivityAdapter, SessionAdapter, SessionConfig,
+    DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL,
 };
 
-mod native_sessions;
+mod provider_sessions;
 
-pub use native_sessions::{
-    discover_opencode_native_session_messages, discover_opencode_native_sessions,
-    read_opencode_native_session_messages, read_opencode_native_sessions,
+pub use provider_sessions::{
+    discover_opencode_provider_session_messages, discover_opencode_provider_sessions,
+    read_opencode_provider_session_messages, read_opencode_provider_sessions,
 };
 
 #[cfg(test)]
@@ -58,6 +61,20 @@ pub struct OpenCodeSession {
     pub updated_at: Option<String>,
     pub model: Option<String>,
     pub cwd: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OpenCodeSessionStatus {
+    Idle,
+    Busy,
+    Retry,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenCodeActivityObservation {
+    pub provider_session_id: String,
+    pub status: OpenCodeSessionStatus,
+    pub observed_at: String,
 }
 
 pub struct OpenCodeAdapter;
@@ -118,6 +135,30 @@ impl SessionAdapter for OpenCodeAdapter {
         session.cost_cents = external.cost_cents;
 
         finalize_provider_session_snapshot("opencode", session)
+    }
+}
+
+impl ProviderSessionActivityAdapter for OpenCodeAdapter {
+    type ExternalActivity = OpenCodeActivityObservation;
+
+    fn to_session_activity(
+        &self,
+        external: &Self::ExternalActivity,
+    ) -> KernelResult<SessionActivitySnapshot> {
+        let state = match external.status {
+            OpenCodeSessionStatus::Idle => SessionActivityState::Idle,
+            OpenCodeSessionStatus::Busy | OpenCodeSessionStatus::Retry => {
+                SessionActivityState::Working
+            }
+        };
+        session_activity_from_provider_observation(
+            &external.provider_session_id,
+            state,
+            SessionActivityEvidenceKind::ProviderEvent,
+            None,
+            &external.observed_at,
+            DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL,
+        )
     }
 }
 
@@ -300,6 +341,31 @@ mod tests {
             model: Some("deepseek-v3".to_string()),
             cwd: Some("/home/user/code".to_string()),
         }
+    }
+
+    #[test]
+    fn session_status_events_distinguish_busy_retry_and_idle() {
+        let adapter = OpenCodeAdapter::new();
+        let observed_at = sdkwork_agent_provider_core::now_iso();
+        for status in [OpenCodeSessionStatus::Busy, OpenCodeSessionStatus::Retry] {
+            let activity = adapter
+                .to_session_activity(&OpenCodeActivityObservation {
+                    provider_session_id: "oc.session.1".to_string(),
+                    status,
+                    observed_at: observed_at.clone(),
+                })
+                .expect("working activity");
+            assert_eq!(activity.state, Some(SessionActivityState::Working));
+            assert!(activity.is_authoritative());
+        }
+        let idle = adapter
+            .to_session_activity(&OpenCodeActivityObservation {
+                provider_session_id: "oc.session.1".to_string(),
+                status: OpenCodeSessionStatus::Idle,
+                observed_at,
+            })
+            .expect("idle activity");
+        assert_eq!(idle.state, Some(SessionActivityState::Idle));
     }
 
     // --- Session Adapter Tests ---

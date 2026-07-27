@@ -122,6 +122,7 @@ agent-kernel -> direct filesystem/process/network/secrets side effects
 | `AgentConfiguration` | stable | Profile-specific typed configuration values with secret references for sensitive fields |
 | `AgentRuntime` | stable | Runtime entrypoint for sessions, tasks, events, and providers |
 | `AgentSession` | stable | Long-lived scope for interaction, policy, memory, and trace context |
+| `SessionActivitySnapshot` | stable | Bounded provider Session runtime observation with explicit freshness and evidence |
 | `AgentTask` | stable | User or agent requested unit of work |
 | `AgentRun` | stable | One execution attempt for a task |
 | `AgentStep` | stable | Ordered execution unit in a run |
@@ -158,7 +159,39 @@ Rules:
 - Sensitive payload fields `MUST` carry redaction classification.
 - All objects crossing transport boundaries `MUST` be serializable.
 
-### 3.2 Identity Rules
+### 3.2 Provider Session Activity
+
+`AgentSession` lifecycle metadata and provider Session runtime activity are
+separate authorities. A runtime facade queries activity by provider session id
+through `ProviderSessionActivityProvider`; a live provider collector publishes a
+mapped snapshot through `ProviderSessionActivitySink`.
+
+Rules:
+
+- A snapshot `MUST` identify its `provider_session_id`, state, evidence kind,
+  observation time, freshness deadline, and optional interaction hint.
+- A multi-provider facade `MUST` select the registered provider identity before
+  querying that provider's provider session id; provider Session IDs are not globally
+  unique across providers.
+- Only `Fresh` observations may project `Idle`, `Working`, `Waiting`, or
+  `Failed` into lifecycle state.
+- `Stale` and `Unsupported` observations `MUST` project to unknown, never to
+  idle or ready.
+- Static JSONL, SQLite, transcript, and file modification timestamps are
+  inventory evidence, not runtime activity evidence.
+- A managed CLI collector may use incremental provider JSONL only while the
+  owned process is running and only after that stream proves the provider
+  Session ID. Parsing buffered output after process exit is not live activity.
+- A caller-supplied unified Session ID is not provider Session identity evidence;
+  resume activity remains unsupported until the Provider confirms the same id.
+- Freshness `MUST` be recomputed when a snapshot is queried. Expiration may
+  move `Fresh` to `Stale`; a stale snapshot cannot become fresh again.
+- Interaction hints distinguish approval from user input but do not replace
+  the authoritative waiting state.
+- Terminal lifecycle states `MUST NOT` be reopened by a later activity
+  observation.
+
+### 3.3 Identity Rules
 
 Required id fields:
 
@@ -183,7 +216,7 @@ Rules:
 - Request correlation ids are server/runtime-owned unless a protocol adapter
   requires an externally supplied correlation id.
 
-### 3.3 Extension Payloads
+### 3.4 Extension Payloads
 
 Extension payloads allow code-agent, workflow-agent, product, or provider
 specialization without mutating the core object model.
@@ -207,7 +240,7 @@ sdkwork.ops.runbook
 com.example.product.case-intake
 ```
 
-### 3.4 Provider Family Catalog
+### 3.5 Provider Family Catalog
 
 Agent Kernel defines **18 core provider families** required for a complete runtime
 manifest plus **6 extension families** for production hardening and advanced
@@ -246,7 +279,7 @@ Concrete memory backends are owned by `sdkwork-memory` and bound through
 `sdkwork-agents` composition slots — kernel `MUST NOT` persist business memory
 catalog tables.
 
-### 3.5 Developer API (`sdkwork_agent_kernel::api`)
+### 3.6 Developer API (`sdkwork_agent_kernel::api`)
 
 The kernel exposes a **developer-friendly SPI** on top of canonical objects.
 Hosts, providers, and protocol adapters `SHOULD` prefer this module for

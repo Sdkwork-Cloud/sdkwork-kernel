@@ -62,7 +62,10 @@
       "SdkRuntimeRouter",
       "SdkRuntimeBackedModelProvider",
       "SdkRuntimeStreamCompletion",
-      "SdkRuntimeBackedToolProvider"
+      "SdkRuntimeBackedToolProvider",
+      "SdkRuntimeActivityEvent",
+      "SdkRuntimeActivityEventSink",
+      "ProviderSessionActivityRuntimeSink"
     ],
     "runtimeEntrypoints": [],
     "routeManifest": null,

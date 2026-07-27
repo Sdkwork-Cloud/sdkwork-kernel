@@ -33,6 +33,7 @@ mod package;
 mod planning;
 mod policy;
 mod protocol;
+mod session_activity;
 pub use a2a_protocol::{
     A2AAdapterHealth, A2AAdapterStatus, A2AAgentCard, A2AAuthentication, A2ACapability,
     A2AEndpoint, A2AError, A2AProtocolAdapter, A2ATaskContext, A2ATaskRequest, A2ATaskResponse,
@@ -250,6 +251,11 @@ pub use runtime_topology::{
     mock_provider_invocation_allowed_from_env, mock_provider_override_disabled_from_env,
     mock_provider_override_enabled_from_env, normalize_kernel_profile_id, ALLOW_MOCK_PROVIDERS_ENV,
     KERNEL_ENVIRONMENT_ENV, KERNEL_PROFILE_ID_ENV,
+};
+pub use session_activity::{
+    ProviderSessionActivityProvider, ProviderSessionActivitySink, SessionActivityEvidenceKind,
+    SessionActivityFreshness, SessionActivityInteractionHint, SessionActivitySnapshot,
+    SessionActivityState,
 };
 pub use skill::{
     AgentSkillDescriptor, AgentSkillInvocationMode, AgentSkillProvider, AgentSkillRequest,

@@ -72,8 +72,8 @@ pub struct InMemoryProviderSessionStore {
     inner: RwLock<ProviderSessionInner>,
 }
 
-/// Applies the provider-independent invariants required before a native
-/// snapshot enters lifecycle storage or the unified runtime store.
+/// Applies the provider-independent invariants required before a provider
+/// Session snapshot enters lifecycle storage or the unified runtime store.
 pub fn finalize_provider_session_snapshot(
     provider_id: &str,
     mut session: AgentSession,
@@ -224,7 +224,7 @@ impl InMemoryProviderSessionStore {
         Ok(session)
     }
 
-    /// Insert or refresh an externally discovered native provider session.
+    /// Insert or refresh an externally discovered provider Session.
     pub fn synchronize_session(&self, mut session: AgentSession) -> KernelResult<AgentSession> {
         let mut inner = self.write_inner()?;
         if let Some(existing) = inner.sessions.get(&session.session_id) {
@@ -1396,16 +1396,18 @@ mod tests {
     }
 
     #[test]
-    fn synchronize_session_preserves_native_identity() {
+    fn synchronize_session_preserves_provider_session_identity() {
         let store = InMemoryProviderSessionStore::new("codex");
-        let mut native = AgentSession::new("thread.native.1");
-        native.state = SessionState::Working;
+        let mut provider_session = AgentSession::new("thread.provider.1");
+        provider_session.state = SessionState::Working;
 
-        let synchronized = store.synchronize_session(native).expect("synchronized");
+        let synchronized = store
+            .synchronize_session(provider_session)
+            .expect("synchronized");
         assert_eq!(synchronized.metadata_value("provider_id"), Some("codex"));
         assert_eq!(
             synchronized.metadata_value("provider_session_id"),
-            Some("thread.native.1")
+            Some("thread.provider.1")
         );
         assert_eq!(synchronized.state, SessionState::Working);
     }
@@ -1432,12 +1434,12 @@ mod tests {
     #[test]
     fn stale_provider_snapshot_cannot_roll_back_newer_state() {
         let store = InMemoryProviderSessionStore::new("codex");
-        let mut newer = AgentSession::new("thread.native.2");
+        let mut newer = AgentSession::new("thread.provider.2");
         newer.updated_at = Some("2026-07-15T00:02:00Z".to_string());
         newer.state = SessionState::Working;
         store.synchronize_session(newer).expect("newer snapshot");
 
-        let mut stale = AgentSession::new("thread.native.2");
+        let mut stale = AgentSession::new("thread.provider.2");
         stale.updated_at = Some("2026-07-15T00:01:00Z".to_string());
         stale.state = SessionState::Paused;
         let retained = store
@@ -1505,16 +1507,17 @@ mod tests {
 
     #[test]
     fn provider_snapshot_finalizer_enforces_identity_time_and_metadata() {
-        let mut snapshot = AgentSession::new("native.session.1");
+        let mut snapshot = AgentSession::new("provider.session.1");
         snapshot.created_at = Some("2026-07-15T08:00:00+08:00".to_string());
         snapshot.updated_at = Some("".to_string());
         snapshot.ended_at = Some("2026-07-15T08:03:00+08:00".to_string());
         snapshot.archived_at = Some("2026-07-15T08:04:00.120000000+08:00".to_string());
         snapshot.token_usage.input_tokens = 11;
         snapshot.token_usage.output_tokens = 7;
-        snapshot.parent_session_id = Some(" native.parent ".to_string());
-        snapshot.forked_from_id = Some(" native.source ".to_string());
-        snapshot.child_session_ids = vec![" native.child ".to_string(), "native.child".to_string()];
+        snapshot.parent_session_id = Some(" provider.parent ".to_string());
+        snapshot.forked_from_id = Some(" provider.source ".to_string());
+        snapshot.child_session_ids =
+            vec![" provider.child ".to_string(), "provider.child".to_string()];
         snapshot
             .metadata
             .push(("provider_id".to_string(), "stale".to_string()));
@@ -1533,42 +1536,42 @@ mod tests {
         assert_eq!(finalized.token_usage.total_tokens, 18);
         assert_eq!(
             finalized.parent_session_id.as_deref(),
-            Some("native.parent")
+            Some("provider.parent")
         );
-        assert_eq!(finalized.forked_from_id.as_deref(), Some("native.source"));
-        assert_eq!(finalized.child_session_ids, vec!["native.child"]);
+        assert_eq!(finalized.forked_from_id.as_deref(), Some("provider.source"));
+        assert_eq!(finalized.child_session_ids, vec!["provider.child"]);
         assert_eq!(finalized.metadata_value("provider_id"), Some("codex"));
         assert_eq!(
             finalized.metadata_value("provider_session_id"),
-            Some("native.session.1")
+            Some("provider.session.1")
         );
         assert!(finalize_provider_session_snapshot("codex", AgentSession::new(" ")).is_err());
 
-        let mut invalid = AgentSession::new("native.session.invalid");
+        let mut invalid = AgentSession::new("provider.session.invalid");
         invalid.ended_at = Some("eventually".to_string());
         assert!(finalize_provider_session_snapshot("codex", invalid).is_err());
 
-        let mut overflow = AgentSession::new("native.session.overflow");
+        let mut overflow = AgentSession::new("provider.session.overflow");
         overflow.token_usage.input_tokens = u64::MAX;
         overflow.token_usage.output_tokens = 1;
         assert!(finalize_provider_session_snapshot("codex", overflow).is_err());
 
-        let mut self_parent = AgentSession::new("native.session.self-parent");
+        let mut self_parent = AgentSession::new("provider.session.self-parent");
         self_parent.parent_session_id = Some(self_parent.session_id.clone());
         assert!(finalize_provider_session_snapshot("codex", self_parent).is_err());
 
-        let mut self_child = AgentSession::new("native.session.self-child");
+        let mut self_child = AgentSession::new("provider.session.self-child");
         self_child
             .child_session_ids
             .push(self_child.session_id.clone());
         assert!(finalize_provider_session_snapshot("codex", self_child).is_err());
 
-        let mut invalid_order = AgentSession::new("native.session.invalid-order");
+        let mut invalid_order = AgentSession::new("provider.session.invalid-order");
         invalid_order.created_at = Some("2026-07-16T00:02:00Z".to_string());
         invalid_order.updated_at = Some("2026-07-16T00:01:00Z".to_string());
         assert!(finalize_provider_session_snapshot("codex", invalid_order).is_err());
 
-        let mut invalid_archive_order = AgentSession::new("native.session.invalid-archive-order");
+        let mut invalid_archive_order = AgentSession::new("provider.session.invalid-archive-order");
         invalid_archive_order.created_at = Some("2026-07-16T00:00:00Z".to_string());
         invalid_archive_order.ended_at = Some("2026-07-16T00:02:00Z".to_string());
         invalid_archive_order.archived_at = Some("2026-07-16T00:01:00Z".to_string());
@@ -1577,7 +1580,7 @@ mod tests {
 
     #[test]
     fn provider_timestamp_normalization_preserves_meaningful_subseconds() {
-        let mut snapshot = AgentSession::new("native.session.subseconds");
+        let mut snapshot = AgentSession::new("provider.session.subseconds");
         snapshot.created_at = Some("2026-07-15T08:00:00.120000000+08:00".to_string());
 
         let finalized = finalize_provider_session_snapshot("codex", snapshot)

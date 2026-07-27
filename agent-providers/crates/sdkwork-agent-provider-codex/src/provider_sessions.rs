@@ -13,7 +13,7 @@ use serde_json::Value;
 
 use crate::{CodexAdapter, CodexSessionMeta};
 
-pub fn discover_codex_native_sessions() -> KernelResult<Vec<AgentSession>> {
+pub fn discover_codex_provider_sessions() -> KernelResult<Vec<AgentSession>> {
     let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) else {
         return Ok(Vec::new());
     };
@@ -21,10 +21,12 @@ pub fn discover_codex_native_sessions() -> KernelResult<Vec<AgentSession>> {
     if !state_path.is_file() {
         return Ok(Vec::new());
     }
-    read_codex_native_sessions(&state_path)
+    read_codex_provider_sessions(&state_path)
 }
 
-pub fn discover_codex_native_session_messages(session_id: &str) -> KernelResult<Vec<AgentMessage>> {
+pub fn discover_codex_provider_session_messages(
+    session_id: &str,
+) -> KernelResult<Vec<AgentMessage>> {
     let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) else {
         return Ok(Vec::new());
     };
@@ -32,10 +34,10 @@ pub fn discover_codex_native_session_messages(session_id: &str) -> KernelResult<
     if !state_path.is_file() {
         return Ok(Vec::new());
     }
-    read_codex_native_session_messages(&state_path, session_id)
+    read_codex_provider_session_messages(&state_path, session_id)
 }
 
-pub fn read_codex_native_session_messages(
+pub fn read_codex_provider_session_messages(
     state_path: &Path,
     session_id: &str,
 ) -> KernelResult<Vec<AgentMessage>> {
@@ -124,7 +126,7 @@ fn read_codex_rollout_messages(
     Ok(messages)
 }
 
-pub fn read_codex_native_sessions(path: &Path) -> KernelResult<Vec<AgentSession>> {
+pub fn read_codex_provider_sessions(path: &Path) -> KernelResult<Vec<AgentSession>> {
     let connection = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -134,7 +136,8 @@ pub fn read_codex_native_sessions(path: &Path) -> KernelResult<Vec<AgentSession>
         .prepare(
             "SELECT id, created_at_ms, updated_at_ms, model_provider, cwd, title, archived, \
              archived_at, model, reasoning_effort, agent_nickname, agent_role, approval_mode, \
-             preview, tokens_used FROM threads ORDER BY updated_at_ms DESC, id DESC",
+             preview, tokens_used, name, first_user_message \
+             FROM threads ORDER BY updated_at_ms DESC, id DESC",
         )
         .map_err(codex_inventory_error)?;
     let rows = statement
@@ -155,6 +158,8 @@ pub fn read_codex_native_sessions(path: &Path) -> KernelResult<Vec<AgentSession>
                 row.get::<_, String>(12)?,
                 row.get::<_, String>(13)?,
                 row.get::<_, i64>(14)?,
+                row.get::<_, Option<String>>(15)?,
+                row.get::<_, String>(16)?,
             ))
         })
         .map_err(codex_inventory_error)?;
@@ -177,6 +182,8 @@ pub fn read_codex_native_sessions(path: &Path) -> KernelResult<Vec<AgentSession>
             approval_policy,
             preview,
             tokens_used,
+            name,
+            first_user_message,
         ) = row.map_err(codex_inventory_error)?;
         let mut session = adapter.to_agent_session(&CodexSessionMeta {
             id,
@@ -192,7 +199,7 @@ pub fn read_codex_native_sessions(path: &Path) -> KernelResult<Vec<AgentSession>
             reasoning_effort,
             approval_policy: Some(approval_policy),
         })?;
-        session.title = Some(title);
+        session.title = codex_provider_session_title(name, title, first_user_message, &preview);
         session.preview = non_empty(preview);
         session.updated_at = updated_at_ms.and_then(epoch_millis_to_rfc3339);
         session.token_usage.total_tokens = tokens_used.max(0) as u64;
@@ -206,15 +213,40 @@ pub fn read_codex_native_sessions(path: &Path) -> KernelResult<Vec<AgentSession>
 }
 
 fn non_empty(value: String) -> Option<String> {
-    (!value.trim().is_empty()).then_some(value)
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+fn codex_provider_session_title(
+    name: Option<String>,
+    legacy_title: String,
+    first_user_message: String,
+    preview: &str,
+) -> Option<String> {
+    let name = name.and_then(non_empty);
+    let legacy_title = non_empty(legacy_title);
+    let first_user_message = non_empty(first_user_message);
+    let preview = non_empty(preview.to_string());
+    let provider_title = legacy_title
+        .as_ref()
+        .filter(|title| {
+            first_user_message.as_deref() != Some(title.as_str())
+                && preview.as_deref() != Some(title.as_str())
+        })
+        .cloned();
+
+    name.or(provider_title)
+        .or(first_user_message)
+        .or(preview)
+        .or(legacy_title)
 }
 
 fn codex_inventory_error(error: rusqlite::Error) -> KernelError {
-    KernelError::provider_error("codex_native_inventory", error.to_string())
+    KernelError::provider_error("codex_provider_session_inventory", error.to_string())
 }
 
 fn codex_transcript_io_error(error: std::io::Error) -> KernelError {
-    KernelError::provider_error("codex_native_transcript", error.to_string())
+    KernelError::provider_error("codex_provider_session_transcript", error.to_string())
 }
 
 #[cfg(test)]
@@ -224,7 +256,7 @@ mod tests {
     #[test]
     fn reads_complete_inventory_beyond_two_hundred_rows() {
         let path = std::env::temp_dir().join(format!(
-            "sdkwork-codex-native-sessions-{}.sqlite",
+            "sdkwork-codex-provider-sessions-{}.sqlite",
             std::process::id()
         ));
         let mut connection = Connection::open(&path).expect("fixture database");
@@ -234,7 +266,8 @@ mod tests {
                  updated_at_ms INTEGER, model_provider TEXT NOT NULL, cwd TEXT NOT NULL, \
                  title TEXT NOT NULL, archived INTEGER NOT NULL, archived_at INTEGER, \
                  model TEXT, reasoning_effort TEXT, agent_nickname TEXT, agent_role TEXT, \
-                 approval_mode TEXT NOT NULL, preview TEXT NOT NULL, tokens_used INTEGER NOT NULL);",
+                 approval_mode TEXT NOT NULL, preview TEXT NOT NULL, tokens_used INTEGER NOT NULL, \
+                 name TEXT, first_user_message TEXT NOT NULL);",
             )
             .expect("fixture schema");
         let transaction = connection.transaction().expect("fixture transaction");
@@ -243,24 +276,44 @@ mod tests {
                 .execute(
                     "INSERT INTO threads VALUES (?1, 0, ?2, 'provider.model.codex', \
                      '\\\\?\\E:\\Work\\BirdCoder', ?3, 0, NULL, 'gpt-5', NULL, NULL, \
-                     NULL, 'on-request', '', 0)",
-                    rusqlite::params![format!("thread-{index}"), index, format!("Session {index}")],
+                     NULL, 'on-request', ?4, 0, ?5, ?6)",
+                    rusqlite::params![
+                        format!("thread-{index}"),
+                        index,
+                        if index == 223 {
+                            String::new()
+                        } else {
+                            format!("Session {index}")
+                        },
+                        format!("Prompt {index}"),
+                        (index == 224).then_some("Renamed provider thread"),
+                        format!("Prompt {index}"),
+                    ],
                 )
                 .expect("fixture row");
         }
         transaction.commit().expect("fixture commit");
         drop(connection);
 
-        let sessions = read_codex_native_sessions(&path).expect("native sessions");
+        let sessions = read_codex_provider_sessions(&path).expect("provider sessions");
         assert_eq!(sessions.len(), 225);
         assert_eq!(sessions[0].cwd.as_deref(), Some(r"\\?\E:\Work\BirdCoder"));
+        assert_eq!(
+            sessions[0].title.as_deref(),
+            Some("Renamed provider thread")
+        );
+        assert_eq!(sessions[1].title.as_deref(), Some("Prompt 223"));
+        assert!(sessions.iter().all(|session| {
+            session.activity.freshness
+                == sdkwork_agent_kernel::SessionActivityFreshness::Unsupported
+        }));
         std::fs::remove_file(path).expect("remove fixture");
     }
 
     #[test]
     fn reads_visible_user_and_assistant_messages_from_rollout() {
         let root = std::env::temp_dir().join(format!(
-            "sdkwork-codex-native-transcript-{}",
+            "sdkwork-codex-provider-session-transcript-{}",
             std::process::id()
         ));
         std::fs::create_dir_all(&root).expect("fixture directory");
@@ -290,8 +343,8 @@ mod tests {
             .expect("fixture thread");
         drop(connection);
 
-        let messages = read_codex_native_session_messages(&state_path, "session-1")
-            .expect("native transcript");
+        let messages = read_codex_provider_session_messages(&state_path, "session-1")
+            .expect("provider transcript");
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, AgentMessageRole::User);
         assert_eq!(messages[0].parts[0].text.as_deref(), Some("hello"));

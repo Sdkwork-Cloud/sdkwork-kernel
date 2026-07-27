@@ -1,22 +1,27 @@
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelResult, ModelDescriptor,
     ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, ModelStreamChunk,
-    ProviderHealth, ProviderManifest, SessionKind, SessionSource, SessionState,
+    ProviderHealth, ProviderManifest, SessionActivityEvidenceKind, SessionActivityInteractionHint,
+    SessionActivitySnapshot, SessionActivityState, SessionKind, SessionSource,
 };
 use sdkwork_agent_provider_core::{
-    create_session_from_config, finalize_provider_session_snapshot, uuid_simple, MessageAdapter,
-    SessionAdapter, SessionConfig,
+    create_session_from_config, finalize_provider_session_snapshot,
+    session_activity_from_provider_observation, uuid_simple, MessageAdapter,
+    ProviderSessionActivityAdapter, SessionAdapter, SessionConfig,
+    DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL,
 };
 
-mod native_sessions;
+mod provider_sessions;
 
-pub use native_sessions::{
-    discover_codex_native_session_messages, discover_codex_native_sessions,
-    read_codex_native_session_messages, read_codex_native_sessions,
+pub use provider_sessions::{
+    discover_codex_provider_session_messages, discover_codex_provider_sessions,
+    read_codex_provider_session_messages, read_codex_provider_sessions,
 };
 
 #[cfg(test)]
 use sdkwork_agent_kernel::KernelError;
+#[cfg(test)]
+use sdkwork_agent_kernel::SessionState;
 #[cfg(test)]
 use sdkwork_agent_provider_core::{
     ConversationManager, InMemoryConversationManager, SessionLifecycleProvider,
@@ -77,6 +82,7 @@ pub struct CodexThreadSessionState {
     pub reasoning_effort: Option<String>,
     pub approval_policy: Option<String>,
     pub active: bool,
+    pub observed_at: Option<String>,
 }
 
 impl CodexThreadSessionState {
@@ -95,7 +101,13 @@ impl CodexThreadSessionState {
             reasoning_effort: meta.reasoning_effort.clone(),
             approval_policy: meta.approval_policy.clone(),
             active,
+            observed_at: None,
         }
+    }
+
+    pub fn with_runtime_observed_at(mut self, observed_at: impl Into<String>) -> Self {
+        self.observed_at = Some(observed_at.into());
+        self
     }
 
     fn to_meta(&self) -> CodexSessionMeta {
@@ -114,6 +126,29 @@ impl CodexThreadSessionState {
             approval_policy: self.approval_policy.clone(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodexThreadActiveFlag {
+    WaitingOnApproval,
+    WaitingOnUserInput,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CodexThreadRuntimeStatus {
+    NotLoaded,
+    Idle,
+    SystemError,
+    Active {
+        active_flags: Vec<CodexThreadActiveFlag>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodexThreadActivityObservation {
+    pub provider_session_id: String,
+    pub status: CodexThreadRuntimeStatus,
+    pub observed_at: String,
 }
 
 pub struct CodexAdapter;
@@ -167,18 +202,28 @@ impl CodexAdapter {
         finalize_provider_session_snapshot("codex", session)
     }
 
-    /// Converts the runtime-aware thread projection, whose active state is
-    /// absent from persisted Codex thread metadata.
+    /// Converts the compatibility active flag only when its runtime source also
+    /// supplies an observation timestamp. Persisted metadata remains unsupported.
     pub fn to_agent_session_state(
         &self,
         external: &CodexThreadSessionState,
     ) -> KernelResult<AgentSession> {
         let mut session = Self::convert_meta(&external.to_meta())?;
-        session.state = if external.active {
-            SessionState::Active
-        } else {
-            SessionState::Closed
+        let Some(observed_at) = external.observed_at.as_ref() else {
+            return Ok(session);
         };
+        let status = if external.active {
+            CodexThreadRuntimeStatus::Active {
+                active_flags: Vec::new(),
+            }
+        } else {
+            CodexThreadRuntimeStatus::Idle
+        };
+        session.apply_activity(self.to_session_activity(&CodexThreadActivityObservation {
+            provider_session_id: external.id.clone(),
+            status,
+            observed_at: observed_at.clone(),
+        })?)?;
         Ok(session)
     }
 }
@@ -194,6 +239,50 @@ impl SessionAdapter for CodexAdapter {
 
     fn to_agent_session(&self, external: &Self::ExternalSession) -> KernelResult<AgentSession> {
         Self::convert_meta(external)
+    }
+}
+
+impl ProviderSessionActivityAdapter for CodexAdapter {
+    type ExternalActivity = CodexThreadActivityObservation;
+
+    fn to_session_activity(
+        &self,
+        external: &Self::ExternalActivity,
+    ) -> KernelResult<SessionActivitySnapshot> {
+        let (state, interaction_hint) = match &external.status {
+            CodexThreadRuntimeStatus::NotLoaded => {
+                return Ok(SessionActivitySnapshot::unsupported_with_evidence(
+                    &external.provider_session_id,
+                    SessionActivityEvidenceKind::ProviderStatus,
+                    external.observed_at.clone(),
+                ));
+            }
+            CodexThreadRuntimeStatus::Idle => (SessionActivityState::Idle, None),
+            CodexThreadRuntimeStatus::SystemError => (SessionActivityState::Failed, None),
+            CodexThreadRuntimeStatus::Active { active_flags } => {
+                if active_flags.contains(&CodexThreadActiveFlag::WaitingOnApproval) {
+                    (
+                        SessionActivityState::Waiting,
+                        Some(SessionActivityInteractionHint::ApprovalRequired),
+                    )
+                } else if active_flags.contains(&CodexThreadActiveFlag::WaitingOnUserInput) {
+                    (
+                        SessionActivityState::Waiting,
+                        Some(SessionActivityInteractionHint::UserInputRequired),
+                    )
+                } else {
+                    (SessionActivityState::Working, None)
+                }
+            }
+        };
+        session_activity_from_provider_observation(
+            &external.provider_session_id,
+            state,
+            SessionActivityEvidenceKind::ProviderStatus,
+            interaction_hint,
+            &external.observed_at,
+            DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL,
+        )
     }
 }
 
@@ -483,14 +572,63 @@ mod tests {
     }
 
     #[test]
-    fn thread_session_state_preserves_inactive_terminal_state() {
+    fn historical_thread_session_state_does_not_treat_active_flag_as_live_evidence() {
         let adapter = CodexAdapter::new();
         let state = CodexThreadSessionState::from_meta(&sample_codex_meta(), false);
         let session = adapter
             .to_agent_session_state(&state)
             .expect("thread state");
-        assert_eq!(session.state, SessionState::Closed);
+        assert_eq!(session.state, SessionState::Created);
+        assert_eq!(
+            session.activity.freshness,
+            sdkwork_agent_kernel::SessionActivityFreshness::Unsupported
+        );
         assert_eq!(session.metadata_value("provider_id"), Some("codex"));
+    }
+
+    #[test]
+    fn live_thread_session_state_maps_explicit_inactive_status_to_idle() {
+        let adapter = CodexAdapter::new();
+        let state = CodexThreadSessionState::from_meta(&sample_codex_meta(), false)
+            .with_runtime_observed_at(sdkwork_agent_provider_core::now_iso());
+        let session = adapter
+            .to_agent_session_state(&state)
+            .expect("thread state");
+        assert_eq!(session.state, SessionState::Active);
+        assert_eq!(session.activity.state, Some(SessionActivityState::Idle));
+    }
+
+    #[test]
+    fn thread_status_maps_waiting_flags_and_rejects_not_loaded_as_ready() {
+        let adapter = CodexAdapter::new();
+        let waiting = adapter
+            .to_session_activity(&CodexThreadActivityObservation {
+                provider_session_id: "codex.session.1".to_string(),
+                status: CodexThreadRuntimeStatus::Active {
+                    active_flags: vec![CodexThreadActiveFlag::WaitingOnApproval],
+                },
+                observed_at: sdkwork_agent_provider_core::now_iso(),
+            })
+            .expect("waiting activity");
+        let not_loaded = adapter
+            .to_session_activity(&CodexThreadActivityObservation {
+                provider_session_id: "codex.session.1".to_string(),
+                status: CodexThreadRuntimeStatus::NotLoaded,
+                observed_at: sdkwork_agent_provider_core::now_iso(),
+            })
+            .expect("not-loaded activity");
+
+        assert_eq!(waiting.state, Some(SessionActivityState::Waiting));
+        assert_eq!(
+            waiting.interaction_hint,
+            Some(SessionActivityInteractionHint::ApprovalRequired)
+        );
+        assert!(waiting.is_authoritative());
+        assert_eq!(
+            not_loaded.freshness,
+            sdkwork_agent_kernel::SessionActivityFreshness::Unsupported
+        );
+        assert_eq!(not_loaded.state, None);
     }
 
     #[test]

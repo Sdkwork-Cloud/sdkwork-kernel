@@ -172,13 +172,13 @@ Operation dispatch rules:
   OpenClaw gateway sessions, Hermes sessions, and Rig executions must map to
   `AgentSession` before they enter shared persistence or event streaming.
 - A `model_chat_stream` worker terminal frame (`event: stream.done`) `MUST`
-  carry the active `model_request_id`. A `native_session_id` is optional and
+  carry the active `model_request_id`. A `provider_session_id` is optional and
   may be emitted only when the provider runtime has actually established that
-  native session; adapters must never synthesize one from a request, local
+  provider session; adapters must never synthesize one from a request, local
   database id, or transport id.
 - Runtime-backed stream completion adapters `MUST` reject terminal metadata
   whose `model_request_id` does not match the active model request. Product
-  facades may enable first-turn streaming only when a verified native session
+  facades may enable first-turn streaming only when a verified provider session
   id is present in that correlated completion. Providers without this proof
   remain invoke-only for initial turns while retaining normal resumed-stream
   support.

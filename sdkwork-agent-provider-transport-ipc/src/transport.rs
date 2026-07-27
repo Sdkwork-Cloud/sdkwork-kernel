@@ -1,5 +1,6 @@
 use crate::protocol::{
-    is_stream_chunk_frame, is_stream_terminal_frame, stream_chunk_frame, stream_done_frame,
+    is_invoke_terminal_frame, is_session_activity_frame, is_stream_chunk_frame,
+    is_stream_terminal_frame, stream_chunk_frame, stream_done_frame,
     stream_done_frame_with_completion, JsonRpcRequest, JsonRpcResponse,
     SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_PING_METHOD,
 };
@@ -188,11 +189,11 @@ where
             .get("finish_reason")
             .and_then(Value::as_str)
             .unwrap_or("stop");
-        let native_session_id = payload.get("native_session_id").and_then(Value::as_str);
+        let provider_session_id = payload.get("provider_session_id").and_then(Value::as_str);
         on_frame(stream_done_frame_with_completion(
             finish_reason,
             model_request_id,
-            native_session_id,
+            provider_session_id,
         ))?;
         return Ok(());
     }
@@ -214,11 +215,11 @@ where
                 return Ok(());
             }
         }
-        let native_session_id = payload.get("native_session_id").and_then(Value::as_str);
+        let provider_session_id = payload.get("provider_session_id").and_then(Value::as_str);
         on_frame(stream_done_frame_with_completion(
             "stop",
             model_request_id,
-            native_session_id,
+            provider_session_id,
         ))?;
         return Ok(());
     }
@@ -582,6 +583,20 @@ impl JsonRpcTransport for StdioJsonRpcSession {
                 .into_result()
                 .map_err(|error| TransportError::new(error.message))?;
 
+            if is_session_activity_frame(&result) {
+                let keep_streaming = match sink(result) {
+                    Ok(keep_streaming) => keep_streaming,
+                    Err(error) => {
+                        self.poison();
+                        return Err(error);
+                    }
+                };
+                if !keep_streaming {
+                    self.poison();
+                    return Ok(());
+                }
+                continue;
+            }
             if is_stream_chunk_frame(&result) {
                 let content = result
                     .get("content")
@@ -606,6 +621,10 @@ impl JsonRpcTransport for StdioJsonRpcSession {
                 continue;
             }
             if is_stream_terminal_frame(&result) {
+                sink(result)?;
+                return Ok(());
+            }
+            if is_invoke_terminal_frame(&result) {
                 sink(result)?;
                 return Ok(());
             }

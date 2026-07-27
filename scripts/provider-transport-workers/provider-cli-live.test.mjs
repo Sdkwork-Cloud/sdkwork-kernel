@@ -33,15 +33,27 @@ const sessionIndex = args.indexOf(sessionFlag);
 const existingSession = sessionIndex >= 0 ? args[sessionIndex + 1] : null;
 const sessionId = existingSession || kind + '-session-123';
 const positional = input;
+const delayMs = Number(process.env.SDKWORK_PROVIDER_CLI_TEST_DELAY_MS || 0);
+const terminalOnly = process.env.SDKWORK_PROVIDER_CLI_TEST_TERMINAL_ONLY === '1';
 if (kind === 'claude') {
-  process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: sessionId }) + '\\n');
-  process.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'claude:' + positional }] } }) + '\\n');
-  process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', session_id: sessionId }) + '\\n');
+  if (terminalOnly) {
+    process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', session_id: sessionId, result: 'claude:' + positional }) + '\\n');
+  } else {
+    process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: sessionId }) + '\\n');
+    const complete = () => {
+      process.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'claude:' + positional }] } }) + '\\n');
+      process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', session_id: sessionId }) + '\\n');
+    };
+    delayMs > 0 ? setTimeout(complete, delayMs) : complete();
+  }
 } else if (kind === 'gemini') {
   process.stdout.write(JSON.stringify({ type: 'init', session_id: sessionId }) + '\\n');
-  process.stdout.write(JSON.stringify({ type: 'content', value: 'gemini:' + positional }) + '\\n');
+  const complete = () => process.stdout.write(JSON.stringify({ type: 'content', value: 'gemini:' + positional }) + '\\n');
+  delayMs > 0 ? setTimeout(complete, delayMs) : complete();
 } else {
-  process.stdout.write(JSON.stringify({ type: 'text', sessionID: sessionId, part: { text: 'opencode:' + positional } }) + '\\n');
+  process.stdout.write(JSON.stringify({ type: 'step_start', sessionID: sessionId }) + '\\n');
+  const complete = () => process.stdout.write(JSON.stringify({ type: 'text', sessionID: sessionId, part: { text: 'opencode:' + positional } }) + '\\n');
+  delayMs > 0 ? setTimeout(complete, delayMs) : complete();
 }
 `,
     'utf8',
@@ -149,7 +161,7 @@ if (kind === 'claude') {
         JSON.stringify({ type: 'system', session_id: 'claude-parser' }),
         JSON.stringify({ type: 'assistant', message: { content: [{ text: 'claude text' }] } }),
       ].join('\n'),
-    ).native_session_id,
+    ).provider_session_id,
     'claude-parser',
   );
   assert.deepEqual(
@@ -211,7 +223,7 @@ if (kind === 'claude') {
     });
     assert.equal(result.ok, true);
     assert.equal(result.mode, 'sdk_cli');
-    assert.equal(result.native_session_id, 'existing-session-456');
+    assert.equal(result.provider_session_id, 'existing-session-456');
     assert.equal(result.messages[0], `${provider.kind}:implement the change`);
 
     const workerEnvironment = {
@@ -226,7 +238,25 @@ if (kind === 'claude') {
     const workerResult = await invokeWorker(provider.packageName, operation, workerEnvironment);
     assert.equal(workerResult.result.ok, true);
     assert.equal(workerResult.result.mode, 'sdk_cli');
-    assert.equal(workerResult.result.native_session_id, 'existing-session-456');
+    assert.equal(workerResult.result.provider_session_id, 'existing-session-456');
+
+    const liveActivityFrames = await invokeWorkerFrames(provider.packageName, operation, {
+      ...workerEnvironment,
+      SDKWORK_PROVIDER_CLI_TEST_DELAY_MS: '250',
+    });
+    assertLiveActivityTiming(liveActivityFrames, 'existing-session-456', provider.kind);
+    if (provider.kind === 'claude') {
+      const terminalOnlyFrames = await invokeWorkerFrames(provider.packageName, operation, {
+        ...workerEnvironment,
+        SDKWORK_PROVIDER_CLI_TEST_TERMINAL_ONLY: '1',
+      });
+      assert.equal(
+        terminalOnlyFrames.some((entry) => entry.frame.result?.event === 'session.activity'),
+        false,
+        'terminal-only provider identity must remain Unsupported instead of flashing Working',
+      );
+      assert.equal(terminalOnlyFrames.at(-1).frame.result.payload?.ok, true);
+    }
   }
 
   const multilinePrompt = `line one\n${'x'.repeat(12 * 1024)}`;
@@ -315,4 +345,75 @@ function invokeWorker(packageName, operation, environment, method = 'sdkwork/cap
       })}\n`,
     );
   });
+}
+
+function invokeWorkerFrames(packageName, operation, environment) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ['scripts/provider-transport-workers/generic-ts-sdk-worker.mjs', '--package', packageName],
+      {
+        cwd: path.resolve('.'),
+        env: environment,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
+    const frames = [];
+    const stderr = [];
+    let stdout = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += String(chunk);
+      let newline = stdout.indexOf('\n');
+      while (newline >= 0) {
+        const line = stdout.slice(0, newline).trim();
+        stdout = stdout.slice(newline + 1);
+        if (line) {
+          try {
+            const frame = JSON.parse(line);
+            frames.push({ frame, observedAt: Date.now() });
+            if (frame.result?.event === 'invoke.done' || frame.result?.ok === false) {
+              child.kill();
+              resolve(frames);
+              return;
+            }
+          } catch (error) {
+            child.kill();
+            reject(error);
+            return;
+          }
+        }
+        newline = stdout.indexOf('\n');
+      }
+    });
+    child.stderr.on('data', (chunk) => stderr.push(String(chunk)));
+    child.once('error', reject);
+    child.once('exit', (code) => {
+      if (code !== 0 && code !== null) {
+        reject(new Error(`worker exited with ${code}: ${stderr.join('')}`));
+      }
+    });
+    child.stdin.write(
+      `${JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'sdkwork/capability.invoke',
+        params: { operation, activity_stream: true },
+      })}\n`,
+    );
+  });
+}
+
+function assertLiveActivityTiming(frames, providerSessionId, provider) {
+  const activity = frames.filter((entry) => entry.frame.result?.event === 'session.activity');
+  const done = frames.find((entry) => entry.frame.result?.event === 'invoke.done');
+  assert.ok(done, `${provider} invocation must emit invoke.done`);
+  assert.deepEqual(
+    activity.map((entry) => entry.frame.result.phase),
+    ['started', 'working', 'working', 'working', 'idle', 'terminal'],
+  );
+  assert.equal(activity[0].frame.result.provider_session_id, providerSessionId);
+  assert.ok(
+    done.observedAt - activity[0].observedAt >= 150,
+    `${provider} Working must arrive while the CLI process is still running`,
+  );
 }

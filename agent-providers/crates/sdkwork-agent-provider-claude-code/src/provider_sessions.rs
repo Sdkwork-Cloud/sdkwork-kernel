@@ -10,7 +10,7 @@ use serde_json::Value;
 
 use crate::{ClaudeCodeAdapter, ClaudeCodeProcessState};
 
-pub fn discover_claude_code_native_sessions() -> KernelResult<Vec<AgentSession>> {
+pub fn discover_claude_code_provider_sessions() -> KernelResult<Vec<AgentSession>> {
     let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) else {
         return Ok(Vec::new());
     };
@@ -18,10 +18,10 @@ pub fn discover_claude_code_native_sessions() -> KernelResult<Vec<AgentSession>>
     if !projects_path.is_dir() {
         return Ok(Vec::new());
     }
-    read_claude_code_native_sessions(&projects_path)
+    read_claude_code_provider_sessions(&projects_path)
 }
 
-pub fn discover_claude_code_native_session_messages(
+pub fn discover_claude_code_provider_session_messages(
     session_id: &str,
 ) -> KernelResult<Vec<AgentMessage>> {
     let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) else {
@@ -31,10 +31,10 @@ pub fn discover_claude_code_native_session_messages(
     if !projects_path.is_dir() {
         return Ok(Vec::new());
     }
-    read_claude_code_native_session_messages(&projects_path, session_id)
+    read_claude_code_provider_session_messages(&projects_path, session_id)
 }
 
-pub fn read_claude_code_native_session_messages(
+pub fn read_claude_code_provider_session_messages(
     projects_path: &Path,
     session_id: &str,
 ) -> KernelResult<Vec<AgentMessage>> {
@@ -94,23 +94,9 @@ fn read_claude_session_messages_file(
         else {
             continue;
         };
-        let Some(content_value) = value.pointer("/message/content") else {
+        let Some(content) = claude_message_text(&value) else {
             continue;
         };
-        let content = match content_value {
-            Value::String(content) => content.trim().to_string(),
-            Value::Array(parts) => parts
-                .iter()
-                .filter(|part| part.get("type").and_then(Value::as_str) == Some("text"))
-                .filter_map(|part| part.get("text").and_then(Value::as_str))
-                .filter(|text| !text.trim().is_empty())
-                .collect::<Vec<_>>()
-                .join("\n\n"),
-            _ => String::new(),
-        };
-        if content.is_empty() {
-            continue;
-        }
         let mut message = AgentMessage::new(
             message_id,
             role,
@@ -125,7 +111,7 @@ fn read_claude_session_messages_file(
     Ok(messages)
 }
 
-pub fn read_claude_code_native_sessions(projects_path: &Path) -> KernelResult<Vec<AgentSession>> {
+pub fn read_claude_code_provider_sessions(projects_path: &Path) -> KernelResult<Vec<AgentSession>> {
     let adapter = ClaudeCodeAdapter::new();
     let mut sessions = Vec::new();
     for project_entry in fs::read_dir(projects_path).map_err(claude_inventory_error)? {
@@ -156,6 +142,8 @@ fn read_claude_session_file(path: &Path) -> KernelResult<Option<ClaudeCodeProces
     let mut session_id = fallback_id;
     let mut cwd = None;
     let mut model = None;
+    let mut provider_title = None;
+    let mut first_user_message = None;
     let mut created_at = None;
     let mut updated_at = None;
     for line in BufReader::new(file).lines() {
@@ -165,6 +153,24 @@ fn read_claude_session_file(path: &Path) -> KernelResult<Option<ClaudeCodeProces
         };
         if let Some(value) = value.get("sessionId").and_then(Value::as_str) {
             session_id = value.to_string();
+        }
+        let is_sidechain = value
+            .get("isSidechain")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if provider_title.is_none() && !is_sidechain {
+            provider_title = value
+                .get("slug")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+        }
+        if first_user_message.is_none()
+            && !is_sidechain
+            && value.get("type").and_then(Value::as_str) == Some("user")
+        {
+            first_user_message = claude_message_text(&value);
         }
         if cwd.is_none() {
             cwd = value.get("cwd").and_then(Value::as_str).map(str::to_string);
@@ -189,14 +195,31 @@ fn read_claude_session_file(path: &Path) -> KernelResult<Option<ClaudeCodeProces
         agent_type: "main".to_string(),
         model,
         cwd,
-        title: Some(format!("Claude Code {session_id}")),
+        title: provider_title.or(first_user_message),
         created_at,
         updated_at,
     }))
 }
 
+fn claude_message_text(value: &Value) -> Option<String> {
+    let content_value = value.pointer("/message/content")?;
+    let content = match content_value {
+        Value::String(content) => content.trim().to_string(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter(|part| part.get("type").and_then(Value::as_str) == Some("text"))
+            .filter_map(|part| part.get("text").and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n"),
+        _ => String::new(),
+    };
+    (!content.is_empty()).then_some(content)
+}
+
 fn claude_inventory_error(error: std::io::Error) -> KernelError {
-    KernelError::provider_error("claude_code_native_inventory", error.to_string())
+    KernelError::provider_error("claude_code_provider_session_inventory", error.to_string())
 }
 
 #[cfg(test)]
@@ -206,7 +229,7 @@ mod tests {
     #[test]
     fn reads_jsonl_session_identity_and_cwd() {
         let root = std::env::temp_dir().join(format!(
-            "sdkwork-claude-native-sessions-{}",
+            "sdkwork-claude-provider-sessions-{}",
             std::process::id()
         ));
         let project = root.join("E--Work-BirdCoder");
@@ -216,17 +239,35 @@ mod tests {
             &path,
             concat!(
                 "{\"type\":\"user\",\"uuid\":\"message-user\",\"sessionId\":\"session-1\",\"cwd\":\"E:\\\\Work\\\\BirdCoder\",\"timestamp\":\"2026-07-01T00:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"hello\"}}\n",
-                "{\"type\":\"assistant\",\"uuid\":\"message-assistant\",\"sessionId\":\"session-1\",\"cwd\":\"E:\\\\Work\\\\BirdCoder\",\"timestamp\":\"2026-07-01T00:01:00Z\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-sonnet\",\"content\":[{\"type\":\"text\",\"text\":\"world\"}]}}\n"
+                "{\"type\":\"assistant\",\"uuid\":\"message-assistant\",\"sessionId\":\"session-1\",\"slug\":\"provider-title\",\"cwd\":\"E:\\\\Work\\\\BirdCoder\",\"timestamp\":\"2026-07-01T00:01:00Z\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-sonnet\",\"content\":[{\"type\":\"text\",\"text\":\"world\"}]}}\n"
             ),
         )
         .expect("fixture jsonl");
+        std::fs::write(
+            project.join("session-2.jsonl"),
+            "{\"type\":\"user\",\"uuid\":\"message-user-2\",\"sessionId\":\"session-2\",\"cwd\":\"E:\\\\Work\\\\BirdCoder\",\"timestamp\":\"2026-07-01T00:02:00Z\",\"message\":{\"role\":\"user\",\"content\":\"fallback user prompt\"}}\n",
+        )
+        .expect("fallback fixture jsonl");
 
-        let sessions = read_claude_code_native_sessions(&root).expect("native sessions");
-        assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions[0].session_id, "session-1");
-        assert_eq!(sessions[0].model.as_deref(), Some("claude-sonnet"));
-        let messages = read_claude_code_native_session_messages(&root, "session-1")
-            .expect("native transcript");
+        let sessions = read_claude_code_provider_sessions(&root).expect("provider sessions");
+        assert_eq!(sessions.len(), 2);
+        let titled = sessions
+            .iter()
+            .find(|session| session.session_id == "session-1")
+            .expect("provider-titled session");
+        assert_eq!(titled.title.as_deref(), Some("provider-title"));
+        assert_eq!(titled.model.as_deref(), Some("claude-sonnet"));
+        let fallback = sessions
+            .iter()
+            .find(|session| session.session_id == "session-2")
+            .expect("fallback-titled session");
+        assert_eq!(fallback.title.as_deref(), Some("fallback user prompt"));
+        assert!(sessions.iter().all(|session| {
+            session.activity.freshness
+                == sdkwork_agent_kernel::SessionActivityFreshness::Unsupported
+        }));
+        let messages = read_claude_code_provider_session_messages(&root, "session-1")
+            .expect("provider transcript");
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, AgentMessageRole::User);
         assert_eq!(messages[1].role, AgentMessageRole::Agent);

@@ -751,7 +751,7 @@ mod tests {
     fn from_model_request_projects_code_engine_context_and_generation_options() {
         let request = ModelRequest::new("req-context", vec!["hello".to_string()])
             .with_model_id("codex-test")
-            .for_session("native-session")
+            .for_session("provider-session")
             .with_timeout_ms(42_000)
             .with_metadata("sdkwork.code_engine.working_directory", " C:/workspace ")
             .with_metadata("sdkwork.code_engine.approval_policy", "on-request")
@@ -777,7 +777,7 @@ mod tests {
                 ..
             } => {
                 assert_eq!(model_id.as_deref(), Some("codex-test"));
-                assert_eq!(session_id.as_deref(), Some("native-session"));
+                assert_eq!(session_id.as_deref(), Some("provider-session"));
                 assert_eq!(working_directory.as_deref(), Some("C:/workspace"));
                 assert_eq!(timeout_ms, Some(42_000));
                 assert_eq!(options.approval_policy.as_deref(), Some("on-request"));

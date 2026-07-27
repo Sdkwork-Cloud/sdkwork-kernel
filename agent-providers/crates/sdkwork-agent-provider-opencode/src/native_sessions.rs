@@ -1,0 +1,252 @@
+use std::path::{Path, PathBuf};
+
+use rusqlite::{Connection, OpenFlags};
+use sdkwork_agent_kernel::{
+    AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
+    SessionState,
+};
+use sdkwork_agent_provider_core::{epoch_millis_to_rfc3339, SessionAdapter};
+use serde_json::Value;
+
+use crate::{OpenCodeAdapter, OpenCodeSession};
+
+pub fn discover_opencode_native_sessions() -> KernelResult<Vec<AgentSession>> {
+    let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) else {
+        return Ok(Vec::new());
+    };
+    let database_path = PathBuf::from(home)
+        .join(".local")
+        .join("share")
+        .join("opencode")
+        .join("opencode.db");
+    if !database_path.is_file() {
+        return Ok(Vec::new());
+    }
+    read_opencode_native_sessions(&database_path)
+}
+
+pub fn discover_opencode_native_session_messages(
+    session_id: &str,
+) -> KernelResult<Vec<AgentMessage>> {
+    let Some(home) = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")) else {
+        return Ok(Vec::new());
+    };
+    let database_path = PathBuf::from(home)
+        .join(".local")
+        .join("share")
+        .join("opencode")
+        .join("opencode.db");
+    if !database_path.is_file() {
+        return Ok(Vec::new());
+    }
+    read_opencode_native_session_messages(&database_path, session_id)
+}
+
+pub fn read_opencode_native_session_messages(
+    database_path: &Path,
+    session_id: &str,
+) -> KernelResult<Vec<AgentMessage>> {
+    let connection = Connection::open_with_flags(
+        database_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(opencode_inventory_error)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT m.id, m.time_created, json_extract(m.data, '$.role'), p.id, \
+             json_extract(p.data, '$.text') FROM message m JOIN part p ON p.message_id = m.id \
+             WHERE m.session_id = ?1 AND json_extract(p.data, '$.type') = 'text' \
+             ORDER BY m.time_created, m.id, p.time_created, p.id",
+        )
+        .map_err(opencode_inventory_error)?;
+    let rows = statement
+        .query_map([session_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            ))
+        })
+        .map_err(opencode_inventory_error)?;
+    let mut grouped = Vec::<(String, i64, String, Vec<(String, String)>)>::new();
+    for row in rows {
+        let (message_id, created_at, role, part_id, text) =
+            row.map_err(opencode_inventory_error)?;
+        let Some(text) = text.filter(|value| !value.trim().is_empty()) else {
+            continue;
+        };
+        if let Some((_, _, _, parts)) = grouped
+            .last_mut()
+            .filter(|(current_message_id, _, _, _)| current_message_id == &message_id)
+        {
+            parts.push((part_id, text));
+        } else {
+            grouped.push((message_id, created_at, role, vec![(part_id, text)]));
+        }
+    }
+    Ok(grouped
+        .into_iter()
+        .filter_map(|(message_id, created_at, role, parts)| {
+            let role = match role.as_str() {
+                "user" => AgentMessageRole::User,
+                "assistant" => AgentMessageRole::Agent,
+                _ => return None,
+            };
+            let mut message = AgentMessage::new(
+                message_id,
+                role,
+                parts
+                    .into_iter()
+                    .map(|(part_id, text)| AgentPart::text(part_id, text))
+                    .collect(),
+            )
+            .for_session(session_id);
+            if let Some(timestamp) = epoch_millis_to_rfc3339(created_at) {
+                message = message.created_at(timestamp);
+            }
+            Some(message)
+        })
+        .collect())
+}
+
+pub fn read_opencode_native_sessions(path: &Path) -> KernelResult<Vec<AgentSession>> {
+    let connection = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(opencode_inventory_error)?;
+    let mut statement = connection
+        .prepare(
+            "SELECT s.id, s.parent_id, s.title, s.time_created, s.time_updated, \
+             s.time_archived, s.model, s.cost, s.tokens_input, s.tokens_output, \
+             s.directory, p.worktree FROM session s JOIN project p ON p.id = s.project_id \
+             ORDER BY s.time_updated DESC, s.id DESC",
+        )
+        .map_err(opencode_inventory_error)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, i64>(4)?,
+                row.get::<_, Option<i64>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, f64>(7)?,
+                row.get::<_, i64>(8)?,
+                row.get::<_, i64>(9)?,
+                row.get::<_, String>(10)?,
+                row.get::<_, String>(11)?,
+            ))
+        })
+        .map_err(opencode_inventory_error)?;
+    let adapter = OpenCodeAdapter::new();
+    let mut sessions = Vec::new();
+    for row in rows {
+        let (
+            id,
+            parent_session_id,
+            title,
+            created_at,
+            updated_at,
+            archived_at,
+            model_json,
+            cost,
+            input_tokens,
+            output_tokens,
+            directory,
+            worktree,
+        ) = row.map_err(opencode_inventory_error)?;
+        let model = model_json.as_deref().and_then(opencode_model_id);
+        let mut session = adapter.to_agent_session(&OpenCodeSession {
+            id,
+            parent_session_id,
+            title: Some(title),
+            message_count: 0,
+            prompt_tokens: input_tokens.max(0) as u64,
+            completion_tokens: output_tokens.max(0) as u64,
+            cost_cents: Some((cost.max(0.0) * 100.0).round() as u64),
+            created_at: epoch_millis_to_rfc3339(created_at),
+            updated_at: epoch_millis_to_rfc3339(updated_at),
+            model,
+            cwd: Some(if directory.trim().is_empty() {
+                worktree
+            } else {
+                directory
+            }),
+        })?;
+        if let Some(archived_at) = archived_at.and_then(epoch_millis_to_rfc3339) {
+            session.state = SessionState::Archived;
+            session.archived_at = Some(archived_at);
+        }
+        sessions.push(session);
+    }
+    Ok(sessions)
+}
+
+fn opencode_model_id(value: &str) -> Option<String> {
+    serde_json::from_str::<Value>(value)
+        .ok()
+        .and_then(|value| value.get("id").and_then(Value::as_str).map(str::to_string))
+        .or_else(|| (!value.trim().is_empty()).then(|| value.to_string()))
+}
+
+fn opencode_inventory_error(error: rusqlite::Error) -> KernelError {
+    KernelError::provider_error("opencode_native_inventory", error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_sessions_joined_to_their_project_worktree() {
+        let path = std::env::temp_dir().join(format!(
+            "sdkwork-opencode-native-sessions-{}.sqlite",
+            std::process::id()
+        ));
+        let connection = Connection::open(&path).expect("fixture database");
+        connection
+            .execute_batch(
+                "CREATE TABLE project (id TEXT PRIMARY KEY, worktree TEXT NOT NULL); \
+                 CREATE TABLE session (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, \
+                 parent_id TEXT, title TEXT NOT NULL, time_created INTEGER NOT NULL, \
+                 time_updated INTEGER NOT NULL, time_archived INTEGER, model TEXT, \
+                 cost REAL NOT NULL, tokens_input INTEGER NOT NULL, tokens_output INTEGER NOT NULL, \
+                 directory TEXT NOT NULL); \
+                 CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, \
+                 time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL); \
+                 CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, \
+                 session_id TEXT NOT NULL, time_created INTEGER NOT NULL, \
+                 time_updated INTEGER NOT NULL, data TEXT NOT NULL); \
+                 INSERT INTO project VALUES ('project-1', 'E:/Work/BirdCoder'); \
+                 INSERT INTO session VALUES ('session-1', 'project-1', NULL, 'OpenCode session', \
+                 0, 1000, NULL, '{\"id\":\"opencode-model\"}', 1.25, 10, 20, \
+                 'E:/Work/BirdCoder'); \
+                 INSERT INTO message VALUES ('message-user', 'session-1', 100, 100, \
+                 '{\"role\":\"user\"}'); \
+                 INSERT INTO message VALUES ('message-assistant', 'session-1', 200, 200, \
+                 '{\"role\":\"assistant\"}'); \
+                 INSERT INTO part VALUES ('part-user', 'message-user', 'session-1', 100, 100, \
+                 '{\"type\":\"text\",\"text\":\"hello\"}'); \
+                 INSERT INTO part VALUES ('part-assistant', 'message-assistant', 'session-1', 200, 200, \
+                 '{\"type\":\"text\",\"text\":\"world\"}');",
+            )
+            .expect("fixture data");
+        drop(connection);
+
+        let sessions = read_opencode_native_sessions(&path).expect("native sessions");
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].session_id, "session-1");
+        assert_eq!(sessions[0].cost_cents, Some(125));
+        let messages =
+            read_opencode_native_session_messages(&path, "session-1").expect("native transcript");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].role, AgentMessageRole::User);
+        assert_eq!(messages[1].role, AgentMessageRole::Agent);
+        std::fs::remove_file(path).expect("remove fixture");
+    }
+}

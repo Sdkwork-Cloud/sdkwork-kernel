@@ -2591,6 +2591,7 @@ dependencies = [
 name = "sdkwork-agent-provider-codex"
 version = "0.2.0"
 dependencies = [
+ "rusqlite",
  "sdkwork-agent-kernel",
  "sdkwork-agent-plugin-core",
  "sdkwork-agent-provider-core",
@@ -2609,6 +2610,7 @@ dependencies = [
  "sdkwork-agent-kernel",
  "sdkwork-utils-rust",
  "serde_json",
+ "time",
 ]
 
 [[package]]
@@ -2669,6 +2671,7 @@ dependencies = [
 name = "sdkwork-agent-provider-opencode"
 version = "0.2.0"
 dependencies = [
+ "rusqlite",
  "sdkwork-agent-kernel",
  "sdkwork-agent-plugin-core",
  "sdkwork-agent-provider-core",

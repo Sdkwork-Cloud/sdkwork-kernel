@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 mod mock_policy;
 mod model_wire;
+mod native_session_path;
 mod provider_session_store;
 
 pub use mock_policy::{
@@ -19,6 +20,10 @@ pub use model_wire::{
     build_model_chat_operation, model_request_has_structured_input, resolve_model_wire_messages,
     wire_messages_summary, wire_messages_to_anthropic_json, wire_messages_to_openai_json,
     wire_system_text, ModelWireMessage,
+};
+pub use native_session_path::{
+    epoch_millis_to_rfc3339, native_session_directory_fingerprint, native_session_path_basename,
+    normalize_native_session_path,
 };
 pub use provider_session_store::{
     finalize_provider_session_snapshot, sort_sessions_by_updated_at, InMemoryProviderSessionStore,

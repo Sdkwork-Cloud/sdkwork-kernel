@@ -39,6 +39,8 @@ version = "0.1.0"
 
 [workspace.dependencies]
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
+rusqlite = { version = "0.32.1", features = ["bundled"] }
+time = { version = "0.3.47", features = ["formatting"] }
 sdkwork-api-kernel-assembly = { path = "crates/sdkwork-api-kernel-assembly" }
 # SDKWork workspace members - declared once at workspace root
 sdkwork-agent-kernel = { path = "sdkwork-agent-kernel" }

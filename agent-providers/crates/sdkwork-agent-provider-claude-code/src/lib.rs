@@ -8,6 +8,13 @@ use sdkwork_agent_provider_core::{
     SessionAdapter, SessionConfig,
 };
 
+mod native_sessions;
+
+pub use native_sessions::{
+    discover_claude_code_native_session_messages, discover_claude_code_native_sessions,
+    read_claude_code_native_session_messages, read_claude_code_native_sessions,
+};
+
 #[cfg(test)]
 use sdkwork_agent_kernel::KernelError;
 #[cfg(test)]

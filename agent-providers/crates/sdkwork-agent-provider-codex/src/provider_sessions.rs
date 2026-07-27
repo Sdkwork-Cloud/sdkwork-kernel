@@ -67,63 +67,340 @@ fn read_codex_rollout_messages(
     let file = File::open(rollout_path).map_err(codex_transcript_io_error)?;
     let mut messages = Vec::new();
     let mut seen_message_ids = HashSet::new();
-    for line in BufReader::new(file).lines() {
+    for (line_index, line) in BufReader::new(file).lines().enumerate() {
         let line = line.map_err(codex_transcript_io_error)?;
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        if value.get("type").and_then(Value::as_str) != Some("response_item") {
-            continue;
-        }
-        let Some(payload) = value.get("payload") else {
+        let Some(mut message) = codex_rollout_message(&value, session_id, line_index) else {
             continue;
         };
-        if payload.get("type").and_then(Value::as_str) != Some("message") {
+        if !seen_message_ids.insert(message.message_id.clone()) {
             continue;
         }
-        let role = match payload.get("role").and_then(Value::as_str) {
-            Some("user") => AgentMessageRole::User,
-            Some("assistant") => AgentMessageRole::Agent,
-            _ => continue,
-        };
-        let Some(message_id) = payload
-            .get("id")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        else {
-            continue;
-        };
-        if !seen_message_ids.insert(message_id.to_string()) {
-            continue;
-        }
-        let content = payload
-            .get("content")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|part| match part.get("type").and_then(Value::as_str) {
-                Some("input_text" | "output_text") => part.get("text").and_then(Value::as_str),
-                _ => None,
-            })
-            .filter(|text| !text.trim().is_empty())
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        if content.is_empty() {
-            continue;
-        }
-        let mut message = AgentMessage::new(
-            message_id,
-            role,
-            vec![AgentPart::text(format!("{message_id}.text"), content)],
-        )
-        .for_session(session_id);
         if let Some(timestamp) = value.get("timestamp").and_then(Value::as_str) {
             message = message.created_at(timestamp);
         }
         messages.push(message);
     }
     Ok(messages)
+}
+
+fn codex_rollout_message(
+    value: &Value,
+    session_id: &str,
+    line_index: usize,
+) -> Option<AgentMessage> {
+    let payload = value.get("payload")?;
+    match value.get("type").and_then(Value::as_str) {
+        Some("response_item") => codex_response_item_message(payload, session_id),
+        Some("event_msg") => codex_event_message(payload, session_id, line_index),
+        _ => None,
+    }
+}
+
+fn codex_response_item_message(payload: &Value, session_id: &str) -> Option<AgentMessage> {
+    let payload_type = payload.get("type").and_then(Value::as_str)?;
+    let message_id = codex_payload_id(payload, payload_type)?;
+    let (role, parts) = match payload_type {
+        "message" => (
+            codex_message_role(payload.get("role").and_then(Value::as_str))?,
+            codex_message_content_parts(payload, &message_id),
+        ),
+        "reasoning" => (
+            AgentMessageRole::Agent,
+            codex_reasoning_parts(payload, &message_id),
+        ),
+        "function_call" | "custom_tool_call" => (
+            AgentMessageRole::Agent,
+            vec![codex_tool_call_part(payload, &message_id, payload_type)?],
+        ),
+        "function_call_output" | "custom_tool_call_output" => (
+            AgentMessageRole::Tool,
+            vec![codex_tool_result_part(payload, &message_id, payload_type)?],
+        ),
+        "agent_message" => (
+            AgentMessageRole::Agent,
+            codex_agent_message_parts(payload, &message_id),
+        ),
+        _ => return None,
+    };
+    (!parts.is_empty()).then(|| {
+        AgentMessage::new(message_id, role, parts)
+            .for_session(session_id)
+            .with_metadata("codex.item_type", payload_type)
+    })
+}
+
+fn codex_event_message(
+    payload: &Value,
+    session_id: &str,
+    line_index: usize,
+) -> Option<AgentMessage> {
+    let event_type = payload.get("type").and_then(Value::as_str)?;
+    let fallback_id = format!("codex.event.{line_index}");
+    let message_id = payload
+        .get("event_id")
+        .or_else(|| payload.get("call_id"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("codex.event.{event_type}.{value}"))
+        .unwrap_or(fallback_id);
+    let (role, parts) = match event_type {
+        "agent_reasoning" => {
+            let text = payload.get("text").and_then(Value::as_str)?.trim();
+            if text.is_empty() {
+                return None;
+            }
+            (
+                AgentMessageRole::Agent,
+                vec![AgentPart::text(format!("{message_id}.reasoning"), text)
+                    .from_provider("codex")
+                    .with_metadata("codex.content_type", "reasoning")],
+            )
+        }
+        "mcp_tool_call_end" => (
+            AgentMessageRole::Tool,
+            vec![codex_completed_tool_event_part(
+                payload,
+                &message_id,
+                "mcp_tool_call",
+                "mcp",
+            )?],
+        ),
+        "patch_apply_end" => (
+            AgentMessageRole::Tool,
+            vec![codex_completed_tool_event_part(
+                payload,
+                &message_id,
+                "file_change",
+                "apply_patch",
+            )?],
+        ),
+        "sub_agent_activity" => (
+            AgentMessageRole::Agent,
+            vec![codex_completed_tool_event_part(
+                payload,
+                &message_id,
+                "sub_agent_activity",
+                "subagent_activity",
+            )?],
+        ),
+        "task_started" | "task_complete" | "context_compacted" => (
+            AgentMessageRole::Adapter,
+            vec![
+                AgentPart::json(format!("{message_id}.status"), payload.to_string())
+                    .from_provider("codex")
+                    .with_metadata("codex.content_type", event_type),
+            ],
+        ),
+        "turn_aborted" => {
+            let reason = payload
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("Codex turn aborted");
+            (
+                AgentMessageRole::Adapter,
+                vec![
+                    AgentPart::error(format!("{message_id}.error"), "turn_aborted", reason)
+                        .from_provider("codex")
+                        .with_metadata("codex.content_type", "error"),
+                ],
+            )
+        }
+        _ => return None,
+    };
+    Some(
+        AgentMessage::new(message_id, role, parts)
+            .for_session(session_id)
+            .with_metadata("codex.event_type", event_type),
+    )
+}
+
+fn codex_payload_id(payload: &Value, payload_type: &str) -> Option<String> {
+    if let Some(id) = payload
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(id.to_string());
+    }
+
+    payload
+        .get("call_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("codex.{payload_type}.{value}"))
+}
+
+fn codex_message_role(role: Option<&str>) -> Option<AgentMessageRole> {
+    match role {
+        Some("user") => Some(AgentMessageRole::User),
+        Some("assistant") => Some(AgentMessageRole::Agent),
+        Some("system" | "developer") => Some(AgentMessageRole::System),
+        Some("tool") => Some(AgentMessageRole::Tool),
+        _ => None,
+    }
+}
+
+fn codex_message_content_parts(payload: &Value, message_id: &str) -> Vec<AgentPart> {
+    payload
+        .get("content")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter_map(|(index, content)| {
+            let content_type = content.get("type").and_then(Value::as_str)?;
+            let part_id = format!("{message_id}.content.{index}");
+            match content_type {
+                "input_text" | "output_text" => {
+                    let text = content.get("text").and_then(Value::as_str)?.trim();
+                    (!text.is_empty()).then(|| {
+                        AgentPart::text(part_id, text)
+                            .from_provider("codex")
+                            .with_metadata("codex.content_type", content_type)
+                    })
+                }
+                _ => Some(
+                    AgentPart::json(part_id, content.to_string())
+                        .from_provider("codex")
+                        .with_metadata("codex.content_type", content_type),
+                ),
+            }
+        })
+        .collect()
+}
+
+fn codex_reasoning_parts(payload: &Value, message_id: &str) -> Vec<AgentPart> {
+    payload
+        .get("summary")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .filter_map(|(index, summary)| {
+            let text = summary
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())?;
+            Some(
+                AgentPart::text(format!("{message_id}.summary.{index}"), text)
+                    .from_provider("codex")
+                    .with_metadata("codex.content_type", "reasoning"),
+            )
+        })
+        .collect()
+}
+
+fn codex_agent_message_parts(payload: &Value, message_id: &str) -> Vec<AgentPart> {
+    let Some(content) = payload.get("content") else {
+        return Vec::new();
+    };
+    match content {
+        Value::String(text) if !text.trim().is_empty() => {
+            vec![AgentPart::text(format!("{message_id}.text"), text.trim())
+                .from_provider("codex")
+                .with_metadata("codex.content_type", "agent_message")]
+        }
+        Value::Array(_) => codex_message_content_parts(payload, message_id),
+        _ => Vec::new(),
+    }
+}
+
+fn codex_tool_call_part(
+    payload: &Value,
+    message_id: &str,
+    payload_type: &str,
+) -> Option<AgentPart> {
+    let tool_call_id = payload
+        .get("call_id")
+        .or_else(|| payload.get("id"))
+        .and_then(Value::as_str)?;
+    let tool_name = payload
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("tool");
+    let mut part = AgentPart::tool_call_ref(format!("{message_id}.call"), tool_call_id)
+        .with_name(tool_name)
+        .from_provider("codex")
+        .with_metadata("codex.content_type", payload_type);
+    part.json = Some(payload.to_string());
+    if let Some(status) = payload.get("status").and_then(Value::as_str) {
+        part = part.with_metadata("codex.status", status);
+    }
+    Some(part)
+}
+
+fn codex_tool_result_part(
+    payload: &Value,
+    message_id: &str,
+    payload_type: &str,
+) -> Option<AgentPart> {
+    let tool_call_id = payload.get("call_id").and_then(Value::as_str)?;
+    Some(
+        AgentPart::json(format!("{message_id}.result"), payload.to_string())
+            .with_name("tool")
+            .from_provider("codex")
+            .with_metadata("codex.content_type", payload_type)
+            .with_metadata("codex.tool_call_id", tool_call_id)
+            .with_metadata("codex.status", "completed"),
+    )
+}
+
+fn codex_completed_tool_event_part(
+    payload: &Value,
+    message_id: &str,
+    item_type: &str,
+    fallback_tool_name: &str,
+) -> Option<AgentPart> {
+    let tool_call_id = payload
+        .get("call_id")
+        .or_else(|| payload.get("event_id"))
+        .and_then(Value::as_str)?;
+    let invocation = payload.get("invocation");
+    let tool_name = invocation
+        .and_then(|value| value.get("tool"))
+        .and_then(Value::as_str)
+        .or_else(|| payload.get("name").and_then(Value::as_str))
+        .unwrap_or(fallback_tool_name);
+    let status = if payload.get("success").and_then(Value::as_bool) == Some(false)
+        || payload.get("error").is_some_and(|value| !value.is_null())
+    {
+        "failed"
+    } else {
+        "completed"
+    };
+    let provider_item = serde_json::json!({
+        "id": tool_call_id,
+        "type": item_type,
+        "server": invocation.and_then(|value| value.get("server")),
+        "tool": tool_name,
+        "arguments": invocation.and_then(|value| value.get("arguments")),
+        "result": payload.get("result").or_else(|| payload.get("stdout")),
+        "output": payload.get("stdout"),
+        "error": payload.get("error"),
+        "status": status,
+        "changes": payload.get("changes"),
+        "kind": payload.get("kind"),
+        "agentThreadId": payload.get("agent_thread_id"),
+        "agentPath": payload.get("agent_path"),
+        "turnId": payload.get("turn_id"),
+        "providerEvent": payload,
+    });
+    let mut part = AgentPart::tool_call_ref(format!("{message_id}.tool"), tool_call_id)
+        .with_name(tool_name)
+        .from_provider("codex")
+        .with_metadata("codex.content_type", item_type)
+        .with_metadata("codex.status", status)
+        .with_metadata("codex.has_result", "true");
+    part.json = Some(provider_item.to_string());
+    Some(part)
 }
 
 pub fn read_codex_provider_sessions(path: &Path) -> KernelResult<Vec<AgentSession>> {
@@ -311,7 +588,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_visible_user_and_assistant_messages_from_rollout() {
+    fn reads_text_reasoning_tool_and_mcp_items_from_rollout() {
         let root = std::env::temp_dir().join(format!(
             "sdkwork-codex-provider-session-transcript-{}",
             std::process::id()
@@ -322,8 +599,12 @@ mod tests {
             &rollout_path,
             concat!(
                 "{\"timestamp\":\"2026-07-01T00:00:00Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"id\":\"message-user\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"}]}}\n",
-                "{\"timestamp\":\"2026-07-01T00:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"id\":\"reasoning-1\"}}\n",
-                "{\"timestamp\":\"2026-07-01T00:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"id\":\"message-assistant\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"world\"}]}}\n"
+                "{\"timestamp\":\"2026-07-01T00:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\",\"id\":\"reasoning-1\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"inspect the workspace\"}]}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:02Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"id\":\"call-item-1\",\"call_id\":\"call-1\",\"name\":\"shell_command\",\"arguments\":\"{\\\"command\\\":\\\"cargo test\\\"}\"}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:03Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"id\":\"output-item-1\",\"call_id\":\"call-1\",\"output\":\"ok\"}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:04Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"mcp_tool_call_end\",\"call_id\":\"mcp-1\",\"invocation\":{\"server\":\"docs\",\"tool\":\"search\",\"arguments\":{\"q\":\"session items\"}},\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"found\"}]}}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:05Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"patch_apply_end\",\"call_id\":\"patch-1\",\"turn_id\":\"turn-1\",\"changes\":[{\"path\":\"src/main.rs\",\"kind\":\"update\"}],\"stdout\":\"Done\",\"success\":true}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:06Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"id\":\"message-assistant\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"world\"}]}}\n"
             ),
         )
         .expect("fixture rollout");
@@ -345,11 +626,42 @@ mod tests {
 
         let messages = read_codex_provider_session_messages(&state_path, "session-1")
             .expect("provider transcript");
-        assert_eq!(messages.len(), 2);
+        assert_eq!(messages.len(), 7, "{messages:#?}");
         assert_eq!(messages[0].role, AgentMessageRole::User);
         assert_eq!(messages[0].parts[0].text.as_deref(), Some("hello"));
-        assert_eq!(messages[1].role, AgentMessageRole::Agent);
-        assert_eq!(messages[1].parts[0].text.as_deref(), Some("world"));
+        assert_eq!(
+            messages[1].parts[0].text.as_deref(),
+            Some("inspect the workspace")
+        );
+        assert_eq!(
+            messages[1].parts[0].metadata_value("codex.content_type"),
+            Some("reasoning")
+        );
+        assert_eq!(messages[2].parts[0].tool_call_id.as_deref(), Some("call-1"));
+        assert_eq!(messages[2].parts[0].name.as_deref(), Some("shell_command"));
+        assert_eq!(messages[3].role, AgentMessageRole::Tool);
+        assert_eq!(
+            messages[3].parts[0].metadata_value("codex.tool_call_id"),
+            Some("call-1")
+        );
+        assert_eq!(messages[4].parts[0].name.as_deref(), Some("search"));
+        assert_eq!(
+            messages[4].parts[0].metadata_value("codex.has_result"),
+            Some("true")
+        );
+        assert_eq!(messages[5].parts[0].name.as_deref(), Some("apply_patch"));
+        let patch_payload = serde_json::from_str::<Value>(
+            messages[5].parts[0].json.as_deref().expect("patch payload"),
+        )
+        .expect("structured patch payload");
+        assert_eq!(
+            patch_payload
+                .pointer("/changes/0/path")
+                .and_then(Value::as_str),
+            Some("src/main.rs")
+        );
+        assert_eq!(messages[6].role, AgentMessageRole::Agent);
+        assert_eq!(messages[6].parts[0].text.as_deref(), Some("world"));
         std::fs::remove_dir_all(root).expect("remove fixture");
     }
 }

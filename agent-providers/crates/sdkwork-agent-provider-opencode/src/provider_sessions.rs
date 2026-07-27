@@ -53,9 +53,9 @@ pub fn read_opencode_provider_session_messages(
     .map_err(opencode_inventory_error)?;
     let mut statement = connection
         .prepare(
-            "SELECT m.id, m.time_created, json_extract(m.data, '$.role'), p.id, \
-             json_extract(p.data, '$.text') FROM message m JOIN part p ON p.message_id = m.id \
-             WHERE m.session_id = ?1 AND json_extract(p.data, '$.type') = 'text' \
+            "SELECT m.id, m.time_created, m.data, p.id, p.data \
+             FROM message m JOIN part p ON p.message_id = m.id \
+             WHERE m.session_id = ?1 \
              ORDER BY m.time_created, m.id, p.time_created, p.id",
         )
         .map_err(opencode_inventory_error)?;
@@ -66,49 +66,134 @@ pub fn read_opencode_provider_session_messages(
                 row.get::<_, i64>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
-                row.get::<_, Option<String>>(4)?,
+                row.get::<_, String>(4)?,
             ))
         })
         .map_err(opencode_inventory_error)?;
-    let mut grouped = Vec::<(String, i64, String, Vec<(String, String)>)>::new();
+    let mut grouped = Vec::<(String, i64, Value, Vec<(String, Value)>)>::new();
     for row in rows {
-        let (message_id, created_at, role, part_id, text) =
+        let (message_id, created_at, message_json, part_id, part_json) =
             row.map_err(opencode_inventory_error)?;
-        let Some(text) = text.filter(|value| !value.trim().is_empty()) else {
+        let (Ok(message_data), Ok(part_data)) = (
+            serde_json::from_str::<Value>(&message_json),
+            serde_json::from_str::<Value>(&part_json),
+        ) else {
             continue;
         };
         if let Some((_, _, _, parts)) = grouped
             .last_mut()
             .filter(|(current_message_id, _, _, _)| current_message_id == &message_id)
         {
-            parts.push((part_id, text));
+            parts.push((part_id, part_data));
         } else {
-            grouped.push((message_id, created_at, role, vec![(part_id, text)]));
+            grouped.push((
+                message_id,
+                created_at,
+                message_data,
+                vec![(part_id, part_data)],
+            ));
         }
     }
     Ok(grouped
         .into_iter()
-        .filter_map(|(message_id, created_at, role, parts)| {
-            let role = match role.as_str() {
-                "user" => AgentMessageRole::User,
-                "assistant" => AgentMessageRole::Agent,
+        .filter_map(|(message_id, created_at, message_data, parts)| {
+            let role = match message_data.get("role").and_then(Value::as_str) {
+                Some("user") => AgentMessageRole::User,
+                Some("assistant") => AgentMessageRole::Agent,
+                Some("system") => AgentMessageRole::System,
+                Some("tool") => AgentMessageRole::Tool,
                 _ => return None,
             };
-            let mut message = AgentMessage::new(
-                message_id,
-                role,
-                parts
-                    .into_iter()
-                    .map(|(part_id, text)| AgentPart::text(part_id, text))
-                    .collect(),
-            )
-            .for_session(session_id);
+            let parts = parts
+                .into_iter()
+                .filter_map(|(part_id, part)| opencode_message_part(part_id, part))
+                .collect::<Vec<_>>();
+            if parts.is_empty() {
+                return None;
+            }
+            let mut message = AgentMessage::new(message_id, role, parts).for_session(session_id);
             if let Some(timestamp) = epoch_millis_to_rfc3339(created_at) {
                 message = message.created_at(timestamp);
             }
             Some(message)
         })
         .collect())
+}
+
+fn opencode_message_part(part_id: String, part: Value) -> Option<AgentPart> {
+    let content_type = part.get("type").and_then(Value::as_str)?;
+    match content_type {
+        "text" | "reasoning" => {
+            let text = part.get("text").and_then(Value::as_str)?.trim();
+            (!text.is_empty()).then(|| {
+                AgentPart::text(part_id, text)
+                    .from_provider("opencode")
+                    .with_metadata("opencode.content_type", content_type)
+            })
+        }
+        "tool" => {
+            let tool_call_id = part
+                .get("callID")
+                .or_else(|| part.get("callId"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())?;
+            let tool_name = part
+                .get("tool")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("tool");
+            let status = part
+                .pointer("/state/status")
+                .and_then(Value::as_str)
+                .unwrap_or("pending");
+            let has_result = matches!(status, "completed" | "failed" | "error" | "cancelled")
+                || part.pointer("/state/output").is_some()
+                || part.pointer("/state/error").is_some();
+            let mut agent_part = AgentPart::tool_call_ref(part_id, tool_call_id)
+                .with_name(tool_name)
+                .from_provider("opencode")
+                .with_metadata("opencode.content_type", content_type)
+                .with_metadata("opencode.status", status)
+                .with_metadata(
+                    "opencode.has_result",
+                    if has_result { "true" } else { "false" },
+                );
+            agent_part.json = Some(part.to_string());
+            Some(agent_part)
+        }
+        "patch" | "subtask" => {
+            let tool_call_id = part
+                .get("callID")
+                .or_else(|| part.get("callId"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| part_id.clone());
+            let tool_name = if content_type == "patch" {
+                "apply_patch"
+            } else {
+                "task"
+            };
+            let mut agent_part = AgentPart::tool_call_ref(part_id, tool_call_id)
+                .with_name(tool_name)
+                .from_provider("opencode")
+                .with_metadata("opencode.content_type", content_type)
+                .with_metadata("opencode.status", "completed")
+                .with_metadata("opencode.has_result", "true");
+            agent_part.json = Some(part.to_string());
+            Some(agent_part)
+        }
+        "file" | "step-start" | "step-finish" | "compaction" => Some(
+            AgentPart::json(part_id, part.to_string())
+                .from_provider("opencode")
+                .with_metadata("opencode.content_type", content_type),
+        ),
+        _ => Some(
+            AgentPart::json(part_id, part.to_string())
+                .from_provider("opencode")
+                .with_metadata("opencode.content_type", content_type),
+        ),
+    }
 }
 
 pub fn read_opencode_provider_sessions(path: &Path) -> KernelResult<Vec<AgentSession>> {
@@ -281,7 +366,15 @@ mod tests {
                  INSERT INTO part VALUES ('part-user-2', 'message-user-2', 'session-2', 50, 50, \
                  '{\"type\":\"text\",\"text\":\"fallback OpenCode prompt\"}'); \
                  INSERT INTO part VALUES ('part-assistant', 'message-assistant', 'session-1', 200, 200, \
-                 '{\"type\":\"text\",\"text\":\"world\"}');",
+                 '{\"type\":\"text\",\"text\":\"world\"}'); \
+                 INSERT INTO part VALUES ('part-reasoning', 'message-assistant', 'session-1', 201, 201, \
+                 '{\"type\":\"reasoning\",\"text\":\"inspect the code\"}'); \
+                 INSERT INTO part VALUES ('part-tool', 'message-assistant', 'session-1', 202, 202, \
+                 '{\"type\":\"tool\",\"callID\":\"call-1\",\"tool\":\"mcp__docs__search\",\"state\":{\"status\":\"completed\",\"input\":{\"q\":\"session\"},\"output\":\"found\"}}'); \
+                 INSERT INTO part VALUES ('part-patch', 'message-assistant', 'session-1', 203, 203, \
+                 '{\"type\":\"patch\",\"hash\":\"patch-1\",\"files\":[\"src/main.ts\"]}'); \
+                 INSERT INTO part VALUES ('part-step-finish', 'message-assistant', 'session-1', 204, 204, \
+                 '{\"type\":\"step-finish\",\"reason\":\"stop\"}');",
             )
             .expect("fixture data");
         drop(connection);
@@ -308,6 +401,28 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0].role, AgentMessageRole::User);
         assert_eq!(messages[1].role, AgentMessageRole::Agent);
+        assert_eq!(messages[1].parts.len(), 5);
+        assert_eq!(
+            messages[1].parts[1].metadata_value("opencode.content_type"),
+            Some("reasoning")
+        );
+        assert_eq!(messages[1].parts[2].tool_call_id.as_deref(), Some("call-1"));
+        assert_eq!(
+            messages[1].parts[2].name.as_deref(),
+            Some("mcp__docs__search")
+        );
+        assert_eq!(
+            messages[1].parts[2].metadata_value("opencode.has_result"),
+            Some("true")
+        );
+        assert_eq!(
+            messages[1].parts[3].metadata_value("opencode.content_type"),
+            Some("patch")
+        );
+        assert_eq!(
+            messages[1].parts[4].metadata_value("opencode.content_type"),
+            Some("step-finish")
+        );
         std::fs::remove_file(path).expect("remove fixture");
     }
 }

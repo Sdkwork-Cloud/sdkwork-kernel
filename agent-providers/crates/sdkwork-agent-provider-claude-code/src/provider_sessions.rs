@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -67,48 +68,315 @@ fn read_claude_session_messages_file(
 ) -> KernelResult<Vec<AgentMessage>> {
     let file = File::open(path).map_err(claude_inventory_error)?;
     let mut messages = Vec::new();
-    for line in BufReader::new(file).lines() {
+    let mut seen_message_ids = HashSet::new();
+    for (line_index, line) in BufReader::new(file).lines().enumerate() {
         let line = line.map_err(claude_inventory_error)?;
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        if value.get("sessionId").and_then(Value::as_str) != Some(session_id)
-            || value
-                .get("isSidechain")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-        {
+        if value.get("sessionId").and_then(Value::as_str) != Some(session_id) {
             continue;
         }
-        let role = match value.get("type").and_then(Value::as_str) {
-            Some("user") => AgentMessageRole::User,
-            Some("assistant") => AgentMessageRole::Agent,
-            _ => continue,
+        let Some(role) = claude_message_role(&value) else {
+            continue;
         };
-        let Some(message_id) = value
-            .get("uuid")
+        let Some(message_id) = claude_message_id(&value, line_index) else {
+            continue;
+        };
+        if !seen_message_ids.insert(message_id.clone()) {
+            continue;
+        }
+        let mut parts = claude_message_parts(&value, &message_id);
+        if parts.is_empty() {
+            parts = claude_top_level_parts(&value, &message_id);
+        }
+        if parts.is_empty() {
+            continue;
+        }
+        let mut message = AgentMessage::new(message_id, role, parts).for_session(session_id);
+        if value
+            .get("isSidechain")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            message = message.with_metadata("claude.is_sidechain", "true");
+        }
+        if let Some(parent_uuid) = value
+            .get("parentUuid")
             .and_then(Value::as_str)
-            .or_else(|| value.pointer("/message/id").and_then(Value::as_str))
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        else {
-            continue;
-        };
-        let Some(content) = claude_message_text(&value) else {
-            continue;
-        };
-        let mut message = AgentMessage::new(
-            message_id,
-            role,
-            vec![AgentPart::text(format!("{message_id}.text"), content)],
-        )
-        .for_session(session_id);
+            .filter(|value| !value.trim().is_empty())
+        {
+            message = message.with_metadata("claude.parent_uuid", parent_uuid);
+        }
         if let Some(timestamp) = value.get("timestamp").and_then(Value::as_str) {
             message = message.created_at(timestamp);
         }
         messages.push(message);
     }
     Ok(messages)
+}
+
+fn claude_message_role(value: &Value) -> Option<AgentMessageRole> {
+    let role = value
+        .pointer("/message/role")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("type").and_then(Value::as_str));
+    match role {
+        Some("user") => Some(AgentMessageRole::User),
+        Some("assistant") => Some(AgentMessageRole::Agent),
+        Some("system") => Some(AgentMessageRole::System),
+        Some("tool") => Some(AgentMessageRole::Tool),
+        Some("attachment") => Some(AgentMessageRole::User),
+        Some("queue-operation" | "tool_use_summary") => Some(AgentMessageRole::Adapter),
+        _ => None,
+    }
+}
+
+fn claude_message_id(value: &Value, line_index: usize) -> Option<String> {
+    if let Some(message_id) = value
+        .get("uuid")
+        .and_then(Value::as_str)
+        .or_else(|| value.pointer("/message/id").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(message_id.to_string());
+    }
+    let record_type = value.get("type").and_then(Value::as_str)?;
+    let subtype = value
+        .get("subtype")
+        .and_then(Value::as_str)
+        .unwrap_or("record");
+    Some(format!("claude.{record_type}.{subtype}.{line_index}"))
+}
+
+fn claude_top_level_parts(value: &Value, message_id: &str) -> Vec<AgentPart> {
+    let Some(record_type) = value.get("type").and_then(Value::as_str) else {
+        return Vec::new();
+    };
+    let subtype = value.get("subtype").and_then(Value::as_str);
+    let content_type = subtype.unwrap_or(record_type);
+    if record_type == "assistant"
+        && (value.get("error").is_some()
+            || value
+                .get("isApiErrorMessage")
+                .and_then(Value::as_bool)
+                .unwrap_or(false))
+    {
+        let error = value
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("Claude Code provider error");
+        return vec![AgentPart::error(
+            format!("{message_id}.error"),
+            "claude_provider_error",
+            error,
+        )
+        .from_provider("claude-code")
+        .with_metadata("claude.content_type", "error")];
+    }
+    if matches!(record_type, "attachment" | "queue-operation") {
+        return vec![
+            AgentPart::json(format!("{message_id}.record"), value.to_string())
+                .from_provider("claude-code")
+                .with_metadata("claude.content_type", content_type),
+        ];
+    }
+    let is_tool_lifecycle = record_type == "tool_use_summary"
+        || subtype.is_some_and(|value| {
+            matches!(
+                value,
+                "hook_progress"
+                    | "hook_response"
+                    | "hook_started"
+                    | "permission_denied"
+                    | "task_notification"
+                    | "task_progress"
+                    | "task_started"
+                    | "task_updated"
+            )
+        });
+    if !is_tool_lifecycle {
+        return (record_type == "system")
+            .then(|| {
+                AgentPart::json(format!("{message_id}.system"), value.to_string())
+                    .from_provider("claude-code")
+                    .with_metadata("claude.content_type", content_type)
+            })
+            .into_iter()
+            .collect();
+    }
+
+    let tool_call_id = value
+        .get("tool_use_id")
+        .or_else(|| value.get("toolUseId"))
+        .or_else(|| value.get("task_id"))
+        .or_else(|| value.get("hook_id"))
+        .or_else(|| value.get("id"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(message_id);
+    let tool_name = value
+        .get("tool_name")
+        .or_else(|| value.get("hook_name"))
+        .or_else(|| value.get("name"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| {
+            if content_type.starts_with("hook_") {
+                "hook"
+            } else if content_type.starts_with("task_") {
+                "task"
+            } else {
+                "tool"
+            }
+        });
+    let explicit_status = value
+        .get("status")
+        .or_else(|| value.get("outcome"))
+        .and_then(Value::as_str);
+    let status = explicit_status.unwrap_or(match content_type {
+        "hook_progress" | "hook_started" | "task_progress" | "task_started" => "pending",
+        "permission_denied" => "cancelled",
+        _ => "completed",
+    });
+    let has_result = !matches!(
+        content_type,
+        "hook_progress" | "hook_started" | "task_progress" | "task_started"
+    );
+    let mut part = AgentPart::tool_call_ref(format!("{message_id}.event"), tool_call_id)
+        .with_name(tool_name)
+        .from_provider("claude-code")
+        .with_metadata("claude.content_type", content_type)
+        .with_metadata("claude.status", status)
+        .with_metadata(
+            "claude.has_result",
+            if has_result { "true" } else { "false" },
+        );
+    part.json = Some(value.to_string());
+    vec![part]
+}
+
+fn claude_message_parts(value: &Value, message_id: &str) -> Vec<AgentPart> {
+    let Some(content) = value.pointer("/message/content") else {
+        return Vec::new();
+    };
+    match content {
+        Value::String(text) => {
+            let text = text.trim();
+            if text.is_empty() {
+                Vec::new()
+            } else {
+                vec![AgentPart::text(format!("{message_id}.text"), text)
+                    .from_provider("claude-code")
+                    .with_metadata("claude.content_type", "text")]
+            }
+        }
+        Value::Array(parts) => parts
+            .iter()
+            .enumerate()
+            .filter_map(|(index, part)| claude_content_part(part, message_id, index))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn claude_content_part(part: &Value, message_id: &str, index: usize) -> Option<AgentPart> {
+    let content_type = part.get("type").and_then(Value::as_str)?;
+    let part_id = format!("{message_id}.content.{index}");
+    match content_type {
+        "text" => {
+            let text = part.get("text").and_then(Value::as_str)?.trim();
+            (!text.is_empty()).then(|| {
+                AgentPart::text(part_id, text)
+                    .from_provider("claude-code")
+                    .with_metadata("claude.content_type", "text")
+            })
+        }
+        "thinking" => {
+            let text = part.get("thinking").and_then(Value::as_str)?.trim();
+            (!text.is_empty()).then(|| {
+                AgentPart::text(part_id, text)
+                    .from_provider("claude-code")
+                    .with_metadata("claude.content_type", "thinking")
+            })
+        }
+        "tool_use" | "server_tool_use" | "mcp_tool_use" => {
+            let tool_call_id = part.get("id").and_then(Value::as_str)?;
+            let tool_name = part
+                .get("name")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("tool");
+            let mut agent_part = AgentPart::tool_call_ref(part_id, tool_call_id)
+                .with_name(tool_name)
+                .from_provider("claude-code")
+                .with_metadata("claude.content_type", content_type)
+                .with_metadata("claude.status", "pending");
+            agent_part.json = Some(part.to_string());
+            Some(agent_part)
+        }
+        "advisor_tool_result"
+        | "bash_code_execution_tool_result"
+        | "code_execution_tool_result"
+        | "mcp_tool_result"
+        | "text_editor_code_execution_tool_result"
+        | "tool_result"
+        | "tool_search_tool_result"
+        | "web_fetch_tool_result"
+        | "web_search_tool_result" => {
+            let tool_call_id = part
+                .get("tool_use_id")
+                .or_else(|| part.get("toolUseId"))
+                .and_then(Value::as_str)?;
+            let is_error = part
+                .get("is_error")
+                .or_else(|| part.get("isError"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            Some(
+                AgentPart::json(part_id, part.to_string())
+                    .with_name("tool")
+                    .from_provider("claude-code")
+                    .with_metadata("claude.content_type", content_type)
+                    .with_metadata("claude.tool_call_id", tool_call_id)
+                    .with_metadata(
+                        "claude.status",
+                        if is_error { "failed" } else { "completed" },
+                    ),
+            )
+        }
+        "tool_progress" => {
+            let tool_call_id = part
+                .get("tool_use_id")
+                .or_else(|| part.get("toolUseId"))
+                .or_else(|| part.get("id"))
+                .and_then(Value::as_str)?;
+            let tool_name = part
+                .get("tool_name")
+                .or_else(|| part.get("name"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or("tool");
+            let mut agent_part = AgentPart::tool_call_ref(part_id, tool_call_id)
+                .with_name(tool_name)
+                .from_provider("claude-code")
+                .with_metadata("claude.content_type", content_type)
+                .with_metadata("claude.status", "pending");
+            agent_part.json = Some(part.to_string());
+            Some(agent_part)
+        }
+        "image" | "document" => Some(
+            AgentPart::json(part_id, part.to_string())
+                .from_provider("claude-code")
+                .with_metadata("claude.content_type", content_type),
+        ),
+        _ => Some(
+            AgentPart::json(part_id, part.to_string())
+                .from_provider("claude-code")
+                .with_metadata("claude.content_type", content_type),
+        ),
+    }
 }
 
 pub fn read_claude_code_provider_sessions(projects_path: &Path) -> KernelResult<Vec<AgentSession>> {
@@ -239,7 +507,10 @@ mod tests {
             &path,
             concat!(
                 "{\"type\":\"user\",\"uuid\":\"message-user\",\"sessionId\":\"session-1\",\"cwd\":\"E:\\\\Work\\\\BirdCoder\",\"timestamp\":\"2026-07-01T00:00:00Z\",\"message\":{\"role\":\"user\",\"content\":\"hello\"}}\n",
-                "{\"type\":\"assistant\",\"uuid\":\"message-assistant\",\"sessionId\":\"session-1\",\"slug\":\"provider-title\",\"cwd\":\"E:\\\\Work\\\\BirdCoder\",\"timestamp\":\"2026-07-01T00:01:00Z\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-sonnet\",\"content\":[{\"type\":\"text\",\"text\":\"world\"}]}}\n"
+                "{\"type\":\"assistant\",\"uuid\":\"message-assistant\",\"sessionId\":\"session-1\",\"slug\":\"provider-title\",\"cwd\":\"E:\\\\Work\\\\BirdCoder\",\"timestamp\":\"2026-07-01T00:01:00Z\",\"message\":{\"role\":\"assistant\",\"model\":\"claude-sonnet\",\"content\":[{\"type\":\"thinking\",\"thinking\":\"inspect the source\",\"signature\":\"opaque\"},{\"type\":\"tool_use\",\"id\":\"tool-1\",\"name\":\"mcp__docs__search\",\"input\":{\"q\":\"session items\"}},{\"type\":\"text\",\"text\":\"world\"}]}}\n",
+                "{\"type\":\"user\",\"uuid\":\"message-tool-result\",\"sessionId\":\"session-1\",\"cwd\":\"E:\\\\Work\\\\BirdCoder\",\"timestamp\":\"2026-07-01T00:01:01Z\",\"message\":{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"tool-1\",\"content\":[{\"type\":\"text\",\"text\":\"found\"}]}]}}\n",
+                "{\"type\":\"system\",\"subtype\":\"hook_response\",\"uuid\":\"message-hook\",\"sessionId\":\"session-1\",\"timestamp\":\"2026-07-01T00:01:02Z\",\"tool_use_id\":\"tool-1\",\"hook_name\":\"post-tool\",\"outcome\":\"success\",\"output\":\"checked\"}\n",
+                "{\"type\":\"queue-operation\",\"sessionId\":\"session-1\",\"timestamp\":\"2026-07-01T00:01:03Z\",\"operation\":\"enqueue\",\"content\":\"next prompt\"}\n"
             ),
         )
         .expect("fixture jsonl");
@@ -268,9 +539,39 @@ mod tests {
         }));
         let messages = read_claude_code_provider_session_messages(&root, "session-1")
             .expect("provider transcript");
-        assert_eq!(messages.len(), 2);
+        assert_eq!(messages.len(), 5);
         assert_eq!(messages[0].role, AgentMessageRole::User);
         assert_eq!(messages[1].role, AgentMessageRole::Agent);
+        assert_eq!(messages[1].parts.len(), 3);
+        assert_eq!(
+            messages[1].parts[0].metadata_value("claude.content_type"),
+            Some("thinking")
+        );
+        assert_eq!(messages[1].parts[1].tool_call_id.as_deref(), Some("tool-1"));
+        assert_eq!(
+            messages[1].parts[1].name.as_deref(),
+            Some("mcp__docs__search")
+        );
+        assert_eq!(messages[2].role, AgentMessageRole::User);
+        assert_eq!(
+            messages[2].parts[0].metadata_value("claude.tool_call_id"),
+            Some("tool-1")
+        );
+        assert_eq!(messages[3].role, AgentMessageRole::System);
+        assert_eq!(messages[3].parts[0].tool_call_id.as_deref(), Some("tool-1"));
+        assert_eq!(
+            messages[3].parts[0].metadata_value("claude.content_type"),
+            Some("hook_response")
+        );
+        assert_eq!(
+            messages[3].parts[0].metadata_value("claude.has_result"),
+            Some("true")
+        );
+        assert_eq!(messages[4].role, AgentMessageRole::Adapter);
+        assert_eq!(
+            messages[4].parts[0].metadata_value("claude.content_type"),
+            Some("queue-operation")
+        );
         std::fs::remove_dir_all(root).expect("remove fixture");
     }
 }

@@ -12,11 +12,13 @@ use sdkwork_agent_provider_core::{
 };
 
 mod provider_sessions;
+mod local_plugins;
 
 pub use provider_sessions::{
     discover_claude_code_provider_session_messages, discover_claude_code_provider_sessions,
     read_claude_code_provider_session_messages, read_claude_code_provider_sessions,
 };
+pub use local_plugins::ClaudeCodeLocalPluginProvider;
 
 #[cfg(test)]
 use sdkwork_agent_kernel::KernelError;

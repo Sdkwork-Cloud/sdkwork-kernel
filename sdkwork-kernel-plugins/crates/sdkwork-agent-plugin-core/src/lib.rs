@@ -359,8 +359,14 @@ pub trait SdkworkKernelFoundationPlugin {
 
 mod policy;
 mod process_adapter;
+mod local_plugin;
 pub use policy::SdkStandardPolicyProvider;
 pub use process_adapter::{ProcessAdapterConfigurationProvider, ProcessAdapterInstaller};
+pub use local_plugin::{
+    LocalPluginCatalog, LocalPluginDescriptor, LocalPluginDiscoveryRequest,
+    LocalPluginLoadError, LocalPluginLoadErrorKind, LocalPluginProvider,
+    LocalPluginSkillDescriptor, LocalPluginSource, LocalPluginStatus,
+};
 
 fn validate_standard_id(
     value: &str,

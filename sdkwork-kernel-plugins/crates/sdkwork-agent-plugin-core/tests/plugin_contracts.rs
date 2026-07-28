@@ -5,7 +5,48 @@ use sdkwork_agent_kernel::{
 use sdkwork_agent_plugin_core::{
     KernelPluginConformanceProfile, KernelPluginDeploymentSnapshot, KernelPluginManifest,
     KernelProviderBinding, SdkworkKernelFoundationPlugin, SdkworkKernelPlugin, StandardPluginIds,
+    LocalPluginCatalog, LocalPluginDescriptor, LocalPluginDiscoveryRequest,
+    LocalPluginLoadError, LocalPluginLoadErrorKind, LocalPluginProvider, LocalPluginSource,
+    LocalPluginStatus,
 };
+
+struct TestLocalProvider;
+
+impl LocalPluginProvider for TestLocalProvider {
+    fn provider_id(&self) -> &str { "provider.plugin.test" }
+
+    fn discover(&self, _request: &LocalPluginDiscoveryRequest) -> LocalPluginCatalog {
+        let mut catalog = LocalPluginCatalog::new(self.provider_id());
+        catalog.plugins.push(LocalPluginDescriptor {
+            plugin_id: "plugin.test.sample".to_string(),
+            name: "sample".to_string(),
+            version: "1.0.0".to_string(),
+            description: Some("Sample".to_string()),
+            root_path: "sample".into(),
+            manifest_path: "sample/.codex-plugin/plugin.json".into(),
+            source: LocalPluginSource::User,
+            status: LocalPluginStatus::ManifestOnly,
+            skills: vec![],
+            mcp_servers: vec![],
+        });
+        catalog.errors.push(LocalPluginLoadError {
+            provider_id: self.provider_id().to_string(),
+            path: None,
+            kind: LocalPluginLoadErrorKind::InvalidManifest,
+            message: "broken plugin skipped".to_string(),
+        });
+        catalog
+    }
+}
+
+#[test]
+fn local_plugin_discovery_is_partial_success_and_provider_neutral() {
+    let catalog = TestLocalProvider.discover(&LocalPluginDiscoveryRequest::default());
+    assert_eq!(catalog.provider_id, "provider.plugin.test");
+    assert!(catalog.is_partial());
+    assert_eq!(catalog.plugins[0].status, LocalPluginStatus::ManifestOnly);
+    assert_eq!(catalog.errors[0].kind, LocalPluginLoadErrorKind::InvalidManifest);
+}
 
 #[test]
 fn plugin_manifest_preserves_standard_identity_and_provider_ids() {

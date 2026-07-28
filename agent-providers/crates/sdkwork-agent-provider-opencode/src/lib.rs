@@ -12,11 +12,13 @@ use sdkwork_agent_provider_core::{
 };
 
 mod provider_sessions;
+mod local_plugins;
 
 pub use provider_sessions::{
     discover_opencode_provider_session_messages, discover_opencode_provider_sessions,
     read_opencode_provider_session_messages, read_opencode_provider_sessions,
 };
+pub use local_plugins::OpenCodeLocalPluginProvider;
 
 #[cfg(test)]
 use sdkwork_agent_kernel::KernelError;

@@ -14,6 +14,7 @@ use sdkwork_agent_provider_core::{
 
 mod agent_definition;
 mod conformance;
+mod local_plugins;
 pub mod ids;
 mod manifest;
 mod package;
@@ -863,6 +864,7 @@ mod tests {
 
 pub mod sdk_integration;
 pub use agent_definition::{gemini_cli_agent_definition, gemini_cli_agent_manifest};
+pub use local_plugins::GeminiCliLocalPluginProvider;
 pub use manifest::{
     gemini_cli_kernel_plugin_manifest, gemini_cli_provider_manifests, GeminiCliKernelPlugin,
 };

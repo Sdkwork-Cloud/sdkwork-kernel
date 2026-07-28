@@ -2,7 +2,7 @@
 
 Status: active
 Owner: SDKWork kernel maintainers
-Updated: 2026-07-08
+Updated: 2026-07-28
 Parent: [TECH_ARCHITECTURE.md](TECH_ARCHITECTURE.md)
 Specs: [AGENT_PROVIDER_BINDING_SPEC.md](../../../specs/AGENT_PROVIDER_BINDING_SPEC.md), [AGENT_PROVIDER_INTEGRATION_SPEC.md](../../../specs/AGENT_PROVIDER_INTEGRATION_SPEC.md)
 
@@ -82,7 +82,7 @@ How upstream framework strengths map to kernel SPI families (not all are binding
 
 | Upstream strength | Codex | Claude Code | Gemini CLI | OpenCode | MiMo Code | OpenClaw | Hermes | Rig | Kernel SPI owner |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Sandbox / seatbelt | Yes (namespaces) | Limited | CLI shell policy | Partial | Workspace tools | Plugin-owned | Terminal backends | Host-dependent | `SandboxProvider` + `HostProvider` |
+| Upstream process containment / seatbelt | Yes (namespaces) | Limited | CLI shell policy | Partial | Workspace tools | Plugin-owned | Terminal backends | Host-dependent | Legacy Kernel HostProvider policy only; production execution isolation belongs to `sdkwork-sandbox` |
 | Permission / approval | Approval presets | Tool allowlists | CLI confirmations | Policy in server | OpenCode-derived policy | Plugin + gateway | Tool progress / sudo | Tool hooks | `PolicyProvider` |
 | MCP tools | Via core | Yes | CLI MCP config | Yes | OpenCode-derived MCP | Plugin SDK | MCP client catalog | Tool trait | `McpProvider` |
 | Skills / slash commands | Skills | Commands | CLI commands | Skills | Code commands | Skills hub | Skills + plugins | Agent tools | `AgentSkillProvider` |
@@ -118,8 +118,10 @@ a binding manifest declares `integration_sources`.
 ### Codex
 
 - **Strengths:** Richest binding (session history, stream, rust + TS + IPC).
-- **Gaps:** Production live SDK path still gated by staging credentials; sandbox
-  semantics should route through `SandboxProvider` not ad-hoc host calls.
+- **Gaps:** Production live SDK path is still gated by staging credentials.
+  Execution-environment lifecycle and isolation must route through Kernel's
+  `SandboxSessionLifecycleAdapter` into `sdkwork-sandbox`; the legacy Kernel
+  `SandboxProvider` and ad-hoc host calls do not satisfy that boundary.
 - **BirdCoder:** Primary reference engine; facade key `codex`.
 
 ### Claude Code

@@ -15,6 +15,14 @@ The agent kernel follows a Linux-kernel-style design: stable core contracts,
 pluggable providers, explicit subsystem boundaries, typed host APIs, security
 hooks, event streams, observability, and conformance testing.
 
+Sandbox Runtime lifecycle integration is namespaced under `sandbox_runtime`.
+`SandboxSessionLifecycleAdapter` maps Agents-owned Workspace/Session identities
+to `SandboxWorkspaceId`/`SandboxSessionId`, consumes the Sandbox-owned
+`SandboxSessionLifecyclePort`, and maps `SandboxRuntimeBindingId` back to the
+Agents `runtimeLocationId`. The dependency direction is strictly
+`sdkwork-agents -> sdkwork-kernel -> sdkwork-sandbox`; this crate does not copy
+`AgentWorkspace` or `AgentSession` business models into Sandbox.
+
 ## Canonical Specifications
 
 - Kernel overview: [`../README.md`](../README.md)

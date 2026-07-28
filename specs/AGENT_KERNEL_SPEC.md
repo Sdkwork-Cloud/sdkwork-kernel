@@ -104,7 +104,21 @@ agent-kernel -> in-repo product UI shell
 agent-kernel -> product package
 agent-kernel -> concrete model vendor as required runtime dependency
 agent-kernel -> direct filesystem/process/network/secrets side effects
+sdkwork-sandbox -> sdkwork-kernel
+sdkwork-sandbox -> sdkwork-agents
 ```
+
+The execution-runtime dependency direction is:
+
+```text
+sdkwork-agents -> sdkwork-kernel -> sdkwork-sandbox
+```
+
+`sdkwork-agents` owns `AgentWorkspace` and `AgentSession`. Kernel maps their
+authorized identities into `SandboxWorkspaceId` and `SandboxSessionId` through
+the namespaced `sandbox_runtime::SandboxSessionLifecycleAdapter`. Sandbox owns
+`SandboxSession`, `SandboxRuntimeBinding`, allocation lifecycle, and Provider
+mechanisms; it never imports Agents business models.
 
 ## 3. Standard Object Model
 

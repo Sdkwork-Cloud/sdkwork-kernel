@@ -54,6 +54,18 @@ Root SDKWork standards remain authoritative. Local component specs can narrow or
 - `AgentChatRpcAdapter`
 - `AgentChatRpcHandler`
 - `agent_chat_rpc_adapter_manifest`
+- `sandbox_runtime::SandboxSessionCreateRequest`
+- `sandbox_runtime::SandboxSessionCommandRequest`
+- `sandbox_runtime::SandboxSessionRuntimeProjection`
+- `sandbox_runtime::SandboxSessionLifecycleAdapter`
+
+## Sandbox Runtime Boundary
+
+- `sdkwork-agents` remains the authority for `AgentWorkspace` and `AgentSession`.
+- `SandboxSessionLifecycleAdapter` maps `agent_workspace_id`/`agent_session_id` into caller-supplied `SandboxWorkspaceId`/`SandboxSessionId` values.
+- Sandbox-owned fields and variables use the `sandbox_` prefix; the mapped Agents field is explicitly exposed as `agent_runtime_location_id`.
+- Dependency direction is `sdkwork-agents -> sdkwork-kernel -> sdkwork-sandbox`; Kernel never selects a concrete Sandbox Provider.
+- The existing root `SandboxProvider` remains a legacy one-shot host-command mechanism and is not the `sdkwork-sandbox` lifecycle SPI.
 
 ## Events
 

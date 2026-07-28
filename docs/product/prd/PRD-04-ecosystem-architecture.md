@@ -1,20 +1,21 @@
-# SDKWork Kernel — Ecosystem Architecture (Kernel · Agents · BirdCoder)
+# SDKWork Kernel — Ecosystem Architecture (Agents · Kernel · Sandbox · BirdCoder)
 
 Status: active
 Owner: SDKWork kernel maintainers
 Application: sdkwork-kernel
-Updated: 2026-07-19
+Updated: 2026-07-28
 Parent: [PRD.md](PRD.md)
 Specs: [MODULE_SPEC.md](../../../../sdkwork-specs/MODULE_SPEC.md), [APPLICATION_SPEC.md](../../../../sdkwork-specs/APPLICATION_SPEC.md), [API_SPEC.md](../../../../sdkwork-specs/API_SPEC.md)
 
 ## 1. Purpose
 
-This shard defines how **sdkwork-kernel**, **sdkwork-agents**, and **sdkwork-birdcoder**
-compose into a commercial agent platform. It is the product-facing map for
-dependency rules, data ownership, and API surfaces. Normative SPI contracts
-remain in `specs/`; sibling application depth lives in each repository's Canon.
+This shard defines how **sdkwork-agents**, **sdkwork-kernel**,
+**sdkwork-sandbox**, and **sdkwork-birdcoder** compose into a commercial agent
+platform. It is the product-facing map for dependency rules, data ownership,
+and API surfaces. Normative SPI contracts remain in `specs/`; sibling
+application depth lives in each repository's Canon.
 
-## 2. Three-Repository Model
+## 2. Four-Repository Model
 
 ```mermaid
 flowchart TB
@@ -37,6 +38,12 @@ flowchart TB
     SRV[sdkwork-agent-server]
     RTDB[(runtime session store)]
     CK[sdkwork-code-kernel]
+  end
+
+  subgraph sandbox [sdkwork-sandbox — Execution Environment Layer]
+    SSL[SandboxSessionLifecyclePort]
+    SVCX[Sandbox lifecycle service]
+    SPS[Sandbox Provider SPI]
   end
 
   subgraph siblings [Sibling Capability Modules]
@@ -65,6 +72,7 @@ flowchart TB
   SVC -. composition slot .-> DRV
   SVC -. composition slot .-> MCP
   SRV --> RTDB
+  AK --> SSL --> SVCX --> SPS
   BC --> CK
 ```
 
@@ -74,11 +82,13 @@ flowchart TB
 | --- | --- | --- |
 | Agent SPI (18 core + 6 extension families) | `sdkwork-kernel` | Business CRUD, tenant policy, marketplace |
 | Provider binding & transport | `sdkwork-kernel` | Agent catalog tables |
-| Runtime transient state (active session, SSE cursor, in-flight task) | `sdkwork-kernel` (`sdkwork-agent-database`) | Long-term session archive, agent config catalog |
+| Agent-runtime transient state (SSE cursor, in-flight task, legacy execution session) | `sdkwork-kernel` (`sdkwork-agent-database`) | Agents `AgentSession` business aggregate or Sandbox lifecycle state |
 | Runtime node/process inventory, actual runtime placement, session/execution leases, drain and failover | `sdkwork-kernel` | Desired deployment catalog, marketplace metadata, long-term history |
 | Internal runtime HTTP `/internal/v3/api/intelligence/runtime/*` | `sdkwork-kernel` | `/app`, `/backend`, `/agent` product APIs |
 | Code-agent SPI (workspace, patch, terminal, VCS) | `sdkwork-code-kernel` | BirdCoder product routes |
 | Managed agent identity, composition, audit | `sdkwork-agents` (`ai_*` tables) | Kernel provider crates |
+| `AgentWorkspace` and `AgentSession` business identity, authorization and persistence | `sdkwork-agents` | Sandbox allocation or Provider-private metadata |
+| `SandboxSession`, `SandboxRuntimeBinding`, Workspace Attachment and Sandbox Provider SPI | `sdkwork-sandbox` | Agents business records or Agent Provider integration |
 | Desired agent deployment, replicas, rollout policy, and configuration profiles | `sdkwork-agents` | Runtime process leases and actual slot ownership |
 | Open / App / Backend HTTP + SDK families | `sdkwork-agents` | Direct `sdkwork-agent-provider-*` in products |
 | Memory tier implementations (permanent, user, growth) | `sdkwork-memory` (+ agents composition) | Kernel `MemoryProvider` SPI definition only |
@@ -94,6 +104,9 @@ flowchart TB
 | `sdkwork-birdcoder` | `sdkwork-agent-kernel`, `sdkwork-agent-provider-*` | **Forbidden** — use kernel-bridge + agents facade only |
 | `sdkwork-agents-pc` | `@sdkwork/agents-app-sdk` | **Required** — composed consumer facade |
 | `sdkwork-agents` | `sdkwork-agent-internal-sdk` | **Allowed** — kernel-bridge merges operational router |
+| `sdkwork-agents` | `sdkwork-kernel` | **Required** for runtime orchestration and Sandbox ID mapping |
+| `sdkwork-kernel` | `sdkwork-sandbox` | **Required** through `SandboxSessionLifecyclePort`; concrete Sandbox Provider selection stays inside Sandbox |
+| `sdkwork-sandbox` | `sdkwork-kernel` or `sdkwork-agents` | **Forbidden** — no reverse dependency, callback or copied business model |
 | Any product app | `sdkwork-agent-provider-*` | **Forbidden** |
 | `sdkwork-kernel` | `sdkwork-agents` business tables | **Forbidden** |
 | `sdkwork-agents` | Sibling modules | **Via composition slot** — no deep duplication |
@@ -168,7 +181,8 @@ do not add a product → kernel shortcut.
 | Agents 70-operation API + SDK generation | Done | Agents |
 | Postgres production path for managed store | Required for scale-out | Agents |
 | Live official SDK invokes (staging) | Optional gate | Kernel |
-| SPI P0 gaps (sandbox wiring, A2A adapter, provider health loop in production router) | Partial — see gap tracker | Kernel |
+| Sandbox lifecycle adapter | Candidate implemented; durable Sandbox host, production Provider and cross-process API remain gated | Kernel + Sandbox |
+| SPI P0 gaps (A2A adapter, provider health loop in production router) | Partial — see gap tracker | Kernel |
 | Published artifact registry / SBOM | Pending P4 | Release |
 | Single/cluster runtime coordination | Draft P5 product requirement | Kernel + Agents + Operations |
 
@@ -183,4 +197,6 @@ Gap detail: [TECH-03-spi-implementation-gap-tracker.md](../../architecture/tech/
 | [PRD-05-distributed-agent-runtime.md](PRD-05-distributed-agent-runtime.md) | sdkwork-kernel |
 | [TECH-api-specification.md](../../../../sdkwork-agents/docs/architecture/tech/TECH-api-specification.md) | sdkwork-agents |
 | [AGENTS_LAYERING.md](../../../../sdkwork-agents/docs/architecture/AGENTS_LAYERING.md) | sdkwork-agents |
+| [SDKWork Sandbox PRD](../../../../sdkwork-sandbox/docs/product/prd/PRD.md) | sdkwork-sandbox |
+| [SDKWork Sandbox Technical Architecture](../../../../sdkwork-sandbox/docs/architecture/tech/TECH_ARCHITECTURE.md) | sdkwork-sandbox |
 | [TECH-30-kernel-birdcoder-boundariesstandard.md](../../../../sdkwork-birdcoder/docs/architecture/tech/TECH-30-kernel-birdcoder-boundariesstandard.md) | sdkwork-birdcoder |

@@ -2,7 +2,7 @@
 
 Status: active
 Owner: SDKWork kernel maintainers
-Updated: 2026-07-11
+Updated: 2026-07-28
 Specs: [ARCHITECTURE_DECISION_SPEC.md](../../../sdkwork-specs/ARCHITECTURE_DECISION_SPEC.md), [DOCUMENTATION_SPEC.md](../../../sdkwork-specs/DOCUMENTATION_SPEC.md), [RUST_CODE_SPEC.md](../../../sdkwork-specs/RUST_CODE_SPEC.md), [INTERNAL_API_SPEC.md](../../../sdkwork-specs/INTERNAL_API_SPEC.md), [SECURITY_SPEC.md](../../../sdkwork-specs/SECURITY_SPEC.md), [HEALTH_CHECK_SPEC.md](../../../sdkwork-specs/HEALTH_CHECK_SPEC.md), [DEPLOYMENT_SPEC.md](../../../sdkwork-specs/DEPLOYMENT_SPEC.md)
 
 ## Document Map
@@ -49,8 +49,15 @@ capabilities for agent and code-agent systems. It follows a Linux-kernel-style s
 - **Kernel** (`sdkwork-kernel`) — runtime SPI, provider integration, transport,
   operational server, internal API, client bridge, code kernel.
 - **Application** (`sdkwork-agents`) — managed agents, marketplace, product HTTP/SDK.
+- **Execution environment** (`sdkwork-sandbox`) — `SandboxSession` lifecycle,
+  `SandboxRuntimeBinding`, Workspace Attachment and Sandbox Provider SPI.
 - **Products** (BirdCoder, IM PC) — consume agents application surfaces; must not
   depend on `sdkwork-agent-provider-*` directly.
+
+`Agent Provider` means the model/agent-engine integration owned by Kernel.
+`Sandbox Provider` means the execution-environment implementation owned by
+Sandbox. The two Provider families are independent contracts and must not be
+used interchangeably.
 
 ```mermaid
 flowchart TB
@@ -75,6 +82,12 @@ flowchart TB
     CK[sdkwork-code-kernel]
   end
 
+  subgraph sandbox [sdkwork-sandbox]
+    SLA[SandboxSessionLifecyclePort]
+    SLS[Sandbox lifecycle service]
+    SSP[Sandbox Provider SPI]
+  end
+
   BC --> RT
   IM --> SDK
   RT --> PR
@@ -84,6 +97,7 @@ flowchart TB
   SRV --> AK
   CLI --> SPI
   BC --> CK
+  AK --> SLA --> SLS --> SSP
 ```
 
 ### Layering model
@@ -97,8 +111,11 @@ flowchart TB
 | L4 | `sdkwork-agents` | Application domain, HTTP routes, SDK families, runtime facade |
 | L5 | Product apps | BirdCoder, IM PC, future surfaces |
 
-Dependency rule: **dependencies point inward toward L0**. Products never skip L4
-to reach L3.
+Within the Kernel Agent Provider framework, dependencies point inward toward L0
+and products never skip L4 to reach L3. Across repository ownership boundaries,
+the authoritative direction is
+`sdkwork-agents -> sdkwork-kernel -> sdkwork-sandbox`; Sandbox does not depend
+back on Kernel or Agents.
 
 ## 2. Technology Choices
 
@@ -123,6 +140,7 @@ to reach L3.
 | Server and client | `sdkwork-agent-server`, `sdkwork-agent-client`, `sdkwork-routes-agent-internal-*` | [TECH-01-kernel-module-reference.md](TECH-01-kernel-module-reference.md) |
 | Code kernel | `sdkwork-code-kernel` | [specs/CODE_KERNEL_SPEC.md](../../../specs/CODE_KERNEL_SPEC.md) |
 | Platform plugins | `sdkwork-agent-plugin-core`, Drive, knowledgebase plugins | [TECH-2026-06-10-sdkwork-kernel-plugin-system.md](TECH-2026-06-10-sdkwork-kernel-plugin-system.md) |
+| Sandbox lifecycle adaptation | `sdkwork_agent_kernel::sandbox_runtime` consuming `SandboxSessionLifecyclePort` | [specs/AGENT_KERNEL_SPEC.md](../../../specs/AGENT_KERNEL_SPEC.md) |
 
 ## 4. Directory And Package Layout
 
@@ -161,6 +179,18 @@ Root layout authority: [SDKWORK_WORKSPACE_SPEC.md](../../../sdkwork-specs/SDKWOR
 | Agents open API | `sdkwork-agents` | `/agent/v3/api` |
 | Agents app API | `sdkwork-agents` | `/app/v3/api` |
 | Agents backend API | `sdkwork-agents` | `/backend/v3/api` |
+
+Agents owns `AgentWorkspace` and `AgentSession`. Kernel validates and maps their
+authorized identifiers into `SandboxWorkspaceId` and `SandboxSessionId`, invokes
+the Sandbox-owned lifecycle port, and maps `SandboxRuntimeBindingId` back to the
+opaque Agents `runtimeLocationId`. Kernel does not expose
+`SandboxProviderAllocationRef`, infer a host path from `sandbox_workspace_id`,
+or persist a second Workspace/Session business aggregate.
+
+Kernel-to-Sandbox fields and variables use `sandbox_` prefixes, including
+`sandbox_workspace_id`, `sandbox_session_id`, `sandbox_operation_id` and
+`sandbox_runtime_binding_id`. Agents HTTP fields such as `workspaceId`,
+`sessionId` and `runtimeLocationId` remain Agents-owned public contract names.
 
 Retired application-local prefixes such as `/api/kernel/*` must not be remounted.
 
@@ -554,6 +584,7 @@ product routes and `sdkwork-code-kernel` semantics.
 | Repository | Role | Kernel relationship |
 | --- | --- | --- |
 | `sdkwork-agents` | Managed agents, `ai_*` store, open/app/backend APIs, runtime facade | Merges kernel internal router via kernel-bridge |
+| `sdkwork-sandbox` | Sandbox execution lifecycle, attachment, allocation and execution-environment Provider SPI | Consumed by `sdkwork_agent_kernel::sandbox_runtime`; no reverse dependency |
 | `sdkwork-birdcoder` | Multi engine IDE (Codex, Claude Code, OpenCode, …) | `sdkwork-agents-runtime-facade` only — no `sdkwork-agent-provider-*` |
 | `sdkwork-memory`, `sdkwork-knowledgebase`, … | Capability modules | Referenced by agents composition slots |
 

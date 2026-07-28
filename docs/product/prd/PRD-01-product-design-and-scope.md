@@ -3,7 +3,7 @@
 Status: active
 Owner: SDKWork kernel maintainers
 Application: sdkwork-kernel
-Updated: 2026-07-19
+Updated: 2026-07-28
 Parent: [PRD.md](PRD.md)
 Specs: [REQUIREMENTS_SPEC.md](../../../../sdkwork-specs/REQUIREMENTS_SPEC.md)
 
@@ -23,6 +23,8 @@ product family. It is not an end-user application. It provides:
 
 Products consume kernel capabilities through **`sdkwork-agents`** (HTTP/SDK and
 runtime facade), not by depending on `sdkwork-agent-provider-*` crates directly.
+Kernel consumes execution-environment lifecycle through `sdkwork-sandbox`; it
+does not implement a second Sandbox lifecycle or Workspace registry.
 
 ## 2. Target Users
 
@@ -73,6 +75,7 @@ runtime facade), not by depending on `sdkwork-agent-provider-*` crates directly.
 | Client bridge | `sdkwork-agent-client`, builtin bridge plugins |
 | Code kernel | `sdkwork-code-kernel` |
 | Platform plugins | Drive, knowledgebase kernel plugins |
+| Sandbox lifecycle adaptation | Agents ID validation/mapping, `SandboxSessionLifecyclePort` invocation and opaque runtime-binding projection |
 | Release | `sdkwork.app.config.json`, topology profiles, workflow manifest |
 
 ## 5. Out-of-Scope (Sibling Repositories)
@@ -85,6 +88,7 @@ runtime facade), not by depending on `sdkwork-agent-provider-*` crates directly.
 | IM messaging, social graph | `sdkwork-im` |
 | RTC media runtime | `sdkwork-rtc` |
 | Identity, tenant IAM | `sdkwork-iam` |
+| `SandboxSession`, Workspace Attachment, Sandbox allocation and Sandbox Provider SPI | `sdkwork-sandbox` |
 | Desired agent deployment catalog, replica policy, and configuration profiles | `sdkwork-agents` |
 | Multi-region active-active agent execution in the first distributed release | Deferred product scope |
 
@@ -101,7 +105,8 @@ runtime facade), not by depending on `sdkwork-agent-provider-*` crates directly.
 
 | Object | Description |
 | --- | --- |
-| `AgentSession` | Hosted or client-local session with lifecycle and persistence |
+| `AgentSession` | Existing Kernel execution-session mechanism; it is not the Agents-owned persistent `AgentSession` business aggregate and does not replace `SandboxSession` |
+| `SandboxSessionRuntimeProjection` | Kernel view of Sandbox lifecycle state; maps `SandboxRuntimeBindingId` to opaque Agents `runtimeLocationId` without exposing Provider-private metadata |
 | `ProviderBinding` | Catalog manifest (`binding.agent-provider.*`) |
 | `CapabilityDriver` | Registered handler for `sdk.*` capability ids |
 | `TransportHost` | Language/runtime probe (`typescript_node`, `rust_native`, …) |

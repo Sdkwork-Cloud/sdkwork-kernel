@@ -32,7 +32,7 @@ test('declares v4 topology spec and profile env files for sdkwork-kernel', async
   assert.equal(await exists('docs/topology-standard.md'), true);
 
   const spec = await readJson('specs/topology.spec.json');
-  assert.equal(spec.schemaVersion, 4);
+  assert.equal(spec.schemaVersion, 5);
   assert.equal(spec.kind, 'sdkwork.app.topology');
   assert.equal(spec.appId, 'sdkwork-kernel');
   assert.equal(spec.archetype, 'realtime-application-platform');

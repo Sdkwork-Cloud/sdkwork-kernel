@@ -115,7 +115,24 @@
       "AgentChatRpcAdapter",
       "AgentChatRpcHandler",
       "AgentChatService",
-      "agent_chat_rpc_adapter_manifest"
+      "agent_chat_rpc_adapter_manifest",
+      "sandbox_runtime::SandboxSessionCreateRequest",
+      "sandbox_runtime::SandboxSessionCommandRequest",
+      "sandbox_runtime::SandboxSessionRuntimeProjection",
+      "sandbox_runtime::SandboxSessionLifecycleAdapter"
+    ],
+    "providedPorts": [
+      {
+        "name": "sandboxSessionLifecycleAdapter",
+        "export": "sandbox_runtime"
+      }
+    ],
+    "requiredPorts": [
+      {
+        "name": "sandboxSessionLifecyclePort",
+        "export": "sdkwork-intelligence-sandbox-service",
+        "provider": "sdkwork-intelligence-sandbox-service"
+      }
     ],
     "runtimeEntrypoints": [
       "AgentExecutionService::execute",

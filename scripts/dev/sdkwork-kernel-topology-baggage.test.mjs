@@ -159,7 +159,7 @@ for (const { id, pattern } of bannedPatterns) {
 }
 
 const spec = JSON.parse(readText('specs/topology.spec.json'));
-assert.equal(spec.schemaVersion, 4);
+assert.equal(spec.schemaVersion, 5);
 assert.equal(spec.archetype, 'realtime-application-platform');
 assert.equal(spec.defaults.developmentProfileId, 'standalone.development');
 assert.equal(spec.defaults.productionProfileId, 'cloud.production');

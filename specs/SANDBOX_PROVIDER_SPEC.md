@@ -1,15 +1,35 @@
 # SDKWork Sandbox Provider Specification
 
 - **Version**: 0.1.0
-- **Status**: Core Abstraction Implemented
+- **Status**: Legacy host-command mechanism; not a production Sandbox Runtime
 - **Date**: 2025-06-28
-- **Scope**: Secure tool execution with platform-specific sandboxing
+- **Scope**: Historical one-shot host-command policy wrapper in `sdkwork-agent-kernel`
 - **Domain**: `security`
 - **Capability**: `agent-kernel.sandbox-provider`
 - **Implementation**: `sdkwork-agent-kernel/src/sandbox.rs`
 - **Test Coverage**: 16/16 tests passing (100%)
 
-## 1. Overview
+## 1. Ownership And Limitations
+
+This specification describes the legacy root-exported Kernel `SandboxProvider`
+used by `SandboxingHostProvider` for one-shot process execution. It is not the
+`sdkwork-sandbox` Provider SPI, does not own `SandboxSession` or Workspace
+Attachment lifecycle, and must not be used as a production multi-tenant
+isolation claim.
+
+The authoritative Runtime dependency direction is:
+
+```text
+sdkwork-agents -> sdkwork-kernel -> sdkwork-sandbox
+```
+
+New lifecycle work uses `sandbox_runtime::SandboxSessionLifecycleAdapter` and
+the Sandbox-owned `SandboxSessionLifecyclePort`. The `NoOpSandboxProvider` is
+test-only and must fail closed in release composition. Platform variants remain
+unapproved until their security requirements and conformance evidence are
+accepted.
+
+## 2. Legacy Overview
 
 The Sandbox Provider provides secure execution isolation for tool execution across multiple platforms:
 
@@ -25,7 +45,7 @@ The Sandbox Provider provides secure execution isolation for tool execution acro
 4. **Environment Control**: Controlled environment variables
 5. **Policy Validation**: Pre-execution policy validation
 
-## 2. Architecture
+## 3. Legacy Architecture
 
 ### Component Structure
 
@@ -64,7 +84,7 @@ NetworkSandboxPolicy
 | `WindowsRestrictedToken` | Windows | 🔄 Planned |
 | `MacosSeatbelt` | macOS | 🔄 Planned |
 
-## 3. File System Permissions
+## 4. File System Permissions
 
 ### FileSystemPermission
 
@@ -95,7 +115,7 @@ let policy = FileSystemSandboxPolicy::permissive();
 let policy = FileSystemSandboxPolicy::restrictive("/tmp/sandbox");
 ```
 
-## 4. Network Permissions
+## 5. Network Permissions
 
 ### NetworkPermission
 
@@ -128,7 +148,7 @@ let policy = NetworkSandboxPolicy::outbound_only();
 let policy = NetworkSandboxPolicy::full_network();
 ```
 
-## 5. Complete Sandbox Policy
+## 6. Complete Sandbox Policy
 
 ### Example: Restricted Workspace Access
 
@@ -160,7 +180,7 @@ let policy = SandboxPolicy::new(SandboxType::LinuxSeccomp)
     .with_network(NetworkSandboxPolicy::no_network());
 ```
 
-## 6. Command Execution
+## 7. Command Execution
 
 ### SandboxCommand
 
@@ -203,7 +223,7 @@ impl SandboxExecutionResult {
 }
 ```
 
-## 7. Provider Trait
+## 8. Provider Trait
 
 ### SandboxProvider
 
@@ -240,7 +260,7 @@ assert_eq!(provider.sandbox_type(), SandboxType::None);
 assert!(provider.is_available());
 ```
 
-## 8. Error Handling
+## 9. Error Handling
 
 ### SandboxError
 
@@ -276,7 +296,7 @@ match provider.execute(command, policy) {
 }
 ```
 
-## 9. Platform-Specific Implementations
+## 10. Platform-Specific Implementations
 
 ### Linux: Landlock + Seccomp (Planned)
 
@@ -328,7 +348,7 @@ impl SandboxProvider for MacosSeatbeltSandboxProvider {
 
 **Reference**: Codex CLI `codex-rs/sandboxing/src/seatbelt.rs`
 
-## 10. Conformance Tests
+## 11. Conformance Tests
 
 ### Test Coverage (16 tests)
 
@@ -363,7 +383,7 @@ cargo test --package sdkwork-agent-kernel --lib sandbox::tests
 test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured
 ```
 
-## 11. Integration Points
+## 12. Integration Points
 
 ### HostProvider Integration
 
@@ -435,7 +455,7 @@ telemetry.histogram("sandbox.execution_time", duration.as_millis(), &[
 ]);
 ```
 
-## 12. Security Considerations
+## 13. Security Considerations
 
 ### Defense in Depth
 
@@ -466,7 +486,7 @@ telemetry.audit(AuditRecord::new(
 ));
 ```
 
-## 13. Performance Characteristics
+## 14. Performance Characteristics
 
 ### Overhead
 
@@ -489,7 +509,7 @@ telemetry.audit(AuditRecord::new(
 - Use permissive policies for trusted tools
 - Use restrictive policies for untrusted tools
 
-## 14. Future Extensions
+## 15. Future Extensions
 
 ### Planned Extensions (Phase 6)
 
@@ -521,7 +541,7 @@ pub trait ContainerSandboxProvider: SandboxProvider {
 }
 ```
 
-## 15. References
+## 16. References
 
 - `sdkwork-agent-kernel/src/sandbox.rs` - Implementation
 - `sdkwork-agent-kernel/src/lib.rs` - Module exports
@@ -529,7 +549,7 @@ pub trait ContainerSandboxProvider: SandboxProvider {
 - `specs/AGENT_KERNEL_SPEC.md` - Kernel specification
 - `specs/HOST_PROVIDER_SPEC.md` - Host provider specification
 
-## 16. Change Log
+## 17. Change Log
 
 | Version | Date | Changes |
 |---------|------|---------|
@@ -537,5 +557,5 @@ pub trait ContainerSandboxProvider: SandboxProvider {
 
 ---
 
-**Status**: ✅ Core Abstraction Implemented
-**Next Steps**: Platform-specific implementations (Linux/Windows)
+**Status**: Legacy one-shot host-command abstraction retained for existing Kernel behavior
+**Next Steps**: Do not extend this contract into a production Sandbox Runtime; use the `sdkwork-sandbox` lifecycle and Provider contracts

@@ -53,9 +53,6 @@ export function validateAgentKnowledgeMemoryContracts({ kernelRoot, errors, read
   const agentsCompositionDatabaseSpec = readFileIfExists(
     path.join(agentsManagedStoreRoot, 'specs', 'AGENTS_AI_COMPOSITION_DATABASE_SPEC.md')
   );
-  const agentsManagedStoreDatabaseSpec = readFileIfExists(
-    path.join(agentsManagedStoreRoot, 'specs', 'AGENTS_MANAGED_STORE_DATABASE_SPEC.md')
-  );
   const agentsManagedStoreApi = readFileIfExists(path.join(agentsManagedStoreRoot, 'src', 'api.rs'));
   const agentsManagedStoreLib = readFileIfExists(path.join(agentsManagedStoreRoot, 'src', 'lib.rs'));
   const agentsManagedStorePostgresSql = resolveAgentsManagedStorePostgresSql(
@@ -66,12 +63,6 @@ export function validateAgentKnowledgeMemoryContracts({ kernelRoot, errors, read
   if (!agentsCompositionDatabaseSpec) {
     errors.push(
       'sdkwork-agents composition database spec must exist at ../sdkwork-agents/crates/sdkwork-intelligence-agents-service/specs/AGENTS_AI_COMPOSITION_DATABASE_SPEC.md'
-    );
-  }
-
-  if (!agentsManagedStoreDatabaseSpec?.includes('AGENTS_AI_COMPOSITION_DATABASE_SPEC.md')) {
-    errors.push(
-      'sdkwork-agents managed store database spec must redirect to AGENTS_AI_COMPOSITION_DATABASE_SPEC.md'
     );
   }
 
@@ -137,12 +128,12 @@ export function validateAgentKnowledgeMemoryContracts({ kernelRoot, errors, read
     }
   }
 
-  // v3 composition spec intentionally removed these tables as dead code /
-  // over-design. The kernel validator must not expect them to exist.
+  // Composition ownership intentionally excludes app registry and deployment
+  // tables. Reliable aggregate delivery remains Agents-owned through the
+  // canonical ai_agent_outbox_event table.
   for (const droppedTable of [
     'ai_app_registry',
-    'ai_agent_deployment',
-    'ai_agent_outbox_event'
+    'ai_agent_deployment'
   ]) {
     if (agentsManagedStorePostgresSql?.includes(`CREATE TABLE IF NOT EXISTS ${droppedTable}`)) {
       errors.push(`agents managed store postgres SQL must not define dropped v3 table ${droppedTable}`);

@@ -38,6 +38,7 @@ edition = "2021"
 version = "0.1.0"
 
 [workspace.dependencies]
+async-trait = "0.1"
 tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
 rusqlite = { version = "0.32.1", features = ["bundled"] }
 time = { version = "0.3.47", features = ["formatting"] }
@@ -72,6 +73,8 @@ sdkwork-agent-provider-rig = { path = "agent-providers/crates/sdkwork-agent-prov
 sdkwork-drive-storage-contract = { path = "../sdkwork-drive/crates/sdkwork-drive-storage-contract" }
 sdkwork-knowledgebase-contract = { path = "../sdkwork-knowledgebase/crates/sdkwork-knowledgebase-contract" }
 sdkwork-skills-contract = { path = "../sdkwork-skills/crates/sdkwork-skills-contract" }
+sdkwork-intelligence-sandbox-service = { path = "../sdkwork-sandbox/crates/sdkwork-intelligence-sandbox-service" }
+sdkwork-sandbox-provider-spi = { path = "../sdkwork-sandbox/crates/sdkwork-sandbox-provider-spi" }
 
 # Platform frameworks — declared for phased adoption per ADR-20260618-platform-framework-adoption.md
 sdkwork-web-core = { path = "../sdkwork-web-framework/crates/sdkwork-web-core" }

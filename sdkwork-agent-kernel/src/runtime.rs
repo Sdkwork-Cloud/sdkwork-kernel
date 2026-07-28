@@ -5,8 +5,8 @@ use crate::{
     CapabilityRequirement, ContextProvider, EnvFileSecretFallbackHostProvider, HostProvider,
     KernelConformanceCase, KernelConformanceReport, KernelError, KernelEvent, KernelEventSeverity,
     KernelResult, KnowledgeProvider, McpProvider, MemoryProvider, MessageQueryProvider,
-    ModelProvider, ProviderSessionActivityProvider, PlanningProvider, PlatformSandboxProvider,
-    PolicyCategory, PolicyProvider, ProtocolAdapter, ProviderHealth, ProviderManifest,
+    ModelProvider, PlanningProvider, PlatformSandboxProvider, PolicyCategory, PolicyProvider,
+    ProtocolAdapter, ProviderHealth, ProviderManifest, ProviderSessionActivityProvider,
     SandboxProvider, SandboxingHostProvider, SideEffectLevel, TaskSchedulingProvider,
     TelemetryProvider, ToolProvider, AGENT_KERNEL_SPEC_VERSION,
 };
@@ -1886,8 +1886,10 @@ pub struct RuntimeProviderRegistry {
     model_provider_id: Option<String>,
     model_provider: Option<Arc<dyn ModelProvider + Send + Sync>>,
     model_providers: Vec<(String, Arc<dyn ModelProvider + Send + Sync>)>,
-    provider_session_activity_providers:
-        Vec<(String, Arc<dyn ProviderSessionActivityProvider + Send + Sync>)>,
+    provider_session_activity_providers: Vec<(
+        String,
+        Arc<dyn ProviderSessionActivityProvider + Send + Sync>,
+    )>,
     tool_provider_id: Option<String>,
     tool_provider: Option<Arc<dyn ToolProvider + Send + Sync>>,
     tool_providers: Vec<(String, Arc<dyn ToolProvider + Send + Sync>)>,

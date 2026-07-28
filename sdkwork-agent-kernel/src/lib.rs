@@ -72,6 +72,7 @@ pub use rate_limit::{
 mod ingress_rate_limit;
 pub use ingress_rate_limit::{TokenBucketRateLimitProvider, INGRESS_HTTP_RATE_LIMIT_POLICY_ID};
 mod sandbox;
+pub mod sandbox_runtime;
 pub use sandbox::{
     FileSystemPermission, FileSystemSandboxPolicy, NetworkPermission, NetworkSandboxPolicy,
     NoOpSandboxProvider, PlatformSandboxProvider, SandboxCommand, SandboxError,

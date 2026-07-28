@@ -71,6 +71,7 @@ SDKWork follows a Linux-kernel-style split. This repository (`sdkwork-kernel`) o
 | Runtime transient state (active sessions, streaming buffers, in-flight tasks, SSE cursors) | kernel | `sdkwork-agent-database/` (SessionRepository/MessageRepository/TaskRepository/EventRepository traits + sqlite/postgres/memory impls) |
 | Operational HTTP server (`/internal/v3/api/intelligence/runtime/*`) | kernel | `sdkwork-agent-server/` |
 | Client bridge (desktop/mobile local + hybrid + remote) | kernel | `sdkwork-agent-client/` |
+| Agents-to-Sandbox ID mapping and lifecycle adapter | kernel | `sdkwork-agent-kernel/src/sandbox_runtime.rs` |
 
 ### Agents Responsibilities
 
@@ -80,11 +81,16 @@ SDKWork follows a Linux-kernel-style split. This repository (`sdkwork-kernel`) o
 | Agent classification catalog, app-api / backend-api / open-api + SDK generation | agents | `../sdkwork-agents/` |
 | Integration of sdkwork-knowledge, sdkwork-drive, sdkwork-skills, sdkwork-prompts, sdkwork-memory | agents | `../sdkwork-agents/` |
 | Memory provider implementations (permanent / user / growth-tier backends) | agents | `../sdkwork-agents/` (kernel defines `MemoryProvider` SPI + `MemoryTier`/`MemoryScope` model only) |
+| `AgentWorkspace` identity, authorization, logical lifecycle and persistence | agents | `../sdkwork-agents/` |
+| `AgentSession` durable business aggregate and opaque `runtimeLocationId` | agents | `../sdkwork-agents/` |
 
 ### Boundary Rules
 
 - The kernel **MUST NOT** own business persistence (agent config catalog, long-term archives) or application HTTP surfaces (app-api/backend-api/open-api).
 - The agents application **MUST NOT** depend on `sdkwork-agent-provider-*` crates directly; it consumes the kernel via `sdkwork-agent-internal-sdk` and the runtime facade.
+- Cross-repository Runtime dependency is `sdkwork-agents -> sdkwork-kernel -> sdkwork-sandbox`. Sandbox **MUST NOT** depend on Kernel or Agents.
+- Kernel maps authorized Agents IDs to `SandboxWorkspaceId` and `SandboxSessionId` through `sandbox_runtime::SandboxSessionLifecycleAdapter`; it does not copy Agents models or select a concrete Sandbox Provider.
+- The root-exported legacy `SandboxProvider` is a one-shot host-command mechanism. New Runtime lifecycle integration consumes `sdkwork-sandbox` through the namespaced adapter and must not expand the legacy mechanism into a second lifecycle authority.
 
 ---
 

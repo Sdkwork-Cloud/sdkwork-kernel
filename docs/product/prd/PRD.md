@@ -3,7 +3,7 @@
 Status: active
 Owner: SDKWork kernel maintainers
 Application: sdkwork-kernel
-Updated: 2026-07-19
+Updated: 2026-07-28
 Specs: [REQUIREMENTS_SPEC.md](../../../sdkwork-specs/REQUIREMENTS_SPEC.md), [DOCUMENTATION_SPEC.md](../../../sdkwork-specs/DOCUMENTATION_SPEC.md)
 
 Canon entry and index. Product depth lives in linked shards; normative contracts live in `specs/` and `sdkwork-specs/`.
@@ -29,6 +29,13 @@ SDKWork Kernel is the **shared intelligence mechanism layer** for BirdCoder, IM 
 and future agent surfaces. Application business lives in `sdkwork-agents`; products
 must not depend on `sdkwork-agent-provider-*` crates directly.
 
+Execution-environment lifecycle lives in `sdkwork-sandbox`. Kernel maps an
+authorized Agents `AgentWorkspace`/`AgentSession` pair into
+`SandboxWorkspaceId`/`SandboxSessionId`, consumes the Sandbox-owned
+`SandboxSessionLifecyclePort`, and maps the active `SandboxRuntimeBindingId`
+back to the opaque Agents `runtimeLocationId`. The dependency direction is
+`sdkwork-agents -> sdkwork-kernel -> sdkwork-sandbox`.
+
 The runtime must operate as one product in both single-machine non-cluster mode
 and multi-node cluster mode. Coordination mode changes runtime placement and
 recovery mechanisms without changing the product-facing agent and conversation
@@ -47,6 +54,12 @@ Detail: [PRD-01 §3](PRD-01-product-design-and-scope.md#3-product-goals) and [PR
 ## 4. Scope
 
 Detail: [PRD-01 §4–5](PRD-01-product-design-and-scope.md#4-in-scope-capabilities-kernel-owned).
+
+Kernel owns the
+`sdkwork_agent_kernel::sandbox_runtime::SandboxSessionLifecycleAdapter` and
+ID/error translation at this boundary. It does not own `AgentWorkspace` or
+`AgentSession` business persistence, `SandboxSession` lifecycle persistence,
+Workspace Attachment, Sandbox allocation, or Sandbox Provider policy.
 
 ## 5. User Scenarios
 
@@ -103,6 +116,17 @@ Canonical product scenarios. Implementation detail: [TECH_ARCHITECTURE.md](../..
 3. Cut over application ingress only after the target is ready and stale owners can no longer commit.
 4. Keep product SDK and conversation behavior unchanged through the transition.
 
+### US-8: Agents requests an isolated execution environment
+
+1. Agents authorizes the `AgentWorkspace` and `AgentSession` business context.
+2. Kernel rejects invalid or path-like identifiers and maps them to opaque
+   `SandboxWorkspaceId` and `SandboxSessionId` values.
+3. Kernel invokes `SandboxSessionLifecyclePort` with `sandbox_`-qualified command
+   fields and does not select a concrete Sandbox Provider.
+4. Kernel returns the active `SandboxRuntimeBindingId` to Agents only as opaque
+   `runtimeLocationId`; Provider allocation references and host paths do not cross
+   the boundary.
+
 ## 6. Success Metrics
 
 Detail: [PRD-03 §4](PRD-03-commercial-readiness-baseline.md#4-success-metrics).
@@ -120,6 +144,7 @@ Detail: [PRD-03 §3](PRD-03-commercial-readiness-baseline.md#3-phase-roadmap) an
 | Authority | Path |
 | --- | --- |
 | Agent kernel semantics | [specs/AGENT_KERNEL_SPEC.md](../../../specs/AGENT_KERNEL_SPEC.md) |
+| Sandbox runtime boundary | [SDKWork Sandbox PRD](../../../../sdkwork-sandbox/docs/product/prd/PRD.md) |
 | Provider integration | [specs/AGENT_PROVIDER_INTEGRATION_SPEC.md](../../../specs/AGENT_PROVIDER_INTEGRATION_SPEC.md) |
 | Provider bindings | [specs/AGENT_PROVIDER_BINDING_SPEC.md](../../../specs/AGENT_PROVIDER_BINDING_SPEC.md) |
 | Code kernel | [specs/CODE_KERNEL_SPEC.md](../../../specs/CODE_KERNEL_SPEC.md) |
@@ -140,11 +165,17 @@ Engineering `REQ-*` records: [docs/product/requirements/](../requirements/) per 
 
 ## 9. Ecosystem Positioning
 
-SDKWork Kernel is the **mechanism layer** in a three-repository agent platform:
+SDKWork Kernel is the **mechanism and adaptation layer** in a four-repository
+agent platform:
 
-- **sdkwork-kernel** — SPI, provider integration, runtime server, code kernel.
-- **sdkwork-agents** — Managed agents, `ai_*` database, open/app/backend APIs, runtime facade.
-- **sdkwork-birdcoder** — Multi code-engine product; consumes agents facade, never provider crates.
+- **sdkwork-agents** — `AgentWorkspace`/`AgentSession` business authority, `ai_*`
+  database, open/app/backend APIs and runtime facade.
+- **sdkwork-kernel** — Agent Provider SPI, model/tool orchestration, runtime server,
+  code kernel and the Sandbox lifecycle adapter.
+- **sdkwork-sandbox** — `SandboxSession`, `SandboxRuntimeBinding`, Workspace
+  Attachment and execution-environment Sandbox Provider authority.
+- **sdkwork-birdcoder** — Multi code-engine product; consumes Agents facade and
+  never reaches Agent Provider or Sandbox Provider crates directly.
 
 Detail: [PRD-04-ecosystem-architecture.md](PRD-04-ecosystem-architecture.md).
 

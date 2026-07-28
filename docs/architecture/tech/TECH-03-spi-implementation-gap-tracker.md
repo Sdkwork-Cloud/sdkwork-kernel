@@ -2,7 +2,7 @@
 
 Status: active
 Owner: SDKWork kernel maintainers
-Updated: 2026-07-11
+Updated: 2026-07-28
 Parent: [TECH_ARCHITECTURE.md](TECH_ARCHITECTURE.md)
 Specs: [AGENT_KERNEL_SPEC.md](../../../specs/AGENT_KERNEL_SPEC.md), [AGENT_CONFORMANCE_SPEC.md](../../../specs/AGENT_CONFORMANCE_SPEC.md)
 
@@ -38,7 +38,7 @@ shard when traits, specs, or provider wiring change.
 
 | Family | Trait | Spec shard | Rust module | Wired in default runtime |
 | --- | --- | --- | --- | --- |
-| sandbox | `SandboxProvider` | `SANDBOX_PROVIDER_SPEC.md` | `sandbox.rs`, `host_sandbox.rs` | Yes — `RuntimeBuilder::enable_platform_host_sandbox()` wraps host `process` |
+| sandbox (legacy host command) | Legacy `SandboxProvider` | `SANDBOX_PROVIDER_SPEC.md` | `sandbox.rs`, `host_sandbox.rs` | Existing one-shot HostProvider wrapper only; not the `sdkwork-sandbox` lifecycle or a production isolation claim |
 | secret | `SecretProvider` | `SECRET_PROVIDER_SPEC.md` | `secret.rs`, `secret_env.rs`, `secret_composite.rs` | Implementation present; target secret-manager integration and rotation evidence required |
 | rate_limit | `RateLimitProvider` | `AGENT_KERNEL_SPEC.md` §3.4 | `rate_limit.rs`, `ingress_rate_limit.rs` | Implementation present; Redis-backed cluster failure drills required |
 | cancellation | `CancellationProvider` | `AGENT_KERNEL_SPEC.md` §3.4 | `cancellation.rs` | Implementation present; request-scoped transport cancellation and stress evidence required |
@@ -58,7 +58,7 @@ Priority aligns with [ADR-20260628](../decisions/ADR-20260628-KERNEL-SPI-COMPREH
 
 | ID | Gap | Priority | Spec | Implementation | Product impact | Next action |
 | --- | --- | --- | --- | --- | --- | --- |
-| G-01 | Sandbox not default-routed from HostProvider | P0 | `SANDBOX_PROVIDER_SPEC.md` | Implementation present; Linux sandbox conformance CI pending | Codex-class prod isolation | Run Linux sandbox conformance and escape tests |
+| G-01 | Production Sandbox Runtime composition is incomplete | P0 | `sdkwork-sandbox` PRD/technical architecture | Kernel `SandboxSessionLifecycleAdapter` is implemented; durable lifecycle host, constrained Provider, attachment persistence and cross-platform conformance remain pending | Codex-class production execution isolation | Deliver reviewed `sdkwork-sandbox` Provider profiles and common lifecycle/security conformance |
 | G-02 | A2A protocol adapter incomplete | P0 | `A2A_PROTOCOL_ADAPTER_SPEC.md` | Local types/registry adapter implemented; remote HTTP conformance pending | External HTTP A2A interop | Remote HTTP adapter + conformance suite |
 | G-03 | Orchestration not connected to planning loop | P0 | `MULTI_AGENT_ORCHESTRATION_SPEC.md` | Conversion helper implemented; caller integration evidence pending | Multi-agent workflows | Wire planning provider callers to orchestration bridge |
 | G-04 | Backend health monitor not spawned in all server profiles | P0 | `BACKEND_HEALTH_MONITOR_SPEC.md` | Worker bootstrap implemented; composed production readiness pending | Stale backend selection | Add required provider/Redis readiness and diagnostics evidence |
@@ -136,7 +136,7 @@ Cross-reference `specs/README.md` standard closure checklist. Outstanding:
 
 - [ ] Every compatibility claim backed by conformance profile run in CI
 - [ ] Remote A2A HTTP adapter conformance suite
-- [ ] Sandbox isolation conformance suite on Linux CI
+- [ ] `sdkwork-sandbox` production Provider isolation and lifecycle conformance on supported OS/CI profiles
 - [ ] Provider fallback manifest schema + validator
 
 ## 7. Verification

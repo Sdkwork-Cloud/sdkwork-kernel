@@ -8,7 +8,7 @@ use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
     SessionState,
 };
-use sdkwork_agent_provider_core::{epoch_millis_to_rfc3339, SessionAdapter};
+use sdkwork_agent_provider_core::{SessionAdapter, epoch_millis_to_rfc3339};
 use serde_json::Value;
 
 use crate::{CodexAdapter, CodexSessionMeta};
@@ -160,9 +160,11 @@ fn codex_event_message(
             }
             (
                 AgentMessageRole::Agent,
-                vec![AgentPart::text(format!("{message_id}.reasoning"), text)
-                    .from_provider("codex")
-                    .with_metadata("codex.content_type", "reasoning")],
+                vec![
+                    AgentPart::text(format!("{message_id}.reasoning"), text)
+                        .from_provider("codex")
+                        .with_metadata("codex.content_type", "reasoning"),
+                ],
             )
         }
         "mcp_tool_call_end" => (
@@ -370,9 +372,11 @@ fn codex_agent_message_parts(payload: &Value, message_id: &str) -> Vec<AgentPart
     };
     match content {
         Value::String(text) if !text.trim().is_empty() => {
-            vec![AgentPart::text(format!("{message_id}.text"), text.trim())
-                .from_provider("codex")
-                .with_metadata("codex.content_type", "agent_message")]
+            vec![
+                AgentPart::text(format!("{message_id}.text"), text.trim())
+                    .from_provider("codex")
+                    .with_metadata("codex.content_type", "agent_message"),
+            ]
         }
         Value::Array(_) => codex_message_content_parts(payload, message_id),
         _ => Vec::new(),
@@ -455,6 +459,24 @@ fn codex_duration_ms(value: Option<&Value>) -> Option<u64> {
         .and_then(|milliseconds| milliseconds.checked_add(nanos / 1_000_000))
 }
 
+fn codex_command_text(payload: &Value) -> Option<String> {
+    let command = payload.get("command")?;
+    if let Some(command) = command
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return Some(command.to_string());
+    }
+    let command = command
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join(" ");
+    (!command.is_empty()).then_some(command)
+}
+
 fn codex_completed_tool_event_part(
     payload: &Value,
     message_id: &str,
@@ -479,7 +501,10 @@ fn codex_completed_tool_event_part(
             .get("status")
             .and_then(Value::as_str)
             .is_some_and(|value| matches!(value, "failed" | "declined" | "cancelled"))
-        || payload.get("exit_code").and_then(Value::as_i64).is_some_and(|value| value != 0)
+        || payload
+            .get("exit_code")
+            .and_then(Value::as_i64)
+            .is_some_and(|value| value != 0)
     {
         "failed"
     } else {
@@ -491,11 +516,13 @@ fn codex_completed_tool_event_part(
         "server": invocation.and_then(|value| value.get("server")),
         "tool": tool_name,
         "arguments": invocation.and_then(|value| value.get("arguments")),
-        "command": payload.get("command"),
+        "command": codex_command_text(payload),
         "cwd": payload.get("cwd"),
         "query": payload.get("query"),
         "action": payload.get("action"),
-        "result": payload.get("result").or_else(|| payload.get("stdout")),
+        "result": payload.pointer("/result/Ok")
+            .or_else(|| payload.get("result"))
+            .or_else(|| payload.get("stdout")),
         "output": payload.get("aggregated_output").or_else(|| payload.get("stdout")),
         "error": payload.get("error").or_else(|| payload.pointer("/result/Err")),
         "status": status,
@@ -1017,7 +1044,10 @@ mod tests {
         );
         assert_eq!(messages[6].parts[0].name.as_deref(), Some("update_plan"));
         let command_payload = serde_json::from_str::<Value>(
-            messages[7].parts[0].json.as_deref().expect("command payload"),
+            messages[7].parts[0]
+                .json
+                .as_deref()
+                .expect("command payload"),
         )
         .expect("structured command payload");
         assert_eq!(
@@ -1027,7 +1057,10 @@ mod tests {
         assert_eq!(messages[8].parts[0].name.as_deref(), Some("lookup"));
         assert_eq!(messages[9].parts[0].name.as_deref(), Some("web_search"));
         let image_payload = serde_json::from_str::<Value>(
-            messages[10].parts[0].json.as_deref().expect("image payload"),
+            messages[10].parts[0]
+                .json
+                .as_deref()
+                .expect("image payload"),
         )
         .expect("structured image payload");
         assert_eq!(

@@ -519,9 +519,12 @@ fn codex_session_lineage(
         .map(str::trim)
         .is_some_and(|source| source.eq_ignore_ascii_case("subagent"));
 
-    if (is_subagent || lineage.parent_thread_id.is_some() || lineage.forked_from_id.is_some())
-        && (lineage.parent_thread_id.is_none() || lineage.forked_from_id.is_none())
-    {
+    let needs_rollout_lineage = if is_subagent {
+        lineage.parent_thread_id.is_none()
+    } else {
+        lineage.parent_thread_id.is_some() && lineage.forked_from_id.is_none()
+    };
+    if needs_rollout_lineage {
         if let Some(rollout_lineage) = rollout_path
             .map(str::trim)
             .filter(|path| !path.is_empty())
@@ -781,6 +784,33 @@ mod tests {
 
         assert_eq!(lineage.parent_thread_id.as_deref(), Some("parent-session"));
         assert_eq!(lineage.forked_from_id.as_deref(), Some("parent-session"));
+    }
+
+    #[test]
+    fn falls_back_to_rollout_metadata_when_source_lineage_is_missing() {
+        let rollout_path = std::env::temp_dir().join(format!(
+            "sdkwork-codex-provider-lineage-fallback-{}.jsonl",
+            std::process::id()
+        ));
+        std::fs::write(
+            &rollout_path,
+            concat!(
+                "{\"timestamp\":\"2026-07-29T00:00:00Z\",\"type\":\"session_meta\",\"payload\":{",
+                "\"id\":\"child-session\",\"forked_from_id\":\"parent-session\",",
+                "\"parent_thread_id\":\"parent-session\",\"thread_source\":\"subagent\"}}\n"
+            ),
+        )
+        .expect("fallback rollout");
+
+        let lineage = codex_session_lineage(
+            Some("\"cli\""),
+            Some("subagent"),
+            rollout_path.to_str(),
+        );
+
+        assert_eq!(lineage.parent_thread_id.as_deref(), Some("parent-session"));
+        assert_eq!(lineage.forked_from_id.as_deref(), Some("parent-session"));
+        std::fs::remove_file(rollout_path).expect("remove fallback rollout");
     }
 
     #[test]

@@ -802,11 +802,8 @@ mod tests {
         )
         .expect("fallback rollout");
 
-        let lineage = codex_session_lineage(
-            Some("\"cli\""),
-            Some("subagent"),
-            rollout_path.to_str(),
-        );
+        let lineage =
+            codex_session_lineage(Some("\"cli\""), Some("subagent"), rollout_path.to_str());
 
         assert_eq!(lineage.parent_thread_id.as_deref(), Some("parent-session"));
         assert_eq!(lineage.forked_from_id.as_deref(), Some("parent-session"));

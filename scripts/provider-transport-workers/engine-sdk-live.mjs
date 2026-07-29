@@ -696,6 +696,7 @@ function normalizeCodexApprovalPolicy(value) {
     ['onfailure', 'on-failure'],
     ['releaseonly', 'on-failure'],
     ['autoallow', 'on-failure'],
+    ['never', 'never'],
   ]);
   const mapped = aliases.get(compact);
   if (!mapped) {

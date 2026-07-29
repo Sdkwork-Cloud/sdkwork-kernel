@@ -246,7 +246,8 @@ impl AgentExecutionSettingsResolution {
     }
 
     pub fn add_provider_option(mut self, option: AgentExecutionProviderOption) -> Self {
-        self.provider_options.retain(|entry| entry.key != option.key);
+        self.provider_options
+            .retain(|entry| entry.key != option.key);
         self.provider_options.push(option);
         self
     }
@@ -290,7 +291,9 @@ mod tests {
         let spec = sample_spec();
         assert!(spec.validate().is_ok());
         assert_eq!(
-            spec.resolve_access_mode(None).expect("default mode").mode_id,
+            spec.resolve_access_mode(None)
+                .expect("default mode")
+                .mode_id,
             ASK_FOR_APPROVAL_ACCESS_MODE_ID
         );
     }

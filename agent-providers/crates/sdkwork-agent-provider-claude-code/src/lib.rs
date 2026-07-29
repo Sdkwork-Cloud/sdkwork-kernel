@@ -11,18 +11,18 @@ use sdkwork_agent_provider_core::{
     DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL,
 };
 
-mod provider_sessions;
-mod local_plugins;
 mod configuration;
+mod local_plugins;
+mod provider_sessions;
 
-pub use provider_sessions::{
-    discover_claude_code_provider_session_messages, discover_claude_code_provider_sessions,
-    read_claude_code_provider_session_messages, read_claude_code_provider_sessions,
-};
-pub use local_plugins::ClaudeCodeLocalPluginProvider;
 pub use configuration::{
     ClaudeCodeConfigurationProvider, CLAUDE_ACCEPT_EDITS_ACCESS_MODE_ID,
     CLAUDE_BYPASS_PERMISSIONS_ACCESS_MODE_ID, CLAUDE_DEFAULT_ACCESS_MODE_ID,
+};
+pub use local_plugins::ClaudeCodeLocalPluginProvider;
+pub use provider_sessions::{
+    discover_claude_code_provider_session_messages, discover_claude_code_provider_sessions,
+    read_claude_code_provider_session_messages, read_claude_code_provider_sessions,
 };
 
 #[cfg(test)]

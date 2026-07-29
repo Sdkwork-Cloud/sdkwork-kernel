@@ -11,14 +11,14 @@ use sdkwork_agent_provider_core::{
     DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL,
 };
 
-mod provider_sessions;
 mod local_plugins;
+mod provider_sessions;
 
+pub use local_plugins::CodexLocalPluginProvider;
 pub use provider_sessions::{
     discover_codex_provider_session_messages, discover_codex_provider_sessions,
     read_codex_provider_session_messages, read_codex_provider_sessions,
 };
-pub use local_plugins::CodexLocalPluginProvider;
 
 #[cfg(test)]
 use sdkwork_agent_kernel::KernelError;

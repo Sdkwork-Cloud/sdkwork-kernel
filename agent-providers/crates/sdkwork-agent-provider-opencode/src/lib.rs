@@ -11,18 +11,18 @@ use sdkwork_agent_provider_core::{
     DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL,
 };
 
-mod provider_sessions;
-mod local_plugins;
 mod configuration;
+mod local_plugins;
+mod provider_sessions;
 
-pub use provider_sessions::{
-    discover_opencode_provider_session_messages, discover_opencode_provider_sessions,
-    read_opencode_provider_session_messages, read_opencode_provider_sessions,
-};
-pub use local_plugins::OpenCodeLocalPluginProvider;
 pub use configuration::{
     OpenCodeConfigurationProvider, OPENCODE_ALLOW_ALL_ACCESS_MODE_ID,
     OPENCODE_ALLOW_EDITS_ACCESS_MODE_ID, OPENCODE_ASK_ACCESS_MODE_ID,
+};
+pub use local_plugins::OpenCodeLocalPluginProvider;
+pub use provider_sessions::{
+    discover_opencode_provider_session_messages, discover_opencode_provider_sessions,
+    read_opencode_provider_session_messages, read_opencode_provider_sessions,
 };
 
 #[cfg(test)]

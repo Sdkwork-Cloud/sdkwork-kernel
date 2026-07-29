@@ -93,10 +93,8 @@ impl AgentConfigurationProvider for CodexConfigurationProvider {
     ) -> KernelResult<AgentExecutionSettingsResolution> {
         let spec = self.execution_settings_spec(&request.agent_id)?;
         let access_mode = spec.resolve_access_mode(request.access_mode_id.as_deref())?;
-        let resolution = AgentExecutionSettingsResolution::new(
-            ids::AGENT_ID,
-            access_mode.mode_id.as_str(),
-        );
+        let resolution =
+            AgentExecutionSettingsResolution::new(ids::AGENT_ID, access_mode.mode_id.as_str());
         Ok(match access_mode.mode_id.as_str() {
             ASK_FOR_APPROVAL_ACCESS_MODE_ID => resolution
                 .add_provider_option(AgentExecutionProviderOption::string(
@@ -181,7 +179,9 @@ mod tests {
 
         assert_eq!(
             resolved.provider_option(APPROVAL_POLICY_KEY),
-            Some(&AgentExecutionProviderOptionValue::String("never".to_string()))
+            Some(&AgentExecutionProviderOptionValue::String(
+                "never".to_string()
+            ))
         );
         assert_eq!(
             resolved.provider_option(SANDBOX_MODE_KEY),

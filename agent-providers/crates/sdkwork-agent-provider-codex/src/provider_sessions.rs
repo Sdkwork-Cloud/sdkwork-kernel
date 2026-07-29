@@ -111,11 +111,16 @@ fn codex_response_item_message(payload: &Value, session_id: &str) -> Option<Agen
             AgentMessageRole::Agent,
             codex_reasoning_parts(payload, &message_id),
         ),
-        "function_call" | "custom_tool_call" => (
+        "function_call"
+        | "custom_tool_call"
+        | "image_generation_call"
+        | "local_shell_call"
+        | "tool_search_call"
+        | "web_search_call" => (
             AgentMessageRole::Agent,
             vec![codex_tool_call_part(payload, &message_id, payload_type)?],
         ),
-        "function_call_output" | "custom_tool_call_output" => (
+        "function_call_output" | "custom_tool_call_output" | "tool_search_output" => (
             AgentMessageRole::Tool,
             vec![codex_tool_result_part(payload, &message_id, payload_type)?],
         ),
@@ -169,6 +174,55 @@ fn codex_event_message(
                 "mcp",
             )?],
         ),
+        "plan_update" => (
+            AgentMessageRole::Agent,
+            vec![codex_plan_update_part(payload, session_id, &message_id)],
+        ),
+        "exec_command_end" => (
+            AgentMessageRole::Tool,
+            vec![codex_completed_tool_event_part(
+                payload,
+                &message_id,
+                "command_execution",
+                "shell_command",
+            )?],
+        ),
+        "web_search_end" => (
+            AgentMessageRole::Tool,
+            vec![codex_completed_tool_event_part(
+                payload,
+                &message_id,
+                "web_search",
+                "web_search",
+            )?],
+        ),
+        "dynamic_tool_call_response" => (
+            AgentMessageRole::Tool,
+            vec![codex_completed_tool_event_part(
+                payload,
+                &message_id,
+                "dynamic_tool_call",
+                "tool",
+            )?],
+        ),
+        "view_image_tool_call" => (
+            AgentMessageRole::Tool,
+            vec![codex_completed_tool_event_part(
+                payload,
+                &message_id,
+                "image_view",
+                "view_image",
+            )?],
+        ),
+        "image_generation_end" => (
+            AgentMessageRole::Tool,
+            vec![codex_completed_tool_event_part(
+                payload,
+                &message_id,
+                "image_generation",
+                "image_generation",
+            )?],
+        ),
         "patch_apply_end" => (
             AgentMessageRole::Tool,
             vec![codex_completed_tool_event_part(
@@ -185,6 +239,19 @@ fn codex_event_message(
                 &message_id,
                 "sub_agent_activity",
                 "subagent_activity",
+            )?],
+        ),
+        "collab_agent_spawn_end"
+        | "collab_agent_interaction_end"
+        | "collab_waiting_end"
+        | "collab_close_end"
+        | "collab_resume_end" => (
+            AgentMessageRole::Tool,
+            vec![codex_completed_tool_event_part(
+                payload,
+                &message_id,
+                "collab_agent_tool_call",
+                "agent",
             )?],
         ),
         "task_started" | "task_complete" | "context_compacted" => (
@@ -353,6 +420,41 @@ fn codex_tool_result_part(
     )
 }
 
+fn codex_plan_update_part(payload: &Value, session_id: &str, message_id: &str) -> AgentPart {
+    let provider_item = serde_json::json!({
+        "method": "turn/plan/updated",
+        "params": {
+            "threadId": session_id,
+            "turnId": payload.get("turn_id"),
+            "explanation": payload.get("explanation"),
+            "plan": payload.get("plan"),
+        },
+    });
+    let mut part = AgentPart::tool_call_ref(format!("{message_id}.plan"), message_id)
+        .with_name("update_plan")
+        .from_provider("codex")
+        .with_metadata("codex.content_type", "turn_plan_updated")
+        .with_metadata("codex.status", "completed")
+        .with_metadata("codex.has_result", "true");
+    part.json = Some(provider_item.to_string());
+    part
+}
+
+fn codex_duration_ms(value: Option<&Value>) -> Option<u64> {
+    let duration = value?;
+    if let Some(milliseconds) = duration.as_u64() {
+        return Some(milliseconds);
+    }
+    let seconds = duration.get("secs").and_then(Value::as_u64)?;
+    let nanos = duration
+        .get("nanos")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    seconds
+        .checked_mul(1_000)
+        .and_then(|milliseconds| milliseconds.checked_add(nanos / 1_000_000))
+}
+
 fn codex_completed_tool_event_part(
     payload: &Value,
     message_id: &str,
@@ -367,10 +469,17 @@ fn codex_completed_tool_event_part(
     let tool_name = invocation
         .and_then(|value| value.get("tool"))
         .and_then(Value::as_str)
+        .or_else(|| payload.get("tool").and_then(Value::as_str))
         .or_else(|| payload.get("name").and_then(Value::as_str))
         .unwrap_or(fallback_tool_name);
     let status = if payload.get("success").and_then(Value::as_bool) == Some(false)
         || payload.get("error").is_some_and(|value| !value.is_null())
+        || payload.pointer("/result/Err").is_some()
+        || payload
+            .get("status")
+            .and_then(Value::as_str)
+            .is_some_and(|value| matches!(value, "failed" | "declined" | "cancelled"))
+        || payload.get("exit_code").and_then(Value::as_i64).is_some_and(|value| value != 0)
     {
         "failed"
     } else {
@@ -382,11 +491,21 @@ fn codex_completed_tool_event_part(
         "server": invocation.and_then(|value| value.get("server")),
         "tool": tool_name,
         "arguments": invocation.and_then(|value| value.get("arguments")),
+        "command": payload.get("command"),
+        "cwd": payload.get("cwd"),
+        "query": payload.get("query"),
+        "action": payload.get("action"),
         "result": payload.get("result").or_else(|| payload.get("stdout")),
-        "output": payload.get("stdout"),
-        "error": payload.get("error"),
+        "output": payload.get("aggregated_output").or_else(|| payload.get("stdout")),
+        "error": payload.get("error").or_else(|| payload.pointer("/result/Err")),
         "status": status,
+        "durationMs": codex_duration_ms(payload.get("duration")),
+        "exitCode": payload.get("exit_code"),
         "changes": payload.get("changes"),
+        "contentItems": payload.get("content_items"),
+        "results": payload.get("results"),
+        "path": payload.get("path"),
+        "revisedPrompt": payload.get("revised_prompt"),
         "kind": payload.get("kind"),
         "agentThreadId": payload.get("agent_thread_id"),
         "agentPath": payload.get("agent_path"),
@@ -827,7 +946,12 @@ mod tests {
                 "{\"timestamp\":\"2026-07-01T00:00:03Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"function_call_output\",\"id\":\"output-item-1\",\"call_id\":\"call-1\",\"output\":\"ok\"}}\n",
                 "{\"timestamp\":\"2026-07-01T00:00:04Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"mcp_tool_call_end\",\"call_id\":\"mcp-1\",\"invocation\":{\"server\":\"docs\",\"tool\":\"search\",\"arguments\":{\"q\":\"session items\"}},\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"found\"}]}}}\n",
                 "{\"timestamp\":\"2026-07-01T00:00:05Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"patch_apply_end\",\"call_id\":\"patch-1\",\"turn_id\":\"turn-1\",\"changes\":[{\"path\":\"src/main.rs\",\"kind\":\"update\"}],\"stdout\":\"Done\",\"success\":true}}\n",
-                "{\"timestamp\":\"2026-07-01T00:00:06Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"id\":\"message-assistant\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"world\"}]}}\n"
+                "{\"timestamp\":\"2026-07-01T00:00:06Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"plan_update\",\"explanation\":\"Align the transcript\",\"plan\":[{\"step\":\"Inspect protocol\",\"status\":\"completed\"},{\"step\":\"Repair projection\",\"status\":\"in_progress\"}]}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:07Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"exec_command_end\",\"call_id\":\"exec-1\",\"turn_id\":\"turn-1\",\"command\":[\"cargo\",\"test\"],\"cwd\":\"/workspace\",\"stdout\":\"ok\",\"stderr\":\"\",\"aggregated_output\":\"ok\",\"exit_code\":0,\"duration\":{\"secs\":1,\"nanos\":250000000},\"status\":\"completed\"}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:08Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"dynamic_tool_call_response\",\"call_id\":\"dynamic-1\",\"turn_id\":\"turn-1\",\"tool\":\"lookup\",\"arguments\":{\"id\":\"123\"},\"content_items\":[{\"type\":\"input_text\",\"text\":\"found\"}],\"success\":true,\"duration\":{\"secs\":0,\"nanos\":42000000}}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:09Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"web_search_end\",\"call_id\":\"search-1\",\"query\":\"Codex protocol\",\"action\":{\"type\":\"search\",\"query\":\"Codex protocol\"},\"results\":[{\"url\":\"https://developers.openai.com/codex/app-server\"}]}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:10Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"view_image_tool_call\",\"call_id\":\"image-1\",\"path\":\"/workspace/screenshot.png\"}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:11Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"id\":\"message-assistant\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"world\"}]}}\n"
             ),
         )
         .expect("fixture rollout");
@@ -849,7 +973,7 @@ mod tests {
 
         let messages = read_codex_provider_session_messages(&state_path, "session-1")
             .expect("provider transcript");
-        assert_eq!(messages.len(), 7, "{messages:#?}");
+        assert_eq!(messages.len(), 12, "{messages:#?}");
         assert_eq!(messages[0].role, AgentMessageRole::User);
         assert_eq!(messages[0].parts[0].text.as_deref(), Some("hello"));
         assert_eq!(
@@ -883,8 +1007,35 @@ mod tests {
                 .and_then(Value::as_str),
             Some("src/main.rs")
         );
-        assert_eq!(messages[6].role, AgentMessageRole::Agent);
-        assert_eq!(messages[6].parts[0].text.as_deref(), Some("world"));
+        let plan_payload = serde_json::from_str::<Value>(
+            messages[6].parts[0].json.as_deref().expect("plan payload"),
+        )
+        .expect("structured plan payload");
+        assert_eq!(
+            plan_payload.get("method").and_then(Value::as_str),
+            Some("turn/plan/updated")
+        );
+        assert_eq!(messages[6].parts[0].name.as_deref(), Some("update_plan"));
+        let command_payload = serde_json::from_str::<Value>(
+            messages[7].parts[0].json.as_deref().expect("command payload"),
+        )
+        .expect("structured command payload");
+        assert_eq!(
+            command_payload.get("durationMs").and_then(Value::as_u64),
+            Some(1_250)
+        );
+        assert_eq!(messages[8].parts[0].name.as_deref(), Some("lookup"));
+        assert_eq!(messages[9].parts[0].name.as_deref(), Some("web_search"));
+        let image_payload = serde_json::from_str::<Value>(
+            messages[10].parts[0].json.as_deref().expect("image payload"),
+        )
+        .expect("structured image payload");
+        assert_eq!(
+            image_payload.get("path").and_then(Value::as_str),
+            Some("/workspace/screenshot.png")
+        );
+        assert_eq!(messages[11].role, AgentMessageRole::Agent);
+        assert_eq!(messages[11].parts[0].text.as_deref(), Some("world"));
         std::fs::remove_dir_all(root).expect("remove fixture");
     }
 }

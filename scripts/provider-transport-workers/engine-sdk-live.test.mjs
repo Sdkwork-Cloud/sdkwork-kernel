@@ -65,6 +65,8 @@ function capture(prompt, options) {
       cwd: options.cwd,
       has_abort_controller: Boolean(options.abortController),
       model: options.model,
+      permission_mode: options.permissionMode,
+      allow_dangerously_skip_permissions: options.allowDangerouslySkipPermissions,
       resume: options.resume,
     },
   }), 'utf8');
@@ -217,6 +219,11 @@ export function createOpencodeClient(options = {}) {
               : path.id,
           },
         };
+      },
+      update: async ({ path, body, signal } = {}) => {
+        record.session_update = { path, body, signal_present: Boolean(signal) };
+        capture(record);
+        return { data: { id: path.id } };
       },
       prompt: async ({ path, body, signal } = {}) => {
         record.session_prompt = { path, body, signal_present: Boolean(signal) };
@@ -425,6 +432,7 @@ const claudeResult = await invokeModelChatLive(
     working_directory: 'C:/sdkwork/claude-workspace',
     timeout_ms: 2_000,
     messages: ['Claude prompt'],
+    execution_options: { approval_policy: 'accept-edits' },
   },
   {
     onActivity: async (event) => claudeActivity.push(event),
@@ -443,10 +451,11 @@ assert.deepEqual(claudeCapture, {
   prompt: 'Claude prompt',
   options: {
     cwd: 'C:/sdkwork/claude-workspace',
-    has_abort_controller: true,
-    model: 'claude-sonnet-4-6',
-  },
-});
+      has_abort_controller: true,
+      model: 'claude-sonnet-4-6',
+      permission_mode: 'acceptEdits',
+    },
+  });
 const resumedClaudeResult = await invokeModelChatLive('@anthropic-ai/claude-agent-sdk', {
   model_request_id: 'req-claude-sdk-resume',
   session_id: 'claude-sdk-existing',
@@ -459,6 +468,14 @@ assert.equal(
   'claude-sdk-existing',
   'Claude resume must use the official query resume option.',
 );
+await invokeModelChatLive('@anthropic-ai/claude-agent-sdk', {
+  model_request_id: 'req-claude-sdk-bypass',
+  messages: ['Bypass Claude permissions'],
+  execution_options: { approval_policy: 'bypass-permissions' },
+});
+const bypassClaudeCapture = JSON.parse(fs.readFileSync(claudeCapturePath, 'utf8'));
+assert.equal(bypassClaudeCapture.options.permission_mode, 'bypassPermissions');
+assert.equal(bypassClaudeCapture.options.allow_dangerously_skip_permissions, true);
 const mismatchedClaudeActivity = [];
 await assert.rejects(
   invokeModelChatLive(
@@ -524,6 +541,7 @@ const opencodeResult = await invokeModelChatLive('@opencode-ai/sdk', {
   working_directory: 'C:/sdkwork/opencode-workspace',
   timeout_ms: 2_000,
   messages: ['OpenCode prompt'],
+  execution_options: { approval_policy: 'allow-edits' },
 });
 assert.equal(opencodeResult.provider_session_id, 'opencode-sdk-created');
 assert.equal(opencodeResult[VERIFIED_PROVIDER_SESSION_ID], true);
@@ -534,7 +552,16 @@ assert.deepEqual(opencodeCapture.client_options, {
   directory: 'C:/sdkwork/opencode-workspace',
 });
 assert.deepEqual(opencodeCapture.session_create, {
-  body: {},
+  body: {
+    permission: [
+      { permission: '*', pattern: '*', action: 'ask' },
+      { permission: 'read', pattern: '*', action: 'allow' },
+      { permission: 'edit', pattern: '*', action: 'allow' },
+      { permission: 'glob', pattern: '*', action: 'allow' },
+      { permission: 'grep', pattern: '*', action: 'allow' },
+      { permission: 'list', pattern: '*', action: 'allow' },
+    ],
+  },
   signal_present: true,
 });
 assert.deepEqual(opencodeCapture.session_prompt, {
@@ -552,6 +579,7 @@ const resumedOpencodeResult = await invokeModelChatLive(
     model_request_id: 'req-opencode-sdk-resume',
     session_id: 'opencode-sdk-existing',
     messages: ['Resume OpenCode'],
+    execution_options: { approval_policy: 'allow-all' },
   },
   { onActivity: async (event) => resumedOpencodeActivity.push(event) },
 );
@@ -569,6 +597,11 @@ assert.equal(
 );
 assert.deepEqual(resumedOpencodeCapture.session_get, {
   path: { id: 'opencode-sdk-existing' },
+  signal_present: true,
+});
+assert.deepEqual(resumedOpencodeCapture.session_update, {
+  path: { id: 'opencode-sdk-existing' },
+  body: { permission: [{ permission: '*', pattern: '*', action: 'allow' }] },
   signal_present: true,
 });
 assert.equal(resumedOpencodeCapture.session_prompt.path.id, 'opencode-sdk-existing');
@@ -602,6 +635,7 @@ const codexOperation = {
   execution_options: {
     approval_policy: 'onrequest',
     sandbox_mode: 'workspace_write',
+    approvals_reviewer: 'auto_review',
     full_auto: false,
     skip_git_repo_check: true,
   },
@@ -612,7 +646,9 @@ assert.equal(codexResult.mode, 'sdk_live');
 assert.equal(codexResult.provider_session_id, 'thread-sdk-existing');
 assert.deepEqual(codexResult.messages, ['official sdk:official sdk prompt']);
 const codexCapture = JSON.parse(fs.readFileSync(codexCapturePath, 'utf8'));
-assert.deepEqual(codexCapture.constructor_options, {});
+assert.deepEqual(codexCapture.constructor_options, {
+  config: { approvals_reviewer: 'auto_review' },
+});
 assert.equal(codexCapture.resume_thread_id, 'thread-sdk-existing');
 assert.deepEqual(codexCapture.resume_thread_options, {
   model: 'gpt-5.4',
@@ -703,10 +739,14 @@ assert.deepEqual(newThreadCapture.start_thread_options, {
 await invokeModelChatLive('@openai/codex-sdk', {
   model_request_id: 'req-codex-sdk-full-access',
   messages: ['allow configured full access'],
-  execution_options: { sandbox_mode: 'danger-full-access' },
+  execution_options: {
+    sandbox_mode: 'danger-full-access',
+    approval_policy: 'never',
+  },
 });
 const fullAccessCapture = JSON.parse(fs.readFileSync(codexCapturePath, 'utf8'));
 assert.equal(fullAccessCapture.start_thread_options.sandboxMode, 'danger-full-access');
+assert.equal(fullAccessCapture.start_thread_options.approvalPolicy, 'never');
 
 process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({ openai: openaiSdkMirror });
 process.env.OPENCLAW_GATEWAY_URL = 'http://127.0.0.1:18789';

@@ -93,16 +93,18 @@ impl AgentConfigurationProvider for OpenCodeConfigurationProvider {
     ) -> KernelResult<AgentExecutionSettingsResolution> {
         let spec = self.execution_settings_spec(&request.agent_id)?;
         let mode = spec.resolve_access_mode(request.access_mode_id.as_deref())?;
-        Ok(AgentExecutionSettingsResolution::new(ids::AGENT_ID, &mode.mode_id)
-            .add_provider_option(AgentExecutionProviderOption::string(
-                APPROVAL_POLICY_KEY,
-                match mode.mode_id.as_str() {
-                    OPENCODE_ASK_ACCESS_MODE_ID => "ask",
-                    OPENCODE_ALLOW_EDITS_ACCESS_MODE_ID => "allow-edits",
-                    OPENCODE_ALLOW_ALL_ACCESS_MODE_ID => "allow-all",
-                    _ => unreachable!("validated OpenCode access mode"),
-                },
-            )))
+        Ok(
+            AgentExecutionSettingsResolution::new(ids::AGENT_ID, &mode.mode_id)
+                .add_provider_option(AgentExecutionProviderOption::string(
+                    APPROVAL_POLICY_KEY,
+                    match mode.mode_id.as_str() {
+                        OPENCODE_ASK_ACCESS_MODE_ID => "ask",
+                        OPENCODE_ALLOW_EDITS_ACCESS_MODE_ID => "allow-edits",
+                        OPENCODE_ALLOW_ALL_ACCESS_MODE_ID => "allow-all",
+                        _ => unreachable!("validated OpenCode access mode"),
+                    },
+                )),
+        )
     }
 
     fn health(&self) -> ProviderHealth {

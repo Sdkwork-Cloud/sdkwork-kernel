@@ -272,13 +272,40 @@ fn map_sandbox_lifecycle_error(sandbox_lifecycle_error: SandboxLifecycleError) -
             "sandbox_provider_error",
             sandbox_provider_error.to_string(),
         ),
-        SandboxLifecycleError::DuplicateProvider { .. }
-        | SandboxLifecycleError::InvariantViolation(_)
-        | SandboxLifecycleError::Repository(SandboxSessionRepositoryError::Unavailable) => {
+        SandboxLifecycleError::LeaseUnavailable
+        | SandboxLifecycleError::Repository(SandboxSessionRepositoryError::LeaseConflict) => {
+            KernelError::conflict(sandbox_lifecycle_error.to_string())
+                .from_source(KernelErrorSource::Runtime)
+                .with_detail("sandbox_lifecycle_error", "lease_unavailable")
+                .with_retryable(true)
+        }
+        SandboxLifecycleError::LeaseLost => {
+            KernelError::conflict(sandbox_lifecycle_error.to_string())
+                .from_source(KernelErrorSource::Runtime)
+                .with_detail("sandbox_lifecycle_error", "lease_lost")
+                .with_retryable(true)
+        }
+        SandboxLifecycleError::Repository(SandboxSessionRepositoryError::InvalidPageRequest) => {
+            KernelError::validation("sandbox page request is invalid")
+                .from_source(KernelErrorSource::Runtime)
+        }
+        SandboxLifecycleError::Repository(SandboxSessionRepositoryError::Unavailable) => {
             KernelError::Internal {
                 message: "sandbox lifecycle service is internally unavailable".to_string(),
             }
+            .from_source(KernelErrorSource::Runtime)
+            .with_retryable(true)
         }
+        SandboxLifecycleError::DuplicateProvider { .. }
+        | SandboxLifecycleError::InvariantViolation(_)
+        | SandboxLifecycleError::Repository(
+            SandboxSessionRepositoryError::InvalidStoredData
+            | SandboxSessionRepositoryError::ProtectionFailed
+            | SandboxSessionRepositoryError::UnsupportedDatabaseEngine,
+        ) => KernelError::Internal {
+            message: "sandbox lifecycle service is internally unavailable".to_string(),
+        }
+        .from_source(KernelErrorSource::Runtime),
     }
 }
 
@@ -390,5 +417,127 @@ mod tests {
             sandbox_mapping_result,
             Err(KernelError::Validation { .. })
         ));
+    }
+
+    #[test]
+    fn maps_unavailable_sandbox_lease_to_retryable_runtime_conflict() {
+        let sandbox_kernel_error =
+            map_sandbox_lifecycle_error(SandboxLifecycleError::LeaseUnavailable);
+
+        assert_eq!(
+            sandbox_kernel_error.kind(),
+            crate::KernelErrorKind::Conflict
+        );
+        assert_eq!(sandbox_kernel_error.code(), "conflict");
+        assert_eq!(sandbox_kernel_error.source(), KernelErrorSource::Runtime);
+        assert!(sandbox_kernel_error.retryable());
+        assert_eq!(
+            sandbox_kernel_error.detail_value("sandbox_lifecycle_error"),
+            Some("lease_unavailable")
+        );
+    }
+
+    #[test]
+    fn maps_lost_sandbox_lease_to_retryable_runtime_conflict() {
+        let sandbox_kernel_error = map_sandbox_lifecycle_error(SandboxLifecycleError::LeaseLost);
+
+        assert_eq!(
+            sandbox_kernel_error.kind(),
+            crate::KernelErrorKind::Conflict
+        );
+        assert_eq!(sandbox_kernel_error.code(), "conflict");
+        assert_eq!(sandbox_kernel_error.source(), KernelErrorSource::Runtime);
+        assert!(sandbox_kernel_error.retryable());
+        assert_eq!(
+            sandbox_kernel_error.detail_value("sandbox_lifecycle_error"),
+            Some("lease_lost")
+        );
+    }
+
+    #[test]
+    fn maps_sandbox_repository_lease_conflict_to_retryable_runtime_conflict() {
+        let sandbox_kernel_error = map_sandbox_lifecycle_error(SandboxLifecycleError::Repository(
+            SandboxSessionRepositoryError::LeaseConflict,
+        ));
+
+        assert_eq!(
+            sandbox_kernel_error.kind(),
+            crate::KernelErrorKind::Conflict
+        );
+        assert_eq!(sandbox_kernel_error.source(), KernelErrorSource::Runtime);
+        assert!(sandbox_kernel_error.retryable());
+        assert_eq!(
+            sandbox_kernel_error.detail_value("sandbox_lifecycle_error"),
+            Some("lease_unavailable")
+        );
+    }
+
+    #[test]
+    fn maps_sandbox_repository_unavailability_to_retryable_internal_runtime_error() {
+        let sandbox_kernel_error = map_sandbox_lifecycle_error(SandboxLifecycleError::Repository(
+            SandboxSessionRepositoryError::Unavailable,
+        ));
+
+        assert_eq!(
+            sandbox_kernel_error.kind(),
+            crate::KernelErrorKind::InternalError
+        );
+        assert_eq!(sandbox_kernel_error.source(), KernelErrorSource::Runtime);
+        assert!(sandbox_kernel_error.retryable());
+        assert!(!sandbox_kernel_error.safe_for_user());
+    }
+
+    #[test]
+    fn maps_invalid_sandbox_page_request_to_non_retryable_runtime_validation_error() {
+        let sandbox_kernel_error = map_sandbox_lifecycle_error(SandboxLifecycleError::Repository(
+            SandboxSessionRepositoryError::InvalidPageRequest,
+        ));
+
+        assert_eq!(
+            sandbox_kernel_error.kind(),
+            crate::KernelErrorKind::ValidationError
+        );
+        assert_eq!(sandbox_kernel_error.code(), "validation_error");
+        assert_eq!(sandbox_kernel_error.source(), KernelErrorSource::Runtime);
+        assert!(!sandbox_kernel_error.retryable());
+        assert!(sandbox_kernel_error.safe_for_user());
+        assert_eq!(
+            sandbox_kernel_error.safe_message(),
+            "sandbox page request is invalid"
+        );
+        for sandbox_internal_term in [
+            "repository",
+            "database",
+            "storage",
+            "crypto",
+            "encryption",
+            "protection",
+        ] {
+            assert!(!sandbox_kernel_error
+                .safe_message()
+                .contains(sandbox_internal_term));
+        }
+    }
+
+    #[test]
+    fn maps_sandbox_repository_integrity_errors_to_internal_runtime_error() {
+        for sandbox_repository_error in [
+            SandboxSessionRepositoryError::InvalidStoredData,
+            SandboxSessionRepositoryError::ProtectionFailed,
+            SandboxSessionRepositoryError::UnsupportedDatabaseEngine,
+        ] {
+            let sandbox_kernel_error = map_sandbox_lifecycle_error(
+                SandboxLifecycleError::Repository(sandbox_repository_error),
+            );
+
+            assert_eq!(
+                sandbox_kernel_error.kind(),
+                crate::KernelErrorKind::InternalError
+            );
+            assert_eq!(sandbox_kernel_error.source(), KernelErrorSource::Runtime);
+            assert!(!sandbox_kernel_error.retryable());
+            assert!(!sandbox_kernel_error.safe_for_user());
+            assert_eq!(sandbox_kernel_error.safe_message(), "internal kernel error");
+        }
     }
 }

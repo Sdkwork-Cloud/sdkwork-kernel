@@ -2913,6 +2913,7 @@ dependencies = [
  "async-trait",
  "sdkwork-sandbox-provider-spi",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]
@@ -2982,6 +2983,7 @@ dependencies = [
  "async-trait",
  "thiserror 2.0.18",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

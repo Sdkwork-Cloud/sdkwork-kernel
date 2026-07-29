@@ -468,6 +468,7 @@ impl ModelProvider for CodexModelProvider {
 sdkwork_agent_provider_core::define_provider_lifecycle_provider!(CodexLifecycleProvider, "codex");
 
 mod agent_definition;
+mod configuration;
 mod conformance;
 pub mod ids;
 mod manifest;
@@ -475,6 +476,7 @@ mod package;
 pub mod sdk_integration;
 
 pub use agent_definition::{codex_agent_definition, codex_agent_manifest};
+pub use configuration::CodexConfigurationProvider;
 pub use conformance::codex_conformance_profile;
 pub use manifest::{codex_kernel_plugin_manifest, codex_provider_manifests, CodexKernelPlugin};
 pub use package::codex_package_manifest;

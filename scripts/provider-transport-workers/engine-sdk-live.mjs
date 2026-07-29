@@ -457,7 +457,15 @@ async function createCodexThread(operation, packageName) {
     throw new Error('Codex class is unavailable in @openai/codex-sdk');
   }
 
-  const codex = new Codex();
+  const executionOptions = readCodexExecutionOptions(operation);
+  const approvalsReviewer = normalizeCodexApprovalsReviewer(
+    executionOptions.approvals_reviewer,
+  );
+  const codex = new Codex(
+    approvalsReviewer
+      ? { config: { approvals_reviewer: approvalsReviewer } }
+      : undefined,
+  );
   const threadOptions = buildCodexThreadOptions(operation);
   const sessionId = optionalOperationString(operation.session_id, 'session_id');
   const thread = sessionId
@@ -696,6 +704,24 @@ function normalizeCodexApprovalPolicy(value) {
   return mapped;
 }
 
+function normalizeCodexApprovalsReviewer(value) {
+  const normalized = optionalOperationString(
+    value,
+    'execution_options.approvals_reviewer',
+  );
+  if (!normalized) {
+    return null;
+  }
+  const compact = normalized.toLowerCase().replace(/[-\s]/gu, '_');
+  if (compact === 'user') {
+    return 'user';
+  }
+  if (compact === 'auto_review' || compact === 'guardian_subagent') {
+    return 'auto_review';
+  }
+  throw new Error(`unsupported Codex approvals reviewer: ${normalized}`);
+}
+
 async function invokeClaudeModelChat(prompt, operation, packageName, activity) {
   const moduleNamespace = await loadPackage(packageName);
   if (typeof moduleNamespace.query !== 'function') {
@@ -707,11 +733,13 @@ async function invokeClaudeModelChat(prompt, operation, packageName, activity) {
   return runProviderOperation(operation, 'claude_agent_sdk', async (abortController) => {
     const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
     const modelId = optionalOperationString(operation.model_id, 'model_id');
+    const permissionSettings = resolveClaudeSdkPermissionSettings(operation);
     const options = {
       cwd: resolveProviderWorkingDirectory(operation),
       abortController,
       ...(modelId ? { model: modelId } : {}),
       ...(requestedSessionId ? { resume: requestedSessionId } : {}),
+      ...permissionSettings,
     };
     let text = '';
     let completed = false;
@@ -770,6 +798,31 @@ async function invokeClaudeModelChat(prompt, operation, packageName, activity) {
       [VERIFIED_PROVIDER_SESSION_ID]: true,
     });
   });
+}
+
+function resolveClaudeSdkPermissionSettings(operation) {
+  const executionOptions = readCodexExecutionOptions(operation);
+  const requested = optionalOperationString(
+    executionOptions.approval_policy,
+    'execution_options.approval_policy',
+  );
+  if (!requested) {
+    return {};
+  }
+  const compact = requested.toLowerCase().replace(/[_\s]/gu, '-');
+  if (compact === 'default' || compact === 'on-request') {
+    return { permissionMode: 'default' };
+  }
+  if (compact === 'accept-edits') {
+    return { permissionMode: 'acceptEdits' };
+  }
+  if (compact === 'bypass-permissions' || compact === 'never') {
+    return {
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+    };
+  }
+  throw new Error(`unsupported Claude Code permission mode: ${requested}`);
 }
 
 async function invokeGeminiModelChat(prompt, operation, packageName, activity) {
@@ -962,10 +1015,16 @@ async function invokeOpencodeClient(client, prompt, operation, packageName, sign
     throw new Error('opencode sdk client is missing session.create/session.prompt');
   }
   const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
-  const createdSessionId = requestedSessionId ? null : await createOpencodeSession(client, signal);
+  const permission = resolveOpencodePermissionRules(operation);
+  const createdSessionId = requestedSessionId
+    ? null
+    : await createOpencodeSession(client, signal, permission);
   const sessionId = requestedSessionId
     ? await verifyOpencodeSession(client, requestedSessionId, signal)
     : createdSessionId;
+  if (requestedSessionId && permission) {
+    await updateOpencodeSessionPermissions(client, sessionId, signal, permission);
+  }
   await activity.establish(sessionId);
   const response = await client.session.prompt({
     signal,
@@ -1015,13 +1074,62 @@ async function verifyOpencodeSession(client, requestedSessionId, signal) {
   );
 }
 
-async function createOpencodeSession(client, signal) {
-  const created = await client.session.create({ body: {}, signal });
+async function createOpencodeSession(client, signal, permission) {
+  const created = await client.session.create({
+    body: permission ? { permission } : {},
+    signal,
+  });
   const error = readProviderError(created?.error);
   if (error) {
     throw new Error(`opencode session.create failed: ${error}`);
   }
   return requireProviderSessionId('opencode_sdk', created?.data?.id ?? created?.id);
+}
+
+async function updateOpencodeSessionPermissions(client, sessionId, signal, permission) {
+  if (typeof client?.session?.update !== 'function') {
+    throw new Error(
+      'opencode sdk client is missing session.update required to apply turn permissions',
+    );
+  }
+  const response = await client.session.update({
+    path: { id: sessionId },
+    body: { permission },
+    signal,
+  });
+  const error = readProviderError(response?.error);
+  if (error) {
+    throw new Error(`opencode session.update failed: ${error}`);
+  }
+}
+
+function resolveOpencodePermissionRules(operation) {
+  const executionOptions = readCodexExecutionOptions(operation);
+  const requested = optionalOperationString(
+    executionOptions.approval_policy,
+    'execution_options.approval_policy',
+  );
+  if (!requested) {
+    return null;
+  }
+  const compact = requested.toLowerCase().replace(/[_\s]/gu, '-');
+  if (compact === 'ask' || compact === 'on-request') {
+    return [{ permission: '*', pattern: '*', action: 'ask' }];
+  }
+  if (compact === 'allow-edits') {
+    return [
+      { permission: '*', pattern: '*', action: 'ask' },
+      ...['read', 'edit', 'glob', 'grep', 'list'].map((permission) => ({
+        permission,
+        pattern: '*',
+        action: 'allow',
+      })),
+    ];
+  }
+  if (compact === 'allow-all' || compact === 'never') {
+    return [{ permission: '*', pattern: '*', action: 'allow' }];
+  }
+  throw new Error(`unsupported OpenCode permission mode: ${requested}`);
 }
 
 function buildOpencodePromptBody(operation) {

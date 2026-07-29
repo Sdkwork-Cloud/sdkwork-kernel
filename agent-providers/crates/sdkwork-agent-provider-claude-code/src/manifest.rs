@@ -1,11 +1,11 @@
-use crate::ClaudeCodeSdkIntegration;
+use crate::{ClaudeCodeConfigurationProvider, ClaudeCodeSdkIntegration};
 use sdkwork_agent_kernel::{
     AgentDefinition, AgentManifest, AgentPackageManifest, ModelProvider, ProviderManifest,
     RuntimeBuilder,
 };
 use sdkwork_agent_plugin_core::{
-    KernelPluginConformanceProfile, KernelPluginManifest, ProcessAdapterConfigurationProvider,
-    ProcessAdapterInstaller, SdkStandardPolicyProvider, SdkworkKernelPlugin,
+    KernelPluginConformanceProfile, KernelPluginManifest, ProcessAdapterInstaller,
+    SdkStandardPolicyProvider, SdkworkKernelPlugin,
 };
 
 use crate::{
@@ -87,7 +87,7 @@ impl SdkworkKernelPlugin for ClaudeCodeKernelPlugin {
             .register_agent_configuration(
                 ids::CONFIGURATION_PROVIDER_ID,
                 "0.1.0",
-                ProcessAdapterConfigurationProvider::new(ids::AGENT_ID),
+                ClaudeCodeConfigurationProvider::new(),
             )
     }
 

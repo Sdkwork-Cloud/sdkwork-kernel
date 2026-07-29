@@ -1,4 +1,5 @@
 use crate::{
+    AgentExecutionSettingsRequest, AgentExecutionSettingsResolution, AgentExecutionSettingsSpec,
     KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelEventSource,
     KernelResult, PolicyCategory, PolicyRequest, ProviderHealth, ProviderManifest, SideEffectLevel,
 };
@@ -27,6 +28,21 @@ pub trait AgentConfigurationProvider {
     ) -> KernelResult<AgentConfigurationUpgradePlan> {
         Err(KernelError::CapabilityMissing {
             capability_id: "agent.configure.migrate".to_string(),
+        })
+    }
+
+    fn execution_settings_spec(&self, _agent_id: &str) -> KernelResult<AgentExecutionSettingsSpec> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "agent.configure.execution".to_string(),
+        })
+    }
+
+    fn resolve_execution_settings(
+        &self,
+        _request: &AgentExecutionSettingsRequest,
+    ) -> KernelResult<AgentExecutionSettingsResolution> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "agent.configure.execution.resolve".to_string(),
         })
     }
 

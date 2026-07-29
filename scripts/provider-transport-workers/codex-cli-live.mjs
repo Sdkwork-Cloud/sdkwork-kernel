@@ -54,6 +54,11 @@ export function buildCodexCliArgs(operation) {
     args.push('--config', `approval_policy="${approvalPolicy}"`);
   }
 
+  const approvalsReviewer = normalizeApprovalsReviewer(executionOptions.approvals_reviewer);
+  if (approvalsReviewer) {
+    args.push('--config', `approvals_reviewer="${approvalsReviewer}"`);
+  }
+
   const workingDirectory = resolveWorkingDirectory(operation.working_directory);
   if (workingDirectory) {
     args.push('--cd', workingDirectory);
@@ -239,13 +244,31 @@ function normalizeApprovalPolicy(value) {
     ['onfailure', 'on-failure'],
     ['releaseonly', 'on-failure'],
     ['autoallow', 'on-failure'],
-    ['never', 'on-failure'],
+    ['never', 'never'],
   ]);
   const mapped = aliases.get(compact);
   if (!mapped) {
     throw new Error(`unsupported Codex approval policy: ${normalized}`);
   }
   return mapped;
+}
+
+function normalizeApprovalsReviewer(value) {
+  const normalized = optionalNonBlankString(
+    value,
+    'execution_options.approvals_reviewer',
+  );
+  if (!normalized) {
+    return null;
+  }
+  const compact = normalized.toLowerCase().replace(/[-\s]/gu, '_');
+  if (compact === 'user') {
+    return 'user';
+  }
+  if (compact === 'auto_review' || compact === 'guardian_subagent') {
+    return 'auto_review';
+  }
+  throw new Error(`unsupported Codex approvals reviewer: ${normalized}`);
 }
 
 function resolveWorkingDirectory(value) {

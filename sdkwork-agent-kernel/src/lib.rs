@@ -18,6 +18,7 @@ mod definition;
 mod error;
 mod event;
 mod execution;
+mod execution_settings;
 mod host;
 mod host_sandbox;
 mod installation;
@@ -158,6 +159,13 @@ pub use event::{
 pub use execution::{
     AgentExecutionReport, AgentExecutionRequest, AgentExecutionResumeDecision,
     AgentExecutionResumeRequest, AgentExecutionService, AgentExecutionStatus, AgentObservation,
+};
+pub use execution_settings::{
+    AgentExecutionAccessModeDescriptor, AgentExecutionApprovalBehavior,
+    AgentExecutionNetworkAccess, AgentExecutionProviderOption,
+    AgentExecutionProviderOptionValue, AgentExecutionRiskLevel, AgentExecutionSettingsRequest,
+    AgentExecutionSettingsResolution, AgentExecutionSettingsSpec, AgentExecutionWorkspaceAccess,
+    APPROVE_FOR_ME_ACCESS_MODE_ID, ASK_FOR_APPROVAL_ACCESS_MODE_ID, FULL_ACCESS_MODE_ID,
 };
 pub use host::{
     EnvironmentRequest, EnvironmentResult, ExecutorRequest, ExecutorResult, ExecutorStatus,

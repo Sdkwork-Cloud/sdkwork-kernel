@@ -18,6 +18,8 @@ pub struct SdkRuntimeExecutionOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approval_policy: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approvals_reviewer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sandbox_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub full_auto: Option<bool>,
@@ -40,6 +42,7 @@ pub struct SdkRuntimeExecutionOptions {
 impl SdkRuntimeExecutionOptions {
     fn is_empty(&self) -> bool {
         self.approval_policy.is_none()
+            && self.approvals_reviewer.is_none()
             && self.sandbox_mode.is_none()
             && self.full_auto.is_none()
             && self.skip_git_repo_check.is_none()
@@ -344,6 +347,7 @@ fn execution_options_from_model_request(
 ) -> Result<Option<SdkRuntimeExecutionOptions>, SdkRuntimeError> {
     let options = SdkRuntimeExecutionOptions {
         approval_policy: metadata_string(request, "sdkwork.code_engine.approval_policy"),
+        approvals_reviewer: metadata_string(request, "sdkwork.code_engine.approvals_reviewer"),
         sandbox_mode: metadata_string(request, "sdkwork.code_engine.sandbox_mode"),
         full_auto: parse_metadata_bool(request, "sdkwork.code_engine.full_auto")?,
         skip_git_repo_check: parse_metadata_bool(

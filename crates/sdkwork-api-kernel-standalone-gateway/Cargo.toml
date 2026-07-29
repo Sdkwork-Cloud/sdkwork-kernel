@@ -5,5 +5,6 @@ edition.workspace = true
 
 [dependencies]
 sdkwork-api-kernel-assembly.workspace = true
+sdkwork-agent-server.workspace = true
 sdkwork-web-bootstrap.workspace = true
 tokio.workspace = true

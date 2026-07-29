@@ -2851,6 +2851,7 @@ dependencies = [
 name = "sdkwork-api-kernel-standalone-gateway"
 version = "0.1.0"
 dependencies = [
+ "sdkwork-agent-server",
  "sdkwork-api-kernel-assembly",
  "sdkwork-web-bootstrap",
  "tokio",

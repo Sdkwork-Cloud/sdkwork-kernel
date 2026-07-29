@@ -413,7 +413,7 @@ pub fn read_codex_provider_sessions(path: &Path) -> KernelResult<Vec<AgentSessio
         .prepare(
             "SELECT id, created_at_ms, updated_at_ms, model_provider, cwd, title, archived, \
              archived_at, model, reasoning_effort, agent_nickname, agent_role, approval_mode, \
-             preview, tokens_used, name, first_user_message \
+             preview, tokens_used, name, first_user_message, rollout_path, source, thread_source \
              FROM threads ORDER BY updated_at_ms DESC, id DESC",
         )
         .map_err(codex_inventory_error)?;
@@ -437,6 +437,9 @@ pub fn read_codex_provider_sessions(path: &Path) -> KernelResult<Vec<AgentSessio
                 row.get::<_, i64>(14)?,
                 row.get::<_, Option<String>>(15)?,
                 row.get::<_, String>(16)?,
+                row.get::<_, Option<String>>(17)?,
+                row.get::<_, Option<String>>(18)?,
+                row.get::<_, Option<String>>(19)?,
             ))
         })
         .map_err(codex_inventory_error)?;
@@ -461,11 +464,19 @@ pub fn read_codex_provider_sessions(path: &Path) -> KernelResult<Vec<AgentSessio
             tokens_used,
             name,
             first_user_message,
+            rollout_path,
+            source,
+            thread_source,
         ) = row.map_err(codex_inventory_error)?;
+        let lineage = codex_session_lineage(
+            source.as_deref(),
+            thread_source.as_deref(),
+            rollout_path.as_deref(),
+        );
         let mut session = adapter.to_agent_session(&CodexSessionMeta {
             id,
-            forked_from_id: None,
-            parent_thread_id: None,
+            forked_from_id: lineage.forked_from_id,
+            parent_thread_id: lineage.parent_thread_id,
             timestamp: created_at_ms.and_then(epoch_millis_to_rfc3339),
             cwd: Some(cwd),
             originator: None,
@@ -487,6 +498,115 @@ pub fn read_codex_provider_sessions(path: &Path) -> KernelResult<Vec<AgentSessio
         sessions.push(session);
     }
     Ok(sessions)
+}
+
+#[derive(Debug, Default, PartialEq, Eq)]
+struct CodexSessionLineage {
+    forked_from_id: Option<String>,
+    parent_thread_id: Option<String>,
+}
+
+fn codex_session_lineage(
+    source: Option<&str>,
+    thread_source: Option<&str>,
+    rollout_path: Option<&str>,
+) -> CodexSessionLineage {
+    let mut lineage = source
+        .and_then(|source| serde_json::from_str::<Value>(source).ok())
+        .map(|source| codex_source_lineage(&source))
+        .unwrap_or_default();
+    let is_subagent = thread_source
+        .map(str::trim)
+        .is_some_and(|source| source.eq_ignore_ascii_case("subagent"));
+
+    if (is_subagent || lineage.parent_thread_id.is_some() || lineage.forked_from_id.is_some())
+        && (lineage.parent_thread_id.is_none() || lineage.forked_from_id.is_none())
+    {
+        if let Some(rollout_lineage) = rollout_path
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .and_then(|path| read_codex_rollout_lineage(Path::new(path)))
+        {
+            lineage.parent_thread_id = lineage
+                .parent_thread_id
+                .or(rollout_lineage.parent_thread_id);
+            lineage.forked_from_id = lineage.forked_from_id.or(rollout_lineage.forked_from_id);
+        }
+    }
+
+    if is_subagent {
+        lineage.parent_thread_id = lineage
+            .parent_thread_id
+            .clone()
+            .or_else(|| lineage.forked_from_id.clone());
+        lineage.forked_from_id = lineage
+            .forked_from_id
+            .clone()
+            .or_else(|| lineage.parent_thread_id.clone());
+    }
+    lineage
+}
+
+fn read_codex_rollout_lineage(path: &Path) -> Option<CodexSessionLineage> {
+    let file = File::open(path).ok()?;
+    for line in BufReader::new(file).lines().take(20) {
+        let Ok(line) = line else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
+        if value.get("type").and_then(Value::as_str) != Some("session_meta") {
+            continue;
+        }
+        let payload = value.get("payload")?;
+        let source_lineage = payload
+            .get("source")
+            .map(codex_source_lineage)
+            .unwrap_or_default();
+        return Some(CodexSessionLineage {
+            forked_from_id: json_non_empty_string(payload.get("forked_from_id"))
+                .or(source_lineage.forked_from_id),
+            parent_thread_id: json_non_empty_string(payload.get("parent_thread_id"))
+                .or(source_lineage.parent_thread_id),
+        });
+    }
+    None
+}
+
+fn codex_source_lineage(source: &Value) -> CodexSessionLineage {
+    CodexSessionLineage {
+        forked_from_id: json_pointer_string(
+            source,
+            &[
+                "/subagent/thread_spawn/forked_from_id",
+                "/subagent/forked_from_id",
+                "/forked_from_id",
+            ],
+        ),
+        parent_thread_id: json_pointer_string(
+            source,
+            &[
+                "/subagent/thread_spawn/parent_thread_id",
+                "/subagent/parent_thread_id",
+                "/parent_thread_id",
+            ],
+        ),
+    }
+}
+
+fn json_pointer_string(value: &Value, pointers: &[&str]) -> Option<String> {
+    pointers
+        .iter()
+        .find_map(|pointer| json_non_empty_string(value.pointer(pointer)))
+}
+
+fn json_non_empty_string(value: Option<&Value>) -> Option<String> {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 fn non_empty(value: String) -> Option<String> {
@@ -544,7 +664,8 @@ mod tests {
                  title TEXT NOT NULL, archived INTEGER NOT NULL, archived_at INTEGER, \
                  model TEXT, reasoning_effort TEXT, agent_nickname TEXT, agent_role TEXT, \
                  approval_mode TEXT NOT NULL, preview TEXT NOT NULL, tokens_used INTEGER NOT NULL, \
-                 name TEXT, first_user_message TEXT NOT NULL);",
+                 name TEXT, first_user_message TEXT NOT NULL, rollout_path TEXT, source TEXT, \
+                 thread_source TEXT);",
             )
             .expect("fixture schema");
         let transaction = connection.transaction().expect("fixture transaction");
@@ -553,7 +674,7 @@ mod tests {
                 .execute(
                     "INSERT INTO threads VALUES (?1, 0, ?2, 'provider.model.codex', \
                      '\\\\?\\E:\\Work\\BirdCoder', ?3, 0, NULL, 'gpt-5', NULL, NULL, \
-                     NULL, 'on-request', ?4, 0, ?5, ?6)",
+                     NULL, 'on-request', ?4, 0, ?5, ?6, NULL, NULL, 'user')",
                     rusqlite::params![
                         format!("thread-{index}"),
                         index,
@@ -585,6 +706,81 @@ mod tests {
                 == sdkwork_agent_kernel::SessionActivityFreshness::Unsupported
         }));
         std::fs::remove_file(path).expect("remove fixture");
+    }
+
+    #[test]
+    fn reads_subagent_lineage_from_source_and_rollout_metadata() {
+        let root = std::env::temp_dir().join(format!(
+            "sdkwork-codex-provider-lineage-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).expect("fixture directory");
+        let rollout_path = root.join("subagent.jsonl");
+        std::fs::write(
+            &rollout_path,
+            concat!(
+                "{\"timestamp\":\"2026-07-29T00:00:00Z\",\"type\":\"session_meta\",\"payload\":{",
+                "\"id\":\"child-session\",\"forked_from_id\":\"parent-session\",",
+                "\"parent_thread_id\":\"rollout-parent\",\"thread_source\":\"subagent\"}}\n"
+            ),
+        )
+        .expect("fixture rollout");
+        let state_path = root.join("state.sqlite");
+        let connection = Connection::open(&state_path).expect("fixture database");
+        connection
+            .execute_batch(
+                "CREATE TABLE threads (id TEXT PRIMARY KEY, created_at_ms INTEGER, \
+                 updated_at_ms INTEGER, model_provider TEXT NOT NULL, cwd TEXT NOT NULL, \
+                 title TEXT NOT NULL, archived INTEGER NOT NULL, archived_at INTEGER, \
+                 model TEXT, reasoning_effort TEXT, agent_nickname TEXT, agent_role TEXT, \
+                 approval_mode TEXT NOT NULL, preview TEXT NOT NULL, tokens_used INTEGER NOT NULL, \
+                 name TEXT, first_user_message TEXT NOT NULL, rollout_path TEXT, source TEXT, \
+                 thread_source TEXT);",
+            )
+            .expect("fixture schema");
+        connection
+            .execute(
+                "INSERT INTO threads VALUES ('child-session', 0, 1, 'provider.model.codex', \
+                 'E:\\Work\\BirdCoder', 'Child session', 0, NULL, 'gpt-5', NULL, 'Poincare', \
+                 'worker', 'on-request', 'Child preview', 0, NULL, 'Child prompt', ?1, ?2, \
+                 'subagent')",
+                rusqlite::params![
+                    rollout_path.to_string_lossy().as_ref(),
+                    r#"{"subagent":{"thread_spawn":{"parent_thread_id":"parent-session","depth":1}}}"#,
+                ],
+            )
+            .expect("fixture row");
+        drop(connection);
+
+        let sessions = read_codex_provider_sessions(&state_path).expect("provider sessions");
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(
+            sessions[0].kind,
+            sdkwork_agent_kernel::SessionKind::Subagent
+        );
+        assert_eq!(
+            sessions[0].parent_session_id.as_deref(),
+            Some("parent-session")
+        );
+        assert_eq!(
+            sessions[0].forked_from_id.as_deref(),
+            Some("parent-session")
+        );
+        std::fs::remove_dir_all(root).expect("remove fixture directory");
+    }
+
+    #[test]
+    fn missing_historical_rollout_keeps_source_parent_lineage() {
+        let lineage = codex_session_lineage(
+            Some(
+                r#"{"subagent":{"thread_spawn":{"parent_thread_id":"parent-session","depth":1}}}"#,
+            ),
+            Some("subagent"),
+            Some("Z:\\missing\\rollout.jsonl"),
+        );
+
+        assert_eq!(lineage.parent_thread_id.as_deref(), Some("parent-session"));
+        assert_eq!(lineage.forked_from_id.as_deref(), Some("parent-session"));
     }
 
     #[test]

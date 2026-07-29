@@ -1,6 +1,6 @@
 use crate::{KernelResult, SessionState};
 
-/// Provider-neutral activity state observed from a native agent runtime.
+/// Provider-neutral activity state observed from a provider runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionActivityState {
     Idle,
@@ -74,7 +74,7 @@ impl SessionActivityEvidenceKind {
     }
 }
 
-/// One bounded native-runtime activity observation.
+/// One bounded provider Session runtime activity observation.
 ///
 /// Persisted history metadata and file modification times are not activity
 /// evidence. Only fresh provider status, event, lock, or process observations

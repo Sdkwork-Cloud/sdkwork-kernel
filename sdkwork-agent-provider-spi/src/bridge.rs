@@ -22,8 +22,8 @@ pub const SDK_CAPABILITY_SKILL_INVOKE: &str = "sdk.skill.invoke";
 
 /// Provider-neutral completion metadata for one runtime-backed model stream.
 ///
-/// A transport may complete a stream without being able to prove a native
-/// provider session id. Callers that need resumable first-turn streaming must
+/// A transport may complete a stream without being able to prove a provider
+/// Session ID. Callers that need resumable first-turn streaming must
 /// require `provider_session_id` instead of synthesizing one.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SdkRuntimeStreamCompletion {

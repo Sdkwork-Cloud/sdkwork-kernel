@@ -8,7 +8,7 @@ use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
     SessionState,
 };
-use sdkwork_agent_provider_core::{SessionAdapter, epoch_millis_to_rfc3339};
+use sdkwork_agent_provider_core::{epoch_millis_to_rfc3339, SessionAdapter};
 use serde_json::Value;
 
 use crate::{CodexAdapter, CodexSessionMeta};
@@ -160,11 +160,9 @@ fn codex_event_message(
             }
             (
                 AgentMessageRole::Agent,
-                vec![
-                    AgentPart::text(format!("{message_id}.reasoning"), text)
-                        .from_provider("codex")
-                        .with_metadata("codex.content_type", "reasoning"),
-                ],
+                vec![AgentPart::text(format!("{message_id}.reasoning"), text)
+                    .from_provider("codex")
+                    .with_metadata("codex.content_type", "reasoning")],
             )
         }
         "mcp_tool_call_end" => (
@@ -372,11 +370,9 @@ fn codex_agent_message_parts(payload: &Value, message_id: &str) -> Vec<AgentPart
     };
     match content {
         Value::String(text) if !text.trim().is_empty() => {
-            vec![
-                AgentPart::text(format!("{message_id}.text"), text.trim())
-                    .from_provider("codex")
-                    .with_metadata("codex.content_type", "agent_message"),
-            ]
+            vec![AgentPart::text(format!("{message_id}.text"), text.trim())
+                .from_provider("codex")
+                .with_metadata("codex.content_type", "agent_message")]
         }
         Value::Array(_) => codex_message_content_parts(payload, message_id),
         _ => Vec::new(),

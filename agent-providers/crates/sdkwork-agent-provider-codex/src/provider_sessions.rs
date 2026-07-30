@@ -93,15 +93,20 @@ fn codex_rollout_message(
 ) -> Option<AgentMessage> {
     let payload = value.get("payload")?;
     match value.get("type").and_then(Value::as_str) {
-        Some("response_item") => codex_response_item_message(payload, session_id),
+        Some("response_item") => codex_response_item_message(payload, session_id, line_index),
         Some("event_msg") => codex_event_message(payload, session_id, line_index),
         _ => None,
     }
 }
 
-fn codex_response_item_message(payload: &Value, session_id: &str) -> Option<AgentMessage> {
+fn codex_response_item_message(
+    payload: &Value,
+    session_id: &str,
+    line_index: usize,
+) -> Option<AgentMessage> {
     let payload_type = payload.get("type").and_then(Value::as_str)?;
-    let message_id = codex_payload_id(payload, payload_type)?;
+    let message_id = codex_payload_id(payload, payload_type)
+        .unwrap_or_else(|| format!("codex.response.{payload_type}.{line_index}"));
     let (role, parts) = match payload_type {
         "message" => (
             codex_message_role(payload.get("role").and_then(Value::as_str))?,
@@ -128,7 +133,26 @@ fn codex_response_item_message(payload: &Value, session_id: &str) -> Option<Agen
             AgentMessageRole::Agent,
             codex_agent_message_parts(payload, &message_id),
         ),
-        _ => return None,
+        "context_compaction" => (
+            AgentMessageRole::Adapter,
+            vec![codex_provider_notice_part(
+                &message_id,
+                "context_compaction",
+                "Codex compacted the conversation context.",
+            )],
+        ),
+        "additional_tools" | "compaction" | "compaction_summary" | "compaction_trigger" => {
+            return None;
+        }
+        _ => (
+            AgentMessageRole::Adapter,
+            vec![codex_provider_notice_part(
+                &message_id,
+                "unknown_response_item",
+                &format!("Codex recorded an unsupported `{payload_type}` item."),
+            )
+            .with_metadata("codex.item_type", payload_type)],
+        ),
     };
     (!parts.is_empty()).then(|| {
         AgentMessage::new(message_id, role, parts)
@@ -147,12 +171,37 @@ fn codex_event_message(
     let message_id = payload
         .get("event_id")
         .or_else(|| payload.get("call_id"))
+        .or_else(|| payload.get("item_id"))
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(|value| format!("codex.event.{event_type}.{value}"))
         .unwrap_or(fallback_id);
     let (role, parts) = match event_type {
+        "error" => {
+            let message = payload
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("Codex reported an error");
+            (
+                AgentMessageRole::Adapter,
+                vec![
+                    AgentPart::error(format!("{message_id}.error"), "codex_error", message)
+                        .from_provider("codex")
+                        .with_metadata("codex.content_type", "error"),
+                ],
+            )
+        }
+        "warning" | "guardian_warning" | "stream_error" => {
+            let message = payload
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("Codex reported a runtime warning.");
+            (
+                AgentMessageRole::Adapter,
+                vec![codex_provider_notice_part(&message_id, event_type, message)],
+            )
+        }
         "agent_reasoning" => {
             let text = payload.get("text").and_then(Value::as_str)?.trim();
             if text.is_empty() {
@@ -276,6 +325,28 @@ fn codex_event_message(
                 ],
             )
         }
+        "entered_review_mode" => {
+            let message = payload
+                .get("user_facing_hint")
+                .and_then(Value::as_str)
+                .unwrap_or("Codex entered review mode.");
+            (
+                AgentMessageRole::Adapter,
+                vec![codex_provider_notice_part(
+                    &message_id,
+                    "entered_review_mode",
+                    message,
+                )],
+            )
+        }
+        "exited_review_mode" => (
+            AgentMessageRole::Adapter,
+            vec![codex_provider_notice_part(
+                &message_id,
+                "exited_review_mode",
+                "Codex exited review mode.",
+            )],
+        ),
         _ => return None,
     };
     Some(
@@ -283,6 +354,12 @@ fn codex_event_message(
             .for_session(session_id)
             .with_metadata("codex.event_type", event_type),
     )
+}
+
+fn codex_provider_notice_part(message_id: &str, content_type: &str, text: &str) -> AgentPart {
+    AgentPart::text(format!("{message_id}.notice"), text)
+        .from_provider("codex")
+        .with_metadata("codex.content_type", content_type)
 }
 
 fn codex_payload_id(payload: &Value, payload_type: &str) -> Option<String> {
@@ -974,7 +1051,14 @@ mod tests {
                 "{\"timestamp\":\"2026-07-01T00:00:08Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"dynamic_tool_call_response\",\"call_id\":\"dynamic-1\",\"turn_id\":\"turn-1\",\"tool\":\"lookup\",\"arguments\":{\"id\":\"123\"},\"content_items\":[{\"type\":\"input_text\",\"text\":\"found\"}],\"success\":true,\"duration\":{\"secs\":0,\"nanos\":42000000}}}\n",
                 "{\"timestamp\":\"2026-07-01T00:00:09Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"web_search_end\",\"call_id\":\"search-1\",\"query\":\"Codex protocol\",\"action\":{\"type\":\"search\",\"query\":\"Codex protocol\"},\"results\":[{\"url\":\"https://developers.openai.com/codex/app-server\"}]}}\n",
                 "{\"timestamp\":\"2026-07-01T00:00:10Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"view_image_tool_call\",\"call_id\":\"image-1\",\"path\":\"/workspace/screenshot.png\"}}\n",
-                "{\"timestamp\":\"2026-07-01T00:00:11Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"id\":\"message-assistant\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"world\"}]}}\n"
+                "{\"timestamp\":\"2026-07-01T00:00:11Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"warning\",\"message\":\"Provider connection recovered\"}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:12Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"error\",\"message\":\"A provider request failed\"}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:13Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"entered_review_mode\",\"item_id\":\"review-1\",\"user_facing_hint\":\"Review the implementation\"}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:14Z\",\"type\":\"event_msg\",\"payload\":{\"type\":\"exited_review_mode\",\"item_id\":\"review-2\",\"review_output\":null}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:15Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"future_visible_item\",\"id\":\"future-1\",\"secret\":\"must-not-render\"}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:16Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"context_compaction\",\"id\":\"compaction-1\",\"encrypted_content\":\"must-not-render\"}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:17Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"compaction\",\"id\":\"compaction-secret\",\"encrypted_content\":\"must-not-render\"}}\n",
+                "{\"timestamp\":\"2026-07-01T00:00:18Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"id\":\"message-assistant\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"world\"}]}}\n"
             ),
         )
         .expect("fixture rollout");
@@ -996,7 +1080,7 @@ mod tests {
 
         let messages = read_codex_provider_session_messages(&state_path, "session-1")
             .expect("provider transcript");
-        assert_eq!(messages.len(), 12, "{messages:#?}");
+        assert_eq!(messages.len(), 18, "{messages:#?}");
         assert_eq!(messages[0].role, AgentMessageRole::User);
         assert_eq!(messages[0].parts[0].text.as_deref(), Some("hello"));
         assert_eq!(
@@ -1063,8 +1147,37 @@ mod tests {
             image_payload.get("path").and_then(Value::as_str),
             Some("/workspace/screenshot.png")
         );
-        assert_eq!(messages[11].role, AgentMessageRole::Agent);
-        assert_eq!(messages[11].parts[0].text.as_deref(), Some("world"));
+        assert_eq!(
+            messages[11].parts[0].text.as_deref(),
+            Some("Provider connection recovered")
+        );
+        assert_eq!(
+            messages[12].parts[0].error_code.as_deref(),
+            Some("codex_error")
+        );
+        assert_eq!(
+            messages[13].parts[0].text.as_deref(),
+            Some("Review the implementation")
+        );
+        assert_eq!(
+            messages[14].parts[0].metadata_value("codex.content_type"),
+            Some("exited_review_mode")
+        );
+        assert_eq!(
+            messages[15].parts[0].text.as_deref(),
+            Some("Codex recorded an unsupported `future_visible_item` item.")
+        );
+        assert!(!messages[15].parts[0]
+            .text
+            .as_deref()
+            .unwrap_or_default()
+            .contains("must-not-render"));
+        assert_eq!(
+            messages[16].parts[0].metadata_value("codex.content_type"),
+            Some("context_compaction")
+        );
+        assert_eq!(messages[17].role, AgentMessageRole::Agent);
+        assert_eq!(messages[17].parts[0].text.as_deref(), Some("world"));
         std::fs::remove_dir_all(root).expect("remove fixture");
     }
 }

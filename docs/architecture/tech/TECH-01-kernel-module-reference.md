@@ -89,9 +89,9 @@ Local streaming: **not supported** on SDK bridges; use Remote + SSE.
 | `SDKWORK_KERNEL_AGENT_PLUGIN` | Server | Active hosted provider |
 | `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS` | Server/dev | Allow mock model paths |
 | `SDKWORK_KERNEL_INGRESS_AUTH_MODE` | Server | Ingress auth profile |
-| `SDKWORK_CLIENT_DATABASE_PATH` | Client | Local SQLite sessions |
+| `SDKWORK_DATABASE_FILE` | Client | Local SQLite sessions |
 | `SDKWORK_HERMES_USE_TUI_GATEWAY` | Hermes | Prefer IPC over Python module |
-| `SDKWORK_AGENT_SERVER_DATABASE_*` | Server | Runtime session Postgres/SQLite |
+| `SDKWORK_DATABASE_*` | Server | Workspace PostgreSQL runtime persistence |
 
 Full list: `specs/topology.spec.json` → `envKeys`.
 

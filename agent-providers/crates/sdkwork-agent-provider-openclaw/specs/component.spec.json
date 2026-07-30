@@ -64,6 +64,7 @@
       "openclaw_agent_definition",
       "openclaw_agent_manifest",
       "openclaw_provider_manifests",
+      "openclaw_agent_installer",
       "openclaw_package_manifest",
       "openclaw_kernel_plugin_manifest"
     ],

@@ -86,7 +86,7 @@ test('agent server reads topology bind env keys', async () => {
   assert.match(configSource, /SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND/);
   assert.match(configSource, /SDKWORK_KERNEL_DEPLOYMENT_PROFILE/);
   assert.match(configSource, /SDKWORK_KERNEL_PROFILE_ID/);
-  assert.match(configSource, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE/);
+  assert.match(configSource, /SDKWORK_DATABASE_ENGINE/);
   assert.match(configSource, /SDKWORK_RATE_LIMIT_REDIS_URL/);
   assert.match(configSource, /SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS/);
   assert.match(configSource, /sdkwork_agent_kernel::is_production_kernel_profile/);
@@ -102,7 +102,8 @@ test('agent server uses topology-aligned production profile detection', async ()
   const preflightSource = await read('sdkwork-agent-server/src/preflight.rs');
   assert.match(configSource, /pub fn is_production_kernel_profile/);
   assert.match(configSource, /requires_distributed_rate_limit[\s\S]*is_production_kernel_profile/);
-  assert.match(configSource, /requires_postgres_runtime_database[\s\S]*is_production_kernel_profile/);
+  assert.match(configSource, /DatabaseConfig::from_env\("agent_runtime"\)/);
+  assert.match(configSource, /requires SDKWORK_DATABASE_ENGINE=postgresql/);
   assert.match(preflightSource, /is_production_kernel_profile/);
 });
 
@@ -125,8 +126,8 @@ test('adapter-core and agent-server share canonical kernel runtime topology poli
 
 test('cloud production topology declares fail-closed external postgres and redis inputs', async () => {
   const profileEnv = await read('configs/topology/cloud.production.env');
-  assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres/);
-  assert.match(profileEnv, /^SDKWORK_AGENT_RUNTIME_DATABASE_URL=$/m);
+  assert.match(profileEnv, /SDKWORK_DATABASE_ENGINE=postgresql/);
+  assert.match(profileEnv, /^SDKWORK_DATABASE_URL=$/m);
   assert.match(profileEnv, /^SDKWORK_RATE_LIMIT_REDIS_URL=$/m);
   assert.match(profileEnv, /^SDKWORK_KERNEL_METRICS_TOKEN=$/m);
   assert.doesNotMatch(profileEnv, /CHANGE_ME|postgresql:\/\/|redis:\/\//);
@@ -134,8 +135,8 @@ test('cloud production topology declares fail-closed external postgres and redis
 
 test('self-hosted production topology declares fail-closed external postgres and redis inputs', async () => {
   const profileEnv = await read('configs/topology/standalone.production.env');
-  assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres/);
-  assert.match(profileEnv, /^SDKWORK_AGENT_RUNTIME_DATABASE_URL=$/m);
+  assert.match(profileEnv, /SDKWORK_DATABASE_ENGINE=postgresql/);
+  assert.match(profileEnv, /^SDKWORK_DATABASE_URL=$/m);
   assert.match(profileEnv, /^SDKWORK_RATE_LIMIT_REDIS_URL=$/m);
   assert.match(profileEnv, /^SDKWORK_KERNEL_METRICS_TOKEN=$/m);
   assert.doesNotMatch(profileEnv, /CHANGE_ME|postgresql:\/\/|redis:\/\//);
@@ -151,8 +152,8 @@ test('all production topology profiles enforce token ingress and scale-out deps'
     assert.match(profileEnv, /SDKWORK_KERNEL_INGRESS_AUTH_MODE=token/);
     assert.match(profileEnv, /SDKWORK_RATE_LIMIT_RPS=100/);
     assert.match(profileEnv, /SDKWORK_RATE_LIMIT_BURST=200/);
-    assert.match(profileEnv, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres/);
-    assert.match(profileEnv, /^SDKWORK_AGENT_RUNTIME_DATABASE_URL=$/m);
+    assert.match(profileEnv, /SDKWORK_DATABASE_ENGINE=postgresql/);
+    assert.match(profileEnv, /^SDKWORK_DATABASE_URL=$/m);
     assert.match(profileEnv, /^SDKWORK_RATE_LIMIT_REDIS_URL=$/m);
     assert.match(profileEnv, /^SDKWORK_KERNEL_METRICS_TOKEN=$/m);
     assert.doesNotMatch(profileEnv, /CHANGE_ME|postgresql:\/\/|redis:\/\//);

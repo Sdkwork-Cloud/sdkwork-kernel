@@ -1,11 +1,14 @@
 use std::path::{Path, PathBuf};
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
     SessionState,
 };
-use sdkwork_agent_provider_core::{epoch_millis_to_rfc3339, SessionAdapter};
+use sdkwork_agent_provider_core::{
+    epoch_millis_to_rfc3339, ProviderSessionHistoryBudget, ProviderSessionHistoryLimits,
+    SessionAdapter,
+};
 use serde_json::Value;
 
 use crate::{OpenCodeAdapter, OpenCodeSession};
@@ -46,6 +49,19 @@ pub fn read_opencode_provider_session_messages(
     database_path: &Path,
     session_id: &str,
 ) -> KernelResult<Vec<AgentMessage>> {
+    read_opencode_provider_session_messages_with_limits(
+        database_path,
+        session_id,
+        ProviderSessionHistoryLimits::default(),
+    )
+}
+
+fn read_opencode_provider_session_messages_with_limits(
+    database_path: &Path,
+    session_id: &str,
+    limits: ProviderSessionHistoryLimits,
+) -> KernelResult<Vec<AgentMessage>> {
+    let mut budget = ProviderSessionHistoryBudget::new(limits);
     let connection = Connection::open_with_flags(
         database_path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -56,24 +72,37 @@ pub fn read_opencode_provider_session_messages(
             "SELECT m.id, m.time_created, m.data, p.id, p.data \
              FROM message m JOIN part p ON p.message_id = m.id \
              WHERE m.session_id = ?1 \
-             ORDER BY m.time_created, m.id, p.time_created, p.id",
+             ORDER BY m.time_created, m.id, p.time_created, p.id \
+             LIMIT ?2",
         )
         .map_err(opencode_inventory_error)?;
     let rows = statement
-        .query_map([session_id], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-            ))
-        })
+        .query_map(
+            params![
+                session_id,
+                budget.limits().max_source_records.saturating_add(1)
+            ],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
         .map_err(opencode_inventory_error)?;
     let mut grouped = Vec::<(String, i64, Value, Vec<(String, Value)>)>::new();
     for row in rows {
         let (message_id, created_at, message_json, part_id, part_json) =
             row.map_err(opencode_inventory_error)?;
+        budget.record_source(
+            message_json
+                .len()
+                .checked_add(part_json.len())
+                .ok_or_else(|| KernelError::validation("OpenCode history byte count overflow"))?,
+        )?;
         let (Ok(message_data), Ok(part_data)) = (
             serde_json::from_str::<Value>(&message_json),
             serde_json::from_str::<Value>(&part_json),
@@ -86,6 +115,7 @@ pub fn read_opencode_provider_session_messages(
         {
             parts.push((part_id, part_data));
         } else {
+            budget.record_message()?;
             grouped.push((
                 message_id,
                 created_at,
@@ -424,5 +454,42 @@ mod tests {
             Some("step-finish")
         );
         std::fs::remove_file(path).expect("remove fixture");
+    }
+
+    #[test]
+    fn rejects_join_rows_beyond_the_source_record_budget() {
+        let path = std::env::temp_dir().join(format!(
+            "sdkwork-opencode-provider-session-budget-{}.sqlite",
+            std::process::id()
+        ));
+        let connection = Connection::open(&path).expect("fixture database");
+        connection
+            .execute_batch(
+                "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, \
+                 time_created INTEGER NOT NULL, data TEXT NOT NULL); \
+                 CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, \
+                 time_created INTEGER NOT NULL, data TEXT NOT NULL); \
+                 INSERT INTO message VALUES ('message-1', 'session-budget', 1, \
+                 '{\"role\":\"assistant\"}'); \
+                 INSERT INTO part VALUES ('part-1', 'message-1', 1, \
+                 '{\"type\":\"text\",\"text\":\"one\"}'); \
+                 INSERT INTO part VALUES ('part-2', 'message-1', 2, \
+                 '{\"type\":\"text\",\"text\":\"two\"}');",
+            )
+            .expect("fixture data");
+        drop(connection);
+
+        let error = read_opencode_provider_session_messages_with_limits(
+            &path,
+            "session-budget",
+            ProviderSessionHistoryLimits {
+                max_source_records: 1,
+                max_messages: 10,
+                max_serialized_bytes: 16 * 1024,
+            },
+        )
+        .expect_err("oversized joined history must fail");
+        assert!(error.to_string().contains("exceeds 1 source records"));
+        std::fs::remove_file(path).expect("remove history budget fixture");
     }
 }

@@ -295,8 +295,9 @@ The first-class provider families are:
   description, invocation, cancellation, model hints, allowed tools, and health.
 - `AgentCollaborationProvider`: `collaboration` provider family for agent
   discovery, agent cards, handoff, delegation, input filtering, and health.
-- `AgentInstaller`: `agent_installer` provider family for install, uninstall,
-  upgrade, package-source handling, and install health.
+- `AgentInstaller`: `agent_installer` provider family for installation
+  detection, plan-first install/upgrade/uninstall, dry-run, exact-version
+  package handling, post-mutation verification, and install health.
 - `AgentConfigurationProvider`: `agent_configuration` provider family for
   configuration specs, validation, login auth settings, and LLM API key secret
   references.

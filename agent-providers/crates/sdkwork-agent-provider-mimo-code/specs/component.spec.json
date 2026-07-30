@@ -4,7 +4,7 @@
   "component": {
     "name": "sdkwork-agent-provider-mimo-code",
     "displayName": "SDKWork Agent Adapter Mimo Code",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "type": "rust-crate",
     "root": "sdkwork-kernel/agent-providers/crates/sdkwork-agent-provider-mimo-code",
     "domain": "intelligence",
@@ -61,6 +61,8 @@
     ],
     "runtimeEntrypoints": [
       "MiMoCodeSdkIntegration::bootstrap",
+      "MiMoCodeKernelPlugin::configure_runtime",
+      "mimo_code_agent_installer",
       "MiMoCodeLifecycleProvider",
       "MiMoCodeAdapter"
     ],

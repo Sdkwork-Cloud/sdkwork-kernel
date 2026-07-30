@@ -3,13 +3,13 @@ use sdkwork_agent_kernel::{
     AgentPackageProviderBinding, AgentPackageSource,
 };
 
-use crate::ids;
+use crate::{ids, GEMINI_CLI_PACKAGE, GEMINI_CLI_VERSION};
 
 pub fn gemini_cli_package_manifest() -> AgentPackageManifest {
     AgentPackageManifest::new(
         ids::AGENT_ID,
         "0.2.0",
-        AgentPackageSource::registry("npm", "@google/gemini-cli", "0.0.0-dev"),
+        AgentPackageSource::registry("npm", GEMINI_CLI_PACKAGE, GEMINI_CLI_VERSION),
     )
     .with_lifecycle(AgentPackageLifecycle::installable())
     .expect("gemini-cli package lifecycle is valid")

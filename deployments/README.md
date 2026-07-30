@@ -14,8 +14,8 @@ injection. Kubernetes production rollout requires an immutable image digest,
 managed HA PostgreSQL/Redis, target-environment NetworkPolicy egress, probes,
 PDB/HPA validation, restore/failover/load evidence, and the release gates in
 [`runbooks/production-rollout.md`](./runbooks/production-rollout.md). The
-bundled PostgreSQL/Redis and SQLite PVC manifests are local/staging references
-only.
+bundled PostgreSQL/Redis manifest is a local development reference only and
+uses the canonical `sdkwork_ai_dev` workspace database identity.
 
 Forbidden content: live secrets, private keys, local override files, runtime user config, generated SDK output, logs, and caches.
 

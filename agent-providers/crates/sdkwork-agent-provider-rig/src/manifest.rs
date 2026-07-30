@@ -1,6 +1,6 @@
 use sdkwork_agent_kernel::{
-    agent_chat_rpc_adapter_manifest, AgentChatRpcAdapter, AgentDefinition, AgentManifest,
-    AgentPackageManifest, ModelProvider, ProviderManifest, RuntimeBuilder,
+    agent_chat_rpc_adapter_manifest, AgentChatRpcAdapter, AgentDefinition, AgentInstaller,
+    AgentManifest, AgentPackageManifest, ModelProvider, ProviderManifest, RuntimeBuilder,
 };
 use sdkwork_agent_plugin_core::{
     KernelPluginConformanceProfile, KernelPluginManifest, SdkworkKernelPlugin,
@@ -60,17 +60,7 @@ pub fn rig_provider_manifests() -> Vec<ProviderManifest> {
         RigPlanningProvider::new().provider_manifest(),
         RigPolicyProvider::new().provider_manifest(),
         chat_rpc_adapter_provider_manifest(),
-        ProviderManifest::new(
-            ids::INSTALLER_PROVIDER_ID,
-            "agent_installer",
-            "rig-rust-installer",
-            "0.1.0",
-            vec![
-                "agent.install".to_string(),
-                "agent.uninstall".to_string(),
-                "agent.upgrade".to_string(),
-            ],
-        ),
+        RigAgentInstaller::new().provider_manifest(),
         ProviderManifest::new(
             ids::CONFIGURATION_PROVIDER_ID,
             "agent_configuration",
@@ -140,7 +130,7 @@ impl SdkworkKernelPlugin for RigKernelPlugin {
             )
             .register_agent_installer(
                 ids::INSTALLER_PROVIDER_ID,
-                "0.1.0",
+                env!("CARGO_PKG_VERSION"),
                 RigAgentInstaller::new(),
             )
             .register_agent_configuration(

@@ -8,6 +8,7 @@ use std::collections::HashMap;
 mod mock_policy;
 mod model_wire;
 mod provider_session_activity;
+mod provider_session_history;
 mod provider_session_path;
 mod provider_session_store;
 
@@ -27,6 +28,9 @@ pub use provider_session_activity::{
     session_activity_from_provider_observation, session_activity_from_provider_observation_at,
     InMemoryProviderSessionActivityProvider, ProviderSessionActivityAdapter,
     DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL, MAX_PROVIDER_SESSION_ACTIVITY_CLOCK_SKEW,
+};
+pub use provider_session_history::{
+    ProviderSessionHistoryBudget, ProviderSessionHistoryLimits,
 };
 pub use provider_session_path::{
     epoch_millis_to_rfc3339, normalize_provider_session_path,

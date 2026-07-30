@@ -176,7 +176,8 @@ pub use host::{
 pub use host_sandbox::SandboxingHostProvider;
 pub use installation::{
     AgentInstallPlan, AgentInstallReport, AgentInstallRequest, AgentInstallStatus,
-    AgentInstallStep, AgentInstallStepKind, AgentInstaller, AgentPackageSource,
+    AgentInstallStep, AgentInstallStepKind, AgentInstallation, AgentInstallationDependency,
+    AgentInstallationState, AgentInstaller, AgentPackageSource, AgentUninstallPlan,
     AgentUninstallReport, AgentUninstallRequest, AgentUpgradePlan, AgentUpgradeReport,
     AgentUpgradeRequest,
 };

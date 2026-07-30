@@ -64,6 +64,7 @@
       "hermes_agent_definition",
       "hermes_agent_manifest",
       "hermes_provider_manifests",
+      "hermes_agent_installer",
       "hermes_package_manifest",
       "hermes_kernel_plugin_manifest"
     ],

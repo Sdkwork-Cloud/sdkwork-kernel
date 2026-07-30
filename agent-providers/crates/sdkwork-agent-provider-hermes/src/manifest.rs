@@ -1,11 +1,11 @@
-use crate::HermesSdkIntegration;
+use crate::{hermes_agent_installer, HermesSdkIntegration};
 use sdkwork_agent_kernel::{
-    AgentDefinition, AgentManifest, AgentPackageManifest, ModelProvider, ProviderManifest,
-    RuntimeBuilder,
+    AgentDefinition, AgentInstaller, AgentManifest, AgentPackageManifest, ModelProvider,
+    ProviderManifest, RuntimeBuilder,
 };
 use sdkwork_agent_plugin_core::{
     KernelPluginConformanceProfile, KernelPluginManifest, ProcessAdapterConfigurationProvider,
-    ProcessAdapterInstaller, SdkStandardPolicyProvider, SdkworkKernelPlugin,
+    SdkStandardPolicyProvider, SdkworkKernelPlugin,
 };
 
 use crate::{
@@ -33,6 +33,7 @@ pub fn hermes_kernel_plugin_manifest() -> KernelPluginManifest {
         .with_provider_id(ids::INSTALLER_PROVIDER_ID)
         .with_provider_id(ids::CONFIGURATION_PROVIDER_ID)
         .with_supported_profile("runtime-manifest")
+        .with_supported_profile("agent-installation")
         .with_supported_profile("provider-model")
         .with_supported_profile("security-baseline")
 }
@@ -42,6 +43,14 @@ pub fn hermes_provider_manifests() -> Vec<ProviderManifest> {
     vec![
         integration.model.provider_manifest(),
         SdkStandardPolicyProvider::new(ids::POLICY_PROVIDER_ID).provider_manifest_for(),
+        hermes_agent_installer().provider_manifest(),
+        ProviderManifest::new(
+            ids::CONFIGURATION_PROVIDER_ID,
+            "agent_configuration",
+            "hermes-configuration",
+            env!("CARGO_PKG_VERSION"),
+            vec!["agent.configure".to_string()],
+        ),
     ]
 }
 
@@ -79,8 +88,8 @@ impl SdkworkKernelPlugin for HermesKernelPlugin {
             )
             .register_agent_installer(
                 ids::INSTALLER_PROVIDER_ID,
-                "0.1.0",
-                ProcessAdapterInstaller::new(ids::AGENT_ID, "hermes"),
+                env!("CARGO_PKG_VERSION"),
+                hermes_agent_installer(),
             )
             .register_agent_configuration(
                 ids::CONFIGURATION_PROVIDER_ID,

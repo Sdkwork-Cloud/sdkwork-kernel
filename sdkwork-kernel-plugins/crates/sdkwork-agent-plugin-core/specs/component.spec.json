@@ -64,6 +64,9 @@
       "KernelProviderBinding",
       "KernelPluginDeploymentSnapshot",
       "KernelPluginConformanceProfile",
+      "ProcessAdapterInstaller",
+      "ProcessAdapterPackage",
+      "ProcessAdapterCommandExecutor",
       "StandardPluginIds",
       "SdkworkKernelPlugin"
     ],
@@ -73,7 +76,10 @@
     "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
-    "configKeys": []
+    "configKeys": [
+      "SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT",
+      "SDKWORK_AGENT_PYTHON_BINARY"
+    ]
   },
   "verification": {
     "commands": [

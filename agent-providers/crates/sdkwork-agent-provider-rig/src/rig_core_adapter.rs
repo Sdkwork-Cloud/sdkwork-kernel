@@ -1,11 +1,10 @@
 use std::{
-    future::IntoFuture,
     sync::{mpsc, Arc},
     time::Duration,
 };
 
 use rig_core::client::CompletionClient;
-use rig_core::completion::Prompt;
+use rig_core::completion::{AssistantContent, CompletionModel};
 use rig_core::providers::openai;
 use sdkwork_agent_kernel::{
     HostProvider, KernelError, KernelResult, KnowledgeDocument, KnowledgeSearchRequest,
@@ -80,12 +79,27 @@ impl RigBackendExecutor for RigCoreOpenAiExecutor {
             .model_id
             .clone()
             .unwrap_or_else(|| self.default_model_id.clone());
-        let agent = client.agent(&model_id).build();
+        let model = client.completion_model(&model_id);
         let prompt = request.effective_prompt_text();
         let timeout = Duration::from_millis(request.timeout_ms.unwrap_or(120_000));
         let (sender, receiver) = mpsc::sync_channel(1);
         let task = self.runtime.spawn(async move {
-            let result = agent.prompt(&prompt).into_future().await.map_err(|_| ());
+            let result = model
+                .completion_request(prompt)
+                .send()
+                .await
+                .map_err(|_| ())
+                .and_then(|response| {
+                    let text = response
+                        .choice
+                        .iter()
+                        .filter_map(|content| match content {
+                            AssistantContent::Text(text) => Some(text.text.as_str()),
+                            _ => None,
+                        })
+                        .collect::<String>();
+                    (!text.is_empty()).then_some(text).ok_or(())
+                });
             let _ = sender.send(result);
         });
         let text = match receiver.recv_timeout(timeout) {

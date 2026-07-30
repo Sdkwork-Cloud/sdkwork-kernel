@@ -260,7 +260,7 @@ impl ModelProvider for HermesModelProvider {
             "Hermes Agent Runtime (configured model)",
             "hermes",
         )
-        .with_version("0.17.0")
+        .with_version("0.19.0")
         .with_capability("chat")
         .with_capability("tool_call")
         .with_context_window_tokens(200000)
@@ -295,11 +295,13 @@ pub use sdk_integration::{
 mod agent_definition;
 mod conformance;
 pub mod ids;
+mod installer;
 mod manifest;
 mod package;
 
 pub use agent_definition::{hermes_agent_definition, hermes_agent_manifest};
 pub use conformance::hermes_conformance_profile;
+pub use installer::{hermes_agent_installer, HERMES_PACKAGE, HERMES_PACKAGE_VERSION};
 pub use manifest::{hermes_kernel_plugin_manifest, hermes_provider_manifests, HermesKernelPlugin};
 pub use package::hermes_package_manifest;
 

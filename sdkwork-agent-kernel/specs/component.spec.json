@@ -95,6 +95,11 @@
   ],
   "contracts": {
     "publicExports": [
+      "AgentInstaller",
+      "AgentInstallation",
+      "AgentInstallationState",
+      "AgentInstallationDependency",
+      "AgentUninstallPlan",
       "AgentExecutionReport",
       "AgentExecutionReport::to_event",
       "AgentExecutionReport::to_events",

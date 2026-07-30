@@ -1,8 +1,11 @@
-use sdkwork_agent_kernel::{AgentProviderFamily, ModelProvider};
+use sdkwork_agent_kernel::{
+    AgentPackageSource, AgentProviderFamily, ModelProvider, RuntimeBuilder,
+};
 use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
 use sdkwork_agent_provider_gemini_cli::{
-    gemini_cli_agent_definition, gemini_cli_kernel_plugin_manifest, gemini_cli_provider_manifests,
-    GeminiCliKernelPlugin, GeminiModelProvider,
+    gemini_cli_agent_definition, gemini_cli_agent_installer, gemini_cli_kernel_plugin_manifest,
+    gemini_cli_package_manifest, gemini_cli_provider_manifests, GeminiCliKernelPlugin,
+    GeminiModelProvider, GEMINI_CLI_PACKAGE, GEMINI_CLI_VERSION,
 };
 use serde_json::Value;
 
@@ -41,6 +44,7 @@ fn kernel_plugin_uses_established_gemini_identities() {
     assert!(!manifest
         .provider_ids
         .contains(&"provider.model.gemini-cli".to_string()));
+    assert!(manifest.supports_profile("agent-installation"));
 }
 
 #[test]
@@ -52,6 +56,7 @@ fn provider_manifests_and_definition_exclude_agent_internal_tools() {
     assert!(provider_ids.contains(&"provider.model.gemini".to_string()));
     assert!(!provider_ids.contains(&"provider.tool.gemini".to_string()));
     assert!(provider_ids.contains(&"provider.policy.sdk-standard".to_string()));
+    assert!(provider_ids.contains(&"provider.agent.installer.gemini-cli".to_string()));
 
     let families = gemini_cli_agent_definition()
         .provider_bindings
@@ -64,6 +69,21 @@ fn provider_manifests_and_definition_exclude_agent_internal_tools() {
 }
 
 #[test]
+fn installer_descriptor_uses_the_latest_exact_cli_version() {
+    let installer = gemini_cli_agent_installer();
+    assert_eq!(
+        installer.provider_id(),
+        "provider.agent.installer.gemini-cli"
+    );
+    assert_eq!(installer.packages()[0].package_id, GEMINI_CLI_PACKAGE);
+    assert_eq!(installer.packages()[0].version, GEMINI_CLI_VERSION);
+    assert_eq!(
+        gemini_cli_package_manifest().source,
+        AgentPackageSource::registry("npm", GEMINI_CLI_PACKAGE, GEMINI_CLI_VERSION)
+    );
+}
+
+#[test]
 fn kernel_plugin_configures_canonical_agent() {
     let plugin = GeminiCliKernelPlugin::new();
     assert_eq!(
@@ -73,5 +93,21 @@ fn kernel_plugin_configures_canonical_agent() {
     assert_eq!(
         plugin.agent_manifest().agent_id,
         "agent.intelligence.gemini"
+    );
+    let report = plugin
+        .configure_runtime(RuntimeBuilder::new(
+            "runtime.gemini-cli.installer",
+            plugin.agent_manifest(),
+        ))
+        .bootstrap()
+        .expect("gemini-cli runtime bootstraps");
+    assert_eq!(
+        report
+            .runtime
+            .agent_installer()
+            .expect("typed installer")
+            .provider_manifest()
+            .provider_id,
+        "provider.agent.installer.gemini-cli"
     );
 }

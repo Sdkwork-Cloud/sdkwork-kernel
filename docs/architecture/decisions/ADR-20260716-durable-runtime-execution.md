@@ -113,9 +113,10 @@ decisions return a standard conflict problem.
 The database is the durable coordination authority. In-process notification is
 only a latency optimization; workers always recover through bounded indexed
 claims. Polling uses bounded batches, exponential idle backoff with jitter, and
-no unbounded collection. PostgreSQL is the cloud/cluster production store;
-SQLite provides full contract parity for standalone single-node operation but
-is not presented as a multi-writer cluster database.
+no unbounded collection. PostgreSQL is the server authority in standalone and
+cluster deployments. SQLite provides contract evidence only for isolated
+client-local and test fixtures; it is not a server or multi-writer cluster
+database.
 
 Fixed-cardinality metrics cover claim latency, ready/running counts, lease
 expiry/recovery, retries, terminal outcomes, permission resume outcomes, queue

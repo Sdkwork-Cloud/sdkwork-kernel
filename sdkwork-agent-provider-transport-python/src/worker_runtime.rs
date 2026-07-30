@@ -18,6 +18,7 @@ const WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
 const HEALTH_WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(2);
 const DEFAULT_WORKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_WORKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(3600);
+const PYTHON_BINARY_ENV: &str = "SDKWORK_AGENT_PYTHON_BINARY";
 
 #[derive(Debug, Clone)]
 pub struct PythonWorkerLaunchOptions {
@@ -37,6 +38,10 @@ impl PythonWorkerLaunchOptions {
 }
 
 pub fn default_python_binary() -> String {
+    if let Some(configured) = std::env::var_os(PYTHON_BINARY_ENV).filter(|value| !value.is_empty())
+    {
+        return configured.to_string_lossy().into_owned();
+    }
     if cfg!(windows) {
         "python".to_string()
     } else {
@@ -414,6 +419,18 @@ mod tests {
             script.exists(),
             "default Python worker script must exist: {}",
             script.display()
+        );
+    }
+
+    #[test]
+    fn explicit_python_binary_is_shared_with_provider_installers() {
+        let _lock = env_lock();
+        let _python = EnvVarGuard::set(PYTHON_BINARY_ENV, Some("managed-python"));
+
+        assert_eq!(default_python_binary(), "managed-python");
+        assert_eq!(
+            PythonWorkerLaunchOptions::for_package("run_agent").python_binary,
+            "managed-python"
         );
     }
 

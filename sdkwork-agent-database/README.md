@@ -53,7 +53,7 @@ SQLite enables WAL and incremental auto-vacuum for new files. After a successful
 
 ```bash
 cargo test --manifest-path sdkwork-agent-database/Cargo.toml
-SDKWORK_AGENT_RUNTIME_POSTGRES_URI=<disposable-postgres-uri> cargo test --features postgres-sync --manifest-path sdkwork-agent-database/Cargo.toml --test agent_runtime_postgres_contracts -- --ignored
+SDKWORK_DATABASE_URL=<disposable-postgres-uri> cargo test --features postgres-sync --manifest-path sdkwork-agent-database/Cargo.toml --test agent_runtime_postgres_contracts -- --ignored
 ```
 
 ## Canonical Specifications

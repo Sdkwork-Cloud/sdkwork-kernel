@@ -58,6 +58,7 @@
       "codex_agent_definition",
       "codex_agent_manifest",
       "codex_provider_manifests",
+      "codex_agent_installer",
       "codex_package_manifest",
       "codex_kernel_plugin_manifest"
     ],

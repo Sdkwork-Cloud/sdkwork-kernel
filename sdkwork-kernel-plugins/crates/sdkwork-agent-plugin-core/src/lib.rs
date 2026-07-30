@@ -357,15 +357,19 @@ pub trait SdkworkKernelFoundationPlugin {
     fn conformance_profile(&self) -> KernelPluginConformanceProfile;
 }
 
+mod local_plugin;
 mod policy;
 mod process_adapter;
-mod local_plugin;
-pub use policy::SdkStandardPolicyProvider;
-pub use process_adapter::{ProcessAdapterConfigurationProvider, ProcessAdapterInstaller};
 pub use local_plugin::{
-    LocalPluginCatalog, LocalPluginDescriptor, LocalPluginDiscoveryRequest,
-    LocalPluginLoadError, LocalPluginLoadErrorKind, LocalPluginProvider,
-    LocalPluginSkillDescriptor, LocalPluginSource, LocalPluginStatus,
+    LocalPluginCatalog, LocalPluginDescriptor, LocalPluginDiscoveryRequest, LocalPluginLoadError,
+    LocalPluginLoadErrorKind, LocalPluginProvider, LocalPluginSkillDescriptor, LocalPluginSource,
+    LocalPluginStatus,
+};
+pub use policy::SdkStandardPolicyProvider;
+pub use process_adapter::{
+    ProcessAdapterCommand, ProcessAdapterCommandExecutor, ProcessAdapterCommandOutput,
+    ProcessAdapterConfigurationProvider, ProcessAdapterInstaller, ProcessAdapterPackage,
+    ProcessAdapterPackageManager, SystemProcessAdapterCommandExecutor,
 };
 
 fn validate_standard_id(

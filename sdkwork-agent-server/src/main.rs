@@ -23,11 +23,7 @@ async fn main() -> anyhow::Result<()> {
         "Runtime database engine: {}",
         config.runtime_database_engine
     );
-    if config.uses_postgres_runtime_database() {
-        info!("Runtime database: PostgreSQL (SDKWORK_AGENT_RUNTIME_*)");
-    } else {
-        info!("Runtime database path: {}", config.database_path);
-    }
+    info!("Runtime database: PostgreSQL (SDKWORK_DATABASE_*)");
     info!("Environment: {}", config.environment);
     info!("Ingress auth mode: {}", config.ingress_auth_mode);
 

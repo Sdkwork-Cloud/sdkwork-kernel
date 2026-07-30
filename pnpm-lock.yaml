@@ -39,8 +39,8 @@ importers:
         specifier: workspace:*
         version: link:../sdkwork-app-topology
       openai:
-        specifier: 6.46.0
-        version: 6.46.0
+        specifier: 7.1.0
+        version: 7.1.0
 
   ../sdkwork-app-topology: {}
 
@@ -2997,7 +2997,7 @@ packages:
   oniguruma-to-es@3.1.1:
     resolution: {integrity: sha512-bUH8SDvPkH3ho3dvwJwfonjlQ4R80vjyvrU8YpxuROddv55vAEJrTuCuCVUhhsHbtlD9tGGbaNApGQckXhS8iQ==}
 
-  openai@6.46.0:
+  openai@7.1.0:
     resolution: {integrity: sha512-DFg6jEPT2RO+oAyXtddeUJU8zkGy1OQ1AjGzNIJUMQG03TTqvCpy9tBpQ+2VVVnvrl3E56F8GEin2JYtWpITtA==}
     peerDependencies:
       '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
@@ -6110,7 +6110,7 @@ snapshots:
       regex: 6.1.0
       regex-recursion: 6.0.2
 
-  openai@6.46.0: {}
+  openai@7.1.0: {}
 
   optionator@0.9.4:
     dependencies:

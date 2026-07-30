@@ -1,8 +1,11 @@
-use sdkwork_agent_kernel::{AgentProviderFamily, ModelProvider};
+use sdkwork_agent_kernel::{
+    AgentPackageSource, AgentProviderFamily, ModelProvider, RuntimeBuilder,
+};
 use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
 use sdkwork_agent_provider_claude_code::{
-    claude_code_agent_definition, claude_code_kernel_plugin_manifest,
-    claude_code_provider_manifests, ClaudeCodeKernelPlugin, ClaudeModelProvider,
+    claude_code_agent_definition, claude_code_agent_installer, claude_code_kernel_plugin_manifest,
+    claude_code_package_manifest, claude_code_provider_manifests, ClaudeCodeKernelPlugin,
+    ClaudeModelProvider, CLAUDE_AGENT_SDK_PACKAGE, CLAUDE_AGENT_SDK_VERSION,
 };
 use serde_json::Value;
 
@@ -42,6 +45,7 @@ fn kernel_plugin_manifest_declares_runtime_providers() {
         .provider_ids
         .contains(&"provider.tool.claude-code".to_string()));
     assert!(manifest.supports_profile("provider-model"));
+    assert!(manifest.supports_profile("agent-installation"));
     assert!(!manifest.supports_profile("provider-tool"));
 }
 
@@ -54,6 +58,22 @@ fn provider_manifests_exclude_agent_internal_tools() {
     assert!(provider_ids.contains(&"provider.model.claude-code".to_string()));
     assert!(!provider_ids.contains(&"provider.tool.claude-code".to_string()));
     assert!(provider_ids.contains(&"provider.policy.sdk-standard".to_string()));
+    assert!(provider_ids.contains(&"provider.agent.installer.claude-code".to_string()));
+}
+
+#[test]
+fn installer_descriptor_uses_the_latest_exact_sdk_version() {
+    let installer = claude_code_agent_installer();
+    assert_eq!(
+        installer.provider_id(),
+        "provider.agent.installer.claude-code"
+    );
+    assert_eq!(installer.packages()[0].package_id, CLAUDE_AGENT_SDK_PACKAGE);
+    assert_eq!(installer.packages()[0].version, CLAUDE_AGENT_SDK_VERSION);
+    assert_eq!(
+        claude_code_package_manifest().source,
+        AgentPackageSource::registry("npm", CLAUDE_AGENT_SDK_PACKAGE, CLAUDE_AGENT_SDK_VERSION,)
+    );
 }
 
 #[test]
@@ -79,5 +99,21 @@ fn kernel_plugin_configures_runtime() {
     assert_eq!(
         plugin.agent_manifest().agent_id,
         "agent.intelligence.claude-code"
+    );
+    let report = plugin
+        .configure_runtime(RuntimeBuilder::new(
+            "runtime.claude-code.installer",
+            plugin.agent_manifest(),
+        ))
+        .bootstrap()
+        .expect("claude-code runtime bootstraps");
+    assert_eq!(
+        report
+            .runtime
+            .agent_installer()
+            .expect("typed installer")
+            .provider_manifest()
+            .provider_id,
+        "provider.agent.installer.claude-code"
     );
 }

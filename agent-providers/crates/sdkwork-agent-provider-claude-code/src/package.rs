@@ -3,13 +3,13 @@ use sdkwork_agent_kernel::{
     AgentPackageProviderBinding, AgentPackageSource,
 };
 
-use crate::ids;
+use crate::{ids, CLAUDE_AGENT_SDK_PACKAGE, CLAUDE_AGENT_SDK_VERSION};
 
 pub fn claude_code_package_manifest() -> AgentPackageManifest {
     AgentPackageManifest::new(
         ids::AGENT_ID,
         "0.2.0",
-        AgentPackageSource::registry("npm", "@anthropic-ai/claude-agent-sdk", "0.0.0-dev"),
+        AgentPackageSource::registry("npm", CLAUDE_AGENT_SDK_PACKAGE, CLAUDE_AGENT_SDK_VERSION),
     )
     .with_lifecycle(AgentPackageLifecycle::installable())
     .expect("claude-code package lifecycle is valid")

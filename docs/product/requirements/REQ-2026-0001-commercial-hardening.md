@@ -28,7 +28,7 @@ acceptance_criteria:
   - Release pipeline builds target-scoped linux-x64 tar.gz and windows-x64 zip server packages, and validates package-scoped checksum/SBOM evidence from sdkwork.app.config.json
   - Release validation rejects legacy crate-scoped `sdkwork-agent-server` evidence that is not tied to manifest package ids
   - Default merge verification remains credential-free, while `pnpm verify:commercial` runs `scripts/verify-kernel-audit-remediation.mjs --commercial-release`
-  - Commercial release verification fails closed when `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` is missing, staging SDK credentials are not available, or `SDKWORK_KERNEL_STAGING_HERMES_GATEWAY=1` is not set
+  - Commercial release verification fails closed when `SDKWORK_DATABASE_URL` is missing, staging SDK credentials are not available, or `SDKWORK_KERNEL_STAGING_HERMES_GATEWAY=1` is not set
   - Commercial release verification forces `SDKWORK_KERNEL_STAGING_LIVE_SDK=1` and `SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1` for the staging SDK gate
   - Commercial release verification runs `scripts/provider-transport-workers/hermes-gateway-staging.mjs` for the Hermes TUI gateway JSON-RPC proof
   - Release packaging invokes `pnpm verify:commercial` before building target artifacts, so missing live evidence cannot produce a promotable package
@@ -98,7 +98,7 @@ Parent PRD: [PRD.md](../prd/PRD.md) · Readiness shard: [PRD-03-commercial-readi
 
 1. CI publishing of kernel server binaries to artifact registry with signed checksums.
 2. Target-scoped package evidence: lifecycle package builds the declared tar.gz/zip package, SBOM/checksum/signing policy live under `dist/release/<package-id>/`, and release validation rejects evidence that is not tied to manifest package ids.
-3. Commercial release gate via `pnpm verify:commercial`; it requires `SDKWORK_AGENT_RUNTIME_POSTGRES_URI`, `SDKWORK_KERNEL_STAGING_LIVE_SDK=1`, `SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1`, and `SDKWORK_KERNEL_STAGING_HERMES_GATEWAY=1`.
+3. Commercial release gate via `pnpm verify:commercial`; it requires `SDKWORK_DATABASE_URL`, `SDKWORK_KERNEL_STAGING_LIVE_SDK=1`, `SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1`, and `SDKWORK_KERNEL_STAGING_HERMES_GATEWAY=1`.
 4. Staging-backed live SDK invoke gate via `kernel-staging-live-sdk.yml` (`workflow_dispatch`, credential-gated), plus Hermes TUI gateway JSON-RPC proof via `hermes-gateway-staging.mjs`.
 5. Production data-plane handoff to managed HA Postgres and managed HA Redis; bundled Kubernetes Postgres/Redis remains local/staging only.
 6. Complete MiMo Code agents facade registration and staging live SDK proof.

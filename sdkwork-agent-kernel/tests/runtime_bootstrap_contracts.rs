@@ -290,20 +290,37 @@ fn runtime_builder_registers_agent_installer_and_configuration_providers_as_kern
     assert!(install.required);
     assert_eq!(
         install.operations,
-        ["configuration_spec", "plan_install", "install", "health"]
+        [
+            "detect_installation",
+            "configuration_spec",
+            "plan_install",
+            "install",
+            "health"
+        ]
     );
     assert_eq!(install.side_effect_level.as_deref(), Some("side_effectful"));
     assert_eq!(install.policy_categories, ["agent.install"]);
 
     let uninstall = capability(&report, "agent.uninstall");
     assert!(!uninstall.required);
-    assert_eq!(uninstall.operations, ["uninstall", "health"]);
+    assert_eq!(
+        uninstall.operations,
+        [
+            "detect_installation",
+            "plan_uninstall",
+            "uninstall",
+            "health"
+        ]
+    );
     assert_eq!(uninstall.side_effect_level.as_deref(), Some("destructive"));
     assert_eq!(uninstall.policy_categories, ["agent.uninstall"]);
 
     let upgrade = capability(&report, "agent.upgrade");
     assert!(!upgrade.required);
-    assert_eq!(upgrade.operations, ["plan_upgrade", "upgrade", "health"]);
+    assert_eq!(
+        upgrade.operations,
+        ["detect_installation", "plan_upgrade", "upgrade", "health"]
+    );
     assert_eq!(upgrade.side_effect_level.as_deref(), Some("side_effectful"));
     assert_eq!(upgrade.policy_categories, ["agent.upgrade"]);
 

@@ -9,19 +9,27 @@ use sdkwork_agent_database::{
 };
 
 fn runtime_postgres_uri() -> String {
-    let value = std::env::var("SDKWORK_AGENT_RUNTIME_POSTGRES_URI")
-        .or_else(|_| std::env::var("SDKWORK_AGENT_BUSINESS_POSTGRES_URI"))
-        .expect("set SDKWORK_AGENT_RUNTIME_POSTGRES_URI to a disposable live PostgreSQL database");
-    let value = value.trim();
     assert!(
-        !value.is_empty(),
-        "SDKWORK_AGENT_RUNTIME_POSTGRES_URI must not be blank"
+        sdkwork_database_config::workspace_database::workspace_database_env_is_configured(),
+        "set SDKWORK_DATABASE_* to a disposable sdkwork_ai_test or sdkwork_ai_test_<run_id> PostgreSQL database"
     );
-    value.to_string()
+    let config = sdkwork_database_config::DatabaseConfig::from_env("agent_runtime")
+        .expect("SDKWORK_DATABASE_* must resolve a valid workspace database profile");
+    assert!(
+        config.engine == sdkwork_database_config::DatabaseEngine::Postgres,
+        "SDKWORK_DATABASE_ENGINE must be postgresql"
+    );
+    let schema = sdkwork_database_config::workspace_database::resolve_workspace_postgres_schema()
+        .expect("SDKWORK_DATABASE_SCHEMA must match the workspace database");
+    assert!(
+        schema == "sdkwork_ai_test" || schema.starts_with("sdkwork_ai_test_"),
+        "live PostgreSQL tests require sdkwork_ai_test or sdkwork_ai_test_<run_id>, got {schema}"
+    );
+    config.url
 }
 
 #[test]
-#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+#[ignore = "requires SDKWORK_DATABASE_URL and a disposable live PostgreSQL database"]
 fn live_postgres_conditional_session_sync_rejects_stale_snapshot_when_uri_configured() {
     let uri = runtime_postgres_uri();
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
@@ -257,7 +265,7 @@ fn live_postgres_conditional_session_sync_rejects_stale_snapshot_when_uri_config
 }
 
 #[test]
-#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+#[ignore = "requires SDKWORK_DATABASE_URL and a disposable live PostgreSQL database"]
 fn live_postgres_session_message_roundtrip_when_uri_configured() {
     let uri = runtime_postgres_uri();
 
@@ -310,7 +318,7 @@ fn live_postgres_session_message_roundtrip_when_uri_configured() {
 }
 
 #[test]
-#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+#[ignore = "requires SDKWORK_DATABASE_URL and a disposable live PostgreSQL database"]
 fn live_postgres_event_identity_and_session_association_are_immutable_when_uri_configured() {
     let uri = runtime_postgres_uri();
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
@@ -407,7 +415,7 @@ fn live_postgres_event_identity_and_session_association_are_immutable_when_uri_c
 }
 
 #[test]
-#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+#[ignore = "requires SDKWORK_DATABASE_URL and a disposable live PostgreSQL database"]
 fn live_postgres_message_count_overflow_is_rejected_atomically_when_uri_configured() {
     let uri = runtime_postgres_uri();
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
@@ -483,7 +491,7 @@ fn live_postgres_message_count_overflow_is_rejected_atomically_when_uri_configur
 }
 
 #[test]
-#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+#[ignore = "requires SDKWORK_DATABASE_URL and a disposable live PostgreSQL database"]
 fn live_postgres_update_session_preserves_messages_when_uri_configured() {
     let uri = runtime_postgres_uri();
 
@@ -539,7 +547,7 @@ fn live_postgres_update_session_preserves_messages_when_uri_configured() {
 }
 
 #[test]
-#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+#[ignore = "requires SDKWORK_DATABASE_URL and a disposable live PostgreSQL database"]
 fn live_postgres_save_message_rejects_duplicate_message_id_with_different_content_when_uri_configured(
 ) {
     let uri = runtime_postgres_uri();
@@ -603,7 +611,7 @@ fn live_postgres_save_message_rejects_duplicate_message_id_with_different_conten
 }
 
 #[test]
-#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+#[ignore = "requires SDKWORK_DATABASE_URL and a disposable live PostgreSQL database"]
 fn live_postgres_save_message_rejects_duplicate_message_id_for_different_session_when_uri_configured(
 ) {
     let uri = runtime_postgres_uri();
@@ -679,7 +687,7 @@ fn live_postgres_save_message_rejects_duplicate_message_id_for_different_session
 }
 
 #[test]
-#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+#[ignore = "requires SDKWORK_DATABASE_URL and a disposable live PostgreSQL database"]
 fn live_postgres_permissions_roundtrip_when_uri_configured() {
     let uri = runtime_postgres_uri();
 
@@ -727,7 +735,7 @@ fn live_postgres_permissions_roundtrip_when_uri_configured() {
 }
 
 #[test]
-#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+#[ignore = "requires SDKWORK_DATABASE_URL and a disposable live PostgreSQL database"]
 fn live_postgres_append_message_with_event_is_idempotent_when_uri_configured() {
     let uri = runtime_postgres_uri();
 
@@ -817,7 +825,7 @@ fn live_postgres_append_message_with_event_is_idempotent_when_uri_configured() {
 }
 
 #[test]
-#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+#[ignore = "requires SDKWORK_DATABASE_URL and a disposable live PostgreSQL database"]
 fn live_postgres_append_message_with_event_does_not_write_event_for_duplicate_message_id_when_uri_configured(
 ) {
     let uri = runtime_postgres_uri();
@@ -885,7 +893,7 @@ fn live_postgres_append_message_with_event_does_not_write_event_for_duplicate_me
 }
 
 #[test]
-#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+#[ignore = "requires SDKWORK_DATABASE_URL and a disposable live PostgreSQL database"]
 fn live_postgres_append_message_with_event_rejects_cross_session_duplicate_when_uri_configured() {
     let uri = runtime_postgres_uri();
 
@@ -968,7 +976,7 @@ fn live_postgres_append_message_with_event_rejects_cross_session_duplicate_when_
 }
 
 #[test]
-#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+#[ignore = "requires SDKWORK_DATABASE_URL and a disposable live PostgreSQL database"]
 fn live_postgres_task_ownership_terminal_and_cancel_contracts_when_uri_configured() {
     let uri = runtime_postgres_uri();
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
@@ -1126,7 +1134,7 @@ fn live_postgres_task_ownership_terminal_and_cancel_contracts_when_uri_configure
 }
 
 #[test]
-#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+#[ignore = "requires SDKWORK_DATABASE_URL and a disposable live PostgreSQL database"]
 fn live_postgres_completed_turn_retry_contract_when_uri_configured() {
     let uri = runtime_postgres_uri();
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");
@@ -1242,7 +1250,7 @@ fn live_postgres_completed_turn_retry_contract_when_uri_configured() {
 }
 
 #[test]
-#[ignore = "requires SDKWORK_AGENT_RUNTIME_POSTGRES_URI and a disposable live PostgreSQL database"]
+#[ignore = "requires SDKWORK_DATABASE_URL and a disposable live PostgreSQL database"]
 fn live_postgres_permission_operation_claim_is_skip_locked_and_fenced_when_uri_configured() {
     let uri = runtime_postgres_uri();
     let db = PostgresDatabase::connect_migrated(&uri).expect("postgres");

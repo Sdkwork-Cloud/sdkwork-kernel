@@ -4,8 +4,9 @@ use sdkwork_agent_kernel::{
     AgentConfigurationProvider, AgentConfigurationSpec, AgentConfigurationStore,
     AgentConfigurationStoreRecord, AgentConfigurationUpgradePlan, AgentConfigurationUpgradeRequest,
     AgentInstallPlan, AgentInstallReport, AgentInstallRequest, AgentInstallStatus,
-    AgentInstallStep, AgentInstallStepKind, AgentInstaller, AgentPackageSource,
-    AgentProfileArchiveRequest, AgentSecretBinding, AgentSecretBindingKind, AgentUninstallReport,
+    AgentInstallStep, AgentInstallStepKind, AgentInstallation, AgentInstallationDependency,
+    AgentInstallationState, AgentInstaller, AgentPackageSource, AgentProfileArchiveRequest,
+    AgentSecretBinding, AgentSecretBindingKind, AgentUninstallPlan, AgentUninstallReport,
     AgentUninstallRequest, AgentUpgradePlan, AgentUpgradeReport, AgentUpgradeRequest,
     ConfigurationMigrationStep, ConfigurationMigrationStepKind, KernelEventRedaction,
     KernelEventSource, KernelResult, PolicyCategory, ProviderHealth, SideEffectLevel,
@@ -570,6 +571,15 @@ fn agent_configuration_store_persists_lists_migrates_and_archives_profiles() {
 #[test]
 fn agent_installer_plans_and_executes_install_with_policy_and_events() {
     let installer = FakeAgentInstaller;
+    let detection = installer
+        .detect_installation("agent.code")
+        .expect("agent installation is detected");
+    assert_eq!(detection.state, AgentInstallationState::Installed);
+    assert_eq!(detection.installed_version.as_deref(), Some("0.1.0"));
+    assert!(detection.is_installed());
+    assert_eq!(detection.dependencies[0].package_id, "agent.code.runtime");
+    assert!(detection.dependencies[0].version_matches());
+
     let request = AgentInstallRequest::new(
         "install.1",
         "agent.code",
@@ -635,13 +645,29 @@ fn agent_installer_supports_upgrade_and_uninstall_lifecycle() {
         upgrade_plan.required_policy_categories,
         [PolicyCategory::AgentUpgrade.as_str().to_string()]
     );
+    let upgrade_policy = upgrade_plan.to_policy_request("policy.upgrade.1");
+    assert_eq!(upgrade_policy.category, "agent.upgrade");
+    assert_eq!(
+        upgrade_policy.typed_category,
+        Some(PolicyCategory::AgentUpgrade)
+    );
+    assert_eq!(upgrade_policy.action.as_deref(), Some("agent.upgrade"));
+    assert_eq!(
+        upgrade_policy.side_effect_level,
+        Some(SideEffectLevel::SideEffectful)
+    );
 
     let upgrade_report = installer.upgrade(upgrade_request).expect("agent upgrades");
     assert_eq!(upgrade_report.status, AgentInstallStatus::Upgraded);
+    assert!(!upgrade_report.safe_summary.is_empty());
     assert_eq!(
         upgrade_report.rollback_token.as_deref(),
         Some("rollback.agent.code.0.1.0")
     );
+    let upgrade_event = upgrade_report.to_event("event.upgrade.1");
+    assert_eq!(upgrade_event.event_type, "agent.install.upgraded");
+    assert!(upgrade_event.payload.contains("status=upgraded"));
+    assert!(upgrade_event.payload.contains("summary="));
 
     let uninstall_request =
         AgentUninstallRequest::new("uninstall.1", "agent.code").remove_configuration();
@@ -650,10 +676,73 @@ fn agent_installer_supports_upgrade_and_uninstall_lifecycle() {
         .expect("agent uninstalls");
     assert_eq!(uninstall_report.status, AgentInstallStatus::Uninstalled);
     assert!(uninstall_report.configuration_removed);
+    assert!(!uninstall_report.safe_summary.is_empty());
     assert_eq!(
         uninstall_report.to_event("event.uninstall.1").event_type,
         "agent.install.uninstalled"
     );
+}
+
+#[test]
+fn planned_upgrade_and_uninstall_reports_never_emit_success_events() {
+    let install = AgentInstallReport::planned("install.dry-run", "agent.code", "0.2.0");
+    assert_eq!(install.target_version, "0.2.0");
+    assert_eq!(install.installed_version, None);
+    let install_event = install.to_event("event.install.dry-run");
+    assert_eq!(install_event.event_type, "agent.install.planned");
+    assert!(install_event.payload.contains("target_version=0.2.0"));
+    assert!(install_event.payload.contains("installed_version="));
+
+    let upgrade = AgentUpgradeReport::planned(
+        "upgrade.dry-run",
+        "agent.code",
+        "0.1.0",
+        "0.2.0",
+    );
+    let upgrade_event = upgrade.to_event("event.upgrade.dry-run");
+    assert_eq!(upgrade_event.event_type, "agent.install.planned");
+    assert!(upgrade_event.payload.contains("status=planned"));
+    assert!(upgrade_event.payload.contains("summary=agent upgrade planned"));
+
+    let uninstall = AgentUninstallReport::planned("uninstall.dry-run", "agent.code");
+    let uninstall_event = uninstall.to_event("event.uninstall.dry-run");
+    assert_eq!(uninstall_event.event_type, "agent.install.planned");
+    assert!(uninstall_event.payload.contains("status=planned"));
+    assert!(uninstall_event
+        .payload
+        .contains("summary=agent uninstall planned"));
+}
+
+#[test]
+fn installation_events_encode_untrusted_field_delimiters() {
+    let report = AgentInstallReport::planned(
+        "install.1;status=installed\nforged=true",
+        "agent.code",
+        "0.2.0",
+    );
+
+    let event = report.to_event("event.install.safe");
+    assert!(!event.payload.contains(";status=installed"));
+    assert!(!event.payload.contains('\n'));
+    assert!(event
+        .payload
+        .contains("request_id=install.1%3Bstatus%3Dinstalled%0Aforged%3Dtrue"));
+}
+
+#[test]
+fn upgrade_events_never_expose_opaque_rollback_tokens() {
+    let secret = "rollback-token-must-not-leak";
+    let report = AgentUpgradeReport::upgraded(
+        "upgrade.secure-event",
+        "agent.code",
+        "0.1.0",
+        "0.2.0",
+    )
+    .with_rollback_token(secret);
+
+    let event = report.to_event("event.upgrade.secure");
+    assert!(event.payload.contains("rollback_available=true"));
+    assert!(!event.payload.contains(secret));
 }
 
 struct FakeAgentConfigurationProvider;
@@ -701,6 +790,19 @@ impl AgentConfigurationProvider for FakeAgentConfigurationProvider {
 struct FakeAgentInstaller;
 
 impl AgentInstaller for FakeAgentInstaller {
+    fn detect_installation(&self, agent_id: &str) -> KernelResult<AgentInstallation> {
+        Ok(
+            AgentInstallation::installed(agent_id, "0.1.0").with_dependency(
+                AgentInstallationDependency::installed(
+                    "sdkwork",
+                    "agent.code.runtime",
+                    "0.1.0",
+                    "0.1.0",
+                ),
+            ),
+        )
+    }
+
     fn configuration_spec(&self, agent_id: &str) -> KernelResult<AgentConfigurationSpec> {
         Ok(agent_configuration_spec(agent_id))
     }
@@ -761,6 +863,18 @@ impl AgentInstaller for FakeAgentInstaller {
             request.to_version,
         )
         .with_rollback_token("rollback.agent.code.0.1.0"))
+    }
+
+    fn plan_uninstall(&self, request: &AgentUninstallRequest) -> KernelResult<AgentUninstallPlan> {
+        Ok(
+            AgentUninstallPlan::new("plan.uninstall.1", request.agent_id.clone())
+                .add_step(AgentInstallStep::new(
+                    "step.remove",
+                    AgentInstallStepKind::RemoveFiles,
+                    "remove agent package",
+                ))
+                .require_policy(PolicyCategory::AgentUninstall),
+        )
     }
 
     fn uninstall(&self, request: AgentUninstallRequest) -> KernelResult<AgentUninstallReport> {

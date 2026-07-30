@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
 };
-use sdkwork_agent_provider_core::SessionAdapter;
+use sdkwork_agent_provider_core::{
+    ProviderSessionHistoryBudget, ProviderSessionHistoryLimits, SessionAdapter,
+};
 use serde_json::Value;
 
 use crate::{ClaudeCodeAdapter, ClaudeCodeProcessState};
@@ -66,11 +68,26 @@ fn read_claude_session_messages_file(
     path: &Path,
     session_id: &str,
 ) -> KernelResult<Vec<AgentMessage>> {
+    read_claude_session_messages_file_with_limits(
+        path,
+        session_id,
+        ProviderSessionHistoryLimits::default(),
+    )
+}
+
+fn read_claude_session_messages_file_with_limits(
+    path: &Path,
+    session_id: &str,
+    limits: ProviderSessionHistoryLimits,
+) -> KernelResult<Vec<AgentMessage>> {
+    let mut budget = ProviderSessionHistoryBudget::new(limits);
+    budget.validate_file_size(path)?;
     let file = File::open(path).map_err(claude_inventory_error)?;
     let mut messages = Vec::new();
     let mut seen_message_ids = HashSet::new();
     for (line_index, line) in BufReader::new(file).lines().enumerate() {
         let line = line.map_err(claude_inventory_error)?;
+        budget.record_source(line.len())?;
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
@@ -111,6 +128,7 @@ fn read_claude_session_messages_file(
         if let Some(timestamp) = value.get("timestamp").and_then(Value::as_str) {
             message = message.created_at(timestamp);
         }
+        budget.record_message()?;
         messages.push(message);
     }
     Ok(messages)
@@ -573,5 +591,31 @@ mod tests {
             Some("queue-operation")
         );
         std::fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn rejects_history_files_beyond_the_serialized_byte_budget_before_parsing() {
+        let path = std::env::temp_dir().join(format!(
+            "sdkwork-claude-provider-session-budget-{}.jsonl",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            "{\"type\":\"user\",\"uuid\":\"message-user\",\"sessionId\":\"session-budget\"}\n",
+        )
+        .expect("history budget fixture");
+
+        let error = read_claude_session_messages_file_with_limits(
+            &path,
+            "session-budget",
+            ProviderSessionHistoryLimits {
+                max_source_records: 10,
+                max_messages: 10,
+                max_serialized_bytes: 8,
+            },
+        )
+        .expect_err("oversized history file must fail");
+        assert!(error.to_string().contains("exceeds 8 serialized bytes"));
+        std::fs::remove_file(path).expect("remove history budget fixture");
     }
 }

@@ -2259,9 +2259,9 @@ dependencies = [
 
 [[package]]
 name = "rig-core"
-version = "0.40.0"
+version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8731dd5532b3a12ce1613af73073fb2051ef750f50c504778c21d55ae933cac"
+checksum = "35f5520515ae8f6851adcbc6fde9eea8e96f657418c062e16c82cd81cce44e8e"
 dependencies = [
  "as-any",
  "async-stream",
@@ -2577,7 +2577,11 @@ dependencies = [
 name = "sdkwork-agent-plugin-core"
 version = "0.1.0"
 dependencies = [
+ "dunce",
  "sdkwork-agent-kernel",
+ "semver",
+ "serde_json",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2653,6 +2657,7 @@ name = "sdkwork-agent-provider-mimo-code"
 version = "0.2.0"
 dependencies = [
  "sdkwork-agent-kernel",
+ "sdkwork-agent-plugin-core",
  "sdkwork-agent-provider-core",
  "sdkwork-agent-provider-spi",
  "sdkwork-agent-provider-transport-core",
@@ -2795,6 +2800,7 @@ dependencies = [
  "sdkwork-agent-session",
  "sdkwork-agent-streaming",
  "sdkwork-code-kernel",
+ "sdkwork-database-config",
  "sdkwork-utils-rust",
  "sdkwork-web-axum",
  "sdkwork-web-bootstrap",
@@ -2844,6 +2850,7 @@ dependencies = [
  "axum 0.8.9",
  "sdkwork-agent-server",
  "sdkwork-routes-agent-internal-api",
+ "sdkwork-web-bootstrap",
  "tokio",
 ]
 
@@ -2873,13 +2880,13 @@ dependencies = [
  "thiserror 2.0.18",
  "toml",
  "tracing",
+ "url",
 ]
 
 [[package]]
 name = "sdkwork-database-sqlx"
 version = "0.1.0"
 dependencies = [
- "libsqlite3-sys",
  "sdkwork-database-config",
  "serde",
  "sqlx",
@@ -3028,6 +3035,7 @@ dependencies = [
  "async-trait",
  "axum 0.8.9",
  "http",
+ "sdkwork-database-sqlx",
  "sdkwork-web-axum",
  "sdkwork-web-contract",
  "sdkwork-web-core",

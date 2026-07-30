@@ -83,7 +83,7 @@ Canonical product scenarios. Implementation detail: [TECH_ARCHITECTURE.md](../..
 ### US-3: Desktop client uses hybrid agent bridge
 
 1. Client uses **Local** mode with builtin bridge plugins.
-2. Session state persists in SQLite (`SDKWORK_CLIENT_DATABASE_PATH`).
+2. Client-local session state persists in SQLite (`SDKWORK_DATABASE_FILE`).
 3. **Hybrid** mode falls back to remote internal API with ingress auth.
 4. Streaming requires **Remote** + SSE today.
 

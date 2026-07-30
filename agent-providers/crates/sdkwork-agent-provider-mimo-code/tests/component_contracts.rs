@@ -1,5 +1,10 @@
-use sdkwork_agent_kernel::ModelProvider;
-use sdkwork_agent_provider_mimo_code::MiMoCodeModelProvider;
+use sdkwork_agent_kernel::{AgentPackageSource, ModelProvider, RuntimeBuilder};
+use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
+use sdkwork_agent_provider_mimo_code::{
+    mimo_code_agent_installer, mimo_code_kernel_plugin_manifest, mimo_code_package_manifest,
+    mimo_code_provider_manifests, MiMoCodeKernelPlugin, MiMoCodeModelProvider,
+    MIMO_CODE_SDK_PACKAGE, MIMO_CODE_SDK_VERSION,
+};
 use serde_json::Value;
 
 const COMPONENT_SPEC: &str = include_str!("../specs/component.spec.json");
@@ -20,5 +25,58 @@ fn model_provider_manifest_uses_canonical_provider_id() {
     assert_eq!(
         provider.provider_manifest().provider_id,
         "provider.model.mimo"
+    );
+}
+
+#[test]
+fn kernel_plugin_exposes_the_standard_installation_surface() {
+    let manifest = mimo_code_kernel_plugin_manifest();
+    assert_eq!(manifest.plugin_id, "plugin.intelligence.mimo-code");
+    assert!(manifest.supports_profile("agent-installation"));
+    assert!(manifest
+        .provider_ids
+        .contains(&"provider.agent.installer.mimo-code".to_string()));
+
+    let provider_ids = mimo_code_provider_manifests()
+        .into_iter()
+        .map(|provider| provider.provider_id)
+        .collect::<Vec<_>>();
+    assert!(provider_ids.contains(&"provider.agent.installer.mimo-code".to_string()));
+
+    let plugin = MiMoCodeKernelPlugin::new();
+    assert_eq!(
+        plugin.agent_manifest().agent_id,
+        "agent.intelligence.mimo-code"
+    );
+    let report = plugin
+        .configure_runtime(RuntimeBuilder::new(
+            "runtime.mimo-code.installer",
+            plugin.agent_manifest(),
+        ))
+        .bootstrap()
+        .expect("mimo-code runtime bootstraps");
+    assert_eq!(
+        report
+            .runtime
+            .agent_installer()
+            .expect("typed installer")
+            .provider_manifest()
+            .provider_id,
+        "provider.agent.installer.mimo-code"
+    );
+}
+
+#[test]
+fn installer_descriptor_uses_the_latest_exact_sdk_version() {
+    let installer = mimo_code_agent_installer();
+    assert_eq!(
+        installer.provider_id(),
+        "provider.agent.installer.mimo-code"
+    );
+    assert_eq!(installer.packages()[0].package_id, MIMO_CODE_SDK_PACKAGE);
+    assert_eq!(installer.packages()[0].version, MIMO_CODE_SDK_VERSION);
+    assert_eq!(
+        mimo_code_package_manifest().source,
+        AgentPackageSource::registry("npm", MIMO_CODE_SDK_PACKAGE, MIMO_CODE_SDK_VERSION)
     );
 }

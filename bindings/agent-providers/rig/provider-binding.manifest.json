@@ -11,6 +11,13 @@
   "kernel_compatibility": {
     "agent_kernel": ">=0.1.0 <0.2.0"
   },
+  "language_packages": {
+    "rust": {
+      "crate": "rig-core",
+      "version": "0.41.0",
+      "optional": true
+    }
+  },
   "integration_sources": [
     {
       "mode": "source_tree",

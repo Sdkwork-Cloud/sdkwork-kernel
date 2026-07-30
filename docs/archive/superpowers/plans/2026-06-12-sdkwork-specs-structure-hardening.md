@@ -1,4 +1,4 @@
-# SDKWork Specs Structure Hardening Plan â€?Superseded
+# SDKWork Specs Structure Hardening Plan â€”Superseded
 
 > **Status:** Superseded on 2026-06-24. Do not implement from this file.
 

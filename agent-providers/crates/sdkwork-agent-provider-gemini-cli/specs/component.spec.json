@@ -4,7 +4,7 @@
   "component": {
     "name": "sdkwork-agent-provider-gemini-cli",
     "displayName": "SDKWork Agent Adapter Gemini CLI",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "type": "rust-crate",
     "root": "sdkwork-kernel/agent-providers/crates/sdkwork-agent-provider-gemini-cli",
     "domain": "intelligence",
@@ -59,14 +59,22 @@
     "publicExports": [
       "."
     ],
-    "runtimeEntrypoints": [],
+    "runtimeEntrypoints": [
+      "GeminiCliKernelPlugin::configure_runtime",
+      "gemini_cli_agent_definition",
+      "gemini_cli_agent_manifest",
+      "gemini_cli_provider_manifests",
+      "gemini_cli_agent_installer",
+      "gemini_cli_package_manifest",
+      "gemini_cli_kernel_plugin_manifest"
+    ],
     "routeManifest": null,
     "sdkDependencies": [],
     "dependencyApiExports": [],
     "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
-    "configKeys": []
+    "configKeys": ["SDKWORK_KERNEL_AGENT_PLUGIN"]
   },
   "verification": {
     "commands": [
@@ -74,8 +82,9 @@
     ]
   },
   "plugin": {
+    "pluginId": "plugin.intelligence.gemini-cli",
     "canonicalName": "plugin",
     "package": "sdkwork-agent-provider-gemini-cli",
-    "namingPolicy": "Adapter crates expose mapping types and providers through the crate root only."
+    "namingPolicy": "GeminiCliKernelPlugin and gemini_cli_kernel_plugin_manifest are canonical entrypoints."
   }
 }

@@ -3,13 +3,13 @@ use sdkwork_agent_kernel::{
     AgentPackageProviderBinding, AgentPackageSource,
 };
 
-use crate::ids;
+use crate::{ids, HERMES_PACKAGE, HERMES_PACKAGE_VERSION};
 
 pub fn hermes_package_manifest() -> AgentPackageManifest {
     AgentPackageManifest::new(
         ids::AGENT_ID,
         "0.2.0",
-        AgentPackageSource::registry("pypi", "hermes-agent", "0.17.0"),
+        AgentPackageSource::registry("pypi", HERMES_PACKAGE, HERMES_PACKAGE_VERSION),
     )
     .with_lifecycle(AgentPackageLifecycle::installable())
     .expect("hermes package lifecycle is valid")

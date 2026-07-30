@@ -1,4 +1,4 @@
-# Multi-Mode Agent System â€?Superseded Plan
+# Multi-Mode Agent System â€”Superseded Plan
 
 > **Status:** Superseded. Do not execute this checklist for new work.
 

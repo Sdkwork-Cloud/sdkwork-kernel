@@ -2998,17 +2998,28 @@ struct CapabilityMetadata {
 fn capability_metadata(capability_id: &str) -> CapabilityMetadata {
     match capability_id {
         "agent.install" => lifecycle_capability_metadata(
-            vec!["configuration_spec", "plan_install", "install", "health"],
+            vec![
+                "detect_installation",
+                "configuration_spec",
+                "plan_install",
+                "install",
+                "health",
+            ],
             SideEffectLevel::SideEffectful,
             PolicyCategory::AgentInstall,
         ),
         "agent.uninstall" => lifecycle_capability_metadata(
-            vec!["uninstall", "health"],
+            vec![
+                "detect_installation",
+                "plan_uninstall",
+                "uninstall",
+                "health",
+            ],
             SideEffectLevel::Destructive,
             PolicyCategory::AgentUninstall,
         ),
         "agent.upgrade" => lifecycle_capability_metadata(
-            vec!["plan_upgrade", "upgrade", "health"],
+            vec!["detect_installation", "plan_upgrade", "upgrade", "health"],
             SideEffectLevel::SideEffectful,
             PolicyCategory::AgentUpgrade,
         ),

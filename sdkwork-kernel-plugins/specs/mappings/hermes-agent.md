@@ -150,6 +150,8 @@ as Hermes coverage.
 - Local source pin (2026-06-24, not a latest-registry claim):
   `external/hermes-agent` @ `a4a74ca9e` with source `pyproject.toml` version
   `0.17.0`
+- Managed installer registry pin (verified 2026-07-30):
+  `hermes-agent==0.19.0`
 - Default runtime worker: `PythonSdkBackendRuntime` through
   `scripts/provider-transport-workers/generic_python_sdk_worker.py`, probing
   `run_agent`

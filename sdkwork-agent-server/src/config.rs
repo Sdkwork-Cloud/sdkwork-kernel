@@ -33,9 +33,7 @@ pub struct ServerConfig {
     pub max_body_size: usize,
     /// Health check endpoint path
     pub health_path: String,
-    /// SQLite database path for session persistence when runtime engine is sqlite.
-    pub database_path: String,
-    /// Runtime session database engine: sqlite | postgres
+    /// Canonical workspace database engine. The server accepts PostgreSQL only.
     pub runtime_database_engine: String,
     /// Retention window for transient sessions, messages, tasks, events, and permissions.
     pub runtime_retention_days: u32,
@@ -140,8 +138,7 @@ impl Default for ServerConfig {
             request_timeout_secs: 30,
             max_body_size: 1024 * 1024, // 1 MiB hard envelope; fields have stricter limits.
             health_path: "/healthz".to_string(),
-            database_path: "./data/agent-server.sqlite".to_string(),
-            runtime_database_engine: "sqlite".to_string(),
+            runtime_database_engine: "postgresql".to_string(),
             runtime_retention_days: 7,
             runtime_cleanup_batch_size: 500,
             runtime_cleanup_interval_secs: 300,
@@ -212,12 +209,15 @@ impl ServerConfig {
         if let Ok(timeout) = std::env::var("SDKWORK_REQUEST_TIMEOUT") {
             config.request_timeout_secs = timeout.parse()?;
         }
-        if let Ok(database_path) = std::env::var("SDKWORK_DATABASE_PATH") {
-            config.database_path = database_path;
-        }
-        if let Ok(engine) = std::env::var("SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE") {
-            config.runtime_database_engine = engine;
-        }
+        let database = sdkwork_database_config::DatabaseConfig::from_env("agent_runtime").map_err(
+            |error| anyhow::anyhow!("invalid SDKWORK_DATABASE_* configuration: {error}"),
+        )?;
+        config.runtime_database_engine = match database.engine {
+            sdkwork_database_config::DatabaseEngine::Postgres => "postgresql".to_string(),
+            sdkwork_database_config::DatabaseEngine::Sqlite => anyhow::bail!(
+                "sdkwork-agent-server requires SDKWORK_DATABASE_ENGINE=postgresql; SQLite is limited to declared client-local stores and test fixtures"
+            ),
+        };
         if let Ok(days) = std::env::var("SDKWORK_AGENT_RUNTIME_RETENTION_DAYS") {
             config.runtime_retention_days = days.parse()?;
         }
@@ -465,15 +465,6 @@ impl ServerConfig {
         {
             config.ingress_auth_mode = "token".to_string();
         }
-        if config.is_production_kernel_profile()
-            && config.kernel_runtime_target.as_deref() == Some("server")
-            && config
-                .runtime_database_engine
-                .eq_ignore_ascii_case("sqlite")
-            && std::env::var("SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE").is_err()
-        {
-            config.runtime_database_engine = "postgres".to_string();
-        }
         config.normalize_security();
 
         Ok(config)
@@ -621,12 +612,6 @@ impl ServerConfig {
                 .is_some_and(|value| !value.is_empty())
     }
 
-    pub fn requires_postgres_runtime_database(&self) -> bool {
-        self.is_production_kernel_profile()
-            && self.production_scaleout_profile()
-            && self.uses_postgres_runtime_database()
-    }
-
     pub fn is_development(&self) -> bool {
         self.environment.eq_ignore_ascii_case("development")
     }
@@ -759,7 +744,6 @@ mod tests {
             ..Default::default()
         };
         assert!(config.uses_postgres_runtime_database());
-        assert!(config.requires_postgres_runtime_database());
         assert!(config.requires_distributed_rate_limit());
         assert!(config.requires_distributed_idempotency());
     }

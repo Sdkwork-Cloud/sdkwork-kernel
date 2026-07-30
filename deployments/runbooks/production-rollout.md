@@ -22,8 +22,8 @@ staging smoke fixture only; it is never a production data plane.
 - Provision managed HA Redis with authentication, TLS where supported,
   failover monitoring, and capacity alarms. Redis is required for distributed
   rate limits and token quotas.
-- Set `SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres`, inject
-  `SDKWORK_AGENT_RUNTIME_DATABASE_URL` and `SDKWORK_RATE_LIMIT_REDIS_URL`, and
+- Set `SDKWORK_DATABASE_ENGINE=postgresql`, inject
+  `SDKWORK_DATABASE_URL` and `SDKWORK_RATE_LIMIT_REDIS_URL`, and
   keep `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS` unset.
 - Pass the approved provider runtime staging live gate.
 
@@ -61,7 +61,7 @@ SDKWORK_KERNEL_METRICS_TOKEN=<dedicated-secret>
 SDKWORK_CURSOR_SIGNING_SECRET=<dedicated-secret-at-least-32-bytes>
 SDKWORK_APPROVAL_PAYLOAD_ENCRYPTION_KEY=<dedicated-base64url-encoded-32-byte-key>
 SDKWORK_CORS_ORIGINS=<explicit-allowlist>
-SDKWORK_AGENT_RUNTIME_DATABASE_URL=<managed-postgresql-url>
+SDKWORK_DATABASE_URL=<managed-postgresql-url>
 SDKWORK_RATE_LIMIT_REDIS_URL=<managed-redis-url>
 ```
 
@@ -117,8 +117,7 @@ deployment.
    kubectl -n <namespace> rollout status deployment/sdkwork-agent-server
    ```
 
-   Do not apply `kubernetes/postgres-redis.yaml` or `kubernetes/pvc.yaml` to a
-   production namespace.
+   Do not apply `kubernetes/postgres-redis.yaml` to a production namespace.
 6. Verify three initial replicas are spread across required nodes/zones, no pod
    uses `:latest`, and any custom metrics adapter exposes the exact
    `sdkwork_kernel_*` names from `hpa.yaml`.
@@ -168,5 +167,5 @@ approval in the target package release evidence. At minimum run:
 - `pnpm verify:commercial`
 - `node --test tests/kernel_deployment_release.test.mjs`
 - `cargo test --test http_internal_runtime_contracts --manifest-path sdkwork-agent-server/Cargo.toml`
-- the live PostgreSQL contract with `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` set in
+- the live PostgreSQL contract with `SDKWORK_DATABASE_URL` set in
   the protected release environment

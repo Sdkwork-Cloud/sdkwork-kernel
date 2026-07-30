@@ -6,7 +6,7 @@ use sdkwork_agent_database::{
 use uuid::Uuid;
 
 pub fn default_client_database_path() -> String {
-    std::env::var("SDKWORK_CLIENT_DATABASE_PATH")
+    std::env::var("SDKWORK_DATABASE_FILE")
         .unwrap_or_else(|_| ".sdkwork/agent-client.sqlite".to_string())
 }
 

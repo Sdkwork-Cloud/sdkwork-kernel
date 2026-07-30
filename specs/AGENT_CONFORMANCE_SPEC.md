@@ -166,12 +166,38 @@ Required cases:
 - Missing required install/configuration providers fail closed during runtime
   bootstrap.
 - Installer can generate install plan before mutating host state.
+- Installer detects absent, exact-version, and degraded installations and
+  reports expected and detected dependency versions.
 - Install plan declares `agent.install` policy category for side-effectful
   installation.
 - Install report maps to `agent.install.installed`.
 - Upgrade plan declares source version, target version, and rollback
   requirement when applicable.
-- Uninstall distinguishes package removal from configuration/data removal.
+- Uninstall exposes a policy-checkable plan and distinguishes package removal
+  from configuration/data removal.
+- Install, upgrade, and uninstall dry-run paths do not mutate host state.
+- Exact-version install and upgrade are idempotent and verify detected state
+  after mutation; uninstall is idempotent and verifies owned packages are
+  absent.
+- Package-manager execution is shell-free, bounded, timed out, and maps only
+  safe errors. Detection timeouts fail closed instead of becoming a false
+  not-installed result; mutation commands use a separately bounded timeout.
+- Registry descriptors reject non-canonical names, tags/ranges, duplicate
+  packages, and mixed package managers before execution.
+- npm lifecycle scripts are disabled unless the exact provider release has an
+  explicit opt-in; Python installs are non-interactive and reject source-only
+  distributions.
+- Concurrent detections for one managed runtime can share access, while
+  install, upgrade, and uninstall are serialized with a bounded lock wait.
+- Mutation failures and failed final verification restore and re-verify the
+  pre-mutation dependency versions. Timed-out commands terminate their process
+  trees and cannot block indefinitely while draining inherited output pipes.
+- Planned reports never claim an installed version or emit success events;
+  lifecycle events encode untrusted delimiters and never expose rollback
+  handles or raw process output.
+- Package-only installers never report configuration/data removal they did not
+  perform, and embedded providers require a host update when self-replacement
+  or self-removal is impossible.
 - Installer and configuration provider expose deterministic fake behavior for
   tests.
 

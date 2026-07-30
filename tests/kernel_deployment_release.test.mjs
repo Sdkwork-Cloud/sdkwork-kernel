@@ -148,7 +148,6 @@ const requiredDeploymentArtifacts = [
   'deployments/kubernetes/deployment.yaml',
   'deployments/kubernetes/service.yaml',
   'deployments/kubernetes/configmap.yaml',
-  'deployments/kubernetes/pvc.yaml',
   'deployments/kubernetes/postgres-redis.yaml',
   'deployments/runbooks/production-rollout.md',
   'scripts/release/package-kernel-artifact.mjs',
@@ -173,7 +172,7 @@ test('cloud compose requires external managed dependencies and dedicated secrets
   assert.match(compose, /env_file:/);
   assert.match(compose, /configs\/topology\/cloud\.production\.env/);
   assert.match(compose, /SDKWORK_AGENT_SERVER_IMAGE:\?set an immutable agent-server image reference/);
-  assert.match(compose, /SDKWORK_AGENT_RUNTIME_DATABASE_URL:\?set the managed PostgreSQL runtime URL/);
+  assert.match(compose, /SDKWORK_DATABASE_URL:\?set the managed workspace PostgreSQL URL/);
   assert.match(compose, /SDKWORK_RATE_LIMIT_REDIS_URL:\?set the managed Redis rate-limit URL/);
   assert.match(compose, /SDKWORK_KERNEL_METRICS_TOKEN:\?set a dedicated SDKWORK_KERNEL_METRICS_TOKEN/);
   assert.match(compose, /SDKWORK_CORS_ORIGINS:\?set an explicit SDKWORK_CORS_ORIGINS allowlist/);
@@ -246,10 +245,12 @@ test('kubernetes configmap documents cloud deployment profile', () => {
   );
   assert.match(configMap, /SDKWORK_KERNEL_DEPLOYMENT_PROFILE:\s*cloud/);
   assert.match(configMap, /SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND:\s*0\.0\.0\.0:18280/);
-  assert.match(configMap, /SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE:\s*postgres/);
+  assert.match(configMap, /SDKWORK_DATABASE_ENGINE:\s*postgresql/);
   assert.match(configMap, /SDKWORK_KERNEL_AGENT_PLUGIN:\s*rig/);
   assert.doesNotMatch(configMap, /SDKWORK_RATE_LIMIT_REDIS_URL:/);
-  assert.doesNotMatch(configMap, /SDKWORK_AGENT_RUNTIME_DATABASE_URL:/);
+  assert.doesNotMatch(configMap, /SDKWORK_DATABASE_URL:/);
+  assert.match(configMap, /SDKWORK_DATABASE_NAME:\s*sdkwork_ai_prod/);
+  assert.match(configMap, /SDKWORK_DATABASE_SCHEMA:\s*sdkwork_ai_prod/);
   assert.doesNotMatch(configMap, /SDKWORK_KERNEL_HOSTING/);
   assert.doesNotMatch(configMap, /SDKWORK_BIND_ADDRESS/);
 });
@@ -259,7 +260,7 @@ test('kubernetes deployment injects runtime database and redis URLs from secrets
     path.join(root, 'deployments/kubernetes/deployment.yaml'),
     'utf8',
   );
-  assert.match(deployment, /SDKWORK_AGENT_RUNTIME_DATABASE_URL/);
+  assert.match(deployment, /SDKWORK_DATABASE_URL/);
   assert.match(deployment, /runtime-database-url/);
   assert.match(deployment, /SDKWORK_RATE_LIMIT_REDIS_URL/);
   assert.match(deployment, /runtime-redis-url/);
@@ -432,7 +433,7 @@ test('commercial release verification requires live dependencies explicitly', ()
   );
   assert.match(verifier, /--commercial-release/);
   assert.match(verifier, /SDKWORK_KERNEL_COMMERCIAL_RELEASE_VERIFY/);
-  assert.match(verifier, /SDKWORK_AGENT_RUNTIME_POSTGRES_URI/);
+  assert.match(verifier, /SDKWORK_DATABASE_URL/);
   assert.match(verifier, /SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS/);
   assert.match(verifier, /SDKWORK_KERNEL_STAGING_LIVE_SDK/);
   assert.match(verifier, /hermes-gateway-staging\.mjs/);
@@ -453,7 +454,7 @@ test('commercial release verification requires live dependencies explicitly', ()
     ['scripts/verify-kernel-audit-remediation.mjs', '--commercial-release'],
     {
       cwd: root,
-      env: { ...process.env, SDKWORK_AGENT_RUNTIME_POSTGRES_URI: '   ' },
+      env: { ...process.env, SDKWORK_DATABASE_URL: '   ' },
       encoding: 'utf8',
       timeout: 10_000,
     },
@@ -514,7 +515,7 @@ test('commercial readiness docs distinguish merge and release dependency gates',
   );
   assert.match(requirement, /pnpm verify:commercial/);
   assert.match(requirement, /commercial release verification fails closed/i);
-  assert.match(requirement, /SDKWORK_AGENT_RUNTIME_POSTGRES_URI/);
+  assert.match(requirement, /SDKWORK_DATABASE_URL/);
   assert.match(requirement, /SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS/);
   assert.match(requirement, /SDKWORK_KERNEL_STAGING_HERMES_GATEWAY/);
   assert.match(requirement, /Hermes-specific staging gateway proof/);

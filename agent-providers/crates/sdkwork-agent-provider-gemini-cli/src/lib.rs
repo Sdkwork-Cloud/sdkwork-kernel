@@ -16,6 +16,7 @@ mod agent_definition;
 mod configuration;
 mod conformance;
 pub mod ids;
+mod installer;
 mod local_plugins;
 mod manifest;
 mod package;
@@ -866,6 +867,7 @@ mod tests {
 pub mod sdk_integration;
 pub use agent_definition::{gemini_cli_agent_definition, gemini_cli_agent_manifest};
 pub use configuration::{GeminiCliConfigurationProvider, GEMINI_SDK_DEFAULT_ACCESS_MODE_ID};
+pub use installer::{gemini_cli_agent_installer, GEMINI_CLI_PACKAGE, GEMINI_CLI_VERSION};
 pub use local_plugins::GeminiCliLocalPluginProvider;
 pub use manifest::{
     gemini_cli_kernel_plugin_manifest, gemini_cli_provider_manifests, GeminiCliKernelPlugin,

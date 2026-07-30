@@ -190,11 +190,9 @@ reconcile, verify, and cut over the runtime.
   select one target runtime, reconcile leases and durable work, and remove old
   serving endpoints before the single runtime becomes authoritative.
 - PostgreSQL must be the supported shared-state path for cluster mode.
-- SQLite remains supported for local single mode, but moving between SQLite and
-  a cluster requires an explicit offline or bounded migration with validation;
-  it is not a configuration-only switch.
-- Using PostgreSQL in both modes should provide the lowest-risk operational
-  transition path.
+- Standalone and cluster server modes use the same workspace PostgreSQL
+  authority. SQLite is limited to declared client-local stores and test
+  fixtures and is never a server mode transition target.
 
 ## 7. Ownership Boundary
 
@@ -331,8 +329,9 @@ kernel cluster internals as a new product API.
   and active-session version stability.
 - Single-to-cluster and cluster-to-single transition tests prove that only one
   coordination authority accepts new side effects at any point.
-- Cluster production validation rejects SQLite as shared runtime storage and
-  rejects missing service identity or required discovery configuration.
+- Every server profile rejects SQLite as runtime storage, and cluster
+  production validation rejects missing service identity or required discovery
+  configuration.
 - Cluster and single diagnostics explicitly identify the active coordination
   mode and any unavailable optional capabilities.
 - Bounded contention, failure-injection, load, slow-consumer, shutdown, and
@@ -390,4 +389,6 @@ kernel cluster internals as a new product API.
 - Commercial readiness: [PRD-03-commercial-readiness-baseline.md](PRD-03-commercial-readiness-baseline.md)
 - Ecosystem ownership: [PRD-04-ecosystem-architecture.md](PRD-04-ecosystem-architecture.md)
 - Existing durable runtime decision: [ADR-20260716-durable-runtime-execution.md](../../architecture/decisions/ADR-20260716-durable-runtime-execution.md)
-- Engineering requirement and cluster ADR: to be created after this draft PRD is accepted
+- Candidate engineering requirement: [REQ-2026-0002-distributed-execution-placement-control-plane.md](../requirements/REQ-2026-0002-distributed-execution-placement-control-plane.md)
+- Candidate cluster/placement ADR: [ADR-20260730-distributed-execution-placement-control-plane.md](../../architecture/decisions/ADR-20260730-distributed-execution-placement-control-plane.md)
+- Pending review: [REVIEW-20260730-distributed-execution-placement.md](../../engineering/reviews/REVIEW-20260730-distributed-execution-placement.md)

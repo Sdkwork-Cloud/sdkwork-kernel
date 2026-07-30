@@ -8,7 +8,10 @@ use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelResult,
     SessionState,
 };
-use sdkwork_agent_provider_core::{epoch_millis_to_rfc3339, SessionAdapter};
+use sdkwork_agent_provider_core::{
+    epoch_millis_to_rfc3339, ProviderSessionHistoryBudget, ProviderSessionHistoryLimits,
+    SessionAdapter,
+};
 use serde_json::Value;
 
 use crate::{CodexAdapter, CodexSessionMeta};
@@ -64,11 +67,26 @@ fn read_codex_rollout_messages(
     rollout_path: &Path,
     session_id: &str,
 ) -> KernelResult<Vec<AgentMessage>> {
+    read_codex_rollout_messages_with_limits(
+        rollout_path,
+        session_id,
+        ProviderSessionHistoryLimits::default(),
+    )
+}
+
+fn read_codex_rollout_messages_with_limits(
+    rollout_path: &Path,
+    session_id: &str,
+    limits: ProviderSessionHistoryLimits,
+) -> KernelResult<Vec<AgentMessage>> {
+    let mut budget = ProviderSessionHistoryBudget::new(limits);
+    budget.validate_file_size(rollout_path)?;
     let file = File::open(rollout_path).map_err(codex_transcript_io_error)?;
     let mut messages = Vec::new();
     let mut seen_message_ids = HashSet::new();
     for (line_index, line) in BufReader::new(file).lines().enumerate() {
         let line = line.map_err(codex_transcript_io_error)?;
+        budget.record_source(line.len())?;
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
@@ -81,6 +99,7 @@ fn read_codex_rollout_messages(
         if let Some(timestamp) = value.get("timestamp").and_then(Value::as_str) {
             message = message.created_at(timestamp);
         }
+        budget.record_message()?;
         messages.push(message);
     }
     Ok(messages)
@@ -1179,5 +1198,32 @@ mod tests {
         assert_eq!(messages[17].role, AgentMessageRole::Agent);
         assert_eq!(messages[17].parts[0].text.as_deref(), Some("world"));
         std::fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn rejects_rollout_source_records_beyond_the_history_budget() {
+        let rollout_path = std::env::temp_dir().join(format!(
+            "sdkwork-codex-provider-session-budget-{}.jsonl",
+            std::process::id()
+        ));
+        let line = concat!(
+            "{\"timestamp\":\"2026-07-30T00:00:00Z\",\"type\":\"response_item\",",
+            "\"payload\":{\"type\":\"message\",\"id\":\"message-user\",",
+            "\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"hello\"}]}}\n"
+        );
+        std::fs::write(&rollout_path, format!("{line}{line}")).expect("history budget fixture");
+
+        let error = read_codex_rollout_messages_with_limits(
+            &rollout_path,
+            "session-budget",
+            ProviderSessionHistoryLimits {
+                max_source_records: 1,
+                max_messages: 10,
+                max_serialized_bytes: 16 * 1024,
+            },
+        )
+        .expect_err("oversized source record inventory must fail");
+        assert!(error.to_string().contains("exceeds 1 source records"));
+        std::fs::remove_file(rollout_path).expect("remove history budget fixture");
     }
 }

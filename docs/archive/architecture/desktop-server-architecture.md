@@ -22,7 +22,7 @@ The original comparative design (Tauri desktop vs Axum server, unified `AgentRun
 
 | UI shell | Product application repository consuming `@sdkwork/agent-internal-sdk` | Same integration against topology public HTTP |
 | Client runtime | `sdkwork-agent-client` `AgentClient` — **Local**, **Remote**, **Hybrid** | Consumers use **Remote** + typed internal SDK |
-| Local persistence | SQLite via `SDKWORK_CLIENT_DATABASE_PATH` (`sdkwork-agent-client/src/session/sqlite.rs`) | N/A on client |
+| Local persistence | SQLite via `SDKWORK_DATABASE_FILE` (`sdkwork-agent-client/src/session/sqlite.rs`) | N/A on client |
 | Server persistence | N/A | Postgres runtime DB + Redis rate limits (topology `*.production.env`) |
 | Streaming ingress | **Remote:** `SseChatClient` → `/internal/v3/api/intelligence/runtime/*` | Same internal-api surface |
 | Local SDK chat | OpenClaw, Hermes, Codex → `SdkModelBridgeRuntime` | Server-side via `SDKWORK_KERNEL_AGENT_PLUGIN` |

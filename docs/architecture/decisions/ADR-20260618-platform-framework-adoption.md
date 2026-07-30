@@ -61,8 +61,8 @@ Adopt platform frameworks for kernel runtime surfaces with executable verificati
 ### Phase 3 — `sdkwork-database` integration (complete)
 
 - `sdkwork-agent-database` `postgres-sync` uses `sdkwork-database-config` and `sdkwork-database-sqlx`.
-- Runtime PostgreSQL URL resolves via `SDKWORK_AGENT_RUNTIME_DATABASE_URL` or
-  `SDKWORK_AGENT_RUNTIME_POSTGRES_URI` (`AGENT_RUNTIME` service name).
+- Runtime PostgreSQL resolves exclusively through the workspace-scoped
+  `SDKWORK_DATABASE_*` profile; `agent_runtime` identifies table ownership only.
 
 ### Phase 4 — packaging (complete)
 

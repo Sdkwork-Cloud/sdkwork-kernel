@@ -11,6 +11,7 @@ use sdkwork_agent_provider_transport_ipc::{
     SDKWORK_PING_METHOD,
 };
 use serde_json::{json, Value};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
@@ -541,7 +542,27 @@ fn spawn_worker(options: &NodeWorkerLaunchOptions) -> Result<SpawnedWorker, Tran
         .arg(&options.worker_script)
         .arg("--package")
         .arg(&options.package_name);
+    prepend_provider_runtime_bin_to_path(&mut command);
     SpawnedWorker::spawn(command)
+}
+
+fn prepend_provider_runtime_bin_to_path(command: &mut Command) {
+    let Some(root) = provider_runtime_root() else {
+        return;
+    };
+    if let Some(path) = provider_worker_path(&root, std::env::var_os("PATH")) {
+        command.env("PATH", path);
+    }
+}
+
+fn provider_worker_path(root: &Path, inherited_path: Option<OsString>) -> Option<OsString> {
+    let provider_bin = root.join("node_modules").join(".bin");
+    let inherited = inherited_path
+        .as_deref()
+        .map(std::env::split_paths)
+        .into_iter()
+        .flatten();
+    std::env::join_paths(std::iter::once(provider_bin).chain(inherited)).ok()
 }
 
 fn map_transport_error(error: TransportError) -> SdkRuntimeError {
@@ -704,6 +725,23 @@ mod tests {
         assert_eq!(default_node_binary(), explicit_node.to_string_lossy());
 
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn provider_runtime_bin_precedes_the_inherited_worker_path() {
+        let root = PathBuf::from("provider-runtime-test");
+        let inherited = std::env::join_paths([
+            PathBuf::from("existing-bin-one"),
+            PathBuf::from("existing-bin-two"),
+        ])
+        .expect("test path");
+
+        let path = provider_worker_path(&root, Some(inherited)).expect("worker path");
+        let entries: Vec<_> = std::env::split_paths(&path).collect();
+
+        assert_eq!(entries[0], root.join("node_modules").join(".bin"));
+        assert_eq!(entries[1], PathBuf::from("existing-bin-one"));
+        assert_eq!(entries[2], PathBuf::from("existing-bin-two"));
     }
 
     #[test]

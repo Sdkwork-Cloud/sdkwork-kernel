@@ -89,6 +89,8 @@ Target: local-runtime profile with full typed provider registration.
 
 - Provider crate: `agent-providers/crates/sdkwork-agent-provider-mimo-code`
 - SDK binding: `bindings/agent-providers/mimo-code/provider-binding.manifest.json`
+- Managed installer registry pin (verified 2026-07-30):
+  `@mimo-ai/sdk@0.1.9`
 - Runtime worker: `@mimo-ai/sdk` via `NodeSdkBackendRuntime`; resolve it
   from the installed npm package or inject an importable local package with
   `SDKWORK_AGENT_SDK_PACKAGE_PATHS`. The broad `external/mimo-code` checkout is

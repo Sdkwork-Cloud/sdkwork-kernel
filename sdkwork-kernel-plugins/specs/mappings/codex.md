@@ -74,6 +74,8 @@ and client bridge SDK routing through `SDKWORK_KERNEL_AGENT_PLUGIN`.
 - SDK binding: `bindings/agent-providers/codex/provider-binding.manifest.json`
 - Client bridge plugin: `sdkwork-agent-client` `builtin.codex` routes local chat through `CodexSdkIntegration` model provider (`SdkModelBridgeRuntime`); remote mode uses internal-api `SseChatClient`
 - Server bootstrap: `SDKWORK_KERNEL_AGENT_PLUGIN=codex`
+- Managed installer registry pin (verified 2026-07-30):
+  `@openai/codex-sdk@0.146.0`
 - Runtime worker: `@openai/codex-sdk` via `NodeSdkBackendRuntime` + in-process Rust handler.
   The official SDK path uses `startThread()` or `resumeThread(threadId)` with
   native `ThreadOptions` for model, sandbox, approval policy, working directory,

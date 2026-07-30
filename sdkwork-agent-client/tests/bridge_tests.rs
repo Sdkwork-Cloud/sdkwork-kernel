@@ -180,7 +180,7 @@ fn test_registry_list_all_sessions_sorted_by_updated_at() {
         Uuid::new_v4()
     ));
     std::env::set_var(
-        "SDKWORK_CLIENT_DATABASE_PATH",
+        "SDKWORK_DATABASE_FILE",
         database_path.to_string_lossy().as_ref(),
     );
 

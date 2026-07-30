@@ -14,7 +14,7 @@
   "language_packages": {
     "typescript": {
       "package": "openai",
-      "version": "6.46.0",
+      "version": "7.1.0",
       "optional": false
     }
   },

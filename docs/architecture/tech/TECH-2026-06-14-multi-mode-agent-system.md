@@ -56,7 +56,7 @@ Ingress auth: `sdkwork-agent-client/src/ingress_auth.rs` (MAC / bearer profiles 
 | `builtin.zeroclaw` | ZeroClaw | Fail-closed until adapter exists | Session store only |
 | `builtin.*` (codex registry) | Codex | same as codex | SDK-backed |
 
-Shared session store: `sdkwork-agent-client/src/session/` (SQLite via `SDKWORK_CLIENT_DATABASE_PATH`).
+Client-local session store: `sdkwork-agent-client/src/session/` (SQLite via `SDKWORK_DATABASE_FILE`).
 
 Streaming on local SDK bridges is rejected; use **Remote** + `HttpRestSse` for streaming.
 `SseChatClient` async methods are the preferred API for async hosts. Its sync

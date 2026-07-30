@@ -2,7 +2,6 @@
 
 use sdkwork_database_config::{DatabaseConfig, DatabaseEngine};
 use sdkwork_database_sqlx::{create_pool_from_config, DatabasePool, PoolError};
-use sdkwork_utils_rust::is_blank;
 use sqlx::PgPool;
 use std::future::Future;
 use std::mem::ManuallyDrop;
@@ -101,14 +100,6 @@ impl BlockingPostgresPool {
     }
 
     pub async fn connect_from_sdkwork_env_async(service_name: &str) -> DatabaseResult<Self> {
-        let legacy_uri_key = format!("SDKWORK_{}_POSTGRES_URI", service_name.to_uppercase());
-        if let Ok(uri) = std::env::var(&legacy_uri_key) {
-            let trimmed = uri.trim();
-            if !is_blank(Some(trimmed)) {
-                return Self::connect_async(trimmed).await;
-            }
-        }
-
         let config = DatabaseConfig::from_env(service_name).map_err(map_database_config_error)?;
         match config.engine {
             DatabaseEngine::Postgres => Self::connect_from_config_async(config).await,
@@ -119,14 +110,6 @@ impl BlockingPostgresPool {
     }
 
     pub fn connect_from_sdkwork_env(service_name: &str) -> DatabaseResult<Self> {
-        let legacy_uri_key = format!("SDKWORK_{}_POSTGRES_URI", service_name.to_uppercase());
-        if let Ok(uri) = std::env::var(&legacy_uri_key) {
-            let trimmed = uri.trim();
-            if !is_blank(Some(trimmed)) {
-                return Self::connect(trimmed);
-            }
-        }
-
         let config = DatabaseConfig::from_env(service_name).map_err(map_database_config_error)?;
         match config.engine {
             DatabaseEngine::Postgres => Self::connect_from_config(config),
@@ -213,7 +196,7 @@ mod tests {
     #[tokio::test]
     async fn connect_inside_existing_tokio_runtime_returns_error_without_nested_runtime_panic() {
         let result = BlockingPostgresPool::connect(
-            "postgres://sdkwork:sdkwork@127.0.0.1:1/sdkwork_agent_runtime",
+            "postgres://sdkwork_ai_test:test@127.0.0.1:1/sdkwork_ai_test",
         );
 
         assert!(

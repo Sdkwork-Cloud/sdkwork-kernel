@@ -1,8 +1,12 @@
-use sdkwork_agent_kernel::{AgentProviderFamily, ModelProvider};
+use sdkwork_agent_kernel::{
+    AgentPackageSource, AgentProviderFamily, ModelProvider, RuntimeBuilder,
+};
 use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
 use sdkwork_agent_provider_openclaw::{
-    openclaw_agent_definition, openclaw_kernel_plugin_manifest, openclaw_provider_manifests,
-    OpenClawKernelPlugin, OpenClawModelProvider,
+    openclaw_agent_definition, openclaw_agent_installer, openclaw_kernel_plugin_manifest,
+    openclaw_package_manifest, openclaw_provider_manifests, OpenClawKernelPlugin,
+    OpenClawModelProvider, OPENAI_SDK_PACKAGE, OPENAI_SDK_VERSION, OPENCLAW_PACKAGE,
+    OPENCLAW_PACKAGE_VERSION,
 };
 use serde_json::Value;
 
@@ -39,6 +43,7 @@ fn kernel_plugin_manifest_declares_runtime_providers() {
         .provider_ids
         .contains(&"provider.tool.openclaw".to_string()));
     assert!(manifest.supports_profile("provider-model"));
+    assert!(manifest.supports_profile("agent-installation"));
     assert!(!manifest.supports_profile("provider-tool"));
 }
 
@@ -51,6 +56,22 @@ fn provider_manifests_exclude_agent_internal_tools() {
     assert!(provider_ids.contains(&"provider.model.openclaw".to_string()));
     assert!(!provider_ids.contains(&"provider.tool.openclaw".to_string()));
     assert!(provider_ids.contains(&"provider.policy.sdk-standard".to_string()));
+    assert!(provider_ids.contains(&"provider.agent.installer.openclaw".to_string()));
+}
+
+#[test]
+fn installer_descriptor_uses_the_latest_exact_runtime_versions() {
+    let installer = openclaw_agent_installer();
+    assert_eq!(installer.provider_id(), "provider.agent.installer.openclaw");
+    assert_eq!(installer.packages()[0].package_id, OPENCLAW_PACKAGE);
+    assert_eq!(installer.packages()[0].version, OPENCLAW_PACKAGE_VERSION);
+    assert_eq!(installer.packages()[1].package_id, OPENAI_SDK_PACKAGE);
+    assert_eq!(installer.packages()[1].version, OPENAI_SDK_VERSION);
+    assert!(installer.install_scripts_enabled());
+    assert_eq!(
+        openclaw_package_manifest().source,
+        AgentPackageSource::registry("npm", OPENCLAW_PACKAGE, OPENCLAW_PACKAGE_VERSION)
+    );
 }
 
 #[test]
@@ -76,5 +97,21 @@ fn kernel_plugin_configures_runtime() {
     assert_eq!(
         plugin.agent_manifest().agent_id,
         "agent.intelligence.openclaw"
+    );
+    let report = plugin
+        .configure_runtime(RuntimeBuilder::new(
+            "runtime.openclaw.installer",
+            plugin.agent_manifest(),
+        ))
+        .bootstrap()
+        .expect("openclaw runtime bootstraps");
+    assert_eq!(
+        report
+            .runtime
+            .agent_installer()
+            .expect("typed installer")
+            .provider_manifest()
+            .provider_id,
+        "provider.agent.installer.openclaw"
     );
 }

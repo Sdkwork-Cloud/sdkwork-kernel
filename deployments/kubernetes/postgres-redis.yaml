@@ -48,14 +48,14 @@ spec:
             - containerPort: 5432
           env:
             - name: POSTGRES_USER
-              value: sdkwork
+              value: sdkwork_ai_dev
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: sdkwork-agent-server
                   key: runtime-postgres-password
             - name: POSTGRES_DB
-              value: sdkwork_agent_runtime
+              value: sdkwork_ai_dev
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data

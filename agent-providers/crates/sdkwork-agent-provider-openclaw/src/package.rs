@@ -3,13 +3,13 @@ use sdkwork_agent_kernel::{
     AgentPackageProviderBinding, AgentPackageSource,
 };
 
-use crate::ids;
+use crate::{ids, OPENCLAW_PACKAGE, OPENCLAW_PACKAGE_VERSION};
 
 pub fn openclaw_package_manifest() -> AgentPackageManifest {
     AgentPackageManifest::new(
         ids::AGENT_ID,
         "0.2.0",
-        AgentPackageSource::registry("npm", "openclaw", "2026.6.10"),
+        AgentPackageSource::registry("npm", OPENCLAW_PACKAGE, OPENCLAW_PACKAGE_VERSION),
     )
     .with_lifecycle(AgentPackageLifecycle::installable())
     .expect("openclaw package lifecycle is valid")

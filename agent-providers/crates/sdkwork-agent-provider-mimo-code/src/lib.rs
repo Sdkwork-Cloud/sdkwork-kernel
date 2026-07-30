@@ -386,8 +386,21 @@ sdkwork_agent_provider_core::define_provider_lifecycle_provider!(
     "mimo-code"
 );
 
+mod agent_definition;
+mod conformance;
+pub mod ids;
+mod installer;
+mod manifest;
+mod package;
 mod sdk_integration;
 
+pub use agent_definition::{mimo_code_agent_definition, mimo_code_agent_manifest};
+pub use conformance::mimo_code_conformance_profile;
+pub use installer::{mimo_code_agent_installer, MIMO_CODE_SDK_PACKAGE, MIMO_CODE_SDK_VERSION};
+pub use manifest::{
+    mimo_code_kernel_plugin_manifest, mimo_code_provider_manifests, MiMoCodeKernelPlugin,
+};
+pub use package::mimo_code_package_manifest;
 pub use sdk_integration::{mimo_code_binding_manifest, MiMoCodeSdkIntegration};
 
 // ============================================================================`r`n// Tests

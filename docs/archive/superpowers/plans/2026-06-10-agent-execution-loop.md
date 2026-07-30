@@ -1,4 +1,4 @@
-# Agent Execution Loop Plan â€?Superseded
+# Agent Execution Loop Plan â€”Superseded
 
 > **Status:** Superseded on 2026-06-24. Do not implement from this file.
 

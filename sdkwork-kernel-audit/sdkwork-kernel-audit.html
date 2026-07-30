@@ -506,7 +506,7 @@ pub async fn force_close_timer() {
         </div>
         <div class="issue-meta">文件: deployments/kubernetes/configmap.yaml:16, configs/topology/cloud.split-services.production.env:25</div>
         <div class="issue-desc">
-          <p>Kubernetes ConfigMap 中明文存储数据库连接字符串：<code>postgresql://sdkwork:sdkwork@postgres:5432/sdkwork_agent_runtime</code>。ConfigMap 是明文存储的，任何有读取 ConfigMap 权限的 Kubernetes 用户或服务账号都能看到密码。</p>
+          <p>Kubernetes ConfigMap 中曾明文存储带凭据的模块私有数据库连接字符串。ConfigMap 是明文存储的，任何有读取 ConfigMap 权限的 Kubernetes 用户或服务账号都能看到密码。</p>
           <p>拓扑配置文件中同样存在 <code>postgresql://sdkwork:CHANGE_ME@postgres:5432/...</code>，虽然使用了占位符但仍是明文格式。</p>
         </div>
         <div class="issue-fix"><strong>修复建议：</strong>数据库连接字符串通过 Kubernetes Secret 注入，使用 <code>secretKeyRef</code> 替代 ConfigMap 中的数据库 URL。生产环境强制密码复杂度校验。</div>

@@ -265,35 +265,20 @@ pub fn validate(config: &ServerConfig) -> PreflightResult {
         });
     }
 
-    if config.requires_postgres_runtime_database() && !postgres_runtime_uri_configured() {
+    if !config.uses_postgres_runtime_database() {
+        checks.push(PreflightCheck {
+            name: "runtime_database_role".to_string(),
+            status: PreflightStatus::Failed,
+            message: "sdkwork-agent-server authoritative persistence requires SDKWORK_DATABASE_ENGINE=postgresql"
+                .to_string(),
+        });
+    }
+
+    if config.is_production_kernel_profile() && !canonical_workspace_postgres_configured() {
         checks.push(PreflightCheck {
             name: "runtime_postgres".to_string(),
             status: PreflightStatus::Failed,
-            message: "Production cloud/server deployments require SDKWORK_AGENT_RUNTIME_DATABASE_URL or SDKWORK_AGENT_RUNTIME_POSTGRES_URI for shared session persistence"
-                .to_string(),
-        });
-    }
-
-    if config.is_production_kernel_profile()
-        && config.uses_postgres_runtime_database()
-        && !postgres_runtime_uri_configured()
-    {
-        checks.push(PreflightCheck {
-            name: "runtime_postgres_uri".to_string(),
-            status: PreflightStatus::Failed,
-            message: "PostgreSQL runtime engine requires SDKWORK_AGENT_RUNTIME_DATABASE_URL or SDKWORK_AGENT_RUNTIME_POSTGRES_URI"
-                .to_string(),
-        });
-    }
-
-    if config.is_production_kernel_profile()
-        && !config.uses_postgres_runtime_database()
-        && config.production_scaleout_profile()
-    {
-        checks.push(PreflightCheck {
-            name: "runtime_sqlite_scaling".to_string(),
-            status: PreflightStatus::Failed,
-            message: "SQLite runtime persistence cannot scale horizontally; set SDKWORK_AGENT_RUNTIME_DATABASE_ENGINE=postgres for multi-replica production deployments"
+            message: "Production requires an explicit, valid SDKWORK_DATABASE_* PostgreSQL profile"
                 .to_string(),
         });
     }
@@ -351,17 +336,12 @@ fn secure_compare_bytes(left: &[u8], right: &[u8]) -> bool {
         == 0
 }
 
-fn postgres_runtime_uri_configured() -> bool {
-    [
-        "SDKWORK_AGENT_RUNTIME_DATABASE_URL",
-        "SDKWORK_AGENT_RUNTIME_POSTGRES_URI",
-    ]
-    .into_iter()
-    .any(|key| {
-        std::env::var(key)
-            .ok()
-            .is_some_and(|value| !value.trim().is_empty())
-    })
+fn canonical_workspace_postgres_configured() -> bool {
+    if !sdkwork_database_config::workspace_database::workspace_database_env_is_configured() {
+        return false;
+    }
+    sdkwork_database_config::DatabaseConfig::from_env("agent_runtime")
+        .is_ok_and(|config| config.engine == sdkwork_database_config::DatabaseEngine::Postgres)
 }
 
 fn validate_bind_address(address: &str) -> PreflightCheck {

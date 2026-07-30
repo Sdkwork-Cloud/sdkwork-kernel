@@ -1,11 +1,11 @@
-use crate::{CodexConfigurationProvider, CodexSdkIntegration};
+use crate::{codex_agent_installer, CodexConfigurationProvider, CodexSdkIntegration};
 use sdkwork_agent_kernel::{
-    AgentDefinition, AgentManifest, AgentPackageManifest, ModelProvider, ProviderManifest,
-    RuntimeBuilder,
+    AgentDefinition, AgentInstaller, AgentManifest, AgentPackageManifest, ModelProvider,
+    ProviderManifest, RuntimeBuilder,
 };
 use sdkwork_agent_plugin_core::{
-    KernelPluginConformanceProfile, KernelPluginManifest, ProcessAdapterInstaller,
-    SdkStandardPolicyProvider, SdkworkKernelPlugin,
+    KernelPluginConformanceProfile, KernelPluginManifest, SdkStandardPolicyProvider,
+    SdkworkKernelPlugin,
 };
 
 use crate::{
@@ -33,6 +33,7 @@ pub fn codex_kernel_plugin_manifest() -> KernelPluginManifest {
         .with_provider_id(ids::INSTALLER_PROVIDER_ID)
         .with_provider_id(ids::CONFIGURATION_PROVIDER_ID)
         .with_supported_profile("runtime-manifest")
+        .with_supported_profile("agent-installation")
         .with_supported_profile("provider-model")
         .with_supported_profile("security-baseline")
 }
@@ -42,7 +43,19 @@ pub fn codex_provider_manifests() -> Vec<ProviderManifest> {
     vec![
         integration.model.provider_manifest(),
         SdkStandardPolicyProvider::new(ids::POLICY_PROVIDER_ID).provider_manifest_for(),
+        codex_agent_installer().provider_manifest(),
+        configuration_provider_manifest(ids::CONFIGURATION_PROVIDER_ID, "codex-configuration"),
     ]
+}
+
+fn configuration_provider_manifest(provider_id: &str, name: &str) -> ProviderManifest {
+    ProviderManifest::new(
+        provider_id,
+        "agent_configuration",
+        name,
+        env!("CARGO_PKG_VERSION"),
+        vec!["agent.configure".to_string()],
+    )
 }
 
 impl SdkworkKernelPlugin for CodexKernelPlugin {
@@ -81,8 +94,8 @@ impl SdkworkKernelPlugin for CodexKernelPlugin {
             )
             .register_agent_installer(
                 ids::INSTALLER_PROVIDER_ID,
-                "0.1.0",
-                ProcessAdapterInstaller::new(ids::AGENT_ID, "codex"),
+                env!("CARGO_PKG_VERSION"),
+                codex_agent_installer(),
             )
             .register_agent_configuration(
                 ids::CONFIGURATION_PROVIDER_ID,

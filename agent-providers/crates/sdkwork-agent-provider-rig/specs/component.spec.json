@@ -4,7 +4,7 @@
   "component": {
     "name": "sdkwork-agent-provider-rig",
     "displayName": "SDKWork Agent Plugin Rig",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "type": "rust-crate",
     "root": "sdkwork-kernel/agent-providers/crates/sdkwork-agent-provider-rig",
     "domain": "intelligence",
@@ -65,6 +65,7 @@
       "rig_agent_definition",
       "rig_agent_manifest",
       "rig_provider_manifests",
+      "RigAgentInstaller",
       "rig_package_manifest",
       "rig_kernel_plugin_manifest",
       "RigSdkIntegration::bootstrap",

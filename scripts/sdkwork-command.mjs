@@ -13,7 +13,6 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 
-const ALLOWED_DATABASES = new Set(['postgres', 'sqlite']);
 const ALLOWED_DEPLOYMENT_PROFILES = new Set(['standalone', 'cloud']);
 const ALLOWED_ENVIRONMENTS = new Set(['development', 'test', 'staging', 'production']);
 const ALLOWED_RUNTIME_TARGETS = new Set([
@@ -35,7 +34,7 @@ const ALLOWED_RUNTIME_TARGETS = new Set([
 ]);
 
 const RETIRED_VALUES = new Set(['self-hosted', 'cloud-hosted', 'hosting', 'web', 'mobile', 'native', 'docker']);
-const RETIRED_FLAGS = new Set(['service-layout']);
+const RETIRED_FLAGS = new Set(['service-layout', 'database']);
 
 function parseArgs(argv) {
   const args = { command: null, flags: {} };
@@ -54,7 +53,6 @@ function parseArgs(argv) {
 
 function validateAxisValues(flags) {
   const {
-    database,
     'deployment-profile': deploymentProfile,
     environment,
     'runtime-target': runtimeTarget,
@@ -62,13 +60,13 @@ function validateAxisValues(flags) {
 
   for (const flagName of Object.keys(flags)) {
     if (RETIRED_FLAGS.has(flagName)) {
+      if (flagName === 'database') {
+        console.error('[sdkwork-kernel] Retired flag --database. Server runtime always uses the SDKWORK_DATABASE_* PostgreSQL profile.');
+        process.exit(1);
+      }
       console.error(`[sdkwork-kernel] Retired flag --${flagName}. Use --deployment-profile and --environment.`);
       process.exit(1);
     }
-  }
-  if (database && !ALLOWED_DATABASES.has(database)) {
-    console.error(`[sdkwork-kernel] Invalid database: ${database}`);
-    process.exit(1);
   }
   if (deploymentProfile && !ALLOWED_DEPLOYMENT_PROFILES.has(deploymentProfile)) {
     console.error(`[sdkwork-kernel] Invalid deployment-profile: ${deploymentProfile}`);
@@ -119,7 +117,6 @@ Commands:
 
 Dev flags:
   --runtime-target <server|browser|...>   Default: server
-  --database <postgres|sqlite>          Default: postgres
   --deployment-profile <standalone|cloud>            Default: standalone
   --environment <development|test|staging|production> Default: development
   --dry-run
@@ -135,7 +132,6 @@ function dispatch({ command, flags }) {
   validateAxisValues(flags);
 
   const runtimeTarget = flags['runtime-target'] || 'server';
-  const database = flags.database || 'postgres';
   const deploymentProfile = flags['deployment-profile'] || 'standalone';
   const environment = flags.environment || 'development';
 
@@ -143,10 +139,6 @@ function dispatch({ command, flags }) {
     case 'dev': {
       if (runtimeTarget !== 'server') {
         console.error('[sdkwork-kernel] Only --runtime-target server is supported for kernel dev today.');
-        process.exit(1);
-      }
-      if (database !== 'postgres') {
-        console.error('[sdkwork-kernel] Kernel dev requires --database postgres.');
         process.exit(1);
       }
       const devArgs = [

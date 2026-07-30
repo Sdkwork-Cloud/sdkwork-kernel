@@ -245,9 +245,9 @@ user message.
 
 | Store | Owner | Env prefix |
 | --- | --- | --- |
-| Runtime session DB | Kernel | `SDKWORK_AGENT_SERVER_DATABASE_*` |
-| Client local sessions | Kernel client | `SDKWORK_CLIENT_DATABASE_PATH` |
-| Managed agents store | Agents app | `SDKWORK_AGENTS_STORE_DATABASE_*` |
+| Runtime session DB | Kernel server | `SDKWORK_DATABASE_*` workspace PostgreSQL |
+| Client local sessions | Kernel client | `SDKWORK_DATABASE_FILE` |
+| Managed agents store | Agents app | `SDKWORK_DATABASE_*` workspace PostgreSQL |
 
 Provider binding negotiation, bootstrap flow, and transport priority are documented in
 [TECH-01-kernel-module-reference.md §4–5](TECH-01-kernel-module-reference.md#4-provider-bootstrap-sequence).
@@ -336,10 +336,8 @@ classification of each operation.
   (auth failures, rate limiting, identity resolution) return structured
   `application/problem+json` bodies with `type`, `title`, `status`, numeric
   `code`, and `traceId` for machine-readable error handling.
-- **SQLite production guard**: Preflight check `runtime_sqlite_scaling`
-  returns `Failed` (not `Warning`) when SQLite is selected for production
-  scale-out deployments, preventing data corruption from RWO PVC
-  multi-replica access.
+- **PostgreSQL authority guard**: server configuration rejects SQLite before
+  startup. SQLite is limited to declared client-local stores and test fixtures.
 
 ### Ingress and client auth
 
@@ -384,10 +382,9 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
 
 ### Production Deployment Controls And Release Gates
 
-- **PostgreSQL enforcement**: Production scale-out deployments must use
-  PostgreSQL for session persistence. The preflight check
-  `runtime_sqlite_scaling` fails if SQLite is selected, preventing
-  RWO PVC data corruption across replicas.
+- **PostgreSQL enforcement**: every server profile uses the canonical
+  `SDKWORK_DATABASE_*` PostgreSQL workspace identity and fails closed on
+  SQLite, private database identities, or invalid schema selection.
 - **Data-plane HA**: Production uses managed HA PostgreSQL and managed HA
   Redis (or operator-managed equivalents) with backup/restore and failover
   evidence. `deployments/kubernetes/postgres-redis.yaml` is intentionally a

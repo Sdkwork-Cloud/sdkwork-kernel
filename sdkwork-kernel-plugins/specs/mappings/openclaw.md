@@ -139,6 +139,9 @@ kernel SDK authority.
 
 - Local source pin (2026-06-24, not a latest-registry claim): `external/openclaw` @ `7c56877eb1` with source `package.json` version `2026.6.10`
 
+- Managed installer registry pins (verified 2026-07-30): `openclaw@2026.7.1-2`
+  and `openai@7.1.0`
+
 - Runtime worker: `scripts/provider-transport-workers/generic-ts-sdk-worker.mjs` via `NodeSdkBackendRuntime`; model calls use the official `openai` SDK with gateway `baseURL`
 
 - Live gateway path: `OPENCLAW_GATEWAY_URL` + required `OPENCLAW_GATEWAY_TOKEN` in `engine-sdk-live.mjs`; unauthenticated remote execution is rejected

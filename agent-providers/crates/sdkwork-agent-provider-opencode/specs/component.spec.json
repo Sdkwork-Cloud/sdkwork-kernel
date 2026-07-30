@@ -64,6 +64,7 @@
       "opencode_agent_definition",
       "opencode_agent_manifest",
       "opencode_provider_manifests",
+      "opencode_agent_installer",
       "opencode_package_manifest",
       "opencode_kernel_plugin_manifest"
     ],

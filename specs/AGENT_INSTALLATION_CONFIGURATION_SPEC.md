@@ -94,24 +94,60 @@ The Rust baseline exposes `AgentInstaller`.
 
 Required operations:
 
+- `detect_installation(agent_id)`
 - `configuration_spec(agent_id)`
 - `plan_install(request)`
 - `install(request)`
 - `plan_upgrade(request)`
 - `upgrade(request)`
+- `plan_uninstall(request)`
 - `uninstall(request)`
 - `health()`
 
 Rules:
 
 - Installers `MUST` be able to plan before mutating host state.
+- Installers `MUST` detect not-installed, installed, and degraded states and
+  report the expected and detected versions of every managed dependency.
 - Plans `MUST` list ordered steps and required policy categories.
 - Installation and upgrade plans that write files, register manifests, mutate
   configuration, or replace versions `MUST` require policy.
-- Upgrade plans `SHOULD` declare rollback requirements and rollback tokens when
-  available.
+- Upgrade plans `SHOULD` declare rollback requirements. Reports may expose an
+  opaque rollback handle only when the host can actually consume it; lifecycle
+  events `MUST NOT` contain that handle.
+- Install, upgrade, and uninstall requests `MUST` support dry-run without
+  mutating host state.
+- Repeated install, upgrade, and uninstall calls `MUST` be idempotent.
+- Install and upgrade `MUST` use exact package versions and verify the detected
+  state after the package manager completes. Uninstall `MUST` verify that every
+  owned dependency is absent before reporting success.
+- Package-manager commands `MUST` be invoked without a command shell, use
+  bounded output capture and timeouts, and expose only redacted safe errors.
+- Registry package names and versions `MUST` be canonical and exact. Tags,
+  ranges, duplicate managed packages, and mixed package managers `MUST` fail
+  validation before any package-manager process starts.
+- npm lifecycle scripts `MUST` be disabled by default and require an explicit
+  provider-level opt-in for a reviewed exact package release. Python registry
+  installs `MUST` be non-interactive and wheel-only so source build hooks do
+  not execute inside the host installer.
+- Long-running package mutations `SHOULD` use a separate bounded timeout from
+  lightweight detection and health commands so cold registry installs do not
+  weaken runtime responsiveness checks.
+- Commands that time out `MUST` terminate their owned process tree and bound
+  output-pipe draining. Installer coordination `MUST` have a bounded wait:
+  detections for one managed runtime may run concurrently, while install,
+  upgrade, and uninstall hold an exclusive mutation lock across initial
+  detection, mutation, and final verification.
+- Before mutation, package installers `MUST` capture the managed dependency
+  state. A package-manager failure or failed post-verification `MUST` trigger
+  compensating restoration and verify the restored state before returning.
 - Uninstall requests `MUST` distinguish removing the agent package from
   removing configuration or data.
+- Package-only installers `MUST NOT` report configuration or data removal they
+  did not perform. They `MUST` fail closed with an explicit host-store-required
+  error when the request exceeds their ownership boundary.
+- Embedded providers that cannot replace or remove themselves `MUST` return an
+  explicit host-update-required error instead of reporting a false success.
 - Reports `MUST` expose safe summaries and map to `agent.install.*` events.
 
 Standard package sources:
@@ -286,9 +322,9 @@ Capability mapping:
 
 | Capability | Provider family | Required operations | Side effect | Policy category |
 | --- | --- | --- | --- | --- |
-| `agent.install` | `agent_installer` | `configuration_spec`, `plan_install`, `install`, `health` | `side_effectful` | `agent.install` |
-| `agent.uninstall` | `agent_installer` | `uninstall`, `health` | `destructive` | `agent.uninstall` |
-| `agent.upgrade` | `agent_installer` | `plan_upgrade`, `upgrade`, `health` | `side_effectful` | `agent.upgrade` |
+| `agent.install` | `agent_installer` | `detect_installation`, `configuration_spec`, `plan_install`, `install`, `health` | `side_effectful` | `agent.install` |
+| `agent.uninstall` | `agent_installer` | `detect_installation`, `plan_uninstall`, `uninstall`, `health` | `destructive` | `agent.uninstall` |
+| `agent.upgrade` | `agent_installer` | `detect_installation`, `plan_upgrade`, `upgrade`, `health` | `side_effectful` | `agent.upgrade` |
 | `agent.configure` | `agent_configuration` | `configuration_spec`, `validate_configuration`, `health` | `side_effectful` | `agent.configure` |
 
 Rules:
@@ -351,8 +387,14 @@ Standard event families:
 Rules:
 
 - Events `MUST` include agent id, request id, status, and safe summary.
+- Dry-run reports `MUST` emit `agent.install.planned`, `MUST NOT` emit an
+  installed/upgraded/uninstalled success event, and `MUST NOT` claim a target
+  version as an installed version.
 - Events `MUST` use internal or stronger redaction classification when
   configuration or package metadata may be sensitive.
+- Opaque rollback handles and raw package-manager output `MUST NOT` enter
+  events. Untrusted event field delimiters and control characters `MUST` be
+  encoded before projection into textual payloads.
 - Event payloads `MUST` use schema version
   `sdkwork.agent.installation.report.v1` for installation lifecycle reports.
 - Configuration profile lifecycle events `MUST` use payload schema version
@@ -409,10 +451,19 @@ Minimum tests:
   `agent.configure.profile.archived` events.
 - Installer can generate a side-effectful install plan with `agent.install`
   policy category.
+- Installer detects absent, exact-version, and degraded installations.
 - Installer can install and emit `agent.install.installed`.
 - Installer can plan and execute upgrade with rollback metadata.
-- Installer can uninstall while explicitly removing or preserving
-  configuration.
+- Installer can plan and execute uninstall while explicitly removing or
+  preserving configuration.
+- Installer dry-run paths do not execute package-manager commands.
+- Installer repeats install, upgrade, and uninstall idempotently and verifies
+  the final detected state.
+- Installer detection timeouts fail closed and package-only installers never
+  claim host configuration or data removal.
+- Installer permits concurrent detection for one runtime but serializes all
+  package mutations, bounds lock waits, terminates timed-out process trees, and
+  automatically restores the verified pre-mutation dependency state on error.
 
 ## 9. Acceptance Checklist
 
@@ -428,6 +479,8 @@ Minimum tests:
 - [ ] Capability manifests expose lifecycle capability operations,
       side-effect levels, and policy categories.
 - [ ] Installation, uninstall, upgrade, and configuration are policy-checkable.
+- [ ] Installation detection, uninstall planning, dry-run, idempotency, exact
+      versions, and post-mutation verification are covered by contract tests.
 - [ ] Configuration specs are typed, sectioned, and redaction-aware.
 - [ ] Configuration specs have a standard machine-readable JSON Schema and Rust
       parser.

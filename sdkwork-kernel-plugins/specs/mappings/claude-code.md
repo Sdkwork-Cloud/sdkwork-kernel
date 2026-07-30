@@ -64,6 +64,8 @@ through `SDKWORK_KERNEL_AGENT_PLUGIN`.
 - Provider crate: `agent-providers/crates/sdkwork-agent-provider-claude-code`
 - SDK binding: `bindings/agent-providers/claude-code/provider-binding.manifest.json`
 - Server bootstrap: `SDKWORK_KERNEL_AGENT_PLUGIN=claude-code`
+- Managed installer registry pin (verified 2026-07-30):
+  `@anthropic-ai/claude-agent-sdk@0.3.220`
 - Runtime worker: `@anthropic-ai/claude-agent-sdk` via `NodeSdkBackendRuntime`
 - SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`; Claude tool-use remains inside the official agent query stream and is not exposed as an independent `ToolProvider`. Streaming is not declared until iterator events are forwarded incrementally rather than wrapped after completion.
 - Binding execution: `sdk.session.lifecycle` uses provider-local lifecycle

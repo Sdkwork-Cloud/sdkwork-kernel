@@ -106,7 +106,7 @@ const commands = [
 ];
 
 const preflightFailures = [];
-const runtimePostgresUri = process.env.SDKWORK_AGENT_RUNTIME_POSTGRES_URI?.trim();
+const runtimePostgresUri = process.env.SDKWORK_DATABASE_URL?.trim();
 if (runtimePostgresUri) {
   commands.push([
     'cargo',
@@ -127,11 +127,11 @@ if (runtimePostgresUri) {
   ]);
 } else if (commercialRelease) {
   preflightFailures.push(
-    'commercial release verification requires live runtime PostgreSQL; set SDKWORK_AGENT_RUNTIME_POSTGRES_URI'
+    'commercial release verification requires live runtime PostgreSQL; set SDKWORK_DATABASE_URL'
   );
 } else {
   console.log(
-    'SKIP: live runtime PostgreSQL contract (set SDKWORK_AGENT_RUNTIME_POSTGRES_URI to enable locally).'
+    'SKIP: live runtime PostgreSQL contract (set SDKWORK_DATABASE_URL to enable locally).'
   );
 }
 

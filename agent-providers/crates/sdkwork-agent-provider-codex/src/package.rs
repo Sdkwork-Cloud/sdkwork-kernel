@@ -3,13 +3,13 @@ use sdkwork_agent_kernel::{
     AgentPackageProviderBinding, AgentPackageSource,
 };
 
-use crate::ids;
+use crate::{ids, CODEX_SDK_PACKAGE, CODEX_SDK_VERSION};
 
 pub fn codex_package_manifest() -> AgentPackageManifest {
     AgentPackageManifest::new(
         ids::AGENT_ID,
         "0.2.0",
-        AgentPackageSource::registry("npm", "@openai/codex-sdk", "0.0.0-dev"),
+        AgentPackageSource::registry("npm", CODEX_SDK_PACKAGE, CODEX_SDK_VERSION),
     )
     .with_lifecycle(AgentPackageLifecycle::installable())
     .expect("codex package lifecycle is valid")

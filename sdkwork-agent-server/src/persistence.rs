@@ -474,7 +474,8 @@ macro_rules! with_manager {
     }};
 }
 
-/// Shared session persistence for server handlers (SQLite or PostgreSQL).
+/// Shared session persistence for PostgreSQL-backed server handlers.
+/// SQLite variants exist only for isolated in-memory test fixtures.
 #[derive(Clone)]
 pub struct PersistenceState {
     manager: ManagerInner,
@@ -599,33 +600,19 @@ pub enum PersistenceBackend {
 
 impl PersistenceState {
     pub async fn open_from_config_async(config: &ServerConfig) -> anyhow::Result<Self> {
-        let state = if config.uses_postgres_runtime_database() {
-            Self::open_postgres_with_event_bus_async(SessionEventBus::new()).await
-        } else {
-            Self::open_with_event_bus(&config.database_path, SessionEventBus::new())
-        }?;
+        if !config.uses_postgres_runtime_database() {
+            anyhow::bail!("sdkwork-agent-server authoritative persistence requires PostgreSQL");
+        }
+        let state = Self::open_postgres_with_event_bus_async(SessionEventBus::new()).await?;
         Ok(state.with_admission_config(config))
     }
 
     pub fn open_from_config(config: &ServerConfig) -> anyhow::Result<Self> {
-        let state = if config.uses_postgres_runtime_database() {
-            Self::open_postgres_with_event_bus(SessionEventBus::new())
-        } else {
-            Self::open_with_event_bus(&config.database_path, SessionEventBus::new())
-        }?;
+        if !config.uses_postgres_runtime_database() {
+            anyhow::bail!("sdkwork-agent-server authoritative persistence requires PostgreSQL");
+        }
+        let state = Self::open_postgres_with_event_bus(SessionEventBus::new())?;
         Ok(state.with_admission_config(config))
-    }
-
-    pub fn open(database_path: &str) -> anyhow::Result<Self> {
-        Self::open_with_event_bus(database_path, SessionEventBus::new())
-    }
-
-    pub fn open_with_event_bus(
-        database_path: &str,
-        event_bus: SessionEventBus,
-    ) -> anyhow::Result<Self> {
-        let db = SqliteDatabase::open_migrated(database_path)?;
-        Ok(Self::from_sqlite_database(db, event_bus))
     }
 
     pub fn open_postgres() -> anyhow::Result<Self> {
@@ -635,12 +622,12 @@ impl PersistenceState {
     pub async fn open_postgres_with_event_bus_async(
         event_bus: SessionEventBus,
     ) -> anyhow::Result<Self> {
-        let db = PostgresDatabase::connect_from_sdkwork_env_async("AGENT_RUNTIME").await?;
+        let db = PostgresDatabase::connect_from_sdkwork_env_async("agent_runtime").await?;
         Ok(Self::from_postgres_database(db, event_bus))
     }
 
     pub fn open_postgres_with_event_bus(event_bus: SessionEventBus) -> anyhow::Result<Self> {
-        let db = PostgresDatabase::connect_from_sdkwork_env("AGENT_RUNTIME")?;
+        let db = PostgresDatabase::connect_from_sdkwork_env("agent_runtime")?;
         Ok(Self::from_postgres_database(db, event_bus))
     }
 

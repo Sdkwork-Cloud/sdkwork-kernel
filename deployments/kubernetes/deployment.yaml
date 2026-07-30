@@ -93,7 +93,7 @@ spec:
                 secretKeyRef:
                   name: sdkwork-agent-server
                   key: approval-payload-encryption-key
-            - name: SDKWORK_AGENT_RUNTIME_DATABASE_URL
+            - name: SDKWORK_DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: sdkwork-agent-server

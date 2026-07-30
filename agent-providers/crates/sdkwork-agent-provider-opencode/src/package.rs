@@ -3,13 +3,13 @@ use sdkwork_agent_kernel::{
     AgentPackageProviderBinding, AgentPackageSource,
 };
 
-use crate::ids;
+use crate::{ids, OPENCODE_SDK_PACKAGE, OPENCODE_SDK_VERSION};
 
 pub fn opencode_package_manifest() -> AgentPackageManifest {
     AgentPackageManifest::new(
         ids::AGENT_ID,
         "0.2.0",
-        AgentPackageSource::registry("npm", "@opencode-ai/sdk", "0.0.0-dev"),
+        AgentPackageSource::registry("npm", OPENCODE_SDK_PACKAGE, OPENCODE_SDK_VERSION),
     )
     .with_lifecycle(AgentPackageLifecycle::installable())
     .expect("opencode package lifecycle is valid")

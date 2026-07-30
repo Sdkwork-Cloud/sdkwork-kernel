@@ -19,6 +19,7 @@
     },
     "typescript": {
       "package": "@openai/codex-sdk",
+      "version": "0.146.0",
       "optional": false
     }
   },

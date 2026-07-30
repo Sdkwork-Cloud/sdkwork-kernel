@@ -1,18 +1,19 @@
 use sdkwork_agent_kernel::{
     AgentConfigField, AgentConfigSection, AgentConfigValue, AgentConfiguration,
     AgentConfigurationProvider, AgentConfigurationSpec, AgentInstallPlan, AgentInstallReport,
-    AgentInstallRequest, AgentInstallStep, AgentInstallStepKind, AgentInstaller,
-    AgentPackageSource, AgentTask, AgentUninstallReport, AgentUninstallRequest, AgentUpgradePlan,
-    AgentUpgradeReport, AgentUpgradeRequest, ContextFrame, ContextProvider, FilesystemRequest,
-    FilesystemResult, HostProvider, KernelErrorKind, KernelEvent, KernelResult, KnowledgeDocument,
-    KnowledgeDocumentFilter, KnowledgeDocumentKind, KnowledgeProvider, KnowledgeRetrievalMethod,
-    KnowledgeSearchRequest, KnowledgeSearchResult, MemoryProvider, MemoryRecord, MemoryScope,
-    ModelProvider, ModelRequest, ModelResponse, Plan, PlanningProvider, PolicyCategory,
-    PolicyDecision, PolicyProvider, PolicyRequest, ProtocolAdapter, ProtocolAdapterAuthMode,
-    ProtocolAdapterManifest, ProtocolAdapterRequest, ProtocolAdapterResponse, ProtocolFamily,
-    ProtocolStreamUpdate, ProtocolTransport, ProviderHealth, ProviderManifest, ProviderSecretValue,
-    RedactionClassification, RuntimeBuilder, RuntimeState, SecretRef, TelemetryProvider, ToolCall,
-    ToolDescriptor, ToolProvider, ToolResult, TrustLevel,
+    AgentInstallRequest, AgentInstallStep, AgentInstallStepKind, AgentInstallation, AgentInstaller,
+    AgentPackageSource, AgentTask, AgentUninstallPlan, AgentUninstallReport, AgentUninstallRequest,
+    AgentUpgradePlan, AgentUpgradeReport, AgentUpgradeRequest, ContextFrame, ContextProvider,
+    FilesystemRequest, FilesystemResult, HostProvider, KernelErrorKind, KernelEvent, KernelResult,
+    KnowledgeDocument, KnowledgeDocumentFilter, KnowledgeDocumentKind, KnowledgeProvider,
+    KnowledgeRetrievalMethod, KnowledgeSearchRequest, KnowledgeSearchResult, MemoryProvider,
+    MemoryRecord, MemoryScope, ModelProvider, ModelRequest, ModelResponse, Plan, PlanningProvider,
+    PolicyCategory, PolicyDecision, PolicyProvider, PolicyRequest, ProtocolAdapter,
+    ProtocolAdapterAuthMode, ProtocolAdapterManifest, ProtocolAdapterRequest,
+    ProtocolAdapterResponse, ProtocolFamily, ProtocolStreamUpdate, ProtocolTransport,
+    ProviderHealth, ProviderManifest, ProviderSecretValue, RedactionClassification, RuntimeBuilder,
+    RuntimeState, SecretRef, TelemetryProvider, ToolCall, ToolDescriptor, ToolProvider, ToolResult,
+    TrustLevel,
 };
 use std::sync::{Arc, Mutex};
 
@@ -1717,6 +1718,10 @@ impl TelemetryProvider for RecordingTelemetryProvider {
 struct FakeRuntimeAgentInstaller;
 
 impl AgentInstaller for FakeRuntimeAgentInstaller {
+    fn detect_installation(&self, agent_id: &str) -> KernelResult<AgentInstallation> {
+        Ok(AgentInstallation::installed(agent_id, "0.1.0"))
+    }
+
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
             "provider.agent.installer.typed",
@@ -1779,6 +1784,13 @@ impl AgentInstaller for FakeRuntimeAgentInstaller {
             request.agent_id,
             request.from_version,
             request.to_version,
+        ))
+    }
+
+    fn plan_uninstall(&self, request: &AgentUninstallRequest) -> KernelResult<AgentUninstallPlan> {
+        Ok(AgentUninstallPlan::new(
+            "plan.runtime.uninstall",
+            request.agent_id.clone(),
         ))
     }
 

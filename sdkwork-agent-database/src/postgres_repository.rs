@@ -1950,14 +1950,20 @@ mod tests {
     }
 
     fn open_postgres_or_skip() -> Option<PostgresDatabase> {
-        let uri = std::env::var("SDKWORK_AGENT_RUNTIME_POSTGRES_URI")
-            .or_else(|_| std::env::var("SDKWORK_AGENT_BUSINESS_POSTGRES_URI"))
-            .ok()?;
-        let trimmed = uri.trim();
-        if trimmed.is_empty() {
+        if !sdkwork_database_config::workspace_database::workspace_database_env_is_configured() {
             return None;
         }
-        PostgresDatabase::connect_migrated(trimmed).ok()
+        let config = sdkwork_database_config::DatabaseConfig::from_env("agent_runtime").ok()?;
+        if config.engine != sdkwork_database_config::DatabaseEngine::Postgres {
+            return None;
+        }
+        let schema =
+            sdkwork_database_config::workspace_database::resolve_workspace_postgres_schema()
+                .ok()?;
+        if schema != "sdkwork_ai_test" && !schema.starts_with("sdkwork_ai_test_") {
+            return None;
+        }
+        PostgresDatabase::connect_migrated(&config.url).ok()
     }
 
     #[test]

@@ -493,6 +493,15 @@ impl ModelStreamChunk {
 /// Receives incremental model stream chunks from [`ModelProvider::stream_into`].
 pub trait ModelStreamSink {
     fn push_chunk(&mut self, chunk: ModelStreamChunk) -> KernelResult<()>;
+
+    /// Receives provider-neutral lifecycle and item events that accompany model output.
+    ///
+    /// The default keeps existing chunk-only providers and consumers source-compatible.
+    /// Event-aware consumers override this method and preserve the event identity and order.
+    fn push_event(&mut self, event: KernelEvent) -> KernelResult<()> {
+        let _ = event;
+        Ok(())
+    }
 }
 
 pub trait ModelProvider {

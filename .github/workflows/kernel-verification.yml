@@ -224,7 +224,7 @@ jobs:
 
       - name: Run live PostgreSQL runtime session contract
         env:
-          SDKWORK_AGENT_RUNTIME_POSTGRES_URI: postgres://postgres:postgres@localhost:5432/sdkwork_test
+          SDKWORK_DATABASE_URL: postgres://postgres:postgres@localhost:5432/sdkwork_test
         run: >
           cargo test --features postgres-sync
           --test agent_runtime_postgres_contracts

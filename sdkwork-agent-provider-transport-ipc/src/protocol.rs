@@ -51,12 +51,17 @@ impl JsonRpcResponse {
 
 /// Incremental stream frame emitted by worker processes for `model_chat_stream`.
 pub const SDKWORK_STREAM_EVENT_CHUNK: &str = "stream.chunk";
+pub const SDKWORK_STREAM_EVENT_KERNEL_EVENT: &str = "stream.event";
 pub const SDKWORK_STREAM_EVENT_DONE: &str = "stream.done";
 pub const SDKWORK_SESSION_ACTIVITY_EVENT: &str = "session.activity";
 pub const SDKWORK_INVOKE_EVENT_DONE: &str = "invoke.done";
 
 pub fn is_stream_chunk_frame(frame: &Value) -> bool {
     frame.get("event").and_then(Value::as_str) == Some(SDKWORK_STREAM_EVENT_CHUNK)
+}
+
+pub fn is_stream_kernel_event_frame(frame: &Value) -> bool {
+    frame.get("event").and_then(Value::as_str) == Some(SDKWORK_STREAM_EVENT_KERNEL_EVENT)
 }
 
 pub fn is_stream_terminal_frame(frame: &Value) -> bool {

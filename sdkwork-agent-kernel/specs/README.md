@@ -40,6 +40,23 @@ Root SDKWork standards remain authoritative. Local component specs can narrow or
 
 ## Public Exports
 
+- `AgentInstaller`
+- `AgentInstallPlan`
+- `AgentInstallReport`
+- `AgentInstallRequest`
+- `AgentInstallStatus`
+- `AgentInstallStep`
+- `AgentInstallStepKind`
+- `AgentInstallation`
+- `AgentInstallationState`
+- `AgentInstallationDependency`
+- `AgentPackageSource`
+- `AgentUninstallPlan`
+- `AgentUninstallReport`
+- `AgentUninstallRequest`
+- `AgentUpgradePlan`
+- `AgentUpgradeReport`
+- `AgentUpgradeRequest`
 - `AgentExecutionService::execute`
 - `AgentExecutionRequest`
 - `AgentExecutionReport`
@@ -54,6 +71,7 @@ Root SDKWork standards remain authoritative. Local component specs can narrow or
 - `AgentChatRpcAdapter`
 - `AgentChatRpcHandler`
 - `agent_chat_rpc_adapter_manifest`
+- `sandbox_runtime`
 - `sandbox_runtime::SandboxSessionCreateRequest`
 - `sandbox_runtime::SandboxSessionCommandRequest`
 - `sandbox_runtime::SandboxSessionRuntimeProjection`

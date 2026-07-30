@@ -217,6 +217,9 @@ try {
   const codexChunks = codexStreamFrames.filter(
     (frame) => frame.response.result?.event === 'stream.chunk',
   );
+  const codexEvents = codexStreamFrames.filter(
+    (frame) => frame.response.result?.event === 'stream.event',
+  );
   const codexDone = codexStreamFrames.find(
     (frame) => frame.response.result?.event === 'stream.done',
   );
@@ -232,6 +235,24 @@ try {
   assert.deepEqual(
     codexChunks.map((frame) => frame.response.result.sequence),
     [0, 1],
+  );
+  assert.deepEqual(
+    codexEvents.map((frame) => frame.response.result.kernel_event.event_type),
+    [
+      'agent.session.started',
+      'agent.message.updated',
+      'agent.message.completed',
+      'agent.turn.completed',
+    ],
+  );
+  assert.ok(
+    codexEvents.every(
+      (frame) => frame.response.result.model_request_id === 'req-codex-live-stream',
+    ),
+  );
+  assert.equal(
+    codexEvents[1].response.result.kernel_event.payload.item.text,
+    'first',
   );
   assert.ok(codexDone, 'Codex stream must terminate with stream.done');
   assert.equal(codexDone.response.result.model_request_id, 'req-codex-live-stream');

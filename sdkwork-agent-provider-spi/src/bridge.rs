@@ -4,13 +4,15 @@ use crate::runtime::{
     SdkRuntimeError, SdkRuntimeOperation, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
 };
 use sdkwork_agent_kernel::{
-    KernelResult, ModelProvider, ModelRequest, ModelResponse, ModelStatus, ModelStreamChunk,
-    ModelStreamSink, ProviderHealth, ProviderManifest, ToolCall, ToolProvider, ToolResult,
+    KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelEventSource, KernelResult,
+    ModelProvider, ModelRequest, ModelResponse, ModelStatus, ModelStreamChunk, ModelStreamSink,
+    ProviderHealth, ProviderManifest, ToolCall, ToolProvider, ToolResult, TraceContext,
 };
 use sdkwork_agent_provider_core::mock_provider_invocation_allowed;
 use sdkwork_agent_provider_core::validate_runtime_model_payload;
 use sdkwork_agent_provider_transport_ipc::{
-    is_stream_chunk_frame, is_stream_terminal_frame, StreamResourceBudget,
+    is_stream_chunk_frame, is_stream_kernel_event_frame, is_stream_terminal_frame,
+    StreamResourceBudget,
 };
 use serde_json::Value;
 use std::sync::Arc;
@@ -116,6 +118,10 @@ impl SdkRuntimeBackedModelProvider {
         let model_request_id = request.model_request_id.clone();
         let mut budget = StreamResourceBudget::new();
         runtime.invoke_streaming(&runtime_request, &mut |frame| {
+            if let Some(event) = kernel_event_from_stream_frame(&frame, &model_request_id)? {
+                sink.push_event(event)
+                    .map_err(|error| SdkRuntimeError::new("stream_sink", error.to_string()))?;
+            }
             if let Some(chunk) = model_stream_chunk_from_frame(&frame, &model_request_id) {
                 if chunk.model_request_id != model_request_id {
                     return Err(SdkRuntimeError::new(
@@ -163,6 +169,11 @@ impl SdkRuntimeBackedModelProvider {
                     ));
                 }
                 return Ok(true);
+            }
+
+            if let Some(event) = kernel_event_from_stream_frame(&frame, &model_request_id)? {
+                sink.push_event(event)
+                    .map_err(|error| SdkRuntimeError::new("stream_sink", error.to_string()))?;
             }
 
             if let Some(chunk) = model_stream_chunk_from_frame(&frame, &model_request_id) {
@@ -597,6 +608,146 @@ pub fn model_stream_chunk_from_frame(
         sequence,
         content.to_string(),
     ))
+}
+
+pub fn kernel_event_from_stream_frame(
+    frame: &Value,
+    expected_model_request_id: &str,
+) -> Result<Option<KernelEvent>, SdkRuntimeError> {
+    if !is_stream_kernel_event_frame(frame) {
+        return Ok(None);
+    }
+
+    let model_request_id = required_frame_string(frame, "model_request_id")?;
+    if model_request_id != expected_model_request_id {
+        return Err(SdkRuntimeError::new(
+            "stream_request_mismatch",
+            "runtime event model_request_id does not match the active request",
+        ));
+    }
+
+    let encoded = frame.get("kernel_event").and_then(Value::as_object).ok_or_else(|| {
+        SdkRuntimeError::new(
+            "invalid_stream_event",
+            "runtime stream.event frame is missing kernel_event",
+        )
+    })?;
+    let event_id = required_object_string(encoded, "event_id")?;
+    let event_type = required_object_string(encoded, "event_type")?;
+    let event_version = required_object_string(encoded, "event_version")?;
+    let payload_schema = required_object_string(encoded, "payload_schema")?;
+    let payload = encoded.get("payload").ok_or_else(|| {
+        SdkRuntimeError::new(
+            "invalid_stream_event",
+            "runtime kernel event is missing payload",
+        )
+    })?;
+    let payload = match payload.as_str() {
+        Some(value) => value.to_string(),
+        None => serde_json::to_string(payload).map_err(|error| {
+            SdkRuntimeError::new(
+                "invalid_stream_event",
+                format!("runtime kernel event payload cannot be encoded: {error}"),
+            )
+        })?,
+    };
+    let severity = match optional_object_string(encoded, "severity").unwrap_or("info") {
+        "debug" => KernelEventSeverity::Debug,
+        "info" => KernelEventSeverity::Info,
+        "warn" => KernelEventSeverity::Warn,
+        "error" => KernelEventSeverity::Error,
+        _ => {
+            return Err(SdkRuntimeError::new(
+                "invalid_stream_event",
+                "runtime kernel event has an unsupported severity",
+            ))
+        }
+    };
+    let source = match optional_object_string(encoded, "source").unwrap_or("provider") {
+        "runtime" => KernelEventSource::Runtime,
+        "provider" => KernelEventSource::Provider,
+        "model" => KernelEventSource::Model,
+        "tool" => KernelEventSource::Tool,
+        "policy" => KernelEventSource::Policy,
+        "protocol_adapter" => KernelEventSource::ProtocolAdapter,
+        _ => KernelEventSource::Unknown,
+    };
+    let redaction = match optional_object_string(encoded, "redaction_classification")
+        .unwrap_or("tenant_sensitive")
+    {
+        "public" => KernelEventRedaction::Public,
+        "internal" => KernelEventRedaction::Internal,
+        "tenant_sensitive" => KernelEventRedaction::TenantSensitive,
+        "personal_data" => KernelEventRedaction::PersonalData,
+        "secret" => KernelEventRedaction::Secret,
+        "regulated" => KernelEventRedaction::Regulated,
+        _ => KernelEventRedaction::Unknown,
+    };
+
+    let mut event = KernelEvent::new(event_id, event_type, severity, payload)
+        .from_source(source)
+        .with_redaction(redaction)
+        .with_payload_schema(payload_schema);
+    event.event_version = event_version.to_string();
+    event.occurred_at = optional_object_string(encoded, "occurred_at").map(str::to_string);
+    event.session_id = optional_object_string(encoded, "session_id").map(str::to_string);
+    event.task_id = optional_object_string(encoded, "task_id").map(str::to_string);
+    event.run_id = optional_object_string(encoded, "run_id").map(str::to_string);
+    event.step_id = optional_object_string(encoded, "step_id").map(str::to_string);
+    event.correlation_id = optional_object_string(encoded, "correlation_id").map(str::to_string);
+    event.causation_id = optional_object_string(encoded, "causation_id").map(str::to_string);
+    event.replay = encoded.get("replay").and_then(Value::as_bool).unwrap_or(false);
+    if let Some(trace) = encoded.get("trace_context").and_then(Value::as_object) {
+        let trace_id = required_object_string(trace, "trace_id")?;
+        let span_id = required_object_string(trace, "span_id")?;
+        let mut trace_context = TraceContext::new(trace_id, span_id);
+        if let Some(parent_span_id) = optional_object_string(trace, "parent_span_id") {
+            trace_context = trace_context.with_parent_span(parent_span_id);
+        }
+        event.trace_context = Some(trace_context);
+    }
+
+    Ok(Some(event))
+}
+
+fn required_frame_string<'a>(
+    frame: &'a Value,
+    field: &str,
+) -> Result<&'a str, SdkRuntimeError> {
+    frame
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            SdkRuntimeError::new(
+                "invalid_stream_event",
+                format!("runtime stream.event frame is missing {field}"),
+            )
+        })
+}
+
+fn required_object_string<'a>(
+    object: &'a serde_json::Map<String, Value>,
+    field: &str,
+) -> Result<&'a str, SdkRuntimeError> {
+    optional_object_string(object, field).ok_or_else(|| {
+        SdkRuntimeError::new(
+            "invalid_stream_event",
+            format!("runtime kernel event is missing {field}"),
+        )
+    })
+}
+
+fn optional_object_string<'a>(
+    object: &'a serde_json::Map<String, Value>,
+    field: &str,
+) -> Option<&'a str> {
+    object
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
 }
 
 fn runtime_stream_completion_from_terminal_frame(
@@ -1061,6 +1212,65 @@ mod tests {
     }
 
     #[test]
+    fn kernel_event_from_stream_frame_preserves_identity_and_payload() {
+        let frame = serde_json::json!({
+            "event": "stream.event",
+            "model_request_id": "req-1",
+            "kernel_event": {
+                "event_id": "event.req-1.2",
+                "event_type": "agent.tool.completed",
+                "event_version": "1.0.0",
+                "occurred_at": "2026-07-30T00:00:00Z",
+                "source": "tool",
+                "severity": "info",
+                "session_id": "thread-1",
+                "run_id": "req-1",
+                "step_id": "command-1",
+                "correlation_id": "req-1",
+                "redaction_classification": "tenant_sensitive",
+                "payload_schema": "sdkwork.agent.provider_stream_event.v1",
+                "payload": {
+                    "schemaVersion": 1,
+                    "providerId": "codex",
+                    "providerEventType": "item.completed",
+                    "item": {
+                        "id": "command-1",
+                        "type": "command_execution",
+                        "aggregated_output": "passed"
+                    }
+                },
+                "replay": false
+            }
+        });
+
+        let event = kernel_event_from_stream_frame(&frame, "req-1")
+            .expect("valid runtime event")
+            .expect("kernel event");
+        assert_eq!(event.event_id, "event.req-1.2");
+        assert_eq!(event.event_type, "agent.tool.completed");
+        assert_eq!(event.session_id.as_deref(), Some("thread-1"));
+        assert_eq!(event.run_id.as_deref(), Some("req-1"));
+        assert_eq!(event.step_id.as_deref(), Some("command-1"));
+        assert_eq!(event.source, KernelEventSource::Tool);
+        assert_eq!(event.redaction_classification, KernelEventRedaction::TenantSensitive);
+        let payload: Value = serde_json::from_str(&event.payload).expect("JSON payload");
+        assert_eq!(payload["item"]["aggregated_output"], "passed");
+    }
+
+    #[test]
+    fn kernel_event_from_stream_frame_rejects_cross_turn_events() {
+        let frame = serde_json::json!({
+            "event": "stream.event",
+            "model_request_id": "req-other",
+            "kernel_event": {}
+        });
+
+        let error = kernel_event_from_stream_frame(&frame, "req-active")
+            .expect_err("cross-turn event must fail closed");
+        assert_eq!(error.code, "stream_request_mismatch");
+    }
+
+    #[test]
     fn stream_into_rejects_mismatched_chunk_model_request_id() {
         struct MismatchedStreamingRuntime;
 
@@ -1250,61 +1460,4 @@ mod tests {
             serde_json::json!({
                 "ok": true,
                 "mode": "sdk_live",
-                "messages": ["I need your input."],
-                "tool_calls": [
-                    {
-                        "id": "provider-question-1",
-                        "toolName": "user_question",
-                        "toolArguments": {
-                            "requestID": "provider-question-1",
-                            "questions": [{"question": "Run unit tests?"}]
-                        }
-                    }
-                ]
-            }),
-        );
-
-        let mapped = model_response_from_runtime(response, "req-tool-call", "provider.opencode")
-            .expect("valid provider tool calls should be preserved");
-
-        assert_eq!(mapped.tool_calls.len(), 1);
-        assert_eq!(mapped.tool_calls[0].tool_call_id, "provider-question-1");
-        assert_eq!(mapped.tool_calls[0].tool_id, "user_question");
-        assert_eq!(
-            mapped.tool_calls[0].arguments,
-            r#"{"questions":[{"question":"Run unit tests?"}],"requestID":"provider-question-1"}"#
-        );
-    }
-
-    #[test]
-    fn model_response_rejects_tool_calls_without_provider_native_ids() {
-        let response = SdkRuntimeResponse::success(
-            SdkBackendKind::TypeScriptNode,
-            SDK_CAPABILITY_MODEL_CHAT,
-            serde_json::json!({
-                "ok": true,
-                "messages": ["I need approval."],
-                "tool_calls": [{"toolName": "permission_request", "arguments": {}}]
-            }),
-        );
-
-        let error = model_response_from_runtime(response, "req-tool-call", "provider.opencode")
-            .expect_err("the bridge must not invent a native interaction id");
-
-        assert_eq!(error.code, "invalid_tool_call");
-    }
-
-    #[test]
-    fn request_live_provider_requirement_is_fail_closed() {
-        let required = ModelRequest::new("req-live", vec!["hello".to_string()])
-            .with_metadata("sdkwork.code_engine.require_live_provider", "true");
-        let optional = ModelRequest::new("req-optional", vec!["hello".to_string()])
-            .with_metadata("sdkwork.code_engine.require_live_provider", "false");
-        let malformed = ModelRequest::new("req-malformed", vec!["hello".to_string()])
-            .with_metadata("sdkwork.code_engine.require_live_provider", "sometimes");
-
-        assert!(request_requires_live_provider(&required));
-        assert!(!request_requires_live_provider(&optional));
-        assert!(request_requires_live_provider(&malformed));
-    }
-}
+  

@@ -37,6 +37,18 @@ async function writeStreamChunk(requestId, chunk, modelRequestId) {
   });
 }
 
+async function writeStreamEvent(requestId, kernelEvent, modelRequestId) {
+  await writeResponse({
+    jsonrpc: '2.0',
+    id: requestId,
+    result: {
+      event: 'stream.event',
+      model_request_id: modelRequestId,
+      kernel_event: kernelEvent,
+    },
+  });
+}
+
 async function writeActivity(requestId, activity) {
   await writeResponse({
     jsonrpc: '2.0',
@@ -240,6 +252,13 @@ async function handleStreamingCapabilityInvoke(requestId, params) {
     onChunk: async (chunk) => {
       await writeStreamChunk(requestId, chunk, params.operation?.model_request_id ?? null);
       emittedChunkCount += 1;
+    },
+    onEvent: async (event) => {
+      await writeStreamEvent(
+        requestId,
+        event,
+        params.operation?.model_request_id ?? null,
+      );
     },
   });
 

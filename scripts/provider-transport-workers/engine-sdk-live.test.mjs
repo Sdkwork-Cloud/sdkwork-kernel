@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  buildCodexKernelStreamEvent,
   buildStubModelChatResult,
   invokeModelChatLive,
   invokeModelChatStreamLive,
@@ -673,6 +674,7 @@ assert.deepEqual(codexStreamResult.chunks, [
 ]);
 
 const deliveredCodexChunks = [];
+const deliveredCodexEvents = [];
 const callbackCodexStreamResult = await invokeModelChatStreamLive(
   '@openai/codex-sdk',
   {
@@ -683,6 +685,9 @@ const callbackCodexStreamResult = await invokeModelChatStreamLive(
   {
     onChunk: async (chunk) => {
       deliveredCodexChunks.push(chunk);
+    },
+    onEvent: async (event) => {
+      deliveredCodexEvents.push(event);
     },
   },
 );
@@ -697,6 +702,41 @@ assert.deepEqual(
   'callback delivery must not retain every Codex chunk in the worker result',
 );
 assert.equal(callbackCodexStreamResult.provider_session_id, 'thread-sdk-streamed');
+assert.deepEqual(
+  deliveredCodexEvents.map((event) => event.event_type),
+  [
+    'agent.session.started',
+    'agent.message.updated',
+    'agent.message.updated',
+    'agent.message.completed',
+    'agent.turn.completed',
+  ],
+);
+assert.equal(deliveredCodexEvents[0].session_id, 'thread-sdk-streamed');
+assert.equal(deliveredCodexEvents[1].step_id, 'message-1');
+assert.equal(deliveredCodexEvents[1].correlation_id, 'req-codex-sdk-stream-callback');
+assert.equal(deliveredCodexEvents[1].payload.providerEventType, 'item.updated');
+assert.equal(deliveredCodexEvents[1].payload.item.text, 'official');
+
+const commandKernelEvent = buildCodexKernelStreamEvent(
+  {
+    type: 'item.completed',
+    item: {
+      id: 'command-1',
+      type: 'command_execution',
+      command: 'pnpm test',
+      aggregated_output: 'passed',
+      status: 'completed',
+    },
+  },
+  { model_request_id: 'req-command' },
+  'thread-command',
+  3,
+);
+assert.equal(commandKernelEvent.event_type, 'agent.tool.completed');
+assert.equal(commandKernelEvent.source, 'tool');
+assert.equal(commandKernelEvent.step_id, 'command-1');
+assert.equal(commandKernelEvent.payload.sequence, 3);
 
 const failedCodexChunks = [];
 await assert.rejects(

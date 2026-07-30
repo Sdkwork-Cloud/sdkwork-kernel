@@ -474,7 +474,14 @@ async function createCodexThread(operation, packageName) {
   return { thread };
 }
 
-async function invokeCodexModelChatStream(prompt, operation, packageName, onChunk, activity) {
+async function invokeCodexModelChatStream(
+  prompt,
+  operation,
+  packageName,
+  onChunk,
+  activity,
+  onEvent,
+) {
   const { thread } = await createCodexThread(operation, packageName);
   const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
   const initialProviderSessionId = verifiedCodexProviderSessionId(thread);
@@ -491,6 +498,7 @@ async function invokeCodexModelChatStream(prompt, operation, packageName, onChun
   const chunks = [];
   const itemText = new Map();
   let sequence = 0;
+  let eventSequence = 0;
   let completed = false;
 
   await runCodexOperation(operation.timeout_ms, async (turnOptions) => {
@@ -503,6 +511,15 @@ async function invokeCodexModelChatStream(prompt, operation, packageName, onChun
           verifyProviderSessionId('codex_sdk', eventProviderSessionId, requestedSessionId),
         );
       }
+      if (onEvent) {
+        await onEvent(buildCodexKernelStreamEvent(
+          event,
+          operation,
+          eventProviderSessionId,
+          eventSequence,
+        ));
+      }
+      eventSequence += 1;
       if (event?.type === 'turn.failed') {
         throw new Error(event?.error?.message ?? 'Codex streamed turn failed');
       }
@@ -1302,6 +1319,10 @@ export async function invokeModelChatStreamLive(packageName, operation, options 
   if (onChunk != null && typeof onChunk !== 'function') {
     throw new Error('stream onChunk must be a function');
   }
+  const onEvent = options?.onEvent;
+  if (onEvent != null && typeof onEvent !== 'function') {
+    throw new Error('stream onEvent must be a function');
+  }
   if (isCodexPackage(packageName)) {
     const activity = createRuntimeActivityReporter(operation, options?.onActivity);
     try {
@@ -1311,6 +1332,7 @@ export async function invokeModelChatStreamLive(packageName, operation, options 
         packageName,
         onChunk,
         activity,
+        onEvent,
       );
       await activity.succeed(result?.provider_session_id);
       return result;
@@ -1332,6 +1354,99 @@ export async function invokeModelChatStreamLive(packageName, operation, options 
     };
   }
   return result;
+}
+
+export function buildCodexKernelStreamEvent(
+  providerEvent,
+  operation,
+  providerSessionId,
+  sequence,
+) {
+  const providerEventType = String(providerEvent?.type ?? 'unknown').trim() || 'unknown';
+  const item = providerEvent?.item && typeof providerEvent.item === 'object'
+    ? providerEvent.item
+    : null;
+  const itemId = typeof item?.id === 'string' && item.id.trim() ? item.id.trim() : null;
+  const modelRequestId = optionalOperationString(operation.model_request_id, 'model_request_id');
+  if (!modelRequestId) {
+    throw new Error('Codex stream event is missing model_request_id');
+  }
+  const normalizedSequence = Number.isSafeInteger(sequence) && sequence >= 0 ? sequence : 0;
+  const resolvedSessionId = readProviderSessionId(providerSessionId)
+    ?? readProviderSessionId(providerEvent)
+    ?? optionalOperationString(operation.session_id, 'session_id');
+
+  return {
+    event_id: `event.${modelRequestId}.${normalizedSequence}`,
+    event_type: codexKernelEventType(providerEventType, item?.type),
+    event_version: '1.0.0',
+    occurred_at: new Date().toISOString(),
+    source: codexKernelEventSource(providerEventType, item?.type),
+    severity: codexKernelEventSeverity(providerEventType, item?.type),
+    session_id: resolvedSessionId,
+    run_id: modelRequestId,
+    step_id: itemId,
+    correlation_id: modelRequestId,
+    redaction_classification: 'tenant_sensitive',
+    payload_schema: 'sdkwork.agent.provider_stream_event.v1',
+    payload: {
+      schemaVersion: 1,
+      providerId: 'codex',
+      providerEventType,
+      sequence: normalizedSequence,
+      threadId: resolvedSessionId,
+      item,
+      usage: providerEvent?.usage ?? null,
+      error: providerEvent?.error ?? (
+        typeof providerEvent?.message === 'string'
+          ? { message: providerEvent.message }
+          : null
+      ),
+    },
+    replay: false,
+  };
+}
+
+function codexKernelEventType(providerEventType, itemType) {
+  if (providerEventType === 'thread.started') return 'agent.session.started';
+  if (providerEventType === 'turn.started') return 'agent.turn.started';
+  if (providerEventType === 'turn.completed') return 'agent.turn.completed';
+  if (providerEventType === 'turn.failed') return 'agent.turn.failed';
+  if (providerEventType === 'error') return 'agent.runtime.failed';
+
+  const action = providerEventType.endsWith('.started')
+    ? 'started'
+    : providerEventType.endsWith('.completed')
+      ? 'completed'
+      : 'updated';
+  if (itemType === 'agent_message' || itemType === 'reasoning') {
+    return `agent.message.${action}`;
+  }
+  if (['command_execution', 'file_change', 'mcp_tool_call', 'web_search'].includes(itemType)) {
+    return `agent.tool.${action}`;
+  }
+  if (itemType === 'todo_list') {
+    return `agent.task.${action}`;
+  }
+  if (itemType === 'error') {
+    return 'agent.step.failed';
+  }
+  return `agent.step.${action}`;
+}
+
+function codexKernelEventSource(providerEventType, itemType) {
+  if (providerEventType.startsWith('item.') && itemType === 'agent_message') return 'model';
+  if (providerEventType.startsWith('item.') && itemType === 'reasoning') return 'model';
+  if (['command_execution', 'file_change', 'mcp_tool_call', 'web_search'].includes(itemType)) {
+    return 'tool';
+  }
+  return 'provider';
+}
+
+function codexKernelEventSeverity(providerEventType, itemType) {
+  return providerEventType === 'error' || providerEventType === 'turn.failed' || itemType === 'error'
+    ? 'error'
+    : 'info';
 }
 
 export async function invokeModelChatRuntime(packageName, operation, options = {}) {

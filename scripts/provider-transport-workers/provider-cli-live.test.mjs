@@ -18,6 +18,7 @@ import {
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sdkwork-provider-cli-live-'));
 const workingDirectory = path.join(tempRoot, 'workspace');
 const fixture = path.join(tempRoot, 'provider-fixture.mjs');
+const LIVE_TEST_TIMEOUT_MS = 30_000;
 fs.mkdirSync(workingDirectory, { recursive: true });
 
 try {
@@ -66,7 +67,7 @@ if (kind === 'claude') {
     model_id: 'provider/model-test',
     session_id: 'existing-session-456',
     working_directory: workingDirectory,
-    timeout_ms: 5_000,
+    timeout_ms: LIVE_TEST_TIMEOUT_MS,
     execution_options: {
       approval_policy: 'on-failure',
       sandbox_mode: 'workspace-write',

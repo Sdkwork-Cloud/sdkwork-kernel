@@ -693,16 +693,13 @@ fn planned_upgrade_and_uninstall_reports_never_emit_success_events() {
     assert!(install_event.payload.contains("target_version=0.2.0"));
     assert!(install_event.payload.contains("installed_version="));
 
-    let upgrade = AgentUpgradeReport::planned(
-        "upgrade.dry-run",
-        "agent.code",
-        "0.1.0",
-        "0.2.0",
-    );
+    let upgrade = AgentUpgradeReport::planned("upgrade.dry-run", "agent.code", "0.1.0", "0.2.0");
     let upgrade_event = upgrade.to_event("event.upgrade.dry-run");
     assert_eq!(upgrade_event.event_type, "agent.install.planned");
     assert!(upgrade_event.payload.contains("status=planned"));
-    assert!(upgrade_event.payload.contains("summary=agent upgrade planned"));
+    assert!(upgrade_event
+        .payload
+        .contains("summary=agent upgrade planned"));
 
     let uninstall = AgentUninstallReport::planned("uninstall.dry-run", "agent.code");
     let uninstall_event = uninstall.to_event("event.uninstall.dry-run");
@@ -732,13 +729,9 @@ fn installation_events_encode_untrusted_field_delimiters() {
 #[test]
 fn upgrade_events_never_expose_opaque_rollback_tokens() {
     let secret = "rollback-token-must-not-leak";
-    let report = AgentUpgradeReport::upgraded(
-        "upgrade.secure-event",
-        "agent.code",
-        "0.1.0",
-        "0.2.0",
-    )
-    .with_rollback_token(secret);
+    let report =
+        AgentUpgradeReport::upgraded("upgrade.secure-event", "agent.code", "0.1.0", "0.2.0")
+            .with_rollback_token(secret);
 
     let event = report.to_event("event.upgrade.secure");
     assert!(event.payload.contains("rollback_available=true"));

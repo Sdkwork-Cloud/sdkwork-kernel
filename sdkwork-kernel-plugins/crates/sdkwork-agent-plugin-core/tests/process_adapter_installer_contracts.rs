@@ -392,9 +392,7 @@ fn failed_upgrade_verification_restores_the_previous_versions() {
     assert_eq!(error.code(), "provider_installation_verification_failed");
     let commands = inspector.commands();
     assert_eq!(commands.len(), 5);
-    assert!(commands[3]
-        .args
-        .contains(&format!("{PACKAGE_ID}@0.145.0")));
+    assert!(commands[3].args.contains(&format!("{PACKAGE_ID}@0.145.0")));
     assert!(commands[3].args.contains(&"openai@7.0.0".to_string()));
 }
 
@@ -548,7 +546,10 @@ fn npm_detection_fails_closed_on_infrastructure_errors() {
     let uncoded_error = installer
         .detect_installation(AGENT_ID)
         .expect_err("uncoded npm failures must fail closed");
-    assert_eq!(uncoded_error.code(), "provider_installation_detection_failed");
+    assert_eq!(
+        uncoded_error.code(),
+        "provider_installation_detection_failed"
+    );
     assert!(!uncoded_error.message().contains("must-not-leak"));
 }
 
@@ -633,7 +634,8 @@ impl ProcessAdapterCommandExecutor for ConcurrentExecutor {
         if command.args.iter().any(|argument| argument == "install") {
             self.mutation_calls.fetch_add(1, Ordering::SeqCst);
             let active = self.active_mutations.fetch_add(1, Ordering::SeqCst) + 1;
-            self.max_active_mutations.fetch_max(active, Ordering::SeqCst);
+            self.max_active_mutations
+                .fetch_max(active, Ordering::SeqCst);
             thread::sleep(Duration::from_millis(100));
             self.installed.store(true, Ordering::SeqCst);
             self.active_mutations.fetch_sub(1, Ordering::SeqCst);
@@ -717,7 +719,9 @@ fn concurrent_detections_share_the_runtime_read_lock() {
         ProcessAdapterPackage::npm(PACKAGE_ID, PACKAGE_VERSION),
     )
     .with_dependency(ProcessAdapterPackage::npm("openai", "7.1.0"))
-    .with_install_root(PathBuf::from("provider-runtime-detection-concurrency-contract"))
+    .with_install_root(PathBuf::from(
+        "provider-runtime-detection-concurrency-contract",
+    ))
     .with_executor(Arc::new(executor.clone()));
     let second = first.clone();
     let first_thread = thread::spawn(move || first.detect_installation(AGENT_ID));
@@ -745,8 +749,10 @@ fn install_and_upgrade_plans_only_claim_steps_the_installer_executes() {
         .steps
         .iter()
         .any(|step| step.step_id == "step.register_provider"));
-    assert_eq!(install.steps.last().expect("post verification").kind,
-        sdkwork_agent_kernel::AgentInstallStepKind::VerifyPackage);
+    assert_eq!(
+        install.steps.last().expect("post verification").kind,
+        sdkwork_agent_kernel::AgentInstallStepKind::VerifyPackage
+    );
 
     let upgrade_request =
         AgentUpgradeRequest::new("upgrade.codex.plan", AGENT_ID, "0.1.0", PROVIDER_VERSION);

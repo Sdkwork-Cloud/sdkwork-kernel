@@ -82,13 +82,7 @@ fn real_npm_provider_lifecycle_reaches_exact_versions() {
     for case in NPM_PROVIDERS {
         let runtime = TemporaryRuntime::new("npm", case.agent_id);
         if case.agent_id == "agent.intelligence.codex" {
-            let previous = npm_installer(
-                case,
-                runtime.path(),
-                "0.1.0",
-                "0.145.0",
-                false,
-            );
+            let previous = npm_installer(case, runtime.path(), "0.1.0", "0.145.0", false);
             previous
                 .install(AgentInstallRequest::new(
                     "install.codex.previous",
@@ -121,11 +115,7 @@ fn real_npm_provider_lifecycle_reaches_exact_versions() {
                     format!("install.{}.latest", case.agent_id),
                     case.agent_id,
                     PROVIDER_VERSION,
-                    AgentPackageSource::registry(
-                        "npm",
-                        case.package_id,
-                        case.package_version,
-                    ),
+                    AgentPackageSource::registry("npm", case.package_id, case.package_version),
                 ))
                 .expect("provider installs from npm");
             installer
@@ -166,7 +156,10 @@ fn real_python_provider_lifecycle_isolated_in_virtual_environment() {
         .arg(&venv)
         .status()
         .expect("Python can create a virtual environment");
-    assert!(status.success(), "Python virtual environment creation succeeds");
+    assert!(
+        status.success(),
+        "Python virtual environment creation succeeds"
+    );
     let managed_python = if cfg!(windows) {
         venv.join("Scripts").join("python.exe")
     } else {

@@ -87,12 +87,7 @@ fn rig_installer_plans_host_managed_uninstall_and_fails_closed_on_execution() {
 #[test]
 fn rig_installer_rejects_upgrade_to_a_version_not_embedded_in_the_host() {
     let installer = RigAgentInstaller::new();
-    let request = AgentUpgradeRequest::new(
-        "upgrade.rig.future",
-        ids::AGENT_ID,
-        "0.1.0",
-        "0.1.1",
-    );
+    let request = AgentUpgradeRequest::new("upgrade.rig.future", ids::AGENT_ID, "0.1.0", "0.1.1");
     let plan = installer
         .plan_upgrade(&request)
         .expect("host replacement can be planned");

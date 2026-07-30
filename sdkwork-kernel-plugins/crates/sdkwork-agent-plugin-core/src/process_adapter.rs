@@ -488,7 +488,9 @@ fn is_valid_npm_package_id(package_id: &str) -> bool {
         let Some((scope, name)) = scoped.split_once('/') else {
             return false;
         };
-        return !name.contains('/') && is_valid_npm_package_segment(scope) && is_valid_npm_package_segment(name);
+        return !name.contains('/')
+            && is_valid_npm_package_segment(scope)
+            && is_valid_npm_package_segment(name);
     }
     !package_id.contains('/') && is_valid_npm_package_segment(package_id)
 }
@@ -525,8 +527,7 @@ fn is_exact_python_version(version: &str) -> bool {
         || version.len() > 128
         || version.trim() != version
         || !version.chars().all(|character| {
-            character.is_ascii_alphanumeric()
-                || matches!(character, '.' | '-' | '_' | '+' | '!')
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_' | '+' | '!')
         })
     {
         return false;
@@ -536,7 +537,9 @@ fn is_exact_python_version(version: &str) -> bool {
         .or_else(|| version.strip_prefix('V'))
         .unwrap_or(version);
     let release = match without_prefix.split_once('!') {
-        Some((epoch, release)) if !epoch.is_empty() && epoch.chars().all(|c| c.is_ascii_digit()) => {
+        Some((epoch, release))
+            if !epoch.is_empty() && epoch.chars().all(|c| c.is_ascii_digit()) =>
+        {
             release
         }
         Some(_) => return false,
@@ -923,9 +926,7 @@ impl ProcessAdapterInstaller {
             .and_then(|error| error.get("code"))
             .and_then(Value::as_str);
         let expected_absence = matches!(error_code, Some("ENOENT" | "ELSPROBLEMS"));
-        let empty_absence = payload
-            .as_object()
-            .is_some_and(serde_json::Map::is_empty)
+        let empty_absence = payload.as_object().is_some_and(serde_json::Map::is_empty)
             && output.stderr.trim().is_empty();
         if (!output.is_success() && !expected_absence && !empty_absence)
             || error_code.is_some_and(|code| !matches!(code, "ENOENT" | "ELSPROBLEMS"))
@@ -1171,10 +1172,8 @@ impl ProcessAdapterInstaller {
                         ProcessAdapterPackageManager::Npm => "@",
                         ProcessAdapterPackageManager::PythonPip => "==",
                     };
-                    restore_specs.push(format!(
-                        "{}{}{}",
-                        dependency.package_id, separator, version
-                    ));
+                    restore_specs
+                        .push(format!("{}{}{}", dependency.package_id, separator, version));
                 }
                 None => remove_ids.push(dependency.package_id.clone()),
             }
@@ -1327,9 +1326,7 @@ impl AgentInstaller for ProcessAdapterInstaller {
                     request.target_version,
                 ));
             }
-            if let Err(error) =
-                self.run_package_install("provider_package_install_failed")
-            {
+            if let Err(error) = self.run_package_install("provider_package_install_failed") {
                 return Err(self.compensate_failure(&snapshot, error));
             }
             if let Err(error) = self.verify_installed_unlocked() {
@@ -1365,17 +1362,17 @@ impl AgentInstaller for ProcessAdapterInstaller {
             ));
         }
         Ok(plan
-        .add_step(AgentInstallStep::new(
-            "step.replace_provider_packages",
-            AgentInstallStepKind::ReplaceVersion,
-            "replace provider packages with exact target versions",
-        ))
-        .add_step(AgentInstallStep::new(
-            "step.verify_upgraded_provider_packages",
-            AgentInstallStepKind::VerifyPackage,
-            "verify upgraded provider package versions",
-        ))
-        .require_policy(PolicyCategory::AgentUpgrade))
+            .add_step(AgentInstallStep::new(
+                "step.replace_provider_packages",
+                AgentInstallStepKind::ReplaceVersion,
+                "replace provider packages with exact target versions",
+            ))
+            .add_step(AgentInstallStep::new(
+                "step.verify_upgraded_provider_packages",
+                AgentInstallStepKind::VerifyPackage,
+                "verify upgraded provider package versions",
+            ))
+            .require_policy(PolicyCategory::AgentUpgrade))
     }
 
     fn upgrade(&self, request: AgentUpgradeRequest) -> KernelResult<AgentUpgradeReport> {
@@ -1401,9 +1398,7 @@ impl AgentInstaller for ProcessAdapterInstaller {
                     request.to_version,
                 ));
             }
-            if let Err(error) =
-                self.run_package_install("provider_package_upgrade_failed")
-            {
+            if let Err(error) = self.run_package_install("provider_package_upgrade_failed") {
                 return Err(self.compensate_failure(&snapshot, error));
             }
             if let Err(error) = self.verify_installed_unlocked() {
@@ -1469,9 +1464,7 @@ impl AgentInstaller for ProcessAdapterInstaller {
                         .with_configuration_removed(false),
                 );
             }
-            if let Err(error) =
-                self.run_package_uninstall("provider_package_uninstall_failed")
-            {
+            if let Err(error) = self.run_package_uninstall("provider_package_uninstall_failed") {
                 return Err(self.compensate_failure(&snapshot, error));
             }
             if let Err(error) = self.verify_uninstalled_unlocked() {

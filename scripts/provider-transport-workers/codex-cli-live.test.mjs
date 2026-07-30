@@ -9,6 +9,7 @@ import {
   invokeCodexCliModelChat,
   parseCodexCliJsonl,
   probeCodexCli,
+  terminateProcessTree,
 } from './codex-cli-live.mjs';
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sdkwork-codex-cli-live-'));
@@ -334,7 +335,7 @@ function invokeWorker(packageName, operation, environment, method = 'sdkwork/cap
         return;
       }
       const line = stdout.slice(0, newline);
-      child.kill();
+      terminateProcessTree(child);
       try {
         resolve(JSON.parse(line));
       } catch (error) {
@@ -385,12 +386,12 @@ function invokeWorkerFrames(packageName, operation, environment) {
             const frame = JSON.parse(line);
             frames.push({ frame, observedAt: Date.now() });
             if (frame.result?.event === 'invoke.done' || frame.result?.ok === false) {
-              child.kill();
+              terminateProcessTree(child);
               resolve(frames);
               return;
             }
           } catch (error) {
-            child.kill();
+            terminateProcessTree(child);
             reject(error);
             return;
           }

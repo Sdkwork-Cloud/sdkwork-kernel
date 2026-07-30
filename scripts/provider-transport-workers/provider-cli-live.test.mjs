@@ -14,6 +14,7 @@ import {
   parseOpenCodeJson,
   probeProviderCli,
 } from './provider-cli-live.mjs';
+import { terminateProcessTree } from './codex-cli-live.mjs';
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sdkwork-provider-cli-live-'));
 const workingDirectory = path.join(tempRoot, 'workspace');
@@ -323,7 +324,7 @@ function invokeWorker(packageName, operation, environment, method = 'sdkwork/cap
       stdout += String(chunk);
       const newline = stdout.indexOf('\n');
       if (newline < 0) return;
-      child.kill();
+      terminateProcessTree(child);
       try {
         resolve(JSON.parse(stdout.slice(0, newline)));
       } catch (error) {
@@ -373,12 +374,12 @@ function invokeWorkerFrames(packageName, operation, environment) {
             const frame = JSON.parse(line);
             frames.push({ frame, observedAt: Date.now() });
             if (frame.result?.event === 'invoke.done' || frame.result?.ok === false) {
-              child.kill();
+              terminateProcessTree(child);
               resolve(frames);
               return;
             }
           } catch (error) {
-            child.kill();
+            terminateProcessTree(child);
             reject(error);
             return;
           }

@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 
+import { terminateProcessTree } from './codex-cli-live.mjs';
+
 function invokeWorker(operation, env = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(
@@ -27,7 +29,7 @@ function invokeWorker(operation, env = {}) {
 
     const rl = readline.createInterface({ input: child.stdout });
     rl.once('line', (line) => {
-      child.kill();
+      terminateProcessTree(child);
       try {
         resolve(JSON.parse(line));
       } catch (error) {
@@ -342,7 +344,7 @@ function invokeWorkerFrames(packageName, operation, env = {}, onFrame, activityS
       settled = true;
       clearTimeout(timeout);
       rl.close();
-      child.kill();
+      terminateProcessTree(child);
       callback(value);
     };
     child.stderr.on('data', (chunk) => stderr.push(String(chunk)));

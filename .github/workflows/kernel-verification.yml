@@ -135,13 +135,13 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: postgres
+          POSTGRES_USER: sdkwork_ai_test
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: sdkwork_test
+          POSTGRES_DB: sdkwork_ai_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres"
+          --health-cmd "pg_isready -U sdkwork_ai_test -d sdkwork_ai_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -224,7 +224,7 @@ jobs:
 
       - name: Run live PostgreSQL runtime session contract
         env:
-          SDKWORK_DATABASE_URL: postgres://postgres:postgres@localhost:5432/sdkwork_test
+          SDKWORK_DATABASE_URL: postgres://sdkwork_ai_test:postgres@localhost:5432/sdkwork_ai_test
         run: >
           cargo test --features postgres-sync
           --test agent_runtime_postgres_contracts

@@ -626,12 +626,15 @@ pub fn kernel_event_from_stream_frame(
         ));
     }
 
-    let encoded = frame.get("kernel_event").and_then(Value::as_object).ok_or_else(|| {
-        SdkRuntimeError::new(
-            "invalid_stream_event",
-            "runtime stream.event frame is missing kernel_event",
-        )
-    })?;
+    let encoded = frame
+        .get("kernel_event")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            SdkRuntimeError::new(
+                "invalid_stream_event",
+                "runtime stream.event frame is missing kernel_event",
+            )
+        })?;
     let event_id = required_object_string(encoded, "event_id")?;
     let event_type = required_object_string(encoded, "event_type")?;
     let event_version = required_object_string(encoded, "event_version")?;
@@ -696,7 +699,10 @@ pub fn kernel_event_from_stream_frame(
     event.step_id = optional_object_string(encoded, "step_id").map(str::to_string);
     event.correlation_id = optional_object_string(encoded, "correlation_id").map(str::to_string);
     event.causation_id = optional_object_string(encoded, "causation_id").map(str::to_string);
-    event.replay = encoded.get("replay").and_then(Value::as_bool).unwrap_or(false);
+    event.replay = encoded
+        .get("replay")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     if let Some(trace) = encoded.get("trace_context").and_then(Value::as_object) {
         let trace_id = required_object_string(trace, "trace_id")?;
         let span_id = required_object_string(trace, "span_id")?;
@@ -710,10 +716,7 @@ pub fn kernel_event_from_stream_frame(
     Ok(Some(event))
 }
 
-fn required_frame_string<'a>(
-    frame: &'a Value,
-    field: &str,
-) -> Result<&'a str, SdkRuntimeError> {
+fn required_frame_string<'a>(frame: &'a Value, field: &str) -> Result<&'a str, SdkRuntimeError> {
     frame
         .get(field)
         .and_then(Value::as_str)
@@ -1252,7 +1255,10 @@ mod tests {
         assert_eq!(event.run_id.as_deref(), Some("req-1"));
         assert_eq!(event.step_id.as_deref(), Some("command-1"));
         assert_eq!(event.source, KernelEventSource::Tool);
-        assert_eq!(event.redaction_classification, KernelEventRedaction::TenantSensitive);
+        assert_eq!(
+            event.redaction_classification,
+            KernelEventRedaction::TenantSensitive
+        );
         let payload: Value = serde_json::from_str(&event.payload).expect("JSON payload");
         assert_eq!(payload["item"]["aggregated_output"], "passed");
     }
@@ -1460,4 +1466,61 @@ mod tests {
             serde_json::json!({
                 "ok": true,
                 "mode": "sdk_live",
-  
+                "messages": ["I need your input."],
+                "tool_calls": [
+                    {
+                        "id": "provider-question-1",
+                        "toolName": "user_question",
+                        "toolArguments": {
+                            "requestID": "provider-question-1",
+                            "questions": [{"question": "Run unit tests?"}]
+                        }
+                    }
+                ]
+            }),
+        );
+
+        let mapped = model_response_from_runtime(response, "req-tool-call", "provider.opencode")
+            .expect("valid provider tool calls should be preserved");
+
+        assert_eq!(mapped.tool_calls.len(), 1);
+        assert_eq!(mapped.tool_calls[0].tool_call_id, "provider-question-1");
+        assert_eq!(mapped.tool_calls[0].tool_id, "user_question");
+        assert_eq!(
+            mapped.tool_calls[0].arguments,
+            r#"{"questions":[{"question":"Run unit tests?"}],"requestID":"provider-question-1"}"#
+        );
+    }
+
+    #[test]
+    fn model_response_rejects_tool_calls_without_provider_native_ids() {
+        let response = SdkRuntimeResponse::success(
+            SdkBackendKind::TypeScriptNode,
+            SDK_CAPABILITY_MODEL_CHAT,
+            serde_json::json!({
+                "ok": true,
+                "messages": ["I need approval."],
+                "tool_calls": [{"toolName": "permission_request", "arguments": {}}]
+            }),
+        );
+
+        let error = model_response_from_runtime(response, "req-tool-call", "provider.opencode")
+            .expect_err("the bridge must not invent a native interaction id");
+
+        assert_eq!(error.code, "invalid_tool_call");
+    }
+
+    #[test]
+    fn request_live_provider_requirement_is_fail_closed() {
+        let required = ModelRequest::new("req-live", vec!["hello".to_string()])
+            .with_metadata("sdkwork.code_engine.require_live_provider", "true");
+        let optional = ModelRequest::new("req-optional", vec!["hello".to_string()])
+            .with_metadata("sdkwork.code_engine.require_live_provider", "false");
+        let malformed = ModelRequest::new("req-malformed", vec!["hello".to_string()])
+            .with_metadata("sdkwork.code_engine.require_live_provider", "sometimes");
+
+        assert!(request_requires_live_provider(&required));
+        assert!(!request_requires_live_provider(&optional));
+        assert!(request_requires_live_provider(&malformed));
+    }
+}

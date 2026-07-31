@@ -1,14 +1,22 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt,
-    io::Read,
+    fs::{self, File, OpenOptions},
+    io::{ErrorKind, Read},
     path::{Component, Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::{Arc, Mutex, OnceLock, RwLock, Weak},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex, OnceLock, RwLock, Weak,
+    },
     thread,
     time::{Duration, Instant},
 };
 
+#[cfg(windows)]
+use std::ffi::OsString;
+
+use pep440_rs::Version as PythonVersion;
 use sdkwork_agent_kernel::{
     AgentConfigField, AgentConfigSection, AgentConfigSectionKind, AgentConfigValue,
     AgentConfigValueKind, AgentConfiguration, AgentConfigurationProvider, AgentConfigurationSpec,
@@ -21,6 +29,8 @@ use sdkwork_agent_kernel::{
 use semver::Version;
 use serde_json::Value;
 
+use crate::StandardPluginIds;
+
 const PROVIDER_RUNTIME_ROOT_ENV: &str = "SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT";
 const PYTHON_BINARY_ENV: &str = "SDKWORK_AGENT_PYTHON_BINARY";
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
@@ -29,8 +39,14 @@ const HEALTH_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
 const PACKAGE_MUTATION_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const OPERATION_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 const OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+#[cfg(windows)]
+const PROCESS_TREE_TERMINATION_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_CAPTURE_BYTES: usize = 64 * 1024;
+const MAX_ACTIVE_OUTPUT_READERS: usize = 64;
 const MAX_MANAGED_PACKAGES: usize = 32;
+const MAX_REQUEST_ID_CHARACTERS: usize = 128;
+const OPERATION_LOCK_DIRECTORY: &str = "sdkwork-agent-provider-lifecycle-locks";
+const OPERATION_LOCK_SHARD_COUNT: u64 = 4096;
 const PYTHON_METADATA_PROBE: &str = r#"import importlib.metadata as metadata
 import json
 import sys
@@ -45,6 +61,120 @@ print(json.dumps(versions))
 "#;
 
 static OPERATION_LOCKS: OnceLock<Mutex<HashMap<String, Weak<RwLock<()>>>>> = OnceLock::new();
+static ACTIVE_OUTPUT_READERS: AtomicUsize = AtomicUsize::new(0);
+
+struct CrossProcessOperationLock {
+    file: File,
+}
+
+impl CrossProcessOperationLock {
+    fn acquire(key: &str, exclusive: bool, started: Instant) -> KernelResult<Self> {
+        let lock_path = operation_lock_file_path(key)?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(lock_path)
+            .map_err(|_| {
+                KernelError::provider_error(
+                    "provider_installer_lock_unavailable",
+                    "provider lifecycle cross-process coordination is unavailable",
+                )
+            })?;
+        loop {
+            let result = if exclusive {
+                file.try_lock()
+            } else {
+                file.try_lock_shared()
+            };
+            match result {
+                Ok(()) => return Ok(Self { file }),
+                Err(fs::TryLockError::WouldBlock) if started.elapsed() < OPERATION_LOCK_TIMEOUT => {
+                    thread::sleep(Duration::from_millis(25));
+                }
+                Err(fs::TryLockError::WouldBlock) => {
+                    return Err(KernelError::timeout(
+                        "provider lifecycle coordination timed out",
+                    ));
+                }
+                Err(_) => {
+                    return Err(KernelError::provider_error(
+                        "provider_installer_lock_unavailable",
+                        "provider lifecycle cross-process coordination is unavailable",
+                    ));
+                }
+            }
+        }
+    }
+}
+
+impl Drop for CrossProcessOperationLock {
+    fn drop(&mut self) {
+        let _ = self.file.unlock();
+    }
+}
+
+fn operation_lock_file_path(key: &str) -> KernelResult<PathBuf> {
+    let directory = operation_lock_directory()?;
+    let shard = stable_lock_key_hash(key) % OPERATION_LOCK_SHARD_COUNT;
+    Ok(directory.join(format!("{shard:03x}.lock")))
+}
+
+fn operation_lock_directory() -> KernelResult<PathBuf> {
+    let directory = std::env::temp_dir().join(OPERATION_LOCK_DIRECTORY);
+    #[cfg(unix)]
+    let create_result = {
+        use std::os::unix::fs::DirBuilderExt;
+
+        let mut builder = fs::DirBuilder::new();
+        builder.mode(0o700).create(&directory)
+    };
+    #[cfg(not(unix))]
+    let create_result = fs::create_dir(&directory);
+    if let Err(error) = create_result {
+        if error.kind() != ErrorKind::AlreadyExists {
+            return Err(KernelError::provider_error(
+                "provider_installer_lock_unavailable",
+                "provider lifecycle cross-process coordination is unavailable",
+            ));
+        }
+    }
+    let metadata = fs::symlink_metadata(&directory).map_err(|_| {
+        KernelError::provider_error(
+            "provider_installer_lock_unavailable",
+            "provider lifecycle cross-process coordination is unavailable",
+        )
+    })?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(KernelError::provider_error(
+            "provider_installer_lock_unavailable",
+            "provider lifecycle cross-process coordination is unavailable",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&directory, permissions).map_err(|_| {
+            KernelError::provider_error(
+                "provider_installer_lock_unavailable",
+                "provider lifecycle cross-process coordination is unavailable",
+            )
+        })?;
+    }
+    Ok(directory)
+}
+
+fn stable_lock_key_hash(key: &str) -> u64 {
+    key.as_bytes()
+        .iter()
+        .fold(0xcbf29ce484222325, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+        })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessAdapterCommand {
@@ -167,8 +297,23 @@ impl ProcessAdapterCommandExecutor for SystemProcessAdapterCommandExecutor {
             .stderr
             .take()
             .expect("piped provider installer stderr");
-        let stdout_reader = BoundedReader::spawn(stdout);
-        let stderr_reader = BoundedReader::spawn(stderr);
+        let stdout_reader = match BoundedReader::spawn(stdout) {
+            Ok(reader) => reader,
+            Err(error) => {
+                process_tree.terminate(&mut child);
+                let _ = child.wait();
+                return Err(error);
+            }
+        };
+        let stderr_reader = match BoundedReader::spawn(stderr) {
+            Ok(reader) => reader,
+            Err(error) => {
+                process_tree.terminate(&mut child);
+                let _ = child.wait();
+                let _ = stdout_reader.finish();
+                return Err(error);
+            }
+        };
         let timeout = command.timeout.unwrap_or(self.timeout);
         let started = Instant::now();
         let (status, timed_out) = loop {
@@ -230,9 +375,17 @@ fn resolve_windows_npm_runtime() -> KernelResult<(PathBuf, PathBuf)> {
             "Node.js and the npm CLI could not be resolved",
         )
     })?;
-    let mut node_binary = None;
-    let mut npm_cli = None;
+    resolve_windows_npm_runtime_from_path(&path)
+}
+
+#[cfg(windows)]
+fn resolve_windows_npm_runtime_from_path(
+    path: &std::ffi::OsStr,
+) -> KernelResult<(PathBuf, PathBuf)> {
     for directory in std::env::split_paths(&path) {
+        if directory.as_os_str().is_empty() {
+            continue;
+        }
         let node_candidate = directory.join("node.exe");
         let npm_candidate = directory
             .join("node_modules")
@@ -240,22 +393,29 @@ fn resolve_windows_npm_runtime() -> KernelResult<(PathBuf, PathBuf)> {
             .join("bin")
             .join("npm-cli.js");
         if node_candidate.is_file() && npm_candidate.is_file() {
-            return Ok((node_candidate, npm_candidate));
-        }
-        if node_binary.is_none() && node_candidate.is_file() {
-            node_binary = Some(node_candidate);
-        }
-        if npm_cli.is_none() && npm_candidate.is_file() {
-            npm_cli = Some(npm_candidate);
+            let node_binary = dunce::canonicalize(node_candidate).map_err(|_| {
+                KernelError::provider_error(
+                    "provider_installer_command_unavailable",
+                    "Node.js and the npm CLI could not be resolved",
+                )
+            })?;
+            let npm_cli = dunce::canonicalize(npm_candidate).map_err(|_| {
+                KernelError::provider_error(
+                    "provider_installer_command_unavailable",
+                    "Node.js and the npm CLI could not be resolved",
+                )
+            })?;
+            let node_root = node_binary.parent();
+            let npm_root = npm_cli.ancestors().nth(4);
+            if node_root == npm_root {
+                return Ok((node_binary, npm_cli));
+            }
         }
     }
-    match (node_binary, npm_cli) {
-        (Some(node_binary), Some(npm_cli)) => Ok((node_binary, npm_cli)),
-        _ => Err(KernelError::provider_error(
-            "provider_installer_command_unavailable",
-            "Node.js and the npm CLI could not be resolved",
-        )),
-    }
+    Err(KernelError::provider_error(
+        "provider_installer_command_unavailable",
+        "Node.js and the npm CLI could not be resolved",
+    ))
 }
 
 struct BoundedReader {
@@ -264,26 +424,46 @@ struct BoundedReader {
 }
 
 impl BoundedReader {
-    fn spawn(mut reader: impl Read + Send + 'static) -> Self {
+    fn spawn(mut reader: impl Read + Send + 'static) -> KernelResult<Self> {
+        ACTIVE_OUTPUT_READERS
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |active| {
+                (active < MAX_ACTIVE_OUTPUT_READERS).then_some(active + 1)
+            })
+            .map_err(|_| {
+                KernelError::provider_error(
+                    "provider_installer_output_capacity_exhausted",
+                    "provider installer output capacity is exhausted",
+                )
+            })?;
         let captured = Arc::new(Mutex::new(Vec::new()));
         let writer = Arc::clone(&captured);
-        let handle = thread::spawn(move || {
-            let mut buffer = [0_u8; 4096];
-            loop {
-                let Ok(count) = reader.read(&mut buffer) else {
-                    break;
-                };
-                if count == 0 {
-                    break;
+        let handle = thread::Builder::new()
+            .name("provider-output-reader".to_string())
+            .spawn(move || {
+                let _active_reader = ActiveOutputReader;
+                let mut buffer = [0_u8; 4096];
+                loop {
+                    let Ok(count) = reader.read(&mut buffer) else {
+                        break;
+                    };
+                    if count == 0 {
+                        break;
+                    }
+                    let Ok(mut captured) = writer.lock() else {
+                        break;
+                    };
+                    let remaining = MAX_CAPTURE_BYTES.saturating_sub(captured.len());
+                    captured.extend_from_slice(&buffer[..count.min(remaining)]);
                 }
-                let Ok(mut captured) = writer.lock() else {
-                    break;
-                };
-                let remaining = MAX_CAPTURE_BYTES.saturating_sub(captured.len());
-                captured.extend_from_slice(&buffer[..count.min(remaining)]);
-            }
-        });
-        Self { captured, handle }
+            })
+            .map_err(|_| {
+                ACTIVE_OUTPUT_READERS.fetch_sub(1, Ordering::AcqRel);
+                KernelError::provider_error(
+                    "provider_installer_output_unavailable",
+                    "provider installer output capture could not start",
+                )
+            })?;
+        Ok(Self { captured, handle })
     }
 
     fn is_finished(&self) -> bool {
@@ -300,6 +480,14 @@ impl BoundedReader {
             message: "provider installer output capture failed".to_string(),
         })?;
         Ok(String::from_utf8_lossy(&captured).into_owned())
+    }
+}
+
+struct ActiveOutputReader;
+
+impl Drop for ActiveOutputReader {
+    fn drop(&mut self) {
+        ACTIVE_OUTPUT_READERS.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
@@ -322,13 +510,28 @@ impl ProcessTreeGuard {
         if let Some(job) = &self.job {
             job.terminate();
         } else {
-            // taskkill can block for several seconds, so keep the fallback asynchronous.
-            let _ = Command::new("taskkill")
+            let taskkill = Command::new("taskkill")
                 .args(["/PID", &process_id, "/T", "/F"])
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn();
+            if let Ok(mut taskkill) = taskkill {
+                let started = Instant::now();
+                loop {
+                    match taskkill.try_wait() {
+                        Ok(Some(_)) => break,
+                        Ok(None) if started.elapsed() < PROCESS_TREE_TERMINATION_TIMEOUT => {
+                            thread::sleep(Duration::from_millis(10));
+                        }
+                        Ok(None) | Err(_) => {
+                            let _ = taskkill.kill();
+                            let _ = taskkill.wait();
+                            break;
+                        }
+                    }
+                }
+            }
         }
         #[cfg(unix)]
         let _ = Command::new("kill")
@@ -496,7 +699,10 @@ fn is_valid_npm_package_id(package_id: &str) -> bool {
 }
 
 fn is_valid_npm_package_segment(segment: &str) -> bool {
-    !segment.is_empty()
+    segment
+        .chars()
+        .next()
+        .is_some_and(|first| !matches!(first, '.' | '_'))
         && segment.chars().all(|character| {
             character.is_ascii_lowercase()
                 || character.is_ascii_digit()
@@ -523,32 +729,12 @@ fn is_valid_pypi_package_id(package_id: &str) -> bool {
 }
 
 fn is_exact_python_version(version: &str) -> bool {
-    if version.is_empty()
-        || version.len() > 128
-        || version.trim() != version
-        || !version.chars().all(|character| {
-            character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_' | '+' | '!')
-        })
-    {
+    if version.is_empty() || version.len() > 128 || version.trim() != version {
         return false;
     }
-    let without_prefix = version
-        .strip_prefix('v')
-        .or_else(|| version.strip_prefix('V'))
-        .unwrap_or(version);
-    let release = match without_prefix.split_once('!') {
-        Some((epoch, release))
-            if !epoch.is_empty() && epoch.chars().all(|c| c.is_ascii_digit()) =>
-        {
-            release
-        }
-        Some(_) => return false,
-        None => without_prefix,
-    };
-    release
-        .chars()
-        .next()
-        .is_some_and(|character| character.is_ascii_digit())
+    version
+        .parse::<PythonVersion>()
+        .is_ok_and(|parsed| parsed.to_string() == version)
 }
 
 fn normalized_package_id(package: &ProcessAdapterPackage) -> String {
@@ -660,12 +846,13 @@ impl ProcessAdapterInstaller {
     }
 
     fn validate_descriptor(&self) -> KernelResult<ProcessAdapterPackageManager> {
-        if self.agent_id.trim().is_empty()
-            || self.provider_id.trim().is_empty()
-            || Version::parse(&self.provider_version).is_err()
-        {
+        StandardPluginIds::validate_agent_id(&self.agent_id)
+            .map_err(KernelError::validation)?;
+        StandardPluginIds::validate_provider_id(&self.provider_id)
+            .map_err(KernelError::validation)?;
+        if !is_exact_semantic_version(&self.provider_version) {
             return Err(KernelError::validation(
-                "provider installer agent id, provider id, and exact semantic version are required",
+                "provider installer version must be an exact semantic version",
             ));
         }
         if self.packages.len() > MAX_MANAGED_PACKAGES {
@@ -707,7 +894,7 @@ impl ProcessAdapterInstaller {
                 Ok(format!("npm:{key}"))
             }
             ProcessAdapterPackageManager::PythonPip => {
-                let mut binary = self.python_binary();
+                let mut binary = executable_lock_identity(&self.python_binary()?);
                 if cfg!(windows) {
                     binary.make_ascii_lowercase();
                 }
@@ -716,7 +903,7 @@ impl ProcessAdapterInstaller {
         }
     }
 
-    fn shared_operation_lock(&self) -> KernelResult<Arc<RwLock<()>>> {
+    fn shared_operation_lock(&self) -> KernelResult<(String, Arc<RwLock<()>>)> {
         let key = self.operation_lock_key()?;
         let registry = OPERATION_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
         let mut registry = registry.lock().map_err(|_| {
@@ -726,25 +913,30 @@ impl ProcessAdapterInstaller {
             )
         })?;
         registry.retain(|_, lock| lock.strong_count() > 0);
-        Ok(match registry.get(&key).and_then(Weak::upgrade) {
+        let lock = match registry.get(&key).and_then(Weak::upgrade) {
             Some(lock) => lock,
             None => {
                 let lock = Arc::new(RwLock::new(()));
-                registry.insert(key, Arc::downgrade(&lock));
+                registry.insert(key.clone(), Arc::downgrade(&lock));
                 lock
             }
-        })
+        };
+        Ok((key, lock))
     }
 
     fn with_detection_lock<T>(
         &self,
         operation: impl FnOnce() -> KernelResult<T>,
     ) -> KernelResult<T> {
-        let lock = self.shared_operation_lock()?;
+        let (key, lock) = self.shared_operation_lock()?;
         let started = Instant::now();
         loop {
             match lock.try_read() {
-                Ok(_guard) => return operation(),
+                Ok(_guard) => {
+                    let _cross_process_lock =
+                        CrossProcessOperationLock::acquire(&key, false, started)?;
+                    return operation();
+                }
                 Err(std::sync::TryLockError::WouldBlock)
                     if started.elapsed() < OPERATION_LOCK_TIMEOUT =>
                 {
@@ -769,11 +961,15 @@ impl ProcessAdapterInstaller {
         &self,
         operation: impl FnOnce() -> KernelResult<T>,
     ) -> KernelResult<T> {
-        let lock = self.shared_operation_lock()?;
+        let (key, lock) = self.shared_operation_lock()?;
         let started = Instant::now();
         loop {
             match lock.try_write() {
-                Ok(_guard) => return operation(),
+                Ok(_guard) => {
+                    let _cross_process_lock =
+                        CrossProcessOperationLock::acquire(&key, true, started)?;
+                    return operation();
+                }
                 Err(std::sync::TryLockError::WouldBlock)
                     if started.elapsed() < OPERATION_LOCK_TIMEOUT =>
                 {
@@ -795,6 +991,7 @@ impl ProcessAdapterInstaller {
     }
 
     fn validate_install_request(&self, request: &AgentInstallRequest) -> KernelResult<()> {
+        validate_lifecycle_request_id(&request.request_id)?;
         self.validate_agent_id(&request.agent_id)?;
         self.validate_descriptor()?;
         if request.target_version != self.provider_version {
@@ -822,6 +1019,7 @@ impl ProcessAdapterInstaller {
     }
 
     fn validate_upgrade_request(&self, request: &AgentUpgradeRequest) -> KernelResult<()> {
+        validate_lifecycle_request_id(&request.request_id)?;
         self.validate_agent_id(&request.agent_id)?;
         self.validate_descriptor()?;
         if request.to_version != self.provider_version {
@@ -830,9 +1028,9 @@ impl ProcessAdapterInstaller {
                 self.provider_version, request.to_version
             )));
         }
-        if request.from_version.trim().is_empty() {
+        if !is_exact_semantic_version(&request.from_version) {
             return Err(KernelError::validation(
-                "provider upgrade source version is required",
+                "provider upgrade source version must be an exact semantic version",
             ));
         }
         self.validate_request_configuration(request.configuration.as_ref())
@@ -841,30 +1039,42 @@ impl ProcessAdapterInstaller {
     fn npm_install_root(&self) -> KernelResult<PathBuf> {
         let root = if let Some(root) = &self.install_root {
             root.clone()
-        } else if let Some(root) = std::env::var_os(PROVIDER_RUNTIME_ROOT_ENV)
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-        {
-            root
         } else {
-            find_packaged_provider_runtime_root().ok_or_else(|| {
-                KernelError::provider_error(
-                    "provider_install_root_missing",
-                    format!("{PROVIDER_RUNTIME_ROOT_ENV} is not configured"),
-                )
-            })?
+            match std::env::var_os(PROVIDER_RUNTIME_ROOT_ENV) {
+                Some(root) if root.is_empty() => {
+                    return Err(KernelError::validation(format!(
+                        "{PROVIDER_RUNTIME_ROOT_ENV} must not be empty"
+                    )));
+                }
+                Some(root) => PathBuf::from(root),
+                None => find_packaged_provider_runtime_root().ok_or_else(|| {
+                    KernelError::provider_error(
+                        "provider_install_root_missing",
+                        format!("{PROVIDER_RUNTIME_ROOT_ENV} is not configured"),
+                    )
+                })?,
+            }
         };
         resolve_install_root(&root)
     }
 
-    fn python_binary(&self) -> String {
-        std::env::var(PYTHON_BINARY_ENV).unwrap_or_else(|_| {
-            if cfg!(windows) {
-                "python".to_string()
-            } else {
-                "python3".to_string()
+    fn python_binary(&self) -> KernelResult<String> {
+        match std::env::var(PYTHON_BINARY_ENV) {
+            Ok(binary) if binary.trim().is_empty() => Err(KernelError::validation(format!(
+                "{PYTHON_BINARY_ENV} must not be empty"
+            ))),
+            Ok(binary) => Ok(binary),
+            Err(std::env::VarError::NotPresent) => {
+                if cfg!(windows) {
+                    Ok("python".to_string())
+                } else {
+                    Ok("python3".to_string())
+                }
             }
-        })
+            Err(std::env::VarError::NotUnicode(_)) => Err(KernelError::validation(format!(
+                "{PYTHON_BINARY_ENV} must be valid Unicode"
+            ))),
+        }
     }
 
     fn validate_request_configuration(
@@ -958,7 +1168,7 @@ impl ProcessAdapterInstaller {
                 .map(|package| package.package_id.clone()),
         );
         let output = self.executor.execute(
-            &ProcessAdapterCommand::new(self.python_binary(), args)
+            &ProcessAdapterCommand::new(self.python_binary()?, args)
                 .with_timeout(DETECTION_COMMAND_TIMEOUT),
         )?;
         if output.timed_out {
@@ -1041,7 +1251,7 @@ impl ProcessAdapterInstaller {
                     "--only-binary=:all:".to_string(),
                 ];
                 args.extend(exact_packages.iter().cloned());
-                ProcessAdapterCommand::new(self.python_binary(), args)
+                ProcessAdapterCommand::new(self.python_binary()?, args)
             }
         };
         self.run_checked(&command.with_timeout(PACKAGE_MUTATION_TIMEOUT), code)
@@ -1080,7 +1290,7 @@ impl ProcessAdapterInstaller {
                     "--yes".to_string(),
                 ];
                 args.extend(package_ids.iter().cloned());
-                ProcessAdapterCommand::new(self.python_binary(), args)
+                ProcessAdapterCommand::new(self.python_binary()?, args)
             }
         };
         self.run_checked(&command.with_timeout(PACKAGE_MUTATION_TIMEOUT), code)
@@ -1161,13 +1371,12 @@ impl ProcessAdapterInstaller {
         &self,
         snapshot: &[AgentInstallationDependency],
     ) -> KernelResult<()> {
-        let manager = self.validate_descriptor()?;
+        let manager = self.validate_dependency_snapshot(snapshot)?;
         let mut restore_specs = Vec::new();
         let mut remove_ids = Vec::new();
         for dependency in snapshot {
             match &dependency.installed_version {
                 Some(version) => {
-                    validate_detected_version(manager, version)?;
                     let separator = match manager {
                         ProcessAdapterPackageManager::Npm => "@",
                         ProcessAdapterPackageManager::PythonPip => "==",
@@ -1199,6 +1408,19 @@ impl ProcessAdapterInstaller {
                 "provider package rollback did not restore the previous dependency state",
             ))
         }
+    }
+
+    fn validate_dependency_snapshot(
+        &self,
+        snapshot: &[AgentInstallationDependency],
+    ) -> KernelResult<ProcessAdapterPackageManager> {
+        let manager = self.validate_descriptor()?;
+        for dependency in snapshot {
+            if let Some(version) = &dependency.installed_version {
+                validate_detected_version(manager, version)?;
+            }
+        }
+        Ok(manager)
     }
 
     fn compensate_failure(
@@ -1239,7 +1461,122 @@ fn resolve_install_root(root: &Path) -> KernelResult<PathBuf> {
             "provider install root must be a directory",
         ));
     }
-    Ok(dunce::canonicalize(&normalized).unwrap_or(normalized))
+    let mut existing_ancestor = normalized.as_path();
+    loop {
+        match existing_ancestor.try_exists() {
+            Ok(true) => break,
+            Ok(false) => {
+                existing_ancestor = existing_ancestor.parent().ok_or_else(|| {
+                    KernelError::provider_error(
+                        "provider_install_root_unavailable",
+                        "provider install root could not be resolved",
+                    )
+                })?;
+            }
+            Err(_) => {
+                return Err(KernelError::provider_error(
+                    "provider_install_root_unavailable",
+                    "provider install root could not be resolved",
+                ));
+            }
+        }
+    }
+    if !existing_ancestor.is_dir() {
+        return Err(KernelError::validation(
+            "provider install root must have a directory ancestor",
+        ));
+    }
+    let canonical_ancestor = dunce::canonicalize(existing_ancestor).map_err(|_| {
+        KernelError::provider_error(
+            "provider_install_root_unavailable",
+            "provider install root could not be resolved",
+        )
+    })?;
+    let missing_tail = normalized.strip_prefix(existing_ancestor).map_err(|_| {
+        KernelError::provider_error(
+            "provider_install_root_unavailable",
+            "provider install root could not be resolved",
+        )
+    })?;
+    Ok(canonical_ancestor.join(missing_tail))
+}
+
+fn executable_lock_identity(program: &str) -> String {
+    let path = resolve_executable_path(program).unwrap_or_else(|| {
+        let path = Path::new(program);
+        if path.components().count() > 1 {
+            std::path::absolute(path)
+                .map(|absolute| lexical_normalize(&absolute))
+                .unwrap_or_else(|_| path.to_path_buf())
+        } else {
+            path.to_path_buf()
+        }
+    });
+    path.to_string_lossy().into_owned()
+}
+
+fn resolve_executable_path(program: &str) -> Option<PathBuf> {
+    if program.is_empty() {
+        return None;
+    }
+    let program_path = Path::new(program);
+    if program_path.components().count() > 1 {
+        return canonical_executable(program_path);
+    }
+
+    #[cfg(windows)]
+    if let Ok(current_directory) = std::env::current_dir() {
+        if let Some(executable) = executable_in_directory(&current_directory, program) {
+            return Some(executable);
+        }
+    }
+    std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>())
+        .find_map(|directory| executable_in_directory(&directory, program))
+}
+
+fn executable_in_directory(directory: &Path, program: &str) -> Option<PathBuf> {
+    let direct = directory.join(program);
+    if let Some(executable) = canonical_executable(&direct) {
+        return Some(executable);
+    }
+
+    #[cfg(windows)]
+    if Path::new(program).extension().is_none() {
+        let extensions =
+            std::env::var_os("PATHEXT").unwrap_or_else(|| OsString::from(".COM;.EXE;.BAT;.CMD"));
+        for extension in extensions.to_string_lossy().split(';') {
+            if extension.is_empty()
+                || extension.contains(['/', '\\'])
+                || !extension.starts_with('.')
+            {
+                continue;
+            }
+            let mut name = OsString::from(program);
+            name.push(extension);
+            if let Some(executable) = canonical_executable(&directory.join(name)) {
+                return Some(executable);
+            }
+        }
+    }
+    None
+}
+
+fn canonical_executable(path: &Path) -> Option<PathBuf> {
+    let metadata = path.metadata().ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return None;
+        }
+    }
+    dunce::canonicalize(path).ok()
 }
 
 fn lexical_normalize(path: &Path) -> PathBuf {
@@ -1316,6 +1653,7 @@ impl AgentInstaller for ProcessAdapterInstaller {
         }
         self.with_mutation_lock(|| {
             let snapshot = self.detect_dependencies()?;
+            self.validate_dependency_snapshot(&snapshot)?;
             if snapshot
                 .iter()
                 .all(AgentInstallationDependency::version_matches)
@@ -1387,6 +1725,7 @@ impl AgentInstaller for ProcessAdapterInstaller {
         }
         self.with_mutation_lock(|| {
             let snapshot = self.detect_dependencies()?;
+            self.validate_dependency_snapshot(&snapshot)?;
             if snapshot
                 .iter()
                 .all(AgentInstallationDependency::version_matches)
@@ -1414,6 +1753,7 @@ impl AgentInstaller for ProcessAdapterInstaller {
     }
 
     fn plan_uninstall(&self, request: &AgentUninstallRequest) -> KernelResult<AgentUninstallPlan> {
+        validate_lifecycle_request_id(&request.request_id)?;
         self.validate_agent_id(&request.agent_id)?;
         self.validate_descriptor()?;
         if !request.preserve_data {
@@ -1455,6 +1795,7 @@ impl AgentInstaller for ProcessAdapterInstaller {
         }
         self.with_mutation_lock(|| {
             let snapshot = self.detect_dependencies()?;
+            self.validate_dependency_snapshot(&snapshot)?;
             if snapshot
                 .iter()
                 .all(|dependency| dependency.installed_version.is_none())
@@ -1490,10 +1831,20 @@ impl AgentInstaller for ProcessAdapterInstaller {
             ProcessAdapterPackageManager::Npm => {
                 ProcessAdapterCommand::new("npm", vec!["--version".to_string()])
             }
-            ProcessAdapterPackageManager::PythonPip => ProcessAdapterCommand::new(
-                self.python_binary(),
-                vec!["-m".to_string(), "pip".to_string(), "--version".to_string()],
-            ),
+            ProcessAdapterPackageManager::PythonPip => {
+                let binary = match self.python_binary() {
+                    Ok(binary) => binary,
+                    Err(_) => {
+                        return ProviderHealth {
+                            status: "unhealthy".to_string(),
+                        }
+                    }
+                };
+                ProcessAdapterCommand::new(
+                    binary,
+                    vec!["-m".to_string(), "pip".to_string(), "--version".to_string()],
+                )
+            }
         };
         match self
             .executor
@@ -1519,10 +1870,30 @@ fn validate_detected_version(
         Ok(())
     } else {
         Err(KernelError::provider_error(
-            "provider_package_rollback_version_invalid",
+            "provider_package_snapshot_version_invalid",
             "detected provider package version cannot be restored safely",
         ))
     }
+}
+
+fn is_exact_semantic_version(version: &str) -> bool {
+    if version.is_empty() || version.len() > 128 || version.trim() != version {
+        return false;
+    }
+    Version::parse(version).is_ok_and(|parsed| parsed.to_string() == version)
+}
+
+fn validate_lifecycle_request_id(request_id: &str) -> KernelResult<()> {
+    if request_id.trim().is_empty()
+        || request_id.trim() != request_id
+        || request_id.chars().count() > MAX_REQUEST_ID_CHARACTERS
+        || request_id.chars().any(char::is_control)
+    {
+        return Err(KernelError::validation(
+            "provider lifecycle request id must be a non-empty bounded identifier",
+        ));
+    }
+    Ok(())
 }
 
 fn dependency_versions_match(
@@ -1646,3 +2017,6 @@ impl AgentConfigurationProvider for ProcessAdapterConfigurationProvider {
         ProviderHealth::available()
     }
 }
+
+#[cfg(test)]
+mod tests;

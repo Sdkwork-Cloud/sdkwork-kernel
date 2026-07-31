@@ -4,16 +4,17 @@ use sdkwork_agent_kernel::{
 };
 use sdkwork_agent_plugin_core::{
     KernelPluginConformanceProfile, KernelPluginDeploymentSnapshot, KernelPluginManifest,
-    KernelProviderBinding, SdkworkKernelFoundationPlugin, SdkworkKernelPlugin, StandardPluginIds,
-    LocalPluginCatalog, LocalPluginDescriptor, LocalPluginDiscoveryRequest,
+    KernelProviderBinding, LocalPluginCatalog, LocalPluginDescriptor, LocalPluginDiscoveryRequest,
     LocalPluginLoadError, LocalPluginLoadErrorKind, LocalPluginProvider, LocalPluginSource,
-    LocalPluginStatus,
+    LocalPluginStatus, SdkworkKernelFoundationPlugin, SdkworkKernelPlugin, StandardPluginIds,
 };
 
 struct TestLocalProvider;
 
 impl LocalPluginProvider for TestLocalProvider {
-    fn provider_id(&self) -> &str { "provider.plugin.test" }
+    fn provider_id(&self) -> &str {
+        "provider.plugin.test"
+    }
 
     fn discover(&self, _request: &LocalPluginDiscoveryRequest) -> LocalPluginCatalog {
         let mut catalog = LocalPluginCatalog::new(self.provider_id());
@@ -45,7 +46,10 @@ fn local_plugin_discovery_is_partial_success_and_provider_neutral() {
     assert_eq!(catalog.provider_id, "provider.plugin.test");
     assert!(catalog.is_partial());
     assert_eq!(catalog.plugins[0].status, LocalPluginStatus::ManifestOnly);
-    assert_eq!(catalog.errors[0].kind, LocalPluginLoadErrorKind::InvalidManifest);
+    assert_eq!(
+        catalog.errors[0].kind,
+        LocalPluginLoadErrorKind::InvalidManifest
+    );
 }
 
 #[test]

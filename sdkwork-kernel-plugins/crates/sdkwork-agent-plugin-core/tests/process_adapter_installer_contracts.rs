@@ -397,6 +397,104 @@ fn failed_upgrade_verification_restores_the_previous_versions() {
 }
 
 #[test]
+fn npm_mutations_reject_unrestorable_snapshots_before_package_manager_execution() {
+    let invalid_version = "0.145.0 --foreground-scripts";
+
+    for (operation, executor) in ["install", "upgrade", "uninstall"].map(|operation| {
+        (
+            operation,
+            FakeCommandExecutor::with_outputs(vec![ProcessAdapterCommandOutput::success(
+                npm_detection(Some(invalid_version), Some("7.0.0")),
+            )]),
+        )
+    }) {
+        let inspector = executor.clone();
+        let installer = installer(executor);
+        let error = match operation {
+            "install" => installer
+                .install(install_request())
+                .expect_err("install must reject an unrestorable snapshot"),
+            "upgrade" => installer
+                .upgrade(AgentUpgradeRequest::new(
+                    "upgrade.codex.invalid-snapshot",
+                    AGENT_ID,
+                    "0.1.0",
+                    PROVIDER_VERSION,
+                ))
+                .expect_err("upgrade must reject an unrestorable snapshot"),
+            "uninstall" => installer
+                .uninstall(AgentUninstallRequest::new(
+                    "uninstall.codex.invalid-snapshot",
+                    AGENT_ID,
+                ))
+                .expect_err("uninstall must reject an unrestorable snapshot"),
+            _ => unreachable!("covered mutation operation"),
+        };
+
+        assert_eq!(error.code(), "provider_package_snapshot_version_invalid");
+        assert!(!error.message().contains(invalid_version));
+        let commands = inspector.commands();
+        assert_eq!(commands.len(), 1, "{operation} executed a mutation command");
+        assert!(commands[0].args.iter().any(|argument| argument == "list"));
+    }
+}
+
+#[test]
+fn python_mutations_reject_unrestorable_snapshots_before_package_manager_execution() {
+    const HERMES_AGENT_ID: &str = "agent.intelligence.hermes";
+    let invalid_version = "1foo";
+
+    for (operation, executor) in ["install", "upgrade", "uninstall"].map(|operation| {
+        (
+            operation,
+            FakeCommandExecutor::with_outputs(vec![ProcessAdapterCommandOutput::success(
+                python_detection(Some(invalid_version)),
+            )]),
+        )
+    }) {
+        let inspector = executor.clone();
+        let installer = ProcessAdapterInstaller::new(
+            HERMES_AGENT_ID,
+            "provider.agent.installer.hermes",
+            PROVIDER_VERSION,
+            ProcessAdapterPackage::pypi("hermes-agent", "0.19.0"),
+        )
+        .with_executor(Arc::new(executor));
+        let error = match operation {
+            "install" => installer
+                .install(sdkwork_agent_kernel::AgentInstallRequest::new(
+                    "install.hermes.invalid-snapshot",
+                    HERMES_AGENT_ID,
+                    PROVIDER_VERSION,
+                    AgentPackageSource::registry("pypi", "hermes-agent", "0.19.0"),
+                ))
+                .expect_err("install must reject an unrestorable snapshot"),
+            "upgrade" => installer
+                .upgrade(AgentUpgradeRequest::new(
+                    "upgrade.hermes.invalid-snapshot",
+                    HERMES_AGENT_ID,
+                    "0.1.0",
+                    PROVIDER_VERSION,
+                ))
+                .expect_err("upgrade must reject an unrestorable snapshot"),
+            "uninstall" => installer
+                .uninstall(AgentUninstallRequest::new(
+                    "uninstall.hermes.invalid-snapshot",
+                    HERMES_AGENT_ID,
+                ))
+                .expect_err("uninstall must reject an unrestorable snapshot"),
+            _ => unreachable!("covered mutation operation"),
+        };
+
+        assert_eq!(error.code(), "provider_package_snapshot_version_invalid");
+        assert!(!error.message().contains(invalid_version));
+        let commands = inspector.commands();
+        assert_eq!(commands.len(), 1, "{operation} executed a mutation command");
+        assert!(commands[0].args.iter().any(|argument| argument == "-c"));
+    }
+}
+
+#[test]
 fn descriptors_reject_tags_ranges_invalid_names_and_duplicates() {
     let invalid_descriptors = [
         ProcessAdapterInstaller::new(
@@ -416,6 +514,18 @@ fn descriptors_reject_tags_ranges_invalid_names_and_duplicates() {
             INSTALLER_ID,
             PROVIDER_VERSION,
             ProcessAdapterPackage::npm("https://registry.example/package.tgz", PACKAGE_VERSION),
+        ),
+        ProcessAdapterInstaller::new(
+            AGENT_ID,
+            INSTALLER_ID,
+            PROVIDER_VERSION,
+            ProcessAdapterPackage::npm(".hidden", PACKAGE_VERSION),
+        ),
+        ProcessAdapterInstaller::new(
+            AGENT_ID,
+            INSTALLER_ID,
+            PROVIDER_VERSION,
+            ProcessAdapterPackage::npm("@scope/_private", PACKAGE_VERSION),
         ),
         ProcessAdapterInstaller::new(
             AGENT_ID,
@@ -444,16 +554,72 @@ fn descriptors_reject_tags_ranges_invalid_names_and_duplicates() {
         assert_eq!(error.kind(), KernelErrorKind::ValidationError);
     }
 
-    let invalid_python = ProcessAdapterInstaller::new(
-        "agent.intelligence.hermes",
-        "provider.agent.installer.hermes",
-        PROVIDER_VERSION,
-        ProcessAdapterPackage::pypi("hermes-agent", "latest"),
-    );
-    let error = invalid_python
-        .detect_installation("agent.intelligence.hermes")
-        .expect_err("PyPI tags are not exact versions");
+    for version in ["latest", "1foo", "1..0", "1+", "1!", "v1.0", "1.0RC1"] {
+        let invalid_python = ProcessAdapterInstaller::new(
+            "agent.intelligence.hermes",
+            "provider.agent.installer.hermes",
+            PROVIDER_VERSION,
+            ProcessAdapterPackage::pypi("hermes-agent", version),
+        );
+        let error = invalid_python
+            .detect_installation("agent.intelligence.hermes")
+            .expect_err("invalid PyPI versions must fail before execution");
+        assert_eq!(error.kind(), KernelErrorKind::ValidationError);
+    }
+}
+
+#[test]
+fn descriptors_and_lifecycle_requests_reject_invalid_identity_fields() {
+    for (agent_id, provider_id, provider_version) in [
+        ("Agent.intelligence.codex", INSTALLER_ID, PROVIDER_VERSION),
+        (AGENT_ID, "Provider.agent.installer.codex", PROVIDER_VERSION),
+        (AGENT_ID, INSTALLER_ID, "0.2"),
+    ] {
+        let invalid = ProcessAdapterInstaller::new(
+            agent_id,
+            provider_id,
+            provider_version,
+            ProcessAdapterPackage::npm(PACKAGE_ID, PACKAGE_VERSION),
+        )
+        .with_install_root(PathBuf::from("provider-runtime"));
+        let error = invalid
+            .detect_installation(agent_id)
+            .expect_err("invalid installer identity must fail before execution");
+        assert_eq!(error.kind(), KernelErrorKind::ValidationError);
+    }
+
+    let executor = FakeCommandExecutor::default();
+    let inspector = executor.clone();
+    let installer = installer(executor);
+    for request_id in ["", " request", "request\nidentity"] {
+        let error = installer
+            .plan_install(&sdkwork_agent_kernel::AgentInstallRequest::new(
+                request_id,
+                AGENT_ID,
+                PROVIDER_VERSION,
+                AgentPackageSource::registry("npm", PACKAGE_ID, PACKAGE_VERSION),
+            ))
+            .expect_err("unsafe lifecycle request id must be rejected");
+        assert_eq!(error.kind(), KernelErrorKind::ValidationError);
+    }
+    let oversized_request_id = "r".repeat(129);
+    let error = installer
+        .plan_uninstall(&AgentUninstallRequest::new(oversized_request_id, AGENT_ID))
+        .expect_err("oversized lifecycle request id must be rejected");
     assert_eq!(error.kind(), KernelErrorKind::ValidationError);
+
+    for source_version in ["", "latest", "0.1"] {
+        let error = installer
+            .plan_upgrade(&AgentUpgradeRequest::new(
+                "upgrade.codex.invalid-source",
+                AGENT_ID,
+                source_version,
+                PROVIDER_VERSION,
+            ))
+            .expect_err("non-semantic upgrade source version must be rejected");
+        assert_eq!(error.kind(), KernelErrorKind::ValidationError);
+    }
+    assert!(inspector.commands().is_empty());
 }
 
 #[test]

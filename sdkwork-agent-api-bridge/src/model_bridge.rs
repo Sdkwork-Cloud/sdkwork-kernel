@@ -4,9 +4,10 @@ use std::sync::Arc;
 use crate::types::{generate_id, BridgeEvent, BridgeEventSeverity, BridgeModelResult};
 use sdkwork_agent_kernel::{
     agent_messages_to_text_lines, AgentInputContract, AgentMessage, AgentRuntime, AgentSession,
-    ContextFrame, KernelError, KernelErrorKind, KernelResult, ModelCancellationRequest,
-    ModelDescriptor, ModelExecutionRequest, ModelExecutionService, ModelRequest, ModelResponse,
-    ModelStatus, ModelStreamChunk, ModelStreamSink, ModelUsage, TraceContext,
+    ContextFrame, KernelError, KernelErrorKind, KernelEvent, KernelResult,
+    ModelCancellationRequest, ModelDescriptor, ModelExecutionRequest, ModelExecutionService,
+    ModelRequest, ModelResponse, ModelStatus, ModelStreamChunk, ModelStreamSink, ModelUsage,
+    TraceContext,
 };
 
 /// Maximum UTF-8 bytes accepted from one model streaming chunk.
@@ -570,6 +571,7 @@ struct BoundedModelStreamSink<'a> {
     inner: &'a mut dyn ModelStreamSink,
     chunks: usize,
     bytes: usize,
+    event_forwarded: bool,
     expected_request_id: String,
     last_sequence: Option<u64>,
 }
@@ -580,13 +582,14 @@ impl<'a> BoundedModelStreamSink<'a> {
             inner,
             chunks: 0,
             bytes: 0,
+            event_forwarded: false,
             expected_request_id: expected_request_id.to_string(),
             last_sequence: None,
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.chunks == 0
+        self.chunks == 0 && !self.event_forwarded
     }
 }
 
@@ -614,6 +617,12 @@ impl ModelStreamSink for BoundedModelStreamSink<'_> {
         self.chunks += 1;
         self.bytes = new_total;
         self.last_sequence = Some(sequence);
+        Ok(())
+    }
+
+    fn push_event(&mut self, event: KernelEvent) -> KernelResult<()> {
+        self.inner.push_event(event)?;
+        self.event_forwarded = true;
         Ok(())
     }
 }
@@ -968,10 +977,11 @@ mod tests {
     }
 
     #[test]
-    fn bounded_forwarding_sink_rejects_before_forwarding() {
+    fn bounded_forwarding_sink_preserves_events_and_rejects_invalid_chunks() {
         #[derive(Default)]
         struct RecordingSink {
             chunks: usize,
+            events: usize,
         }
 
         impl ModelStreamSink for RecordingSink {
@@ -979,10 +989,24 @@ mod tests {
                 self.chunks += 1;
                 Ok(())
             }
+
+            fn push_event(&mut self, _event: KernelEvent) -> KernelResult<()> {
+                self.events += 1;
+                Ok(())
+            }
         }
 
         let mut recording = RecordingSink::default();
         let mut bounded = BoundedModelStreamSink::new(&mut recording, "req.forward");
+        bounded
+            .push_event(KernelEvent::new(
+                "event.req.forward.0",
+                "agent.message.updated",
+                sdkwork_agent_kernel::KernelEventSeverity::Info,
+                "{}",
+            ))
+            .expect("kernel event should be forwarded");
+        assert!(!bounded.is_empty());
         let error = bounded
             .push_chunk(ModelStreamChunk::output(
                 "req.forward",
@@ -992,6 +1016,7 @@ mod tests {
             .expect_err("oversized chunk must not be forwarded");
         assert_resource_exhausted(error);
         assert_eq!(recording.chunks, 0);
+        assert_eq!(recording.events, 1);
     }
 
     #[test]

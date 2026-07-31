@@ -1,6 +1,7 @@
 use sdkwork_agent_provider_transport_ipc::{
+    is_stream_chunk_frame, is_stream_kernel_event_frame, is_stream_terminal_frame,
     InMemoryJsonRpcTransport, JsonRpcTransport, SpawnedWorker, MAX_IPC_FRAME_BYTES,
-    SDKWORK_PING_METHOD,
+    SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_PING_METHOD,
 };
 use serde_json::json;
 use std::process::Command;
@@ -62,6 +63,50 @@ fn stdio_transport_stops_reading_at_response_frame_limit() {
         !worker.is_reusable(),
         "protocol-violating worker must be poisoned"
     );
+}
+
+#[test]
+fn stdio_streaming_preserves_kernel_events_before_chunks_and_completion() {
+    if !node_available() {
+        return;
+    }
+    let mut command = Command::new("node");
+    command.args([
+        "-e",
+        "const rl=require('readline').createInterface({input:process.stdin});rl.on('line',line=>{const r=JSON.parse(line);for(const result of [{event:'stream.event',model_request_id:'req.rich',kernel_event:{event_id:'event.req.rich.0'}},{event:'stream.chunk',sequence:0,content:'hello',model_request_id:'req.rich'},{event:'stream.done',finish_reason:'stop',model_request_id:'req.rich'}])process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:r.id,result})+'\\n');});",
+    ]);
+    let worker = SpawnedWorker::spawn(command).expect("spawn rich stream worker");
+    let mut frames = Vec::new();
+
+    worker
+        .transport()
+        .call_streaming(
+            SDKWORK_CAPABILITY_INVOKE_METHOD,
+            Some(json!({
+                "operation": {
+                    "operation": "model_chat_stream",
+                    "model_request_id": "req.rich",
+                    "messages": ["hello"]
+                }
+            })),
+            &mut |frame| {
+                frames.push(frame);
+                Ok(true)
+            },
+        )
+        .expect("rich stream frames should remain ordered");
+
+    assert_eq!(frames.len(), 3);
+    assert!(is_stream_kernel_event_frame(&frames[0]));
+    assert!(is_stream_chunk_frame(&frames[1]));
+    assert!(is_stream_terminal_frame(&frames[2]));
+    assert_eq!(
+        frames[0]
+            .get("model_request_id")
+            .and_then(|value| value.as_str()),
+        Some("req.rich")
+    );
+    assert!(worker.is_reusable());
 }
 
 #[test]

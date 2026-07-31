@@ -123,9 +123,18 @@ Rules:
   owned dependency is absent before reporting success.
 - Package-manager commands `MUST` be invoked without a command shell, use
   bounded output capture and timeouts, and expose only redacted safe errors.
+- Output capture worker capacity `MUST` be bounded. Exhaustion `MUST` fail
+  closed and terminate the package-manager process rather than create
+  unbounded reader threads.
+- Explicitly configured provider runtime roots and Python executable values
+  `MUST NOT` be empty or non-Unicode. Invalid values `MUST` fail closed rather
+  than select an implicit fallback runtime.
 - Registry package names and versions `MUST` be canonical and exact. Tags,
   ranges, duplicate managed packages, and mixed package managers `MUST` fail
   validation before any package-manager process starts.
+- On Windows, Node.js and `npm-cli.js` `MUST` resolve from the same canonical
+  runtime directory. Installers `MUST NOT` combine executables and package
+  manager scripts from separate `PATH` entries.
 - npm lifecycle scripts `MUST` be disabled by default and require an explicit
   provider-level opt-in for a reviewed exact package release. Python registry
   installs `MUST` be non-interactive and wheel-only so source build hooks do
@@ -137,10 +146,18 @@ Rules:
   output-pipe draining. Installer coordination `MUST` have a bounded wait:
   detections for one managed runtime may run concurrently, while install,
   upgrade, and uninstall hold an exclusive mutation lock across initial
-  detection, mutation, and final verification.
+  detection, mutation, and final verification. Shared and exclusive locking
+  `MUST` coordinate across host processes that reference the same managed
+  runtime, including path or executable aliases for that runtime, and an exited
+  process `MUST` release its lock automatically. Persistent coordination
+  artifacts `MUST` use a bounded lock pool rather than grow with every runtime
+  identity observed by the host.
 - Before mutation, package installers `MUST` capture the managed dependency
-  state. A package-manager failure or failed post-verification `MUST` trigger
-  compensating restoration and verify the restored state before returning.
+  state and validate that every detected version is an exact, safely
+  restorable package version. An invalid or unrestorable snapshot `MUST` fail
+  before any package-manager mutation. A package-manager failure or failed
+  post-verification `MUST` trigger compensating restoration and verify the
+  restored state before returning.
 - Uninstall requests `MUST` distinguish removing the agent package from
   removing configuration or data.
 - Package-only installers `MUST NOT` report configuration or data removal they
@@ -462,8 +479,9 @@ Minimum tests:
 - Installer detection timeouts fail closed and package-only installers never
   claim host configuration or data removal.
 - Installer permits concurrent detection for one runtime but serializes all
-  package mutations, bounds lock waits, terminates timed-out process trees, and
-  automatically restores the verified pre-mutation dependency state on error.
+  package mutations across host processes, bounds lock waits, releases locks
+  when a process exits, terminates timed-out process trees, and automatically
+  restores the verified pre-mutation dependency state on error.
 
 ## 9. Acceptance Checklist
 

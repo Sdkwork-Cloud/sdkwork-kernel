@@ -14,7 +14,7 @@
   "language_packages": {
     "typescript": {
       "package": "@opencode-ai/sdk",
-      "version": "1.18.9",
+      "version": "1.18.10",
       "optional": false
     }
   },

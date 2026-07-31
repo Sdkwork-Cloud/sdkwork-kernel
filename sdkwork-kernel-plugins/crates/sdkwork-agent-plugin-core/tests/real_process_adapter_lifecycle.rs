@@ -54,7 +54,7 @@ const NPM_PROVIDERS: &[NpmProviderCase] = &[
         agent_id: "agent.intelligence.opencode",
         provider_id: "provider.agent.installer.opencode",
         package_id: "@opencode-ai/sdk",
-        package_version: "1.18.9",
+        package_version: "1.18.10",
         dependencies: &[],
         install_scripts: false,
     },

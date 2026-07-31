@@ -1,6 +1,6 @@
 use crate::protocol::{
     is_invoke_terminal_frame, is_session_activity_frame, is_stream_chunk_frame,
-    is_stream_terminal_frame, stream_chunk_frame, stream_done_frame,
+    is_stream_kernel_event_frame, is_stream_terminal_frame, stream_chunk_frame, stream_done_frame,
     stream_done_frame_with_completion, JsonRpcRequest, JsonRpcResponse,
     SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_PING_METHOD,
 };
@@ -146,6 +146,10 @@ where
             .and_then(Value::as_str)
             .unwrap_or("");
         StreamResourceBudget::new().record_chunk(content)?;
+        on_frame(payload)?;
+        return Ok(());
+    }
+    if is_stream_kernel_event_frame(&payload) {
         on_frame(payload)?;
         return Ok(());
     }
@@ -583,7 +587,7 @@ impl JsonRpcTransport for StdioJsonRpcSession {
                 .into_result()
                 .map_err(|error| TransportError::new(error.message))?;
 
-            if is_session_activity_frame(&result) {
+            if is_session_activity_frame(&result) || is_stream_kernel_event_frame(&result) {
                 let keep_streaming = match sink(result) {
                     Ok(keep_streaming) => keep_streaming,
                     Err(error) => {

@@ -67,7 +67,7 @@ are selected.
 - SDK binding: `bindings/agent-providers/opencode/provider-binding.manifest.json`
 - Server bootstrap: `SDKWORK_KERNEL_AGENT_PLUGIN=opencode`
 - Managed installer registry pin (verified 2026-07-30):
-  `@opencode-ai/sdk@1.18.9`
+  `@opencode-ai/sdk@1.18.10`
 - Runtime worker: `@opencode-ai/sdk` via `NodeSdkBackendRuntime`; resolve it
   from the installed npm package or inject a local package mirror with
   `SDKWORK_AGENT_SDK_PACKAGE_PATHS`, rather than treating `external/opencode`

@@ -188,7 +188,12 @@ Required cases:
   explicit opt-in; Python installs are non-interactive and reject source-only
   distributions.
 - Concurrent detections for one managed runtime can share access, while
-  install, upgrade, and uninstall are serialized with a bounded lock wait.
+  install, upgrade, and uninstall are serialized across host processes with a
+  bounded lock wait; runtime path and executable aliases resolve to the same
+  lock identity, process exit releases the lifecycle lock, and persistent lock
+  artifacts remain bounded as runtime identities churn.
+- Malformed or non-exact versions in the detected dependency snapshot fail
+  before install, upgrade, or uninstall can execute a package-manager mutation.
 - Mutation failures and failed final verification restore and re-verify the
   pre-mutation dependency versions. Timed-out commands terminate their process
   trees and cannot block indefinitely while draining inherited output pipes.

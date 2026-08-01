@@ -1038,7 +1038,8 @@ impl AgentExecutionService {
         let mut model_id_used: Option<String> = None;
         let mut tool_failed = false;
         let mut final_content = String::new();
-        let mut stop_reason = "completed".to_string();
+        // Every loop exit path assigns the stop reason before breaking.
+        let mut stop_reason: String;
 
         loop {
             num_turns += 1;

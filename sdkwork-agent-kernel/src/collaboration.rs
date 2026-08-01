@@ -610,9 +610,6 @@ impl AgentDelegationService {
         let mut relay = DelegationRelaySink {
             inner: sink,
             tool_call_id: request.tool_call_id.clone(),
-            source_session_id: request.source_session_id.clone(),
-            child_session_id: child_session_id.clone(),
-            delegation_id: request.delegation_id.clone(),
         };
         AgentExecutionService::new().execute_streaming(runtime, execution_request, &mut relay)?;
 
@@ -648,9 +645,6 @@ impl AgentDelegationService {
 struct DelegationRelaySink<'a> {
     inner: &'a mut dyn AgentStreamSink,
     tool_call_id: Option<String>,
-    source_session_id: String,
-    child_session_id: String,
-    delegation_id: String,
 }
 
 impl AgentStreamSink for DelegationRelaySink<'_> {

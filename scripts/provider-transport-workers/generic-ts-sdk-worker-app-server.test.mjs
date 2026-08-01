@@ -147,6 +147,10 @@ test('routes Codex app-server approvals, resume, and interrupt through canonical
     .map((frame) => frame.result.content)
     .join('');
   assert.equal(resumedText, 'hello ');
+  assert.equal(
+    resumedEvents.some((event) => event.payload?.providerRequestId === 'stale-approval-2'),
+    false,
+  );
 
   worker.send(5, 'sdkwork/capability.invoke', {
     operation: {
@@ -361,6 +365,16 @@ input.on('line', (line) => {
           turnId: 'turn-1',
           itemId: 'stale-message',
           delta: 'stale previous Turn',
+        },
+      });
+      send({
+        id: 'stale-approval-2',
+        method: 'item/commandExecution/requestApproval',
+        params: {
+          threadId: providerSessionId,
+          turnId: 'turn-1',
+          itemId: 'stale-command-2',
+          command: 'echo stale',
         },
       });
     }

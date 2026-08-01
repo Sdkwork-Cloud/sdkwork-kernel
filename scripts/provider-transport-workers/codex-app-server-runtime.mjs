@@ -191,6 +191,15 @@ export async function invokeCodexAppServerModelChat(operation, options = {}) {
     });
     establishProviderTurnId(entry, turn.turnId);
     for (const deferred of entry.preTurnEvents.splice(0)) {
+      // A provider may deliver a late notification or server request from the
+      // previous Turn while the new turn/start response is still in flight.
+      // Re-check affinity after the authoritative provider Turn id exists;
+      // otherwise flushing the buffer could resurrect stale output or expose
+      // an interaction belonging to an older Turn.
+      if (!matchesExecution(entry, deferred.event)) {
+        continue;
+      }
+      assertProviderTurnAffinity(entry, deferred.event.turnId);
       if (deferred.type === 'notification') {
         handleNotification(deferred.event);
       } else {

@@ -770,6 +770,101 @@ impl CompactBoundaryEvent {
     }
 }
 
+/// Sandbox lifecycle phase observed while the stream runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SandboxEventPhase {
+    /// The sandbox session is being prepared before execution.
+    Pending,
+    /// The sandbox session is active and hosting execution.
+    Active,
+    /// The sandbox session was stopped or torn down after execution.
+    Completed,
+    /// The sandbox session lifecycle failed.
+    Failed,
+}
+
+impl SandboxEventPhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Active => "active",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(Self::Pending),
+            "active" => Some(Self::Active),
+            "completed" => Some(Self::Completed),
+            "failed" => Some(Self::Failed),
+            _ => None,
+        }
+    }
+}
+
+/// Sandbox lifecycle event: carries the bound sandbox session identity
+/// and the observed lifecycle phase, correlating the stream with the
+/// sandbox session lifecycle (pending -> active -> completed).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SandboxEvent {
+    pub event_id: String,
+    pub session_id: Option<String>,
+    pub stream_id: Option<String>,
+    pub sandbox_session_id: String,
+    pub phase: SandboxEventPhase,
+    pub message: Option<String>,
+}
+
+impl SandboxEvent {
+    pub fn new(
+        event_id: impl Into<String>,
+        sandbox_session_id: impl Into<String>,
+        phase: SandboxEventPhase,
+    ) -> Self {
+        Self {
+            event_id: event_id.into(),
+            session_id: None,
+            stream_id: None,
+            sandbox_session_id: sandbox_session_id.into(),
+            phase,
+            message: None,
+        }
+    }
+
+    pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
+    }
+
+    pub fn with_stream_id(mut self, stream_id: impl Into<String>) -> Self {
+        self.stream_id = Some(stream_id.into());
+        self
+    }
+
+    pub fn with_message(mut self, message: impl Into<String>) -> Self {
+        self.message = Some(message.into());
+        self
+    }
+
+    pub fn pending(event_id: impl Into<String>, sandbox_session_id: impl Into<String>) -> Self {
+        Self::new(event_id, sandbox_session_id, SandboxEventPhase::Pending)
+    }
+
+    pub fn active(event_id: impl Into<String>, sandbox_session_id: impl Into<String>) -> Self {
+        Self::new(event_id, sandbox_session_id, SandboxEventPhase::Active)
+    }
+
+    pub fn completed(event_id: impl Into<String>, sandbox_session_id: impl Into<String>) -> Self {
+        Self::new(event_id, sandbox_session_id, SandboxEventPhase::Completed)
+    }
+
+    pub fn failed(event_id: impl Into<String>, sandbox_session_id: impl Into<String>) -> Self {
+        Self::new(event_id, sandbox_session_id, SandboxEventPhase::Failed)
+    }
+}
+
 /// Terminal result for the stream, mirroring the agent SDK `result` message:
 /// turn count, duration, cost, usage, and the final text.
 #[derive(Debug, Clone, PartialEq)]
@@ -948,6 +1043,7 @@ pub enum AgentStreamEvent {
     RateLimit(RateLimitEvent),
     Progress(ProgressEvent),
     CompactBoundary(CompactBoundaryEvent),
+    Sandbox(SandboxEvent),
     Result(ResultEvent),
     Cancelled(CancelledEvent),
     Ended(EndedEvent),
@@ -973,6 +1069,7 @@ impl AgentStreamEvent {
             Self::RateLimit(_) => "agent.stream.rate_limit",
             Self::Progress(_) => "agent.stream.progress",
             Self::CompactBoundary(_) => "agent.stream.compact_boundary",
+            Self::Sandbox(_) => "agent.stream.sandbox",
             Self::Result(_) => "agent.stream.result",
             Self::Cancelled(_) => "agent.stream.cancelled",
             Self::Ended(_) => "agent.stream.ended",
@@ -996,6 +1093,7 @@ impl AgentStreamEvent {
             Self::RateLimit(e) => &e.event_id,
             Self::Progress(e) => &e.event_id,
             Self::CompactBoundary(e) => &e.event_id,
+            Self::Sandbox(e) => &e.event_id,
             Self::Result(e) => &e.event_id,
             Self::Cancelled(e) => &e.event_id,
             Self::Ended(e) => &e.event_id,
@@ -1019,6 +1117,7 @@ impl AgentStreamEvent {
             Self::RateLimit(e) => e.session_id.as_deref(),
             Self::Progress(e) => e.session_id.as_deref(),
             Self::CompactBoundary(e) => e.session_id.as_deref(),
+            Self::Sandbox(e) => e.session_id.as_deref(),
             Self::Result(e) => e.session_id.as_deref(),
             Self::Cancelled(e) => e.session_id.as_deref(),
             Self::Ended(e) => e.session_id.as_deref(),
@@ -1042,6 +1141,7 @@ impl AgentStreamEvent {
             Self::RateLimit(e) => e.stream_id.as_deref(),
             Self::Progress(e) => e.stream_id.as_deref(),
             Self::CompactBoundary(e) => e.stream_id.as_deref(),
+            Self::Sandbox(e) => e.stream_id.as_deref(),
             Self::Result(e) => e.stream_id.as_deref(),
             Self::Cancelled(e) => e.stream_id.as_deref(),
             Self::Ended(e) => e.stream_id.as_deref(),
@@ -1068,6 +1168,7 @@ impl AgentStreamEvent {
             Self::RateLimit(e) => Self::RateLimit(e.with_session_id(session_id)),
             Self::Progress(e) => Self::Progress(e.with_session_id(session_id)),
             Self::CompactBoundary(e) => Self::CompactBoundary(e.with_session_id(session_id)),
+            Self::Sandbox(e) => Self::Sandbox(e.with_session_id(session_id)),
             Self::Result(e) => Self::Result(e.with_session_id(session_id)),
             Self::Cancelled(e) => Self::Cancelled(e.with_session_id(session_id)),
             Self::Ended(e) => Self::Ended(e.with_session_id(session_id)),
@@ -1102,6 +1203,7 @@ impl AgentStreamEvent {
             Self::RateLimit(e) => Self::RateLimit(e.with_stream_id(stream_id)),
             Self::Progress(e) => Self::Progress(e.with_stream_id(stream_id)),
             Self::CompactBoundary(e) => Self::CompactBoundary(e.with_stream_id(stream_id)),
+            Self::Sandbox(e) => Self::Sandbox(e.with_stream_id(stream_id)),
             Self::Result(e) => Self::Result(e.with_stream_id(stream_id)),
             Self::Cancelled(e) => Self::Cancelled(e.with_stream_id(stream_id)),
             Self::Ended(e) => Self::Ended(e.with_stream_id(stream_id)),
@@ -1237,6 +1339,13 @@ impl AgentStreamEvent {
             Self::CompactBoundary(e) => serde_json::json!({
                 "event_type": event_type,
                 "summary": e.summary,
+            })
+            .to_string(),
+            Self::Sandbox(e) => serde_json::json!({
+                "event_type": event_type,
+                "sandbox_session_id": e.sandbox_session_id,
+                "phase": e.phase.as_str(),
+                "message": e.message,
             })
             .to_string(),
             Self::Result(e) => serde_json::json!({

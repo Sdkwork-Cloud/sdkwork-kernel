@@ -38,6 +38,7 @@ mod planning;
 mod policy;
 mod protocol;
 mod session_activity;
+mod session_control;
 pub use a2a_protocol::{
     A2AAdapterHealth, A2AAdapterStatus, A2AAgentCard, A2AAuthentication, A2ACapability,
     A2AEndpoint, A2AError, A2AProtocolAdapter, A2ATaskContext, A2ATaskRequest, A2ATaskResponse,
@@ -316,6 +317,11 @@ pub use session_activity::{
     SessionActivityFreshness, SessionActivityInteractionHint, SessionActivitySnapshot,
     SessionActivityState,
 };
+pub use session_control::{
+    ProviderSessionControlAction, ProviderSessionControlActionKind, ProviderSessionControlOutput,
+    ProviderSessionControlProvider, ProviderSessionControlRequest, ProviderSessionControlResult,
+    ProviderSessionControlStatus,
+};
 pub use skill::{
     parse_skill_markdown_frontmatter, AgentSkillDescriptor, AgentSkillInvocationMode,
     AgentSkillProvider, AgentSkillRequest, AgentSkillResult, AgentSkillStatus, SkillContentFile,
@@ -325,9 +331,9 @@ pub use stream_event::{
     stream_event_with_trace, AgentStreamEvent, AgentStreamSink, CancelledEvent,
     CompactBoundaryEvent, CostEvent, EndedEvent, ErrorEvent, InMemoryAgentStreamSink,
     KernelEventStreamSink, MessageDeltaEvent, MessageDeltaKind, MessageStartEvent,
-    MessageStopEvent, ProgressEvent, RateLimitEvent, RateLimitStatus, ResultEvent,
-    SessionInitEvent, StatusEvent, StreamStatusLevel, ToolCallDeltaEvent, ToolCallStartEvent,
-    ToolCallStopEvent, ToolResultEvent, UsageEvent, AGENT_STREAM_EVENT_FAMILY,
+    MessageStopEvent, ProgressEvent, RateLimitEvent, RateLimitStatus, ResultEvent, SandboxEvent,
+    SandboxEventPhase, SessionInitEvent, StatusEvent, StreamStatusLevel, ToolCallDeltaEvent,
+    ToolCallStartEvent, ToolCallStopEvent, ToolResultEvent, UsageEvent, AGENT_STREAM_EVENT_FAMILY,
 };
 pub use task_scheduling::{
     ScheduleQuery, ScheduleResult, ScheduleState, ScheduledTask, TaskPriority,

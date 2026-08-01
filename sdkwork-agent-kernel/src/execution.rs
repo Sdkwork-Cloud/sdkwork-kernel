@@ -1,5 +1,5 @@
 use crate::{
-    agent_messages_to_text_lines, execute_with_retry, AgentChatKnowledgeQuery,
+    agent_messages_to_text_lines, execute_with_retry, is_retryable_error, AgentChatKnowledgeQuery,
     AgentChatMemoryQuery, AgentChatRequest, AgentChatResponse, AgentChatService,
     AgentInputContract, AgentInputPolicy, AgentMessage, AgentMessageRole, AgentRuntime,
     AgentStreamEvent, AgentStreamSink, CancellationToken, EndedEvent, ErrorEvent, KernelError,
@@ -304,6 +304,8 @@ pub struct AgentExecutionRequest {
     pub deadline_ms: Option<u64>,
     /// Retry policy for the model round; `None` disables retries.
     pub retry: Option<RetryConfig>,
+    /// Retry policy for read-only tool calls; `None` disables tool retries.
+    pub tool_retry: Option<RetryConfig>,
     /// Optional sandbox session binding; validated at execution start.
     pub sandbox_binding: Option<SandboxExecutionBinding>,
 }
@@ -333,6 +335,7 @@ impl AgentExecutionRequest {
             cancellation_token: None,
             deadline_ms: None,
             retry: None,
+            tool_retry: None,
             sandbox_binding: None,
         }
     }
@@ -349,6 +352,11 @@ impl AgentExecutionRequest {
 
     pub fn with_retry(mut self, retry: RetryConfig) -> Self {
         self.retry = Some(retry);
+        self
+    }
+
+    pub fn with_tool_retry(mut self, tool_retry: RetryConfig) -> Self {
+        self.tool_retry = Some(tool_retry);
         self
     }
 
@@ -1365,70 +1373,75 @@ impl AgentExecutionService {
                     tool_results.push((tool_call.tool_call_id, format!("cancelled: {error}")));
                     continue;
                 }
-                let result_event =
-                    match self.execute_tool_call(runtime, &request, tool_call.clone(), index + 1) {
-                        Ok(ExecutedToolCall::Tool(tool_execution)) => {
-                            let result = tool_execution.result;
-                            let failed =
-                                result.normalized_status != crate::ToolCallStatus::Succeeded;
-                            tool_failed |= failed;
-                            tool_results.push((
-                                result.tool_call_id.clone(),
-                                result.error.clone().unwrap_or(result.output.clone()),
-                            ));
-                            ToolResultEvent::new(
-                                format!(
-                                    "{}.tool.result.{}",
-                                    request.execution_id, result.tool_call_id
-                                ),
-                                result.tool_call_id,
-                                tool_execution.descriptor.tool_id,
-                                result.error.clone().unwrap_or(result.output.clone()),
-                                result.normalized_status,
-                            )
-                            .with_error(failed)
-                            .with_duration_ms(result.duration_ms.unwrap_or(0))
-                        }
-                        Ok(ExecutedToolCall::Mcp(mcp_tool_execution)) => {
-                            let result = mcp_tool_execution.result;
-                            let failed =
-                                result.normalized_status != crate::ToolCallStatus::Succeeded;
-                            tool_failed |= failed;
-                            tool_results.push((
-                                result.tool_call_id.clone(),
-                                result.error.clone().unwrap_or(result.output.clone()),
-                            ));
-                            ToolResultEvent::new(
-                                format!(
-                                    "{}.tool.result.{}",
-                                    request.execution_id, result.tool_call_id
-                                ),
-                                result.tool_call_id,
-                                mcp_tool_execution.descriptor.tool_id,
-                                result.error.clone().unwrap_or(result.output.clone()),
-                                result.normalized_status,
-                            )
-                            .with_error(failed)
-                            .with_duration_ms(result.duration_ms.unwrap_or(0))
-                        }
-                        Err(error) => {
-                            tool_failed = true;
-                            tool_results
-                                .push((tool_call.tool_call_id.clone(), format!("failed: {error}")));
-                            ToolResultEvent::new(
-                                format!(
-                                    "{}.tool.result.{}",
-                                    request.execution_id,
-                                    error.kind().as_str()
-                                ),
-                                tool_call.tool_call_id,
-                                tool_call.tool_id,
-                                error.to_string(),
-                                crate::ToolCallStatus::Failed,
-                            )
-                            .with_error(true)
-                        }
-                    };
+                let result_event = match self.execute_tool_call_with_retry(
+                    runtime,
+                    &request,
+                    tool_call.clone(),
+                    index + 1,
+                    sink,
+                    &session_id,
+                    &stream_id,
+                ) {
+                    Ok(ExecutedToolCall::Tool(tool_execution)) => {
+                        let result = tool_execution.result;
+                        let failed = result.normalized_status != crate::ToolCallStatus::Succeeded;
+                        tool_failed |= failed;
+                        tool_results.push((
+                            result.tool_call_id.clone(),
+                            result.error.clone().unwrap_or(result.output.clone()),
+                        ));
+                        ToolResultEvent::new(
+                            format!(
+                                "{}.tool.result.{}",
+                                request.execution_id, result.tool_call_id
+                            ),
+                            result.tool_call_id,
+                            tool_execution.descriptor.tool_id,
+                            result.error.clone().unwrap_or(result.output.clone()),
+                            result.normalized_status,
+                        )
+                        .with_error(failed)
+                        .with_duration_ms(result.duration_ms.unwrap_or(0))
+                    }
+                    Ok(ExecutedToolCall::Mcp(mcp_tool_execution)) => {
+                        let result = mcp_tool_execution.result;
+                        let failed = result.normalized_status != crate::ToolCallStatus::Succeeded;
+                        tool_failed |= failed;
+                        tool_results.push((
+                            result.tool_call_id.clone(),
+                            result.error.clone().unwrap_or(result.output.clone()),
+                        ));
+                        ToolResultEvent::new(
+                            format!(
+                                "{}.tool.result.{}",
+                                request.execution_id, result.tool_call_id
+                            ),
+                            result.tool_call_id,
+                            mcp_tool_execution.descriptor.tool_id,
+                            result.error.clone().unwrap_or(result.output.clone()),
+                            result.normalized_status,
+                        )
+                        .with_error(failed)
+                        .with_duration_ms(result.duration_ms.unwrap_or(0))
+                    }
+                    Err(error) => {
+                        tool_failed = true;
+                        tool_results
+                            .push((tool_call.tool_call_id.clone(), format!("failed: {error}")));
+                        ToolResultEvent::new(
+                            format!(
+                                "{}.tool.result.{}",
+                                request.execution_id,
+                                error.kind().as_str()
+                            ),
+                            tool_call.tool_call_id,
+                            tool_call.tool_id,
+                            error.to_string(),
+                            crate::ToolCallStatus::Failed,
+                        )
+                        .with_error(true)
+                    }
+                };
                 sink.push_event(
                     AgentStreamEvent::ToolResult(result_event.with_stream_id(stream_id.clone()))
                         .with_session_id_optional(&session_id),
@@ -1783,6 +1796,76 @@ impl AgentExecutionService {
         planning_provider.validate_plan(&plan)?;
 
         Ok(Some(plan))
+    }
+
+    /// Execute a tool call, retrying kernel-level failures for read-only
+    /// tools when the request carries a tool retry policy.
+    ///
+    /// Retries only apply to read-only tools: replaying a write/side-effect
+    /// tool could duplicate effects. Each retry attempt surfaces a warn
+    /// status event in the stream before the backoff delay.
+    fn execute_tool_call_with_retry(
+        &self,
+        runtime: &AgentRuntime,
+        request: &AgentExecutionRequest,
+        tool_call: ToolCall,
+        sequence: usize,
+        sink: &mut dyn AgentStreamSink,
+        session_id: &Option<String>,
+        stream_id: &str,
+    ) -> KernelResult<ExecutedToolCall> {
+        let Some(config) = &request.tool_retry else {
+            return self.execute_tool_call(runtime, request, tool_call, sequence);
+        };
+        // Read-only check: unknown or side-effectful tools never retry.
+        if !self.is_read_only_tool(runtime, &tool_call) {
+            return self.execute_tool_call(runtime, request, tool_call, sequence);
+        }
+
+        let mut attempt: u32 = 0;
+        loop {
+            match self.execute_tool_call(runtime, request, tool_call.clone(), sequence) {
+                Ok(executed) => return Ok(executed),
+                Err(error) if attempt < config.max_retries && is_retryable_error(&error, true) => {
+                    attempt += 1;
+                    sink.push_event(
+                        AgentStreamEvent::Status(
+                            crate::StatusEvent::warn(
+                                format!(
+                                    "{}.tool.retry.{}",
+                                    request.execution_id, tool_call.tool_call_id
+                                ),
+                                format!(
+                                    "retrying read-only tool '{}' (attempt {}/{})",
+                                    tool_call.tool_id, attempt, config.max_retries
+                                ),
+                            )
+                            .with_stream_id(stream_id.to_string()),
+                        )
+                        .with_session_id_optional(session_id),
+                    )?;
+                    std::thread::sleep(crate::retry::calculate_delay(attempt as u32 - 1, config));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    /// Whether the tool is declared read-only by its provider. Unknown
+    /// tools and MCP tools default to `false` (conservative: no retries).
+    fn is_read_only_tool(&self, runtime: &AgentRuntime, tool_call: &ToolCall) -> bool {
+        let Some(provider_id) = tool_call.provider_id.as_ref() else {
+            return false;
+        };
+        let Ok(provider) = runtime.tool_provider_by_id(provider_id) else {
+            return false;
+        };
+        provider
+            .list_tools()
+            .iter()
+            .find(|descriptor| descriptor.tool_id == tool_call.tool_id)
+            .map(|descriptor| descriptor.side_effect_level == crate::SideEffectLevel::ReadOnly)
+            .unwrap_or(false)
     }
 
     fn execute_tool_call(

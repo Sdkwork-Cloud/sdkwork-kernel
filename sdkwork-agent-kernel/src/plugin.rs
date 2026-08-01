@@ -198,6 +198,110 @@ pub trait Plugin: Send + Sync {
 
     /// Get plugin ID
     fn plugin_id(&self) -> &str;
+
+    /// Declare contribution points this plugin provides to the kernel.
+    ///
+    /// Default: no contributions. Contribution ids must be unique across
+    /// all plugins in one registry; the registry rejects duplicates at
+    /// registration time.
+    fn contributions(&self) -> Vec<PluginContribution> {
+        Vec::new()
+    }
+}
+
+/// Kind of capability a plugin contributes to the kernel.
+///
+/// Mirrors the kernel SPI families a plugin may bind: provider (model),
+/// tool, hook, stream, memory, and skill. The `provider_ids` binding list
+/// in `sdkwork-kernel-plugins` `KernelPluginManifest` maps onto
+/// `PluginContributionKind::Provider` declarations at the kernel SPI level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginContributionKind {
+    Provider,
+    Tool,
+    Hook,
+    Stream,
+    Memory,
+    Skill,
+}
+
+impl PluginContributionKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Provider => "provider",
+            Self::Tool => "tool",
+            Self::Hook => "hook",
+            Self::Stream => "stream",
+            Self::Memory => "memory",
+            Self::Skill => "skill",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "provider" => Some(Self::Provider),
+            "tool" => Some(Self::Tool),
+            "hook" => Some(Self::Hook),
+            "stream" => Some(Self::Stream),
+            "memory" => Some(Self::Memory),
+            "skill" => Some(Self::Skill),
+            _ => None,
+        }
+    }
+}
+
+/// A single contribution point declared by a plugin.
+///
+/// `contribution_id` is a dot-delimited identifier (per SDKWORK naming),
+/// e.g. `provider.model.acme` or `tool.plugin.search`, and must be unique
+/// across all plugins registered in one registry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginContribution {
+    pub kind: PluginContributionKind,
+    pub contribution_id: String,
+    pub description: String,
+}
+
+impl PluginContribution {
+    pub fn new(
+        kind: PluginContributionKind,
+        contribution_id: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            contribution_id: contribution_id.into(),
+            description: description.into(),
+        }
+    }
+
+    pub fn provider(contribution_id: impl Into<String>, description: impl Into<String>) -> Self {
+        Self::new(
+            PluginContributionKind::Provider,
+            contribution_id,
+            description,
+        )
+    }
+
+    pub fn tool(contribution_id: impl Into<String>, description: impl Into<String>) -> Self {
+        Self::new(PluginContributionKind::Tool, contribution_id, description)
+    }
+
+    pub fn hook(contribution_id: impl Into<String>, description: impl Into<String>) -> Self {
+        Self::new(PluginContributionKind::Hook, contribution_id, description)
+    }
+
+    pub fn stream(contribution_id: impl Into<String>, description: impl Into<String>) -> Self {
+        Self::new(PluginContributionKind::Stream, contribution_id, description)
+    }
+
+    pub fn memory(contribution_id: impl Into<String>, description: impl Into<String>) -> Self {
+        Self::new(PluginContributionKind::Memory, contribution_id, description)
+    }
+
+    pub fn skill(contribution_id: impl Into<String>, description: impl Into<String>) -> Self {
+        Self::new(PluginContributionKind::Skill, contribution_id, description)
+    }
 }
 
 /// Plugin metadata for registry
@@ -255,6 +359,7 @@ struct PluginEntry {
     plugin: Arc<RwLock<Box<dyn Plugin>>>,
     metadata: PluginMetadata,
     context: PluginContext,
+    contributions: Vec<PluginContribution>,
 }
 
 /// Plugin registry for managing multiple plugins
@@ -279,10 +384,13 @@ impl PluginRegistry {
     ) -> KernelResult<()> {
         let plugin_id = plugin.plugin_id().to_string();
 
+        let contributions = plugin.contributions();
+
         let entry = PluginEntry {
             plugin: Arc::new(RwLock::new(plugin)),
             metadata,
             context,
+            contributions,
         };
 
         let mut plugins = self.plugins.write().map_err(|_| KernelError::Internal {
@@ -296,8 +404,62 @@ impl PluginRegistry {
             )));
         }
 
+        // Contribution ids must be unique across all registered plugins.
+        if let Some(conflict) = plugins
+            .values()
+            .flat_map(|entry| &entry.contributions)
+            .find(|existing| {
+                entry
+                    .contributions
+                    .iter()
+                    .any(|candidate| candidate.contribution_id == existing.contribution_id)
+            })
+        {
+            return Err(KernelError::validation(format!(
+                "Contribution '{}' is already registered by another plugin",
+                conflict.contribution_id
+            )));
+        }
+
         plugins.insert(plugin_id.clone(), entry);
         Ok(())
+    }
+
+    /// All contribution points across registered plugins as
+    /// `(plugin_id, contribution)` pairs.
+    pub fn contributions(&self) -> Vec<(String, PluginContribution)> {
+        let plugins = match self.plugins.read() {
+            Ok(plugins) => plugins,
+            Err(_) => return Vec::new(),
+        };
+        plugins
+            .iter()
+            .flat_map(|(plugin_id, entry)| {
+                entry
+                    .contributions
+                    .iter()
+                    .map(|contribution| (plugin_id.clone(), contribution.clone()))
+            })
+            .collect()
+    }
+
+    /// Contribution points of one kind across registered plugins.
+    pub fn contributions_of_kind(
+        &self,
+        kind: PluginContributionKind,
+    ) -> Vec<(String, PluginContribution)> {
+        self.contributions()
+            .into_iter()
+            .filter(|(_, contribution)| contribution.kind == kind)
+            .collect()
+    }
+
+    /// Resolve the plugin that owns a contribution id.
+    pub fn plugin_contributing(&self, contribution_id: &str) -> Option<String> {
+        self.contributions()
+            .into_iter()
+            .find(|(_, contribution)| contribution.contribution_id == contribution_id)
+            .map(|(plugin_id, _)| plugin_id)
     }
 
     /// Unregister a plugin

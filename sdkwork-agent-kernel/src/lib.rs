@@ -271,7 +271,10 @@ pub use package::{
     AgentPackageVersionCompatibility,
 };
 pub use planning::{Action, ActionKind, ActionStatus, Observation, Plan, PlanningProvider};
-pub use plugin::{Plugin, PluginContext, PluginMetadata, PluginRegistry, PluginState};
+pub use plugin::{
+    Plugin, PluginContext, PluginContribution, PluginContributionKind, PluginMetadata,
+    PluginRegistry, PluginState,
+};
 pub use policy::{
     PolicyCategory, PolicyDecision, PolicyDecisionConstraint, PolicyDecisionValue,
     PolicyExplanation, PolicyProvider, PolicyRequest, PolicySubject,

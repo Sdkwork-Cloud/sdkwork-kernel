@@ -101,7 +101,7 @@ impl AgentSettingsDocument {
     /// - higher-precedence scopes in `other` win over lower scopes here
     ///   when the same key exists in both.
     pub fn merge(&mut self, other: &AgentSettingsDocument) {
-        for (scope, entries) in &other.layers {
+        for (_, entries) in &other.layers {
             for entry in entries {
                 self.set_entry(entry.clone());
             }

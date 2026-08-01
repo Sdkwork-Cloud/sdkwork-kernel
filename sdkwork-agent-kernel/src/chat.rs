@@ -1,16 +1,36 @@
 use crate::{
     agent_messages_to_text_lines, parse_chat_rpc_payload, AgentInputContract, AgentInputPolicy,
-    AgentMessage, AgentRuntime, AgentTask, ContextFrame, KernelError, KernelErrorSource,
-    KernelEvent, KernelEventRedaction, KernelResult, KnowledgeRetrievalMethod,
-    KnowledgeSearchRequest, KnowledgeSearchResult, MemoryRecord, MemoryScope,
-    ModelCancellationRequest, ModelExecutionRequest, ModelExecutionService, ModelRequest,
-    ModelResponse, ModelStreamChunk, PolicyCategory, PolicyDecision, PolicyDecisionValue,
+    AgentMessage, AgentMessageRole, AgentRuntime, AgentStreamEvent, AgentStreamSink, AgentTask,
+    ContextFrame, EndedEvent, KernelError, KernelErrorSource, KernelEvent, KernelEventRedaction,
+    KernelResult, KnowledgeRetrievalMethod, KnowledgeSearchRequest, KnowledgeSearchResult,
+    MemoryRecord, MemoryScope, MessageStartEvent, MessageStopEvent, ModelCancellationRequest,
+    ModelChunkKind, ModelExecutionRequest, ModelExecutionService, ModelRequest, ModelResponse,
+    ModelStreamChunk, ModelStreamSink, PolicyCategory, PolicyDecision, PolicyDecisionValue,
     PolicySubject, ProtocolAdapter, ProtocolAdapterAuthMode, ProtocolAdapterManifest,
     ProtocolAdapterRequest, ProtocolAdapterResponse, ProtocolAdapterStreamingSupport,
     ProtocolError, ProtocolFamily, ProtocolObjectEnvelope, ProtocolObjectKind,
     ProtocolObjectMapper, ProtocolStreamUpdate, ProtocolTransport, ProviderHealth, RuntimeState,
-    SideEffectLevel, StandardProtocolObjectMapper, TraceContext,
+    SessionInitEvent, SideEffectLevel, StandardProtocolObjectMapper, TraceContext,
 };
+
+/// Bridge that forwards provider-neutral model chunks into the unified
+/// [`AgentStreamEvent`] protocol while aggregating the visible text content.
+struct ChunkToEventBridge<'a> {
+    inner: &'a mut dyn AgentStreamSink,
+    session_id: Option<&'a str>,
+    content: String,
+}
+
+impl ModelStreamSink for ChunkToEventBridge<'_> {
+    fn push_chunk(&mut self, chunk: ModelStreamChunk) -> KernelResult<()> {
+        if chunk.chunk_kind == ModelChunkKind::Text {
+            self.content.push_str(&chunk.content);
+        }
+        let event: AgentStreamEvent = (&chunk).into();
+        self.inner
+            .push_event(event.with_session_id_optional(&self.session_id.map(str::to_string)))
+    }
+}
 
 const AGENT_CHAT_CREATE_OPERATION: &str = "agent.chat.create";
 const MODEL_CHAT_INVOKE_OPERATION: &str = "model.chat.invoke";
@@ -453,6 +473,105 @@ impl AgentChatService {
             policy_decision: stream_response.invoke_policy_decision,
             chunks: stream_response.chunks,
         })
+    }
+
+    /// Stream a chat request through the unified [`AgentStreamEvent`]
+    /// protocol.
+    ///
+    /// The event sequence follows the agent SDK convention:
+    /// `SessionInit -> MessageStart -> MessageDelta* -> MessageStop ->
+    /// Ended`. Chunks carrying a `tool_call_id` surface as `ToolCallDelta`
+    /// events so tool argument streaming round-trips through the same
+    /// channel.
+    pub fn stream_events(
+        &self,
+        runtime: &AgentRuntime,
+        request: AgentChatRequest,
+        sink: &mut dyn AgentStreamSink,
+    ) -> KernelResult<()> {
+        request.validate()?;
+        self.ensure_runtime_executable(runtime)?;
+
+        let policy_request_id = format!("policy.{}", request.chat_request_id);
+        let mut model_request = request.to_model_request(policy_request_id.clone());
+        model_request = self.attach_memory_context(runtime, &request, model_request)?;
+        model_request = self.attach_knowledge_context(runtime, &request, model_request)?;
+        model_request = self.attach_tool_descriptors(runtime, &request, model_request)?;
+        let mut model_execution_request =
+            ModelExecutionRequest::new(request.chat_request_id.clone(), model_request);
+        if let Some(provider_id) = &request.provider_id {
+            model_execution_request = model_execution_request.with_provider_id(provider_id.clone());
+        }
+        if let Some(subject) = &request.subject {
+            model_execution_request = model_execution_request.with_subject(subject.clone());
+        }
+
+        let session_id = request.session_id.clone();
+        let stream_id = model_execution_request
+            .model_request
+            .model_request_id
+            .clone();
+
+        if let Some(session_id) = &session_id {
+            sink.push_event(
+                AgentStreamEvent::SessionInit(
+                    SessionInitEvent::new(format!("{}.init", request.chat_request_id))
+                        .with_stream_id(stream_id.clone())
+                        .with_model(
+                            String::new(),
+                            model_execution_request
+                                .model_request
+                                .model_id
+                                .clone()
+                                .unwrap_or_default(),
+                        ),
+                )
+                .with_session_id(session_id.clone()),
+            )?;
+        }
+
+        sink.push_event(
+            AgentStreamEvent::MessageStart(
+                MessageStartEvent::new(
+                    format!("{}.start", request.chat_request_id),
+                    stream_id.clone(),
+                    AgentMessageRole::Agent,
+                )
+                .with_stream_id(stream_id.clone()),
+            )
+            .with_session_id_optional(&session_id),
+        )?;
+
+        let mut bridge = ChunkToEventBridge {
+            inner: sink,
+            session_id: session_id.as_deref(),
+            content: String::new(),
+        };
+        ModelExecutionService::new().stream_into(runtime, model_execution_request, &mut bridge)?;
+        let content = std::mem::take(&mut bridge.content);
+        drop(bridge);
+
+        sink.push_event(
+            AgentStreamEvent::MessageStop(
+                MessageStopEvent::new(
+                    format!("{}.stop", request.chat_request_id),
+                    stream_id.clone(),
+                )
+                .with_content(content)
+                .with_stream_id(stream_id.clone()),
+            )
+            .with_session_id_optional(&session_id),
+        )?;
+
+        sink.push_event(
+            AgentStreamEvent::Ended(
+                EndedEvent::new(format!("{}.ended", request.chat_request_id))
+                    .with_stream_id(stream_id.clone()),
+            )
+            .with_session_id_optional(&session_id),
+        )?;
+
+        Ok(())
     }
 
     /// Cancel an in-flight chat request by its model request id. The model

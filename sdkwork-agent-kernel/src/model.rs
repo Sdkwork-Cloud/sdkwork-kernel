@@ -443,11 +443,42 @@ impl ModelResponse {
     }
 }
 
+/// Kind of an incremental model stream chunk. Providers emit typed chunks so
+/// the kernel can map them into the unified `AgentStreamEvent` protocol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelChunkKind {
+    /// Visible assistant text delta.
+    Text,
+    /// Reasoning/thinking delta.
+    Reasoning,
+    /// Partial JSON arguments for an in-flight tool call.
+    ToolCallArguments,
+    /// Token usage snapshot.
+    Usage,
+    /// Lifecycle or progress status notice.
+    Status,
+}
+
+impl ModelChunkKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Reasoning => "reasoning",
+            Self::ToolCallArguments => "tool_call_arguments",
+            Self::Usage => "usage",
+            Self::Status => "status",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ModelStreamChunk {
     pub model_request_id: String,
     pub sequence: u64,
     pub content: String,
+    pub chunk_kind: ModelChunkKind,
+    /// Set when the chunk carries tool-call argument deltas.
+    pub tool_call_id: Option<String>,
     pub trace_context: Option<TraceContext>,
     pub redaction_classification: KernelEventRedaction,
 }
@@ -462,8 +493,34 @@ impl ModelStreamChunk {
             model_request_id: model_request_id.into(),
             sequence,
             content: content.into(),
+            chunk_kind: ModelChunkKind::Text,
+            tool_call_id: None,
             trace_context: None,
             redaction_classification: KernelEventRedaction::Unknown,
+        }
+    }
+
+    pub fn reasoning(
+        model_request_id: impl Into<String>,
+        sequence: u64,
+        content: impl Into<String>,
+    ) -> Self {
+        Self {
+            chunk_kind: ModelChunkKind::Reasoning,
+            ..Self::output(model_request_id, sequence, content)
+        }
+    }
+
+    pub fn tool_arguments(
+        model_request_id: impl Into<String>,
+        sequence: u64,
+        tool_call_id: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Self {
+        Self {
+            chunk_kind: ModelChunkKind::ToolCallArguments,
+            tool_call_id: Some(tool_call_id.into()),
+            ..Self::output(model_request_id, sequence, content)
         }
     }
 
@@ -483,8 +540,11 @@ impl ModelStreamChunk {
             "agent.model.output.streamed",
             KernelEventSeverity::Info,
             format!(
-                "model_request_id={};sequence={};chunk={}",
-                self.model_request_id, self.sequence, self.content
+                "model_request_id={};sequence={};kind={};chunk={}",
+                self.model_request_id,
+                self.sequence,
+                self.chunk_kind.as_str(),
+                self.content
             ),
         )
         .from_source(KernelEventSource::Model)

@@ -1152,14 +1152,14 @@ fn chat_rpc_adapter_maps_event_stream_items_to_ordered_sse_frames() {
     assert_eq!(frames.len(), 2);
     assert!(frames[0].contains("id: event.chat.sse.1\n"));
     assert!(frames[0].contains("data: sequence=1\n"));
-    assert!(
-        frames[0].contains("data: payload=model_request_id=chat-rpc.sse;sequence=1;chunk=hello\n")
-    );
+    assert!(frames[0].contains(
+        "data: payload=model_request_id=chat-rpc.sse;sequence=1;kind=text;chunk=hello\n"
+    ));
     assert!(frames[1].contains("id: event.chat.sse.2\n"));
     assert!(frames[1].contains("data: sequence=2\n"));
-    assert!(
-        frames[1].contains("data: payload=model_request_id=chat-rpc.sse;sequence=2;chunk=world\n")
-    );
+    assert!(frames[1].contains(
+        "data: payload=model_request_id=chat-rpc.sse;sequence=2;kind=text;chunk=world\n"
+    ));
 }
 
 #[test]

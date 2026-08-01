@@ -1,11 +1,13 @@
 use crate::{
     agent_messages_to_text_lines, AgentChatKnowledgeQuery, AgentChatMemoryQuery, AgentChatRequest,
-    AgentChatService, AgentInputContract, AgentInputPolicy, AgentMessage, AgentRuntime,
-    KernelError, KernelErrorKind, KernelErrorSource, KernelEvent, KernelEventRedaction,
-    KernelEventSeverity, KernelEventSource, KernelResult, KnowledgeRetrievalMethod,
-    McpToolExecutionRequest, McpToolExecutionResponse, McpToolExecutionService, ModelResponse,
-    Plan, PolicySubject, RuntimeState, ToolCall, ToolExecutionRequest, ToolExecutionResponse,
-    ToolExecutionService, TraceContext,
+    AgentChatService, AgentInputContract, AgentInputPolicy, AgentMessage, AgentMessageRole,
+    AgentRuntime, AgentStreamEvent, AgentStreamSink, EndedEvent, ErrorEvent, KernelError,
+    KernelErrorKind, KernelErrorSource, KernelEvent, KernelEventRedaction, KernelEventSeverity,
+    KernelEventSource, KernelResult, KnowledgeRetrievalMethod, McpToolExecutionRequest,
+    McpToolExecutionResponse, McpToolExecutionService, MessageDeltaEvent, MessageStartEvent,
+    MessageStopEvent, ModelResponse, Plan, PolicySubject, ResultEvent, RuntimeState,
+    SessionInitEvent, ToolCall, ToolCallStartEvent, ToolCallStopEvent, ToolExecutionRequest,
+    ToolExecutionResponse, ToolExecutionService, ToolResultEvent, TraceContext, UsageEvent,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -943,6 +945,256 @@ impl AgentExecutionService {
             observations,
             None,
         ))
+    }
+
+    /// Execute an agent turn through the unified [`AgentStreamEvent`]
+    /// protocol.
+    ///
+    /// The event sequence mirrors the agent SDK turn lifecycle:
+    /// `SessionInit -> MessageStart -> MessageDelta* -> (ToolCallStart ->
+    /// ToolCallStop -> ToolResult)* -> MessageStop -> Usage -> Result ->
+    /// Ended`. Tool failures and permission denials surface as
+    /// `ToolResult(is_error)` events and the terminal `Result` carries the
+    /// aggregate outcome, cost, and usage.
+    pub fn execute_streaming(
+        &self,
+        runtime: &AgentRuntime,
+        request: AgentExecutionRequest,
+        sink: &mut dyn AgentStreamSink,
+    ) -> KernelResult<()> {
+        request.validate()?;
+        self.ensure_runtime_executable(runtime)?;
+
+        let session_id = request.session_id.clone();
+        let stream_id = format!("execution.{}", request.execution_id);
+
+        if let Some(session_id) = &session_id {
+            sink.push_event(
+                AgentStreamEvent::SessionInit(
+                    SessionInitEvent::new(format!("{}.init", request.execution_id))
+                        .with_stream_id(stream_id.clone())
+                        .with_model(String::new(), request.model_id.clone().unwrap_or_default()),
+                )
+                .with_session_id(session_id.clone()),
+            )?;
+        }
+
+        let chat_response = match AgentChatService::new().invoke(runtime, request.to_chat_request())
+        {
+            Ok(chat_response) => chat_response,
+            Err(error) => {
+                sink.push_event(
+                    AgentStreamEvent::Error(
+                        ErrorEvent::new(
+                            format!("{}.error", request.execution_id),
+                            error.to_string(),
+                        )
+                        .with_code(error.kind().as_str())
+                        .with_stream_id(stream_id.clone()),
+                    )
+                    .with_session_id_optional(&session_id),
+                )?;
+                sink.push_event(
+                    AgentStreamEvent::Result(
+                        ResultEvent::new(format!("{}.result", request.execution_id))
+                            .with_run_id(request.run_id.clone().unwrap_or_default())
+                            .with_num_turns(1)
+                            .with_error(true)
+                            .with_result(error.to_string())
+                            .with_stream_id(stream_id.clone()),
+                    )
+                    .with_session_id_optional(&session_id),
+                )?;
+                return self.push_ended(sink, &request, &session_id, &stream_id);
+            }
+        };
+
+        let model_response = chat_response.model_response;
+        let message_id = model_response.model_request_id.clone();
+        let content = model_response.messages.join("\n");
+        let finish_reason = model_response
+            .finish_reason
+            .clone()
+            .or_else(|| Some(model_response.status.as_report_str().to_string()));
+
+        sink.push_event(
+            AgentStreamEvent::MessageStart(
+                MessageStartEvent::new(
+                    format!("{}.message.start", request.execution_id),
+                    message_id.clone(),
+                    AgentMessageRole::Agent,
+                )
+                .with_stream_id(stream_id.clone()),
+            )
+            .with_session_id_optional(&session_id),
+        )?;
+
+        if !content.is_empty() {
+            sink.push_event(
+                AgentStreamEvent::MessageDelta(
+                    MessageDeltaEvent::text(
+                        format!("{}.message.delta", request.execution_id),
+                        message_id.clone(),
+                        content.clone(),
+                    )
+                    .with_stream_id(stream_id.clone()),
+                )
+                .with_session_id_optional(&session_id),
+            )?;
+        }
+
+        for tool_call in &model_response.tool_calls {
+            sink.push_event(
+                AgentStreamEvent::ToolCallStart(
+                    ToolCallStartEvent::new(
+                        format!(
+                            "{}.tool.start.{}",
+                            request.execution_id, tool_call.tool_call_id
+                        ),
+                        tool_call.tool_call_id.clone(),
+                        tool_call.tool_id.clone(),
+                    )
+                    .with_message(message_id.clone())
+                    .with_stream_id(stream_id.clone()),
+                )
+                .with_session_id_optional(&session_id),
+            )?;
+            sink.push_event(
+                AgentStreamEvent::ToolCallStop(
+                    ToolCallStopEvent::new(
+                        format!(
+                            "{}.tool.stop.{}",
+                            request.execution_id, tool_call.tool_call_id
+                        ),
+                        tool_call.tool_call_id.clone(),
+                        tool_call.tool_id.clone(),
+                        tool_call.arguments.clone(),
+                    )
+                    .with_stream_id(stream_id.clone()),
+                )
+                .with_session_id_optional(&session_id),
+            )?;
+        }
+
+        sink.push_event(
+            AgentStreamEvent::MessageStop(
+                MessageStopEvent::new(
+                    format!("{}.message.stop", request.execution_id),
+                    message_id.clone(),
+                )
+                .with_content(content.clone())
+                .with_finish_reason(finish_reason.unwrap_or_default())
+                .with_stream_id(stream_id.clone()),
+            )
+            .with_session_id_optional(&session_id),
+        )?;
+
+        let mut tool_failed = false;
+        for (index, tool_call) in model_response.tool_calls.iter().cloned().enumerate() {
+            let result_event = match self.execute_tool_call(runtime, &request, tool_call, index + 1)
+            {
+                Ok(ExecutedToolCall::Tool(tool_execution)) => {
+                    let result = tool_execution.result;
+                    let failed = result.normalized_status != crate::ToolCallStatus::Succeeded;
+                    tool_failed |= failed;
+                    ToolResultEvent::new(
+                        format!(
+                            "{}.tool.result.{}",
+                            request.execution_id, result.tool_call_id
+                        ),
+                        result.tool_call_id,
+                        tool_execution.descriptor.tool_id,
+                        result.error.clone().unwrap_or(result.output.clone()),
+                        result.normalized_status,
+                    )
+                    .with_error(failed)
+                    .with_duration_ms(result.duration_ms.unwrap_or(0))
+                }
+                Ok(ExecutedToolCall::Mcp(mcp_tool_execution)) => {
+                    let result = mcp_tool_execution.result;
+                    let failed = result.normalized_status != crate::ToolCallStatus::Succeeded;
+                    tool_failed |= failed;
+                    ToolResultEvent::new(
+                        format!(
+                            "{}.tool.result.{}",
+                            request.execution_id, result.tool_call_id
+                        ),
+                        result.tool_call_id,
+                        mcp_tool_execution.descriptor.tool_id,
+                        result.error.clone().unwrap_or(result.output.clone()),
+                        result.normalized_status,
+                    )
+                    .with_error(failed)
+                    .with_duration_ms(result.duration_ms.unwrap_or(0))
+                }
+                Err(error) => {
+                    tool_failed = true;
+                    ToolResultEvent::new(
+                        format!(
+                            "{}.tool.result.{}",
+                            request.execution_id,
+                            error.kind().as_str()
+                        ),
+                        format!("tool.{}", index + 1),
+                        "unknown",
+                        error.to_string(),
+                        crate::ToolCallStatus::Failed,
+                    )
+                    .with_error(true)
+                }
+            };
+            sink.push_event(
+                AgentStreamEvent::ToolResult(result_event.with_stream_id(stream_id.clone()))
+                    .with_session_id_optional(&session_id),
+            )?;
+        }
+
+        let usage = model_response.usage.clone().map(|usage| {
+            UsageEvent::new(
+                format!("{}.usage", request.execution_id),
+                usage.input_tokens,
+                usage.output_tokens,
+            )
+            .with_stream_id(stream_id.clone())
+        });
+        if let Some(usage) = &usage {
+            sink.push_event(
+                AgentStreamEvent::Usage(usage.clone()).with_session_id_optional(&session_id),
+            )?;
+        }
+
+        let is_error = model_response.status != crate::ModelStatus::Succeeded || tool_failed;
+        let mut result_event = ResultEvent::new(format!("{}.result", request.execution_id))
+            .with_run_id(request.run_id.clone().unwrap_or_default())
+            .with_num_turns(1)
+            .with_error(is_error)
+            .with_result(content)
+            .with_stop_reason(model_response.status.as_report_str())
+            .with_stream_id(stream_id.clone());
+        if let Some(usage) = &usage {
+            result_event = result_event.with_usage(usage.clone());
+        }
+        sink.push_event(
+            AgentStreamEvent::Result(result_event).with_session_id_optional(&session_id),
+        )?;
+
+        self.push_ended(sink, &request, &session_id, &stream_id)
+    }
+
+    fn push_ended(
+        &self,
+        sink: &mut dyn AgentStreamSink,
+        request: &AgentExecutionRequest,
+        session_id: &Option<String>,
+        stream_id: &str,
+    ) -> KernelResult<()> {
+        sink.push_event(
+            AgentStreamEvent::Ended(
+                EndedEvent::new(format!("{}.ended", request.execution_id))
+                    .with_stream_id(stream_id.to_string()),
+            )
+            .with_session_id_optional(session_id),
+        )
     }
 
     fn failed_before_model_report(

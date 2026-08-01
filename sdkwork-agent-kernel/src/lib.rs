@@ -123,6 +123,7 @@ mod runtime;
 mod runtime_host;
 mod runtime_topology;
 mod skill;
+mod stream_event;
 mod task_scheduling;
 mod telemetry;
 mod tool;
@@ -247,10 +248,10 @@ pub use modality::{
     INPUT_MODALITY_JSON, INPUT_MODALITY_MUSIC, INPUT_MODALITY_TEXT, INPUT_MODALITY_VIDEO,
 };
 pub use model::{
-    ModelCancellationRequest, ModelCancellationResponse, ModelDescriptor, ModelExecutionRequest,
-    ModelExecutionResponse, ModelExecutionService, ModelProvider, ModelRequest, ModelResponse,
-    ModelResponseFormat, ModelStatus, ModelStreamChunk, ModelStreamExecutionResponse,
-    ModelStreamSink, ModelStructuredOutputValidation, ModelUsage,
+    ModelCancellationRequest, ModelCancellationResponse, ModelChunkKind, ModelDescriptor,
+    ModelExecutionRequest, ModelExecutionResponse, ModelExecutionService, ModelProvider,
+    ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus, ModelStreamChunk,
+    ModelStreamExecutionResponse, ModelStreamSink, ModelStructuredOutputValidation, ModelUsage,
 };
 pub use package::{
     AgentPackageLifecycle, AgentPackageManifest, AgentPackageProviderBinding,
@@ -295,6 +296,14 @@ pub use session_activity::{
 pub use skill::{
     AgentSkillDescriptor, AgentSkillInvocationMode, AgentSkillProvider, AgentSkillRequest,
     AgentSkillResult, AgentSkillStatus,
+};
+pub use stream_event::{
+    stream_event_with_trace, AgentStreamEvent, AgentStreamSink, CancelledEvent,
+    CompactBoundaryEvent, CostEvent, EndedEvent, ErrorEvent, InMemoryAgentStreamSink,
+    KernelEventStreamSink, MessageDeltaEvent, MessageDeltaKind, MessageStartEvent,
+    MessageStopEvent, ProgressEvent, RateLimitEvent, RateLimitStatus, ResultEvent,
+    SessionInitEvent, StatusEvent, StreamStatusLevel, ToolCallDeltaEvent, ToolCallStartEvent,
+    ToolCallStopEvent, ToolResultEvent, UsageEvent, AGENT_STREAM_EVENT_FAMILY,
 };
 pub use task_scheduling::{
     ScheduleQuery, ScheduleResult, ScheduleState, ScheduledTask, TaskPriority,

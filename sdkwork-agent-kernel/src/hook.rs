@@ -34,6 +34,61 @@ pub enum ToolHookAction {
     },
 }
 
+/// Permission decision context delivered to hooks before policy
+/// evaluation, mirroring the agent SDK permission hooks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PermissionRequestContext {
+    pub permission_request_id: String,
+    pub tool_call_id: Option<String>,
+    pub tool_id: Option<String>,
+    /// Operation being authorized, e.g. `tool.invoke`.
+    pub operation: String,
+    pub reason: Option<String>,
+}
+
+impl PermissionRequestContext {
+    pub fn new(permission_request_id: impl Into<String>, operation: impl Into<String>) -> Self {
+        Self {
+            permission_request_id: permission_request_id.into(),
+            tool_call_id: None,
+            tool_id: None,
+            operation: operation.into(),
+            reason: None,
+        }
+    }
+
+    pub fn for_tool_call(
+        permission_request_id: impl Into<String>,
+        tool_call_id: impl Into<String>,
+        tool_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            permission_request_id: permission_request_id.into(),
+            tool_call_id: Some(tool_call_id.into()),
+            tool_id: Some(tool_id.into()),
+            operation: "tool.invoke".to_string(),
+            reason: None,
+        }
+    }
+
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
+    }
+}
+
+/// Hook override for a permission decision: approve or deny without the
+/// normal policy flow.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PermissionHookAction {
+    /// Proceed with the normal policy evaluation.
+    Continue,
+    /// Approve without asking; the hook reason is recorded.
+    Approve { reason: String },
+    /// Deny without asking; the reason is delivered to the model.
+    Deny { reason: String },
+}
+
 /// Kernel hook trait. Every method has a no-op default so hooks implement
 /// only the interception points they care about.
 pub trait KernelHook: Send + Sync {
@@ -66,6 +121,15 @@ pub trait KernelHook: Send + Sync {
         _result: &ToolResult,
     ) -> KernelResult<HookAction> {
         Ok(HookAction::Continue)
+    }
+
+    /// Before a permission decision: approve or deny overrides the normal
+    /// policy flow.
+    fn on_permission_request(
+        &self,
+        _context: &PermissionRequestContext,
+    ) -> KernelResult<PermissionHookAction> {
+        Ok(PermissionHookAction::Continue)
     }
 
     /// Before a user prompt is processed.
@@ -181,6 +245,19 @@ impl KernelHookRegistry {
             }
         }
         Ok(HookAction::Continue)
+    }
+
+    pub fn run_permission_request(
+        &self,
+        context: &PermissionRequestContext,
+    ) -> KernelResult<PermissionHookAction> {
+        for hook in &self.hooks {
+            match hook.on_permission_request(context)? {
+                PermissionHookAction::Continue => {}
+                action => return Ok(action),
+            }
+        }
+        Ok(PermissionHookAction::Continue)
     }
 
     pub fn run_user_prompt(&self, prompt: &str) -> KernelResult<HookAction> {

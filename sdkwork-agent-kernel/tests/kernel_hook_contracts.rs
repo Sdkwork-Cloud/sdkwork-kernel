@@ -68,6 +68,8 @@ enum HookMode {
     Record,
     TerminateModel,
     SkipTool,
+    ApprovePermission,
+    DenyPermission,
 }
 
 impl RecordingHook {
@@ -137,6 +139,23 @@ impl KernelHook for RecordingHook {
     fn on_user_prompt(&self, _prompt: &str) -> KernelResult<HookAction> {
         self.prompts.fetch_add(1, Ordering::Relaxed);
         Ok(HookAction::Continue)
+    }
+
+    fn on_permission_request(
+        &self,
+        _context: &sdkwork_agent_kernel::PermissionRequestContext,
+    ) -> KernelResult<sdkwork_agent_kernel::PermissionHookAction> {
+        match self.mode {
+            HookMode::ApprovePermission => {
+                Ok(sdkwork_agent_kernel::PermissionHookAction::Approve {
+                    reason: "contract approved".to_string(),
+                })
+            }
+            HookMode::DenyPermission => Ok(sdkwork_agent_kernel::PermissionHookAction::Deny {
+                reason: "contract denied".to_string(),
+            }),
+            _ => Ok(sdkwork_agent_kernel::PermissionHookAction::Continue),
+        }
     }
 
     fn on_session_start(&self, _session_id: &str) -> KernelResult<()> {
@@ -416,6 +435,56 @@ fn chat_stream_events_honor_model_hooks() {
     assert_eq!(types[0], "agent.stream.message.start");
     assert_eq!(types.last().unwrap(), &"agent.stream.ended");
     assert!(hook.before_model.load(Ordering::Relaxed) >= 1);
+}
+
+#[test]
+fn permission_hook_approve_skips_policy_flow() {
+    let hook = Arc::new(RecordingHook::with_mode(HookMode::ApprovePermission));
+    let runtime = hook_runtime(hook);
+
+    let report = AgentExecutionService::new()
+        .execute(
+            &runtime,
+            AgentExecutionRequest::new("exec.hook.approve", vec!["hello".to_string()]),
+        )
+        .expect("approved execution succeeds");
+
+    assert_eq!(report.status, AgentExecutionStatus::Completed);
+    let tool_execution = &report.tool_executions[0];
+    assert_eq!(
+        tool_execution.result.normalized_status,
+        ToolCallStatus::Succeeded
+    );
+    // The policy decision records the hook approval.
+    assert_eq!(
+        tool_execution.policy_decision.policy_provider_id,
+        "kernel.hook"
+    );
+}
+
+#[test]
+fn permission_hook_deny_returns_denied_result() {
+    let hook = Arc::new(RecordingHook::with_mode(HookMode::DenyPermission));
+    let runtime = hook_runtime(hook);
+
+    let report = AgentExecutionService::new()
+        .execute(
+            &runtime,
+            AgentExecutionRequest::new("exec.hook.deny", vec!["hello".to_string()]),
+        )
+        .expect("denied execution returns a report");
+
+    let tool_execution = &report.tool_executions[0];
+    assert_eq!(
+        tool_execution.result.normalized_status,
+        ToolCallStatus::Denied
+    );
+    assert!(tool_execution
+        .result
+        .error
+        .as_deref()
+        .unwrap_or_default()
+        .contains("contract denied"));
 }
 
 #[test]

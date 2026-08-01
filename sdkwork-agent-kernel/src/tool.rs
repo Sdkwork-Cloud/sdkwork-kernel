@@ -632,6 +632,59 @@ impl ToolExecutionService {
         request: ToolExecutionRequest,
     ) -> KernelResult<ToolExecutionResponse> {
         let provider = self.select_provider(runtime, request.tool_call.provider_id.as_deref())?;
+
+        // Permission hook: hooks may approve or deny before the normal
+        // policy flow, mirroring the agent SDK permission hooks.
+        let permission_context = crate::PermissionRequestContext::for_tool_call(
+            format!("permission.{}", request.tool_call.tool_call_id),
+            request.tool_call.tool_call_id.clone(),
+            request.tool_call.tool_id.clone(),
+        );
+        match runtime
+            .hooks()
+            .run_permission_request(&permission_context)?
+        {
+            crate::PermissionHookAction::Continue => {}
+            crate::PermissionHookAction::Approve { reason } => {
+                let descriptor = provider.describe_tool(&request.tool_call.tool_id)?;
+                let policy_decision = PolicyDecision::allow(
+                    format!("hook-approve.{}", request.tool_call.tool_call_id),
+                    permission_context.permission_request_id.clone(),
+                    "kernel.hook",
+                )
+                .with_safe_reason(reason);
+                let tool_call =
+                    self.with_policy_metadata(request.tool_call, &descriptor, &policy_decision);
+                let result = provider.invoke_tool(tool_call.clone())?;
+                let _ = runtime.hooks().run_after_tool_invoke(&tool_call, &result)?;
+                return Ok(ToolExecutionResponse {
+                    tool_execution_id: request.tool_execution_id,
+                    provider_id: descriptor.provider_id.clone(),
+                    descriptor,
+                    policy_decision,
+                    result,
+                });
+            }
+            crate::PermissionHookAction::Deny { reason } => {
+                let descriptor = provider.describe_tool(&request.tool_call.tool_id)?;
+                let policy_decision = PolicyDecision::deny(
+                    format!("hook-deny.{}", request.tool_call.tool_call_id),
+                    permission_context.permission_request_id.clone(),
+                    "kernel.hook",
+                    "hook_denied",
+                )
+                .with_safe_reason(reason.clone());
+                let result = ToolResult::denied(request.tool_call.tool_call_id, reason);
+                return Ok(ToolExecutionResponse {
+                    tool_execution_id: request.tool_execution_id,
+                    provider_id: descriptor.provider_id.clone(),
+                    descriptor,
+                    policy_decision,
+                    result,
+                });
+            }
+        }
+
         let (descriptor, policy_decision) =
             self.authorize_tool_call(runtime, provider, &request.tool_call)?;
         let tool_call = self.with_policy_metadata(request.tool_call, &descriptor, &policy_decision);

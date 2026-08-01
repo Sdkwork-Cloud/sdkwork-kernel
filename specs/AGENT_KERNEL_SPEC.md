@@ -1221,6 +1221,51 @@ Recommended event actions:
 - `degraded`
 - `recovered`
 
+### 10.3 Agent Stream Event Vocabulary (`agent.stream.*`)
+
+The unified streaming protocol (`AgentStreamEvent`) is the single delivery
+channel for model/tool rounds. Every variant maps to a stable
+dot-delimited `event_type` carried in the `KernelEvent` envelope and is
+delivered over the SSE surface
+`/internal/v3/api/intelligence/runtime/sessions/{sessionId}/events/stream`
+(`runtime.sessions.events.stream`).
+
+Canonical vocabulary (all under family `agent.stream`):
+
+| event_type | payload highlights | semantics |
+| --- | --- | --- |
+| `agent.stream.session.init` | provider_id, model, tools, skills, permission_mode | stream begin, session identity |
+| `agent.stream.message.start` | message_id, parent_message_id | assistant message open |
+| `agent.stream.message.delta` | message_id, kind (text/reasoning), delta | incremental content |
+| `agent.stream.message.stop` | message_id, finish_reason | assistant message close |
+| `agent.stream.tool.call.start` | tool_call_id, tool_name | tool call open |
+| `agent.stream.tool.call.delta` | tool_call_id, delta | incremental arguments |
+| `agent.stream.tool.call.stop` | tool_call_id | tool call close |
+| `agent.stream.tool.result` | tool_call_id, tool_name, is_error, status, duration_ms | typed tool result |
+| `agent.stream.usage` | input/output/cached/reasoning tokens | token accounting |
+| `agent.stream.cost` | cost_cents, currency, total_cost_usd | cost accounting |
+| `agent.stream.status` | level, message | informational/warning status |
+| `agent.stream.error` | code, message | stream error |
+| `agent.stream.rate_limit` | status, resets_at, utilization, limit_type | rate limiting |
+| `agent.stream.progress` | label, detail | progress reporting |
+| `agent.stream.compact_boundary` | summary | context compaction point |
+| `agent.stream.sandbox` | sandbox_session_id, phase (pending/active/completed/failed), message | sandbox session lifecycle correlation |
+| `agent.stream.result` | num_turns, duration_ms, is_error, stop_reason, total_cost_usd, result_length | terminal outcome |
+| `agent.stream.cancelled` | reason | cooperative cancellation |
+| `agent.stream.ended` | reason | stream terminal |
+
+Rules:
+
+- `event_type` values `MUST` be stable; consumers `MUST` tolerate unknown
+  types and unknown payload fields.
+- Terminal events are `agent.stream.result` / `agent.stream.cancelled` /
+  `agent.stream.ended`; exactly one terminal event closes a stream.
+- Session/stream correlation is carried by the envelope
+  (`session_id`, `stream_id`, `trace_context`).
+- The sandbox event correlates the stream with the bound sandbox session
+  lifecycle; it is emitted by execution paths using
+  `SandboxedExecutionCoordinator` and is informational (never a terminal).
+
 ## 11. Error Model
 
 Agent Kernel errors must be stable, typed, and safe to expose.

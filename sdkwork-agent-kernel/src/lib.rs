@@ -116,6 +116,7 @@ pub use secret_vault::{
     VaultSecretProvider, SDKWORK_VAULT_ADDR_ENV, SDKWORK_VAULT_MOUNT_ENV,
     SDKWORK_VAULT_NAMESPACE_ENV, SDKWORK_VAULT_TOKEN_ENV,
 };
+pub use settings::{AgentSettingEntry, AgentSettingsDocument, AgentSettingsService};
 mod plugin;
 mod provider;
 mod resilience;
@@ -124,6 +125,7 @@ mod retry;
 mod runtime;
 mod runtime_host;
 mod runtime_topology;
+mod settings;
 mod skill;
 mod stream_event;
 mod task_scheduling;

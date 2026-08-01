@@ -193,8 +193,8 @@ pub use execution_settings::{
     ASK_FOR_APPROVAL_ACCESS_MODE_ID, FULL_ACCESS_MODE_ID,
 };
 pub use hook::{
-    HookAction, KernelHook, KernelHookRegistry, PermissionHookAction, PermissionRequestContext,
-    ToolHookAction,
+    CompactBoundaryContext, HookAction, KernelHook, KernelHookRegistry, MessageDisplayContext,
+    PermissionHookAction, PermissionRequestContext, SubagentStopContext, ToolHookAction,
 };
 pub use host::{
     EnvironmentRequest, EnvironmentResult, ExecutorRequest, ExecutorResult, ExecutorStatus,

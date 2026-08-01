@@ -89,6 +89,78 @@ pub enum PermissionHookAction {
     Deny { reason: String },
 }
 
+/// Context for a context-compaction boundary (pre-compact).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompactBoundaryContext {
+    pub session_id: String,
+    pub message_count: u32,
+    pub tokens_estimate: Option<u64>,
+}
+
+impl CompactBoundaryContext {
+    pub fn new(session_id: impl Into<String>, message_count: u32) -> Self {
+        Self {
+            session_id: session_id.into(),
+            message_count,
+            tokens_estimate: None,
+        }
+    }
+
+    pub fn with_tokens_estimate(mut self, tokens_estimate: u64) -> Self {
+        self.tokens_estimate = Some(tokens_estimate);
+        self
+    }
+}
+
+/// Context for a sub-agent stop (delegation completed).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubagentStopContext {
+    pub delegation_id: String,
+    pub child_session_id: String,
+    /// Terminal outcome: completed / failed / cancelled.
+    pub outcome: String,
+    pub num_turns: u32,
+}
+
+impl SubagentStopContext {
+    pub fn new(
+        delegation_id: impl Into<String>,
+        child_session_id: impl Into<String>,
+        outcome: impl Into<String>,
+        num_turns: u32,
+    ) -> Self {
+        Self {
+            delegation_id: delegation_id.into(),
+            child_session_id: child_session_id.into(),
+            outcome: outcome.into(),
+            num_turns,
+        }
+    }
+}
+
+/// Context for a message about to be displayed to the user.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MessageDisplayContext {
+    pub message_id: String,
+    pub role: String,
+    pub content_length: usize,
+}
+
+impl MessageDisplayContext {
+    pub fn new(message_id: impl Into<String>, role: impl Into<String>) -> Self {
+        Self {
+            message_id: message_id.into(),
+            role: role.into(),
+            content_length: 0,
+        }
+    }
+
+    pub fn with_content_length(mut self, content_length: usize) -> Self {
+        self.content_length = content_length;
+        self
+    }
+}
+
 /// Kernel hook trait. Every method has a no-op default so hooks implement
 /// only the interception points they care about.
 pub trait KernelHook: Send + Sync {
@@ -130,6 +202,22 @@ pub trait KernelHook: Send + Sync {
         _context: &PermissionRequestContext,
     ) -> KernelResult<PermissionHookAction> {
         Ok(PermissionHookAction::Continue)
+    }
+
+    /// Before context compaction. Returning `Terminate` blocks compaction.
+    fn on_pre_compact(&self, _context: &CompactBoundaryContext) -> KernelResult<HookAction> {
+        Ok(HookAction::Continue)
+    }
+
+    /// A sub-agent (delegation) stopped.
+    fn on_subagent_stop(&self, _context: &SubagentStopContext) -> KernelResult<()> {
+        Ok(())
+    }
+
+    /// A message is about to be displayed. Returning `Terminate` suppresses
+    /// display.
+    fn on_message_display(&self, _context: &MessageDisplayContext) -> KernelResult<HookAction> {
+        Ok(HookAction::Continue)
     }
 
     /// Before a user prompt is processed.
@@ -258,6 +346,33 @@ impl KernelHookRegistry {
             }
         }
         Ok(PermissionHookAction::Continue)
+    }
+
+    pub fn run_pre_compact(&self, context: &CompactBoundaryContext) -> KernelResult<HookAction> {
+        for hook in &self.hooks {
+            match hook.on_pre_compact(context)? {
+                HookAction::Continue => {}
+                action => return Ok(action),
+            }
+        }
+        Ok(HookAction::Continue)
+    }
+
+    pub fn run_subagent_stop(&self, context: &SubagentStopContext) -> KernelResult<()> {
+        for hook in &self.hooks {
+            hook.on_subagent_stop(context)?;
+        }
+        Ok(())
+    }
+
+    pub fn run_message_display(&self, context: &MessageDisplayContext) -> KernelResult<HookAction> {
+        for hook in &self.hooks {
+            match hook.on_message_display(context)? {
+                HookAction::Continue => {}
+                action => return Ok(action),
+            }
+        }
+        Ok(HookAction::Continue)
     }
 
     pub fn run_user_prompt(&self, prompt: &str) -> KernelResult<HookAction> {

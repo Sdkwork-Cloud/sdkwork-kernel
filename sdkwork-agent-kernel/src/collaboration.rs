@@ -1,7 +1,7 @@
 use crate::{
     AgentExecutionRequest, AgentExecutionService, AgentMessage, AgentRuntime, AgentStreamEvent,
     AgentStreamSink, KernelError, KernelResult, PolicySubject, ProgressEvent, ProviderHealth,
-    ProviderManifest, RedactionClassification, TraceContext, TrustLevel,
+    ProviderManifest, RedactionClassification, SubagentStopContext, TraceContext, TrustLevel,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -615,6 +615,16 @@ impl AgentDelegationService {
             delegation_id: request.delegation_id.clone(),
         };
         AgentExecutionService::new().execute_streaming(runtime, execution_request, &mut relay)?;
+
+        // Sub-agent stop hook: observers learn the delegation outcome.
+        runtime
+            .hooks()
+            .run_subagent_stop(&SubagentStopContext::new(
+                request.delegation_id.clone(),
+                child_session_id.clone(),
+                "completed",
+                0,
+            ))?;
 
         // Task lifecycle: completed notice after the child stream ends.
         sink.push_event(

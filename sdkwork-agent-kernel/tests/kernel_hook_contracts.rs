@@ -60,6 +60,9 @@ struct RecordingHook {
     sessions_started: Arc<AtomicUsize>,
     sessions_ended: Arc<AtomicUsize>,
     stops: Arc<AtomicUsize>,
+    pre_compacts: Arc<AtomicUsize>,
+    subagent_stops: Arc<AtomicUsize>,
+    displays: Arc<AtomicUsize>,
     mode: HookMode,
 }
 
@@ -83,6 +86,9 @@ impl RecordingHook {
             sessions_started: Arc::new(AtomicUsize::new(0)),
             sessions_ended: Arc::new(AtomicUsize::new(0)),
             stops: Arc::new(AtomicUsize::new(0)),
+            pre_compacts: Arc::new(AtomicUsize::new(0)),
+            subagent_stops: Arc::new(AtomicUsize::new(0)),
+            displays: Arc::new(AtomicUsize::new(0)),
             mode: HookMode::Record,
         }
     }
@@ -138,6 +144,30 @@ impl KernelHook for RecordingHook {
 
     fn on_user_prompt(&self, _prompt: &str) -> KernelResult<HookAction> {
         self.prompts.fetch_add(1, Ordering::Relaxed);
+        Ok(HookAction::Continue)
+    }
+
+    fn on_pre_compact(
+        &self,
+        _context: &sdkwork_agent_kernel::CompactBoundaryContext,
+    ) -> KernelResult<HookAction> {
+        self.pre_compacts.fetch_add(1, Ordering::Relaxed);
+        Ok(HookAction::Continue)
+    }
+
+    fn on_subagent_stop(
+        &self,
+        _context: &sdkwork_agent_kernel::SubagentStopContext,
+    ) -> KernelResult<()> {
+        self.subagent_stops.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn on_message_display(
+        &self,
+        _context: &sdkwork_agent_kernel::MessageDisplayContext,
+    ) -> KernelResult<HookAction> {
+        self.displays.fetch_add(1, Ordering::Relaxed);
         Ok(HookAction::Continue)
     }
 
@@ -485,6 +515,99 @@ fn permission_hook_deny_returns_denied_result() {
         .as_deref()
         .unwrap_or_default()
         .contains("contract denied"));
+}
+
+#[test]
+fn extended_hook_points_fire_on_lifecycle_and_display() {
+    let hook = Arc::new(RecordingHook::recording());
+    let runtime = hook_runtime(hook.clone());
+
+    // Pre-compact interception.
+    let action = runtime
+        .hooks()
+        .run_pre_compact(&sdkwork_agent_kernel::CompactBoundaryContext::new(
+            "session.hook",
+            120,
+        ))
+        .expect("pre compact hook runs");
+    assert_eq!(action, HookAction::Continue);
+    assert_eq!(hook.pre_compacts.load(Ordering::Relaxed), 1);
+
+    // Message display interception.
+    let action = runtime
+        .hooks()
+        .run_message_display(&sdkwork_agent_kernel::MessageDisplayContext::new(
+            "msg.1", "agent",
+        ))
+        .expect("display hook runs");
+    assert_eq!(action, HookAction::Continue);
+    assert_eq!(hook.displays.load(Ordering::Relaxed), 1);
+
+    // Sub-agent stop interception.
+    runtime
+        .hooks()
+        .run_subagent_stop(&sdkwork_agent_kernel::SubagentStopContext::new(
+            "delegation.1",
+            "session.subagent.1",
+            "completed",
+            3,
+        ))
+        .expect("subagent stop hook runs");
+    assert_eq!(hook.subagent_stops.load(Ordering::Relaxed), 1);
+}
+
+#[test]
+fn delegation_stream_fires_subagent_stop_hook() {
+    use sdkwork_agent_kernel::{
+        AgentDelegationService, AgentDelegationStreamRequest, AgentExecutionRequest,
+    };
+
+    // Reuse the delegation runtime shape from this test file's model
+    // provider: full runtime with model/tool/policy providers.
+    let hook = Arc::new(RecordingHook::recording());
+    let runtime = RuntimeBuilder::new(
+        "runtime.hooks-delegation",
+        AgentManifest::from_json(HOOK_AGENT_MANIFEST_JSON).expect("hook manifest parses"),
+    )
+    .with_generated_at("2026-08-01T00:00:00Z")
+    .register_kernel_hook(hook.clone())
+    .register_model_provider(
+        "provider.model.hook",
+        "0.1.0",
+        StaticModelProvider {
+            provider_id: "provider.model.hook".to_string(),
+        },
+    )
+    .register_tool_provider(
+        "provider.tool.hook",
+        "0.1.0",
+        HookToolProvider {
+            provider_id: "provider.tool.hook".to_string(),
+        },
+    )
+    .register_policy_provider("provider.policy.hook", "0.1.0", AllowPolicyProvider)
+    .bootstrap()
+    .expect("delegation hook runtime bootstraps")
+    .runtime;
+
+    let mut sink = InMemoryAgentStreamSink::new();
+    AgentDelegationService::new()
+        .delegate_streaming(
+            &runtime,
+            AgentDelegationStreamRequest::from_tool_call(
+                "delegation.hook.1",
+                "session.parent",
+                "tool-call.delegate.9",
+                "child task",
+            ),
+            &mut sink,
+        )
+        .expect("delegation stream succeeds");
+
+    assert!(
+        hook.subagent_stops.load(Ordering::Relaxed) >= 1,
+        "sub-agent stop hook must fire after delegation"
+    );
 }
 
 #[test]

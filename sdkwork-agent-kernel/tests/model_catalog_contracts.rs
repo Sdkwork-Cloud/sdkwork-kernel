@@ -61,7 +61,7 @@ fn model_descriptor_declares_routing_capabilities_limits_and_policy_surface() {
     .with_input_mode("image")
     .with_output_mode("text")
     .with_output_mode("json")
-    .with_response_format(ModelResponseFormat::JsonSchema(
+    .with_response_format(ModelResponseFormat::json_schema(
         "sdkwork.answer.schema.v1".to_string(),
     ))
     .with_tool_capability("tool.invoke")
@@ -74,7 +74,7 @@ fn model_descriptor_declares_routing_capabilities_limits_and_policy_surface() {
     assert_eq!(descriptor.family, "openai");
     assert!(descriptor.supports_capability("reasoning"));
     assert!(
-        descriptor.supports_response_format(&ModelResponseFormat::JsonSchema(
+        descriptor.supports_response_format(&ModelResponseFormat::json_schema(
             "sdkwork.answer.schema.v1".to_string()
         ))
     );

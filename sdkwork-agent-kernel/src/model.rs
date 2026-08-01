@@ -12,7 +12,48 @@ use crate::{
 pub enum ModelResponseFormat {
     Text,
     Json,
-    JsonSchema(String),
+    /// JSON Schema constrained output. `schema_id` is the stable registry
+    /// identity; `document` carries the JSON Schema body so the contract is
+    /// self-describing without a registry lookup.
+    JsonSchema {
+        schema_id: String,
+        document: Option<String>,
+    },
+}
+
+impl ModelResponseFormat {
+    pub fn json_schema(schema_id: impl Into<String>) -> Self {
+        Self::JsonSchema {
+            schema_id: schema_id.into(),
+            document: None,
+        }
+    }
+
+    /// JSON Schema constrained output with an embedded document.
+    pub fn json_schema_with_document(
+        schema_id: impl Into<String>,
+        document: serde_json::Value,
+    ) -> Self {
+        Self::JsonSchema {
+            schema_id: schema_id.into(),
+            document: Some(document.to_string()),
+        }
+    }
+
+    pub fn schema_id(&self) -> Option<&str> {
+        match self {
+            Self::JsonSchema { schema_id, .. } => Some(schema_id),
+            Self::Text | Self::Json => None,
+        }
+    }
+
+    /// Embedded JSON Schema document text, when present.
+    pub fn document(&self) -> Option<&str> {
+        match self {
+            Self::JsonSchema { document, .. } => document.as_deref(),
+            Self::Text | Self::Json => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -954,7 +995,8 @@ impl ModelExecutionService {
         request: &ModelRequest,
         response: &ModelResponse,
     ) -> KernelResult<Option<ModelStructuredOutputValidation>> {
-        let Some(ModelResponseFormat::JsonSchema(schema_id)) = &request.response_format else {
+        let Some(ModelResponseFormat::JsonSchema { schema_id, .. }) = &request.response_format
+        else {
             return Ok(None);
         };
 

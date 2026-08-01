@@ -20,7 +20,7 @@ fn model_request_carries_runtime_context_policy_trace_timeout_and_response_forma
         .for_task("task.1")
         .for_run("run.1")
         .for_step("step.1")
-        .with_response_format(ModelResponseFormat::JsonSchema(
+        .with_response_format(ModelResponseFormat::json_schema(
             "sdkwork.answer.schema.v1".to_string(),
         ))
         .with_policy_context("policy-request.1")
@@ -34,7 +34,7 @@ fn model_request_carries_runtime_context_policy_trace_timeout_and_response_forma
     assert_eq!(request.step_id.as_deref(), Some("step.1"));
     assert_eq!(
         request.response_format,
-        Some(ModelResponseFormat::JsonSchema(
+        Some(ModelResponseFormat::json_schema(
             "sdkwork.answer.schema.v1".to_string()
         ))
     );
@@ -397,7 +397,7 @@ fn model_execution_service_validates_structured_output_when_json_schema_is_reque
                 "model.structured.1",
                 ModelRequest::new("model-request.structured", vec!["json".to_string()])
                     .with_model_id("model.complete")
-                    .with_response_format(ModelResponseFormat::JsonSchema(
+                    .with_response_format(ModelResponseFormat::json_schema(
                         "sdkwork.answer.schema.v1".to_string(),
                     )),
             )
@@ -445,7 +445,7 @@ fn model_execution_service_returns_validation_error_for_invalid_structured_outpu
                 "model.invalid-structured.1",
                 ModelRequest::new("model-request.invalid", vec!["json".to_string()])
                     .with_model_id("model.invalid-structured")
-                    .with_response_format(ModelResponseFormat::JsonSchema(
+                    .with_response_format(ModelResponseFormat::json_schema(
                         "sdkwork.answer.schema.v1".to_string(),
                     )),
             )
@@ -1226,7 +1226,7 @@ impl ModelProvider for CompleteModelProvider {
         .with_capability("model.cancellation")
         .with_capability("model.structured_output")
         .with_response_format(ModelResponseFormat::Text)
-        .with_response_format(ModelResponseFormat::JsonSchema(
+        .with_response_format(ModelResponseFormat::json_schema(
             "sdkwork.answer.schema.v1".to_string(),
         ))
         .with_policy_category("model.invoke")]
@@ -1266,7 +1266,7 @@ impl ModelProvider for CompleteModelProvider {
         _response: &ModelResponse,
     ) -> KernelResult<ModelStructuredOutputValidation> {
         let schema_id = match &request.response_format {
-            Some(ModelResponseFormat::JsonSchema(schema_id)) => schema_id.clone(),
+            Some(ModelResponseFormat::JsonSchema { schema_id, .. }) => schema_id.clone(),
             _ => "text".to_string(),
         };
         Ok(ModelStructuredOutputValidation::valid(
@@ -1306,7 +1306,7 @@ impl ModelProvider for InvalidStructuredModelProvider {
         )
         .with_capability("model.chat")
         .with_capability("model.structured_output")
-        .with_response_format(ModelResponseFormat::JsonSchema(
+        .with_response_format(ModelResponseFormat::json_schema(
             "sdkwork.answer.schema.v1".to_string(),
         ))
         .with_policy_category("model.invoke")]

@@ -39,6 +39,17 @@ pub struct RetryConfig {
     pub retryable_errors: Vec<String>,
 }
 
+impl PartialEq for RetryConfig {
+    fn eq(&self, other: &Self) -> bool {
+        self.max_retries == other.max_retries
+            && self.initial_delay == other.initial_delay
+            && self.max_delay == other.max_delay
+            && self.backoff_factor == other.backoff_factor
+            && self.jitter == other.jitter
+            && self.retryable_errors == other.retryable_errors
+    }
+}
+
 impl From<crate::RetryStrategy> for RetryConfig {
     /// Convert a rate-limit retry strategy into a full retry configuration.
     ///

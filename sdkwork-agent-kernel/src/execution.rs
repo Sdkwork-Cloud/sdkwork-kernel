@@ -1,14 +1,16 @@
 use crate::{
-    agent_messages_to_text_lines, AgentChatKnowledgeQuery, AgentChatMemoryQuery, AgentChatRequest,
-    AgentChatService, AgentInputContract, AgentInputPolicy, AgentMessage, AgentMessageRole,
-    AgentRuntime, AgentStreamEvent, AgentStreamSink, EndedEvent, ErrorEvent, KernelError,
+    agent_messages_to_text_lines, execute_with_retry, AgentChatKnowledgeQuery,
+    AgentChatMemoryQuery, AgentChatRequest, AgentChatResponse, AgentChatService,
+    AgentInputContract, AgentInputPolicy, AgentMessage, AgentMessageRole, AgentRuntime,
+    AgentStreamEvent, AgentStreamSink, CancellationToken, EndedEvent, ErrorEvent, KernelError,
     KernelErrorKind, KernelErrorSource, KernelEvent, KernelEventRedaction, KernelEventSeverity,
     KernelEventSource, KernelResult, KnowledgeRetrievalMethod, McpToolExecutionRequest,
     McpToolExecutionResponse, McpToolExecutionService, MessageDeltaEvent, MessageStartEvent,
-    MessageStopEvent, ModelResponse, Plan, PolicySubject, ResultEvent, RuntimeState,
+    MessageStopEvent, ModelResponse, Plan, PolicySubject, ResultEvent, RetryConfig, RuntimeState,
     SessionInitEvent, ToolCall, ToolCallStartEvent, ToolCallStopEvent, ToolExecutionRequest,
     ToolExecutionResponse, ToolExecutionService, ToolResultEvent, TraceContext, UsageEvent,
 };
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentExecutionStatus {
@@ -222,7 +224,7 @@ impl AgentObservation {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AgentExecutionRequest {
     pub execution_id: String,
     pub messages: Vec<String>,
@@ -243,6 +245,13 @@ pub struct AgentExecutionRequest {
     pub knowledge_query: Option<AgentChatKnowledgeQuery>,
     pub mcp_server_id: Option<String>,
     pub metadata: Vec<(String, String)>,
+    /// Cooperative cancellation token checked at phase boundaries.
+    pub cancellation_token: Option<CancellationToken>,
+    /// Relative execution deadline in milliseconds, enforced at phase
+    /// boundaries (before the model round and before each tool call).
+    pub deadline_ms: Option<u64>,
+    /// Retry policy for the model round; `None` disables retries.
+    pub retry: Option<RetryConfig>,
 }
 
 impl AgentExecutionRequest {
@@ -267,7 +276,25 @@ impl AgentExecutionRequest {
             knowledge_query: None,
             mcp_server_id: None,
             metadata: Vec::new(),
+            cancellation_token: None,
+            deadline_ms: None,
+            retry: None,
         }
+    }
+
+    pub fn with_cancellation(mut self, token: CancellationToken) -> Self {
+        self.cancellation_token = Some(token);
+        self
+    }
+
+    pub fn with_deadline_ms(mut self, deadline_ms: u64) -> Self {
+        self.deadline_ms = Some(deadline_ms);
+        self
+    }
+
+    pub fn with_retry(mut self, retry: RetryConfig) -> Self {
+        self.retry = Some(retry);
+        self
     }
 
     pub fn with_provider_id(mut self, provider_id: impl Into<String>) -> Self {
@@ -758,9 +785,15 @@ impl AgentExecutionService {
     ) -> KernelResult<AgentExecutionReport> {
         request.validate()?;
         self.ensure_runtime_executable(runtime)?;
+        let started_at = Instant::now();
         let plan = self.create_plan(runtime, &request)?;
-        let chat_response = match AgentChatService::new().invoke(runtime, request.to_chat_request())
-        {
+        if let Err(error) = self.phase_check(&request, started_at) {
+            let Some(status) = self.chat_error_status(&error) else {
+                return Err(error);
+            };
+            return Ok(self.failed_before_model_report(&request, plan, status, error));
+        }
+        let chat_response = match self.invoke_model_round(runtime, &request, started_at) {
             Ok(chat_response) => chat_response,
             Err(error) => {
                 let Some(status) = self.chat_error_status(&error) else {
@@ -803,6 +836,23 @@ impl AgentExecutionService {
         let mut mcp_tool_executions = Vec::new();
 
         for (index, tool_call) in model_response.tool_calls.iter().cloned().enumerate() {
+            if let Err(error) = self.phase_check(&request, started_at) {
+                let status = if error.kind() == KernelErrorKind::Cancelled {
+                    AgentExecutionStatus::Cancelled
+                } else {
+                    AgentExecutionStatus::Failed
+                };
+                return Ok(self.execution_report(
+                    &request,
+                    status,
+                    plan,
+                    Some(model_response.clone()),
+                    tool_executions,
+                    mcp_tool_executions,
+                    observations,
+                    Some(error),
+                ));
+            }
             match self.execute_tool_call(runtime, &request, tool_call.clone(), index + 1) {
                 Ok(ExecutedToolCall::Tool(tool_execution)) => {
                     observations.push(AgentObservation {
@@ -965,6 +1015,7 @@ impl AgentExecutionService {
         request.validate()?;
         self.ensure_runtime_executable(runtime)?;
 
+        let started_at = Instant::now();
         let session_id = request.session_id.clone();
         let stream_id = format!("execution.{}", request.execution_id);
 
@@ -979,8 +1030,7 @@ impl AgentExecutionService {
             )?;
         }
 
-        let chat_response = match AgentChatService::new().invoke(runtime, request.to_chat_request())
-        {
+        let chat_response = match self.invoke_model_round(runtime, &request, started_at) {
             Ok(chat_response) => chat_response,
             Err(error) => {
                 sink.push_event(
@@ -1091,6 +1141,24 @@ impl AgentExecutionService {
 
         let mut tool_failed = false;
         for (index, tool_call) in model_response.tool_calls.iter().cloned().enumerate() {
+            if let Err(error) = self.phase_check(&request, started_at) {
+                tool_failed = true;
+                sink.push_event(
+                    AgentStreamEvent::ToolResult(
+                        ToolResultEvent::new(
+                            format!("{}.tool.result.{}", request.execution_id, index + 1),
+                            format!("tool.{}", index + 1),
+                            tool_call.tool_id,
+                            error.to_string(),
+                            crate::ToolCallStatus::Cancelled,
+                        )
+                        .with_error(true)
+                        .with_stream_id(stream_id.clone()),
+                    )
+                    .with_session_id_optional(&session_id),
+                )?;
+                break;
+            }
             let result_event = match self.execute_tool_call(runtime, &request, tool_call, index + 1)
             {
                 Ok(ExecutedToolCall::Tool(tool_execution)) => {
@@ -1195,6 +1263,61 @@ impl AgentExecutionService {
             )
             .with_session_id_optional(session_id),
         )
+    }
+
+    /// Check cooperative cancellation and the relative deadline at a phase
+    /// boundary. Cancellation wins over deadline when both are present.
+    fn phase_check(
+        &self,
+        request: &AgentExecutionRequest,
+        started_at: Instant,
+    ) -> KernelResult<()> {
+        if let Some(token) = &request.cancellation_token {
+            if token.is_cancelled() {
+                return Err(KernelError::cancelled(format!(
+                    "execution {} cancelled",
+                    request.execution_id
+                ))
+                .from_source(KernelErrorSource::Runtime));
+            }
+        }
+        if let Some(deadline_ms) = request.deadline_ms {
+            if started_at.elapsed() >= std::time::Duration::from_millis(deadline_ms) {
+                return Err(KernelError::timeout(format!(
+                    "execution {} exceeded {deadline_ms}ms deadline",
+                    request.execution_id
+                ))
+                .from_source(KernelErrorSource::Runtime));
+            }
+        }
+        Ok(())
+    }
+
+    /// Invoke the model round, optionally wrapping the chat invocation in
+    /// the kernel retry engine when the request carries a retry policy.
+    fn invoke_model_round(
+        &self,
+        runtime: &AgentRuntime,
+        request: &AgentExecutionRequest,
+        started_at: Instant,
+    ) -> KernelResult<AgentChatResponse> {
+        self.phase_check(request, started_at)?;
+        let chat_request = request.to_chat_request();
+        match &request.retry {
+            Some(config) => {
+                let result = execute_with_retry::<AgentChatResponse, KernelError, _>(
+                    config.clone(),
+                    None,
+                    true,
+                    request
+                        .deadline_ms
+                        .map(|ms| started_at + Duration::from_millis(ms)),
+                    || AgentChatService::new().invoke(runtime, chat_request.clone()),
+                )?;
+                Ok(result.value)
+            }
+            None => AgentChatService::new().invoke(runtime, chat_request),
+        }
     }
 
     fn failed_before_model_report(

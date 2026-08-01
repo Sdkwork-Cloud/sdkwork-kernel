@@ -152,16 +152,59 @@ impl ToolDescriptor {
     }
 }
 
+/// Tool schema contract.
+///
+/// `schema_id` is the stable registry identity; `document` carries the JSON
+/// Schema body (Draft 2020-12 text) so tool/skill contracts are
+/// self-describing without a registry lookup. Stored as text to keep the
+/// kernel types `Eq`-compatible; use [`ToolSchema::document_json`] for the
+/// parsed value.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolSchema {
     pub schema_id: String,
+    /// JSON Schema document text (Draft 2020-12) describing the contract.
+    pub document: Option<String>,
+    /// JSON Schema dialect identifier, e.g. `https://json-schema.org/draft/2020-12/schema`.
+    pub dialect: Option<String>,
 }
 
 impl ToolSchema {
     pub fn json_schema(schema_id: impl Into<String>) -> Self {
         Self {
             schema_id: schema_id.into(),
+            document: None,
+            dialect: None,
         }
+    }
+
+    /// Attach a parsed JSON Schema document.
+    pub fn with_document(mut self, document: serde_json::Value) -> Self {
+        self.document = Some(document.to_string());
+        self
+    }
+
+    /// Attach a raw JSON Schema document text.
+    pub fn with_document_text(mut self, document: impl Into<String>) -> Self {
+        self.document = Some(document.into());
+        self
+    }
+
+    /// Attach the JSON Schema dialect identifier.
+    pub fn with_dialect(mut self, dialect: impl Into<String>) -> Self {
+        self.dialect = Some(dialect.into());
+        self
+    }
+
+    /// Parsed JSON Schema document, when present and well-formed.
+    pub fn document_json(&self) -> Option<serde_json::Value> {
+        self.document
+            .as_deref()
+            .and_then(|text| serde_json::from_str(text).ok())
+    }
+
+    /// Whether this schema carries a concrete JSON Schema document.
+    pub fn has_document(&self) -> bool {
+        self.document.is_some()
     }
 }
 

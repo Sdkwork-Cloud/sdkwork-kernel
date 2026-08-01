@@ -2,7 +2,7 @@ use sdkwork_agent_kernel::{
     AgentSkillDescriptor, AgentSkillInvocationMode, AgentSkillRequest, AgentSkillResult,
     AgentSkillStatus, ApprovedToolExecution, ContextFrame, KernelError, KernelErrorKind,
     KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelResult, McpProvider,
-    McpServerDescriptor, McpToolExecutionRequest, McpToolExecutionService,
+    McpServerDescriptor, McpToolExecutionRequest, McpToolExecutionService, McpTransportKind,
     ModelCancellationRequest, ModelExecutionRequest, ModelExecutionService, ModelProvider,
     ModelRequest, ModelResponse, ModelResponseFormat, ModelStatus, ModelStreamChunk,
     ModelStructuredOutputValidation, ModelUsage, PolicyCategory, PolicyDecision,
@@ -1700,7 +1700,7 @@ impl McpProvider for CountingMcpProvider {
         Ok(vec![McpServerDescriptor::new(
             "mcp.execution",
             "provider.mcp.execution",
-            "sdkwork.test",
+            McpTransportKind::Sse,
         )
         .with_capability("mcp.tools")])
     }

@@ -223,9 +223,10 @@ pub use manifest::{
     ProviderManifest,
 };
 pub use mcp::{
-    McpPromptDescriptor, McpPromptMessage, McpProvider, McpResourceContent, McpResourceDescriptor,
+    mcp_tool_name, parse_mcp_tool_name, McpAuthKind, McpConnectionState, McpPromptDescriptor,
+    McpPromptMessage, McpProvider, McpResourceContent, McpResourceDescriptor, McpServerConnection,
     McpServerDescriptor, McpToolExecutionRequest, McpToolExecutionResponse,
-    McpToolExecutionService,
+    McpToolExecutionService, McpTransportKind, ParsedMcpToolName,
 };
 pub use message::{
     AgentArtifact, AgentMessage, AgentMessageRole, AgentPart, AgentPartKind, ArtifactKind,

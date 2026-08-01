@@ -2,9 +2,9 @@ use sdkwork_agent_kernel::{
     Action, ActionKind, KernelError, KernelResult, KnowledgeDocument, KnowledgeDocumentFilter,
     KnowledgeDocumentKind, KnowledgeProvider, KnowledgeRetrievalMethod, KnowledgeSearchRequest,
     KnowledgeSearchResult, McpPromptDescriptor, McpPromptMessage, McpProvider, McpResourceContent,
-    McpResourceDescriptor, McpServerDescriptor, MemoryProvider, MemoryRecord, MemoryScope,
-    ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, Plan,
-    PlanningProvider, PolicyCategory, PolicyDecision, PolicyProvider, PolicyRequest,
+    McpResourceDescriptor, McpServerDescriptor, McpTransportKind, MemoryProvider, MemoryRecord,
+    MemoryScope, ModelDescriptor, ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat,
+    Plan, PlanningProvider, PolicyCategory, PolicyDecision, PolicyProvider, PolicyRequest,
     ProviderHealth, ProviderManifest, RedactionClassification, SideEffectLevel, ToolCall,
     ToolDescriptor, ToolResult, TrustLevel,
 };
@@ -225,7 +225,7 @@ impl McpProvider for RigMcpProvider {
         Ok(vec![McpServerDescriptor::new(
             ids::DEFAULT_MCP_SERVER_ID,
             ids::MCP_PROVIDER_ID,
-            "sdkwork.rig.adapter",
+            McpTransportKind::Sse,
         )
         .with_capability("mcp.resources")
         .with_capability("mcp.prompts")])

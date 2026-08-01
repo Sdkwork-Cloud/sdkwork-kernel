@@ -4,11 +4,11 @@ use sdkwork_agent_kernel::{
     KernelErrorKind, KernelEventRedaction, KernelEventSeverity, KernelEventSource, KernelResult,
     KnowledgeDocument, KnowledgeDocumentFilter, KnowledgeDocumentKind, KnowledgeProvider,
     KnowledgeRetrievalMethod, KnowledgeSearchRequest, KnowledgeSearchResult, McpProvider,
-    McpServerDescriptor, MemoryProvider, MemoryRecord, MemoryScope, ModelProvider, ModelRequest,
-    ModelResponse, ModelStatus, Plan, PlanningProvider, PolicyCategory, PolicyDecision,
-    PolicyProvider, PolicyRequest, PolicySubject, ProviderHealth, ProviderManifest,
-    RedactionClassification, RuntimeBuilder, SideEffectLevel, ToolCall, ToolCallStatus,
-    ToolDescriptor, ToolProvider, ToolResult, TraceContext, TrustLevel,
+    McpServerDescriptor, McpTransportKind, MemoryProvider, MemoryRecord, MemoryScope,
+    ModelProvider, ModelRequest, ModelResponse, ModelStatus, Plan, PlanningProvider,
+    PolicyCategory, PolicyDecision, PolicyProvider, PolicyRequest, PolicySubject, ProviderHealth,
+    ProviderManifest, RedactionClassification, RuntimeBuilder, SideEffectLevel, ToolCall,
+    ToolCallStatus, ToolDescriptor, ToolProvider, ToolResult, TraceContext, TrustLevel,
 };
 use std::sync::{Arc, Mutex};
 
@@ -1931,7 +1931,7 @@ impl McpProvider for RecordingMcpProvider {
         Ok(vec![McpServerDescriptor::new(
             "mcp.execution",
             "provider.mcp.execution",
-            "sdkwork.test",
+            McpTransportKind::Sse,
         )
         .with_capability("mcp.tools")])
     }
@@ -1982,7 +1982,7 @@ impl McpProvider for CapturingMcpProvider {
         Ok(vec![McpServerDescriptor::new(
             "mcp.execution",
             "provider.mcp.execution",
-            "sdkwork.test",
+            McpTransportKind::Sse,
         )
         .with_capability("mcp.tools")])
     }
@@ -2034,7 +2034,7 @@ impl McpProvider for CountingMcpProvider {
         Ok(vec![McpServerDescriptor::new(
             "mcp.execution",
             "provider.mcp.execution",
-            "sdkwork.test",
+            McpTransportKind::Sse,
         )
         .with_capability("mcp.tools")])
     }

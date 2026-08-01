@@ -2,8 +2,8 @@ use sdkwork_agent_kernel::{
     AgentManifest, AgentSkillDescriptor, AgentSkillInvocationMode, AgentSkillProvider,
     AgentSkillRequest, AgentSkillResult, AgentSkillStatus, KernelResult, McpPromptDescriptor,
     McpPromptMessage, McpProvider, McpResourceContent, McpResourceDescriptor, McpServerDescriptor,
-    ModelProvider, ModelRequest, ModelResponse, ProviderHealth, ProviderManifest, RuntimeBuilder,
-    SideEffectLevel, ToolCall, ToolDescriptor, ToolResult,
+    McpTransportKind, ModelProvider, ModelRequest, ModelResponse, ProviderHealth, ProviderManifest,
+    RuntimeBuilder, SideEffectLevel, ToolCall, ToolDescriptor, ToolResult,
 };
 
 const EXTENSIBLE_AGENT_MANIFEST_JSON: &str = r#"
@@ -368,7 +368,7 @@ impl McpProvider for FakeMcpProvider {
         Ok(vec![McpServerDescriptor::new(
             self.server_id,
             self.provider_id,
-            "stdio",
+            McpTransportKind::Stdio,
         )
         .with_capability("tools")
         .with_capability("resources")

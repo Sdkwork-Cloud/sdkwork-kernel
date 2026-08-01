@@ -4,25 +4,171 @@ use crate::{
     ToolResult, TrustLevel,
 };
 
+/// MCP transport kinds, aligned with the MCP ecosystem (stdio, SSE, HTTP,
+/// streamable HTTP, WebSocket) and the sdkwork-mcp connector record format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McpTransportKind {
+    Stdio,
+    Sse,
+    Http,
+    StreamableHttp,
+    WebSocket,
+}
+
+impl McpTransportKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Stdio => "stdio",
+            Self::Sse => "sse",
+            Self::Http => "http",
+            Self::StreamableHttp => "streamable-http",
+            Self::WebSocket => "ws",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "stdio" => Some(Self::Stdio),
+            "sse" => Some(Self::Sse),
+            "http" => Some(Self::Http),
+            "streamable-http" => Some(Self::StreamableHttp),
+            "ws" | "websocket" => Some(Self::WebSocket),
+            _ => None,
+        }
+    }
+}
+
+/// MCP server authentication kinds, aligned with the connector records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McpAuthKind {
+    None,
+    Bearer,
+    ApiKey,
+    OAuth,
+}
+
+impl McpAuthKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Bearer => "bearer",
+            Self::ApiKey => "api_key",
+            Self::OAuth => "oauth",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "none" => Some(Self::None),
+            "bearer" => Some(Self::Bearer),
+            "api_key" | "apikey" => Some(Self::ApiKey),
+            "oauth" => Some(Self::OAuth),
+            _ => None,
+        }
+    }
+}
+
+/// MCP server connection lifecycle state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum McpConnectionState {
+    Connecting,
+    Connected,
+    Disconnected,
+    Failed,
+}
+
+impl McpConnectionState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Connecting => "connecting",
+            Self::Connected => "connected",
+            Self::Disconnected => "disconnected",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+/// Observable MCP server connection snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpServerConnection {
+    pub state: McpConnectionState,
+    pub endpoint: Option<String>,
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub headers: Vec<(String, String)>,
+    pub started_at: Option<String>,
+    pub last_error: Option<String>,
+}
+
+impl McpServerConnection {
+    pub fn new(state: McpConnectionState) -> Self {
+        Self {
+            state,
+            endpoint: None,
+            command: None,
+            args: Vec::new(),
+            headers: Vec::new(),
+            started_at: None,
+            last_error: None,
+        }
+    }
+
+    pub fn with_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.endpoint = Some(endpoint.into());
+        self
+    }
+
+    pub fn with_command(mut self, command: impl Into<String>, args: Vec<String>) -> Self {
+        self.command = Some(command.into());
+        self.args = args;
+        self
+    }
+
+    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.push((key.into(), value.into()));
+        self
+    }
+
+    pub fn with_error(mut self, error: impl Into<String>) -> Self {
+        self.last_error = Some(error.into());
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpServerDescriptor {
     pub server_id: String,
     pub provider_id: String,
-    pub transport: String,
+    pub transport: McpTransportKind,
     pub capabilities: Vec<String>,
+    /// Authentication kind when the server requires credentials.
+    pub auth: Option<McpAuthKind>,
+    /// Connection lifecycle snapshot when the runtime manages the server.
+    pub connection: Option<McpServerConnection>,
+    pub startup_timeout_ms: Option<u64>,
+    pub tool_timeout_ms: Option<u64>,
+    /// Per-server tool allow/deny lists (empty = no restriction).
+    pub enabled_tools: Vec<String>,
+    pub disabled_tools: Vec<String>,
 }
 
 impl McpServerDescriptor {
     pub fn new(
         server_id: impl Into<String>,
         provider_id: impl Into<String>,
-        transport: impl Into<String>,
+        transport: McpTransportKind,
     ) -> Self {
         Self {
             server_id: server_id.into(),
             provider_id: provider_id.into(),
-            transport: transport.into(),
+            transport,
             capabilities: Vec::new(),
+            auth: None,
+            connection: None,
+            startup_timeout_ms: None,
+            tool_timeout_ms: None,
+            enabled_tools: Vec::new(),
+            disabled_tools: Vec::new(),
         }
     }
 
@@ -30,6 +176,74 @@ impl McpServerDescriptor {
         self.capabilities.push(capability.into());
         self
     }
+
+    pub fn with_auth(mut self, auth: McpAuthKind) -> Self {
+        self.auth = Some(auth);
+        self
+    }
+
+    pub fn with_connection(mut self, connection: McpServerConnection) -> Self {
+        self.connection = Some(connection);
+        self
+    }
+
+    pub fn with_startup_timeout_ms(mut self, startup_timeout_ms: u64) -> Self {
+        self.startup_timeout_ms = Some(startup_timeout_ms);
+        self
+    }
+
+    pub fn with_tool_timeout_ms(mut self, tool_timeout_ms: u64) -> Self {
+        self.tool_timeout_ms = Some(tool_timeout_ms);
+        self
+    }
+
+    pub fn with_enabled_tool(mut self, tool: impl Into<String>) -> Self {
+        self.enabled_tools.push(tool.into());
+        self
+    }
+
+    pub fn with_disabled_tool(mut self, tool: impl Into<String>) -> Self {
+        self.disabled_tools.push(tool.into());
+        self
+    }
+
+    /// Whether a tool is permitted by this server's allow/deny lists.
+    pub fn permits_tool(&self, tool_name: &str) -> bool {
+        if self.disabled_tools.iter().any(|tool| tool == tool_name) {
+            return false;
+        }
+        if self.enabled_tools.is_empty() {
+            true
+        } else {
+            self.enabled_tools.iter().any(|tool| tool == tool_name)
+        }
+    }
+}
+
+/// Namespaced MCP tool name: `mcp__<server>__<tool>` (the agent SDK
+/// convention).
+pub fn mcp_tool_name(server_id: &str, tool_name: &str) -> String {
+    format!("mcp__{server_id}__{tool_name}")
+}
+
+/// Parsed components of a namespaced MCP tool name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedMcpToolName {
+    pub server_id: String,
+    pub tool_name: String,
+}
+
+/// Split a namespaced MCP tool name into server and tool components.
+pub fn parse_mcp_tool_name(name: &str) -> Option<ParsedMcpToolName> {
+    let rest = name.strip_prefix("mcp__")?;
+    let (server_id, tool_name) = rest.split_once("__")?;
+    if server_id.is_empty() || tool_name.is_empty() {
+        return None;
+    }
+    Some(ParsedMcpToolName {
+        server_id: server_id.to_string(),
+        tool_name: tool_name.to_string(),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

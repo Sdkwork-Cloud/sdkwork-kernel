@@ -7,7 +7,10 @@
 //! loads nothing, `all()` loads the full hierarchy), aligning with the
 //! agent SDK `settingSources` semantics.
 
-use crate::{AgentSettingSources, AgentSettingsScope, KernelError, KernelResult};
+use crate::{
+    AgentConfigValue, AgentConfiguration, AgentSettingSources, AgentSettingsScope, KernelError,
+    KernelResult,
+};
 
 /// A single settings entry with its origin scope and optional source
 /// identifier (file path or URL).
@@ -143,6 +146,28 @@ impl AgentSettingsDocument {
             .find(|entry| entry.key == key)
     }
 
+    /// Project a configuration snapshot into this document under `scope`.
+    ///
+    /// Bridges the configuration store and the settings hierarchy: every
+    /// `AgentConfigEntry` becomes an `AgentSettingEntry` in the given
+    /// scope layer (later loads replace same-key entries within the
+    /// scope). `SecretRef` entries are **not** projected — secret values
+    /// never flow through the settings value surface; they resolve only
+    /// through the kernel secret providers.
+    pub fn load_configuration(
+        &mut self,
+        configuration: &AgentConfiguration,
+        scope: AgentSettingsScope,
+    ) -> &mut Self {
+        for entry in &configuration.entries {
+            let Some(value) = project_config_value(&entry.value) else {
+                continue;
+            };
+            self.set(scope, entry.key.clone(), value);
+        }
+        self
+    }
+
     fn layer_mut(&mut self, scope: AgentSettingsScope) -> &mut Vec<AgentSettingEntry> {
         let index = self
             .layers
@@ -176,6 +201,21 @@ impl AgentSettingsService {
             ));
         }
         Ok(())
+    }
+}
+
+/// Project an `AgentConfigValue` to its settings string representation.
+/// `SecretRef` values return `None`: secret references never enter the
+/// settings value surface (kernel secrets resolve only via secret
+/// providers). `StringList` projects to a JSON array string.
+fn project_config_value(value: &AgentConfigValue) -> Option<String> {
+    match value {
+        AgentConfigValue::String(value) => Some(value.clone()),
+        AgentConfigValue::Boolean(value) => Some(value.to_string()),
+        AgentConfigValue::Integer(value) => Some(value.to_string()),
+        AgentConfigValue::StringList(values) => serde_json::to_string(values).ok(),
+        AgentConfigValue::Json(value) => Some(value.clone()),
+        AgentConfigValue::SecretRef(_) => None,
     }
 }
 
@@ -272,5 +312,92 @@ mod tests {
         assert!(AgentSettingsService::validate_key("model").is_ok());
         assert!(AgentSettingsService::validate_key(" ").is_err());
         assert!(AgentSettingsService::validate_key("bad\nkey").is_err());
+    }
+
+    #[test]
+    fn load_configuration_projects_typed_values_into_scope() {
+        let mut configuration = AgentConfiguration::new("agent-1", "profile-1");
+        configuration = configuration
+            .set("model", AgentConfigValue::string("opus"))
+            .set("max_tokens", AgentConfigValue::integer(4096))
+            .set("streaming", AgentConfigValue::boolean(true))
+            .set(
+                "extensions",
+                AgentConfigValue::string_list(vec!["a".into(), "b".into()]),
+            );
+
+        let mut document = AgentSettingsDocument::new();
+        document.load_configuration(&configuration, AgentSettingsScope::User);
+
+        let sources = AgentSettingSources::all();
+        assert_eq!(document.get("model", &sources).unwrap().value, "opus");
+        assert_eq!(document.get("max_tokens", &sources).unwrap().value, "4096");
+        assert_eq!(document.get("streaming", &sources).unwrap().value, "true");
+        assert_eq!(
+            document.get("extensions", &sources).unwrap().value,
+            r#"["a","b"]"#
+        );
+    }
+
+    #[test]
+    fn load_configuration_skips_secret_refs() {
+        let mut configuration = AgentConfiguration::new("agent-1", "profile-1");
+        configuration = configuration
+            .set("api_key", AgentConfigValue::secret_ref("secret://llm/acme"))
+            .set("model", AgentConfigValue::string("opus"));
+
+        let mut document = AgentSettingsDocument::new();
+        document.load_configuration(&configuration, AgentSettingsScope::User);
+
+        let sources = AgentSettingSources::all();
+        assert!(
+            document.get("api_key", &sources).is_none(),
+            "secret refs must not flow into the settings value surface"
+        );
+        assert_eq!(document.get("model", &sources).unwrap().value, "opus");
+    }
+
+    #[test]
+    fn load_configuration_reload_replaces_within_scope() {
+        let mut first = AgentConfiguration::new("agent-1", "profile-1");
+        first = first.set("model", AgentConfigValue::string("sonnet"));
+        let mut second = AgentConfiguration::new("agent-1", "profile-1");
+        second = second.set("model", AgentConfigValue::string("opus"));
+
+        let mut document = AgentSettingsDocument::new();
+        document
+            .load_configuration(&first, AgentSettingsScope::User)
+            .load_configuration(&second, AgentSettingsScope::User);
+
+        assert_eq!(
+            document
+                .get("model", &AgentSettingSources::all())
+                .unwrap()
+                .value,
+            "opus",
+            "later configuration load replaces the earlier value in scope"
+        );
+    }
+
+    #[test]
+    fn configuration_projection_plays_with_layer_precedence() {
+        let mut project_config = AgentConfiguration::new("agent-1", "project-profile");
+        project_config = project_config.set("model", AgentConfigValue::string("haiku"));
+        let mut user_config = AgentConfiguration::new("agent-1", "user-profile");
+        user_config = user_config.set("model", AgentConfigValue::string("sonnet"));
+
+        let mut document = AgentSettingsDocument::new();
+        document
+            .load_configuration(&project_config, AgentSettingsScope::Project)
+            .load_configuration(&user_config, AgentSettingsScope::User);
+
+        assert_eq!(
+            document
+                .get("model", &AgentSettingSources::all())
+                .unwrap()
+                .value,
+            "sonnet",
+            "higher-precedence user layer wins over project layer"
+        );
     }
 }

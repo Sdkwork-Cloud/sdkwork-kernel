@@ -24,8 +24,10 @@ const MAX_WORKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(3600);
 
 const NODE_BINARY_ENV: &str = "SDKWORK_AGENT_NODE_BINARY";
 const WORKER_SCRIPT_ENV: &str = "SDKWORK_AGENT_TYPESCRIPT_WORKER_SCRIPT";
-const PROVIDER_RUNTIME_ROOT_ENV: &str = "SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT";
-const PROVIDER_RUNTIME_DIR_NAME: &str = "provider-runtime";
+const PROVIDER_HOST_ROOT_ENV: &str = "SDKWORK_AGENT_PROVIDER_HOST_ROOT";
+const LEGACY_PROVIDER_RUNTIME_ROOT_ENV: &str = "SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT";
+const PROVIDER_HOST_DIR_NAME: &str = "provider-host";
+const LEGACY_PROVIDER_RUNTIME_DIR_NAME: &str = "provider-runtime";
 const TYPESCRIPT_WORKER_RELATIVE_PATH: &str = "workers/generic-ts-sdk-worker.mjs";
 
 #[derive(Debug, Clone)]
@@ -47,9 +49,9 @@ impl NodeWorkerLaunchOptions {
 
 /// Resolves the Node executable used by the provider worker.
 ///
-/// Release packages set `SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT` (or place a
-/// `provider-runtime` directory beside the executable). Development builds
-/// continue to use the host `node` command when no packaged runtime exists.
+/// Release packages set `SDKWORK_AGENT_PROVIDER_HOST_ROOT` (or place a
+/// `provider-host` directory beside the executable). Development builds
+/// continue to use the system `node` command when no packaged host exists.
 pub fn default_node_binary() -> String {
     if let Some(configured) = std::env::var_os(NODE_BINARY_ENV)
         .filter(|value| !value.is_empty())
@@ -58,7 +60,7 @@ pub fn default_node_binary() -> String {
         return configured.to_string_lossy().into_owned();
     }
 
-    if let Some(root) = provider_runtime_root() {
+    if let Some(root) = provider_host_root() {
         if let Some(binary) = bundled_node_binary(&root) {
             return binary.to_string_lossy().into_owned();
         }
@@ -75,7 +77,7 @@ pub fn default_typescript_worker_script() -> PathBuf {
         return configured;
     }
 
-    if let Some(root) = provider_runtime_root() {
+    if let Some(root) = provider_host_root() {
         return root.join(TYPESCRIPT_WORKER_RELATIVE_PATH);
     }
 
@@ -90,37 +92,48 @@ pub fn default_typescript_worker_script() -> PathBuf {
 
     #[cfg(not(debug_assertions))]
     {
-        PathBuf::from(PROVIDER_RUNTIME_DIR_NAME).join(TYPESCRIPT_WORKER_RELATIVE_PATH)
+        PathBuf::from(PROVIDER_HOST_DIR_NAME).join(TYPESCRIPT_WORKER_RELATIVE_PATH)
     }
 }
 
-fn provider_runtime_root() -> Option<PathBuf> {
-    if let Some(configured) = std::env::var_os(PROVIDER_RUNTIME_ROOT_ENV)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-    {
-        return Some(configured);
+fn provider_host_root() -> Option<PathBuf> {
+    for environment_key in [PROVIDER_HOST_ROOT_ENV, LEGACY_PROVIDER_RUNTIME_ROOT_ENV] {
+        if let Some(configured) = std::env::var_os(environment_key)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+        {
+            return Some(configured);
+        }
     }
 
     let executable = std::env::current_exe().ok()?;
-    let mut ancestors = executable.parent();
-    while let Some(directory) = ancestors {
-        let candidates = [
-            directory.join(PROVIDER_RUNTIME_DIR_NAME),
-            directory.join("resources").join(PROVIDER_RUNTIME_DIR_NAME),
-            directory.join("Resources").join(PROVIDER_RUNTIME_DIR_NAME),
-            directory
-                .join("share")
-                .join("sdkwork-birdcoder")
-                .join(PROVIDER_RUNTIME_DIR_NAME),
-        ];
-        if let Some(candidate) = candidates
-            .into_iter()
-            .find(|path| path.join(TYPESCRIPT_WORKER_RELATIVE_PATH).is_file())
-        {
-            return Some(candidate);
+    find_packaged_provider_host_root(executable.parent()?, TYPESCRIPT_WORKER_RELATIVE_PATH)
+}
+
+fn find_packaged_provider_host_root(
+    start_directory: &Path,
+    worker_relative_path: &str,
+) -> Option<PathBuf> {
+    for directory_name in [PROVIDER_HOST_DIR_NAME, LEGACY_PROVIDER_RUNTIME_DIR_NAME] {
+        let mut ancestors = Some(start_directory);
+        while let Some(directory) = ancestors {
+            let candidates = [
+                directory.join(directory_name),
+                directory.join("resources").join(directory_name),
+                directory.join("Resources").join(directory_name),
+                directory
+                    .join("share")
+                    .join("sdkwork-birdcoder")
+                    .join(directory_name),
+            ];
+            if let Some(candidate) = candidates
+                .into_iter()
+                .find(|path| path.join(worker_relative_path).is_file())
+            {
+                return Some(candidate);
+            }
+            ancestors = directory.parent();
         }
-        ancestors = directory.parent();
     }
 
     None
@@ -542,12 +555,12 @@ fn spawn_worker(options: &NodeWorkerLaunchOptions) -> Result<SpawnedWorker, Tran
         .arg(&options.worker_script)
         .arg("--package")
         .arg(&options.package_name);
-    prepend_provider_runtime_bin_to_path(&mut command);
+    prepend_provider_host_bin_to_path(&mut command);
     SpawnedWorker::spawn(command)
 }
 
-fn prepend_provider_runtime_bin_to_path(command: &mut Command) {
-    let Some(root) = provider_runtime_root() else {
+fn prepend_provider_host_bin_to_path(command: &mut Command) {
+    let Some(root) = provider_host_root() else {
         return;
     };
     if let Some(path) = provider_worker_path(&root, std::env::var_os("PATH")) {
@@ -616,7 +629,8 @@ mod tests {
     const OPENCLAW_GATEWAY_URL_ENV: &str = "OPENCLAW_GATEWAY_URL";
     const NODE_BINARY_ENV: &str = "SDKWORK_AGENT_NODE_BINARY";
     const WORKER_SCRIPT_ENV: &str = "SDKWORK_AGENT_TYPESCRIPT_WORKER_SCRIPT";
-    const PROVIDER_RUNTIME_ROOT_ENV: &str = "SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT";
+    const PROVIDER_HOST_ROOT_ENV: &str = "SDKWORK_AGENT_PROVIDER_HOST_ROOT";
+    const LEGACY_PROVIDER_RUNTIME_ROOT_ENV: &str = "SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT";
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -653,7 +667,8 @@ mod tests {
     #[test]
     fn default_worker_script_points_to_repository_script() {
         let _lock = env_lock();
-        let _root = EnvVarGuard::set(PROVIDER_RUNTIME_ROOT_ENV, None);
+        let _host_root = EnvVarGuard::set(PROVIDER_HOST_ROOT_ENV, None);
+        let _legacy_root = EnvVarGuard::set(LEGACY_PROVIDER_RUNTIME_ROOT_ENV, None);
         let _script = EnvVarGuard::set(WORKER_SCRIPT_ENV, None);
         let script = default_typescript_worker_script();
         assert!(
@@ -664,12 +679,10 @@ mod tests {
     }
 
     #[test]
-    fn packaged_runtime_root_resolves_worker_and_node_without_repository_paths() {
+    fn packaged_host_root_resolves_worker_and_node_without_repository_paths() {
         let _lock = env_lock();
-        let root = std::env::temp_dir().join(format!(
-            "sdkwork-provider-runtime-test-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("sdkwork-provider-host-test-{}", std::process::id()));
         let worker = root.join(TYPESCRIPT_WORKER_RELATIVE_PATH);
         let node = if cfg!(windows) {
             root.join("node").join("node.exe")
@@ -681,10 +694,11 @@ mod tests {
         std::fs::write(&worker, "#!/usr/bin/env node\n").expect("worker file");
         std::fs::write(&node, "provider node\n").expect("node file");
 
-        let _runtime_root = EnvVarGuard::set(
-            PROVIDER_RUNTIME_ROOT_ENV,
+        let _host_root = EnvVarGuard::set(
+            PROVIDER_HOST_ROOT_ENV,
             Some(root.to_string_lossy().as_ref()),
         );
+        let _legacy_root = EnvVarGuard::set(LEGACY_PROVIDER_RUNTIME_ROOT_ENV, None);
         let _script = EnvVarGuard::set(WORKER_SCRIPT_ENV, None);
         let _node = EnvVarGuard::set(NODE_BINARY_ENV, None);
 
@@ -695,10 +709,93 @@ mod tests {
     }
 
     #[test]
-    fn explicit_worker_and_node_paths_take_precedence_over_packaged_root() {
+    fn canonical_host_root_precedes_the_legacy_runtime_root() {
+        let _lock = env_lock();
+        let base = std::env::temp_dir().join(format!(
+            "sdkwork-provider-host-precedence-test-{}",
+            std::process::id()
+        ));
+        let host_root = base.join("provider-host");
+        let legacy_root = base.join("provider-runtime");
+        let host_worker = host_root.join(TYPESCRIPT_WORKER_RELATIVE_PATH);
+        let legacy_worker = legacy_root.join(TYPESCRIPT_WORKER_RELATIVE_PATH);
+        std::fs::create_dir_all(host_worker.parent().expect("host worker parent"))
+            .expect("host worker dir");
+        std::fs::create_dir_all(legacy_worker.parent().expect("legacy worker parent"))
+            .expect("legacy worker dir");
+        std::fs::write(&host_worker, "host worker\n").expect("host worker file");
+        std::fs::write(&legacy_worker, "legacy worker\n").expect("legacy worker file");
+
+        let _host_root = EnvVarGuard::set(
+            PROVIDER_HOST_ROOT_ENV,
+            Some(host_root.to_string_lossy().as_ref()),
+        );
+        let _legacy_root = EnvVarGuard::set(
+            LEGACY_PROVIDER_RUNTIME_ROOT_ENV,
+            Some(legacy_root.to_string_lossy().as_ref()),
+        );
+        let _script = EnvVarGuard::set(WORKER_SCRIPT_ENV, None);
+
+        assert_eq!(default_typescript_worker_script(), host_worker);
+
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn legacy_runtime_root_remains_a_compatibility_input() {
         let _lock = env_lock();
         let root = std::env::temp_dir().join(format!(
-            "sdkwork-provider-runtime-explicit-test-{}",
+            "sdkwork-provider-runtime-compatibility-test-{}",
+            std::process::id()
+        ));
+        let worker = root.join(TYPESCRIPT_WORKER_RELATIVE_PATH);
+        std::fs::create_dir_all(worker.parent().expect("worker parent")).expect("worker dir");
+        std::fs::write(&worker, "legacy worker\n").expect("worker file");
+
+        let _host_root = EnvVarGuard::set(PROVIDER_HOST_ROOT_ENV, None);
+        let _legacy_root = EnvVarGuard::set(
+            LEGACY_PROVIDER_RUNTIME_ROOT_ENV,
+            Some(root.to_string_lossy().as_ref()),
+        );
+        let _script = EnvVarGuard::set(WORKER_SCRIPT_ENV, None);
+
+        assert_eq!(default_typescript_worker_script(), worker);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn packaged_host_directory_precedes_a_nearer_legacy_runtime_directory() {
+        let base = std::env::temp_dir().join(format!(
+            "sdkwork-provider-host-directory-precedence-test-{}",
+            std::process::id()
+        ));
+        let start_directory = base.join("application").join("bin");
+        let host_root = base.join(PROVIDER_HOST_DIR_NAME);
+        let legacy_root = start_directory.join(LEGACY_PROVIDER_RUNTIME_DIR_NAME);
+        let host_worker = host_root.join(TYPESCRIPT_WORKER_RELATIVE_PATH);
+        let legacy_worker = legacy_root.join(TYPESCRIPT_WORKER_RELATIVE_PATH);
+        std::fs::create_dir_all(&start_directory).expect("start directory");
+        std::fs::create_dir_all(host_worker.parent().expect("host worker parent"))
+            .expect("host worker directory");
+        std::fs::create_dir_all(legacy_worker.parent().expect("legacy worker parent"))
+            .expect("legacy worker directory");
+        std::fs::write(&host_worker, "host worker\n").expect("host worker file");
+        std::fs::write(&legacy_worker, "legacy worker\n").expect("legacy worker file");
+
+        assert_eq!(
+            find_packaged_provider_host_root(&start_directory, TYPESCRIPT_WORKER_RELATIVE_PATH,),
+            Some(host_root)
+        );
+
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn explicit_worker_and_node_paths_take_precedence_over_packaged_host() {
+        let _lock = env_lock();
+        let root = std::env::temp_dir().join(format!(
+            "sdkwork-provider-host-explicit-test-{}",
             std::process::id()
         ));
         let explicit_worker = root.join("explicit-worker.mjs");
@@ -711,7 +808,8 @@ mod tests {
         std::fs::write(&explicit_worker, "worker\n").expect("worker file");
         std::fs::write(&explicit_node, "node\n").expect("node file");
 
-        let _runtime_root = EnvVarGuard::set(PROVIDER_RUNTIME_ROOT_ENV, None);
+        let _host_root = EnvVarGuard::set(PROVIDER_HOST_ROOT_ENV, None);
+        let _legacy_root = EnvVarGuard::set(LEGACY_PROVIDER_RUNTIME_ROOT_ENV, None);
         let _script = EnvVarGuard::set(
             WORKER_SCRIPT_ENV,
             Some(explicit_worker.to_string_lossy().as_ref()),
@@ -728,8 +826,8 @@ mod tests {
     }
 
     #[test]
-    fn provider_runtime_bin_precedes_the_inherited_worker_path() {
-        let root = PathBuf::from("provider-runtime-test");
+    fn provider_host_bin_precedes_the_inherited_worker_path() {
+        let root = PathBuf::from("provider-host-test");
         let inherited = std::env::join_paths([
             PathBuf::from("existing-bin-one"),
             PathBuf::from("existing-bin-two"),

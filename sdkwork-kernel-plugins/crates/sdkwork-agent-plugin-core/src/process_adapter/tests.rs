@@ -29,6 +29,12 @@ impl EnvironmentVariableGuard {
         std::env::set_var(key, value);
         Self { key, previous }
     }
+
+    fn remove(key: &'static str) -> Self {
+        let previous = std::env::var_os(key);
+        std::env::remove_var(key);
+        Self { key, previous }
+    }
 }
 
 impl Drop for EnvironmentVariableGuard {
@@ -58,15 +64,15 @@ impl LockHelper {
         ));
         fs::create_dir_all(&ready_directory).expect("create lifecycle lock contract directory");
         let ready_path = ready_directory.join("ready");
-        let runtime_root = ready_directory.join("provider-runtime");
-        let installer = lifecycle_lock_test_installer(&runtime_root);
+        let host_root = ready_directory.join("provider-host");
+        let installer = lifecycle_lock_test_installer(&host_root);
         let key = installer
             .operation_lock_key()
             .expect("resolve lifecycle lock key");
         let lock_path = operation_lock_file_path(&key).expect("resolve lifecycle lock path");
         let child = Command::new(std::env::current_exe().expect("resolve test executable"))
             .args(["--exact", LOCK_HELPER_TEST_NAME, "--nocapture"])
-            .env(LOCK_HELPER_ROOT_ENV, &runtime_root)
+            .env(LOCK_HELPER_ROOT_ENV, &host_root)
             .env(LOCK_HELPER_MODE_ENV, mode)
             .env(LOCK_HELPER_READY_ENV, &ready_path)
             .stdin(Stdio::null())
@@ -114,14 +120,14 @@ impl Drop for LockHelper {
     }
 }
 
-fn lifecycle_lock_test_installer(runtime_root: &Path) -> ProcessAdapterInstaller {
+fn lifecycle_lock_test_installer(host_root: &Path) -> ProcessAdapterInstaller {
     ProcessAdapterInstaller::new(
         "agent.intelligence.lifecycle-lock-contract",
         "provider.agent.installer.lifecycle-lock-contract",
         "1.0.0",
         ProcessAdapterPackage::npm("@sdkwork/lifecycle-lock-contract", "1.0.0"),
     )
-    .with_install_root(runtime_root.to_path_buf())
+    .with_install_root(host_root.to_path_buf())
 }
 
 #[test]
@@ -135,13 +141,13 @@ fn missing_install_roots_use_the_canonical_existing_ancestor() {
         std::process::id()
     ));
     fs::create_dir_all(&base).expect("create install root resolution base");
-    let root = base.join("missing").join("provider-runtime");
+    let root = base.join("missing").join("provider-host");
 
     let resolved = resolve_install_root(&root).expect("resolve missing install root");
     let expected = dunce::canonicalize(&base)
         .expect("canonicalize install root base")
         .join("missing")
-        .join("provider-runtime");
+        .join("provider-host");
 
     assert_eq!(resolved, expected);
     fs::remove_dir_all(&base).expect("remove install root resolution base");
@@ -198,7 +204,12 @@ fn explicitly_empty_runtime_environment_values_fail_closed() {
     );
     drop(python_guard);
 
-    let root_guard = EnvironmentVariableGuard::set(PROVIDER_RUNTIME_ROOT_ENV, "");
+    let legacy_root = std::env::temp_dir().join("sdkwork-legacy-provider-runtime");
+    let legacy_guard = EnvironmentVariableGuard::set(
+        LEGACY_PROVIDER_RUNTIME_ROOT_ENV,
+        legacy_root.to_string_lossy().as_ref(),
+    );
+    let root_guard = EnvironmentVariableGuard::set(PROVIDER_HOST_ROOT_ENV, "");
     let npm_installer = ProcessAdapterInstaller::new(
         "agent.intelligence.environment-npm-contract",
         "provider.agent.installer.environment-npm-contract",
@@ -207,12 +218,118 @@ fn explicitly_empty_runtime_environment_values_fail_closed() {
     );
     let npm_error = npm_installer
         .detect_installation("agent.intelligence.environment-npm-contract")
-        .expect_err("empty npm runtime root configuration must fail closed");
+        .expect_err("empty canonical provider host root must fail closed");
     assert_eq!(
         npm_error.kind(),
         sdkwork_agent_kernel::KernelErrorKind::ValidationError
     );
     drop(root_guard);
+    drop(legacy_guard);
+
+    let canonical_guard = EnvironmentVariableGuard::remove(PROVIDER_HOST_ROOT_ENV);
+    let legacy_guard = EnvironmentVariableGuard::set(LEGACY_PROVIDER_RUNTIME_ROOT_ENV, "");
+    let legacy_error = npm_installer
+        .detect_installation("agent.intelligence.environment-npm-contract")
+        .expect_err("empty legacy provider runtime root must fail closed");
+    assert_eq!(
+        legacy_error.kind(),
+        sdkwork_agent_kernel::KernelErrorKind::ValidationError
+    );
+    drop(legacy_guard);
+    drop(canonical_guard);
+}
+
+#[test]
+fn canonical_provider_host_environment_root_precedes_the_legacy_root() {
+    let _environment_lock = ENVIRONMENT_TEST_LOCK
+        .lock()
+        .expect("lock provider environment contract");
+    let base = std::env::temp_dir().join(format!(
+        "sdkwork-provider-host-environment-precedence-{}",
+        std::process::id()
+    ));
+    let host_root = base.join("provider-host");
+    let legacy_root = base.join("provider-runtime");
+    fs::create_dir_all(&host_root).expect("create canonical provider host root");
+    fs::create_dir_all(&legacy_root).expect("create legacy provider runtime root");
+    let host_guard =
+        EnvironmentVariableGuard::set(PROVIDER_HOST_ROOT_ENV, host_root.to_string_lossy().as_ref());
+    let legacy_guard = EnvironmentVariableGuard::set(
+        LEGACY_PROVIDER_RUNTIME_ROOT_ENV,
+        legacy_root.to_string_lossy().as_ref(),
+    );
+
+    let installer = ProcessAdapterInstaller::new(
+        "agent.intelligence.provider-host-precedence-contract",
+        "provider.agent.installer.provider-host-precedence-contract",
+        "1.0.0",
+        ProcessAdapterPackage::npm("@sdkwork/provider-host-precedence-contract", "1.0.0"),
+    );
+    assert_eq!(
+        installer
+            .npm_install_root()
+            .expect("resolve provider host root"),
+        dunce::canonicalize(&host_root).expect("canonicalize provider host root")
+    );
+
+    drop(legacy_guard);
+    drop(host_guard);
+    fs::remove_dir_all(base).expect("remove provider host environment fixture");
+}
+
+#[test]
+fn legacy_provider_runtime_environment_root_remains_a_compatibility_input() {
+    let _environment_lock = ENVIRONMENT_TEST_LOCK
+        .lock()
+        .expect("lock provider environment contract");
+    let root = std::env::temp_dir().join(format!(
+        "sdkwork-provider-runtime-compatibility-{}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&root).expect("create legacy provider runtime root");
+    let host_guard = EnvironmentVariableGuard::remove(PROVIDER_HOST_ROOT_ENV);
+    let legacy_guard = EnvironmentVariableGuard::set(
+        LEGACY_PROVIDER_RUNTIME_ROOT_ENV,
+        root.to_string_lossy().as_ref(),
+    );
+
+    assert_eq!(
+        configured_provider_host_root().expect("resolve legacy provider runtime root"),
+        Some(root.clone())
+    );
+
+    drop(legacy_guard);
+    drop(host_guard);
+    fs::remove_dir_all(root).expect("remove legacy provider runtime fixture");
+}
+
+#[test]
+fn packaged_provider_host_directory_precedes_a_nearer_legacy_runtime_directory() {
+    let base = std::env::temp_dir().join(format!(
+        "sdkwork-provider-host-directory-precedence-{}",
+        std::process::id()
+    ));
+    let start_directory = base.join("application").join("bin");
+    let host_root = base.join("provider-host");
+    let legacy_root = start_directory.join("provider-runtime");
+    let host_worker = host_root.join("workers").join("generic-ts-sdk-worker.mjs");
+    let legacy_worker = legacy_root
+        .join("workers")
+        .join("generic-ts-sdk-worker.mjs");
+    fs::create_dir_all(&start_directory).expect("create start directory");
+    fs::create_dir_all(host_worker.parent().expect("host worker parent"))
+        .expect("create host worker directory");
+    fs::create_dir_all(legacy_worker.parent().expect("legacy worker parent"))
+        .expect("create legacy worker directory");
+    fs::write(&host_worker, "host worker\n").expect("write host worker");
+    fs::write(&legacy_worker, "legacy worker\n").expect("write legacy worker");
+
+    assert_eq!(
+        find_packaged_provider_host_root_from(&start_directory),
+        Some(host_root)
+    );
+
+    fs::remove_dir_all(base).expect("remove provider host directory fixture");
 }
 
 #[test]
@@ -342,12 +459,12 @@ fn lifecycle_detection_locks_are_shared_across_processes() {
 
 #[test]
 fn lifecycle_lock_helper() {
-    let Some(runtime_root) = std::env::var_os(LOCK_HELPER_ROOT_ENV) else {
+    let Some(host_root) = std::env::var_os(LOCK_HELPER_ROOT_ENV) else {
         return;
     };
     let ready_path =
         PathBuf::from(std::env::var_os(LOCK_HELPER_READY_ENV).expect("lock helper readiness path"));
-    let installer = lifecycle_lock_test_installer(Path::new(&runtime_root));
+    let installer = lifecycle_lock_test_installer(Path::new(&host_root));
     let hold_lock = || {
         fs::write(&ready_path, b"ready").expect("publish lifecycle lock readiness");
         thread::sleep(Duration::from_secs(2));

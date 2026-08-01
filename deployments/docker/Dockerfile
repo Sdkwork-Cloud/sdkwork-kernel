@@ -15,13 +15,17 @@ RUN useradd --system --create-home --home-dir /var/lib/sdkwork --shell /usr/sbin
 WORKDIR /app
 COPY --from=builder /src/target/release/sdkwork-agent-server /usr/local/bin/sdkwork-agent-server
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
-COPY --from=builder /src/scripts/provider-transport-workers/generic-ts-sdk-worker.mjs /app/provider-runtime/workers/generic-ts-sdk-worker.mjs
-COPY --from=builder /src/scripts/provider-transport-workers/engine-sdk-live.mjs /app/provider-runtime/workers/engine-sdk-live.mjs
-COPY --from=builder /src/scripts/provider-transport-workers/codex-cli-live.mjs /app/provider-runtime/workers/codex-cli-live.mjs
-COPY --from=builder /src/scripts/provider-transport-workers/provider-cli-live.mjs /app/provider-runtime/workers/provider-cli-live.mjs
+COPY --from=builder /src/scripts/provider-transport-workers/generic-ts-sdk-worker.mjs /app/provider-host/workers/generic-ts-sdk-worker.mjs
+COPY --from=builder /src/scripts/provider-transport-workers/engine-sdk-live.mjs /app/provider-host/workers/engine-sdk-live.mjs
+COPY --from=builder /src/scripts/provider-transport-workers/codex-app-server-runtime.mjs /app/provider-host/workers/codex-app-server-runtime.mjs
+COPY --from=builder /src/scripts/provider-transport-workers/codex-app-server-live.mjs /app/provider-host/workers/codex-app-server-live.mjs
+COPY --from=builder /src/scripts/provider-transport-workers/codex-cli-live.mjs /app/provider-host/workers/codex-cli-live.mjs
+COPY --from=builder /src/scripts/provider-transport-workers/provider-cli-live.mjs /app/provider-host/workers/provider-cli-live.mjs
 RUN mkdir -p /var/lib/sdkwork/data \
     && /usr/local/bin/node --version \
-    && test -f /app/provider-runtime/workers/generic-ts-sdk-worker.mjs \
+    && test -f /app/provider-host/workers/generic-ts-sdk-worker.mjs \
+    && test -f /app/provider-host/workers/codex-app-server-runtime.mjs \
+    && test -f /app/provider-host/workers/codex-app-server-live.mjs \
     && chown -R sdkwork:sdkwork /var/lib/sdkwork
 USER sdkwork
 ENV SDKWORK_KERNEL_ENVIRONMENT=production \
@@ -30,7 +34,7 @@ ENV SDKWORK_KERNEL_ENVIRONMENT=production \
     SDKWORK_KERNEL_APPLICATION_PUBLIC_INGRESS_BIND=0.0.0.0:18280 \
     SDKWORK_KERNEL_AGENT_PLUGIN=rig \
     SDKWORK_AGENT_NODE_BINARY=/usr/local/bin/node \
-    SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT=/app/provider-runtime \
+    SDKWORK_AGENT_PROVIDER_HOST_ROOT=/app/provider-host \
     SDKWORK_DATABASE_ENGINE=postgresql \
     SDKWORK_KERNEL_INGRESS_AUTH_MODE=token \
     SDKWORK_KERNEL_METRICS_AUTH_MODE=token \

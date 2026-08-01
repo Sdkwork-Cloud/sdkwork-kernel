@@ -3,12 +3,15 @@ import { once } from 'node:events';
 import readline from 'node:readline';
 import {
   buildModelChatStreamResult,
-  invokeModelChatStreamLive,
+  closeSdkLiveRuntimes,
   buildStubModelChatResult,
+  interruptSdkLiveTurn,
+  invokeModelChatStreamRuntime,
   invokeModelChatRuntime,
   mockProviderInvocationAllowed,
   probePackage,
   probeModelChatRuntime,
+  respondToSdkLiveServerRequest,
   VERIFIED_PROVIDER_SESSION_ID,
 } from './engine-sdk-live.mjs';
 
@@ -150,6 +153,7 @@ async function handleCapabilityInvoke(params, streamOptions = {}) {
       backend: 'typescript_node',
       package: packageName,
       package_resolved: packageProbe.resolved,
+      app_server_available: runtimeProbe.app_server_available,
       cli_available: runtimeProbe.cli_available,
       runtime_available: runtimeProbe.runtime_available,
       runtime_mode: runtimeProbe.runtime_mode,
@@ -177,11 +181,11 @@ async function handleCapabilityInvoke(params, streamOptions = {}) {
     if (
       op === 'model_chat_stream' &&
       !fallbackAllowed &&
-      packageProbe.resolved &&
+      runtimeProbe.runtime_available &&
       packageName.startsWith('@openai/codex')
     ) {
       try {
-        return await invokeModelChatStreamLive(packageName, operation, streamOptions);
+        return await invokeModelChatStreamRuntime(packageName, operation, streamOptions);
       } catch (error) {
         if (!fallbackAllowed) {
           return {
@@ -282,6 +286,13 @@ async function handleStreamingCapabilityInvoke(requestId, params) {
 async function handleActivityCapabilityInvoke(requestId, params) {
   const result = await handleCapabilityInvoke(params, {
     onActivity: async (activity) => writeActivity(requestId, activity),
+    onEvent: async (event) => {
+      await writeStreamEvent(
+        requestId,
+        event,
+        params.operation?.model_request_id ?? null,
+      );
+    },
   });
   await writeInvokeDone(requestId, result);
 }
@@ -297,6 +308,7 @@ async function handleRequest(request) {
         backend: 'typescript_node',
         package: packageName,
         package_resolved: probe.resolved,
+        app_server_available: probe.app_server_available,
         cli_available: probe.cli_available,
         runtime_available: probe.runtime_available,
         runtime_mode: probe.runtime_mode,
@@ -326,6 +338,18 @@ async function handleRequest(request) {
     return;
   }
 
+  if (request.method === 'sdkwork/serverRequest.respond') {
+    const result = await respondToSdkLiveServerRequest(request.params ?? {});
+    await writeResponse({ jsonrpc: '2.0', id: request.id, result });
+    return;
+  }
+
+  if (request.method === 'sdkwork/turn.interrupt') {
+    const result = await interruptSdkLiveTurn(request.params ?? {});
+    await writeResponse({ jsonrpc: '2.0', id: request.id, result });
+    return;
+  }
+
   await writeResponse({
     jsonrpc: '2.0',
     id: request.id,
@@ -337,6 +361,10 @@ async function handleRequest(request) {
 }
 
 const rl = readline.createInterface({ input: process.stdin });
+
+rl.once('close', () => {
+  void closeSdkLiveRuntimes();
+});
 
 rl.on('line', (line) => {
   const trimmed = line.trim();

@@ -167,7 +167,8 @@ try {
     {
       operation: 'model_chat',
       model_request_id: 'req-codex-live-activity',
-      session_id: 'thread-sdk-existing',
+      session_id: 'session-canonical-existing',
+      provider_session_id: 'thread-sdk-existing',
       messages: ['invoke now'],
       timeout_ms: 5_000,
       execution_options: { require_live_provider: true },
@@ -195,6 +196,7 @@ try {
     {
       operation: 'model_chat_stream',
       model_request_id: 'req-codex-live-stream',
+      session_id: 'session-canonical-stream',
       messages: ['stream now'],
       timeout_ms: 5_000,
       execution_options: { require_live_provider: true },
@@ -203,6 +205,7 @@ try {
       SDKWORK_AGENT_SDK_PACKAGE_PATHS: JSON.stringify({
         '@openai/codex-sdk': codexSdkMirror,
       }),
+      SDKWORK_CODEX_CLI_BIN: path.join(tempRoot, 'missing-codex'),
       SDKWORK_CODEX_STREAM_COMPLETION_MARKER: completionMarkerPath,
       SDKWORK_CODEX_STREAM_RELEASE_PATH: streamReleasePath,
     },
@@ -252,6 +255,17 @@ try {
       (frame) => frame.response.result.model_request_id === 'req-codex-live-stream',
     ),
   );
+  assert.ok(
+    codexEvents.every(
+      (frame) => frame.response.result.kernel_event.session_id === 'session-canonical-stream',
+    ),
+  );
+  assert.ok(
+    codexEvents.every(
+      (frame) => frame.response.result.kernel_event.payload.providerSessionId
+        === 'thread-sdk-live-streamed',
+    ),
+  );
   assert.equal(
     codexEvents[1].response.result.kernel_event.payload.item.text,
     'first',
@@ -273,6 +287,7 @@ try {
       SDKWORK_AGENT_SDK_PACKAGE_PATHS: JSON.stringify({
         '@openai/codex-sdk': codexSdkMirror,
       }),
+      SDKWORK_CODEX_CLI_BIN: path.join(tempRoot, 'missing-codex'),
     },
   );
   assert.ok(

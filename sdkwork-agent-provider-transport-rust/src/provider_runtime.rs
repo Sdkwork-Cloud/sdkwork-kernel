@@ -118,15 +118,48 @@ impl ProviderBackedRustHandler {
         request: &SdkRuntimeRequest,
     ) -> ModelRequest {
         let mut model_request = ModelRequest::new(model_request_id.to_string(), messages.to_vec());
-        if let Some(model_id) = request
-            .payload
-            .as_ref()
-            .and_then(|payload| payload.get("model_id"))
-            .and_then(Value::as_str)
-        {
+        let (operation_model_id, session_id, provider_session_id, turn_id) =
+            match &request.operation {
+                SdkRuntimeOperation::ModelChat {
+                    model_id,
+                    session_id,
+                    provider_session_id,
+                    turn_id,
+                    ..
+                }
+                | SdkRuntimeOperation::ModelChatStream {
+                    model_id,
+                    session_id,
+                    provider_session_id,
+                    turn_id,
+                    ..
+                } => (
+                    model_id.as_deref(),
+                    session_id.as_deref(),
+                    provider_session_id.as_deref(),
+                    turn_id.as_deref(),
+                ),
+                _ => (None, None, None, None),
+            };
+        if let Some(model_id) = operation_model_id.or_else(|| {
+            request
+                .payload
+                .as_ref()
+                .and_then(|payload| payload.get("model_id"))
+                .and_then(Value::as_str)
+        }) {
             model_request = model_request.with_model_id(model_id);
         } else {
             model_request = model_request.with_model_id(&self.default_model);
+        }
+        if let Some(session_id) = session_id {
+            model_request = model_request.for_session(session_id);
+        }
+        if let Some(provider_session_id) = provider_session_id {
+            model_request = model_request.for_provider_session(provider_session_id);
+        }
+        if let Some(turn_id) = turn_id {
+            model_request = model_request.for_step(turn_id);
         }
         model_request
     }

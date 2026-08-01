@@ -7,6 +7,19 @@ use sdkwork_agent_provider_core::{
 };
 
 #[test]
+fn model_request_keeps_canonical_and_provider_session_identities_distinct() {
+    let request = ModelRequest::new("req.session-identities", vec!["hello".to_string()])
+        .for_session("session-canonical")
+        .for_provider_session("provider-session-opaque");
+
+    assert_eq!(request.session_id.as_deref(), Some("session-canonical"));
+    assert_eq!(
+        request.provider_session_id.as_deref(),
+        Some("provider-session-opaque")
+    );
+}
+
+#[test]
 fn model_request_prompt_preserves_multimodal_markers() {
     let mut request = ModelRequest::new("req.1", vec!["legacy".to_string()]);
     request.input_messages = vec![AgentMessage::new(

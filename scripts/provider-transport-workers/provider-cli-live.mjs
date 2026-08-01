@@ -87,6 +87,15 @@ export async function invokeProviderCliModelChat(packageName, operation, options
   if (parsed.error) {
     throw new Error(`${definition.provider}_cli_turn_failed: ${parsed.error}`);
   }
+  const requestedProviderSessionId = optionalNonBlankString(
+    operation.provider_session_id,
+    'provider_session_id',
+  );
+  const providerSessionId = verifyProviderSessionId(
+    definition.provider,
+    parsed.provider_session_id,
+    requestedProviderSessionId,
+  );
   const assistantContent = parsed.messages.join('');
   if (!assistantContent.trim()) {
     throw new Error(`${definition.provider}_cli_empty_response: no assistant content was emitted`);
@@ -103,7 +112,7 @@ export async function invokeProviderCliModelChat(packageName, operation, options
     messages: [assistantContent],
     finish_reason: parsed.finish_reason ?? 'stop',
     model_request_id: operation.model_request_id ?? null,
-    provider_session_id: parsed.provider_session_id,
+    provider_session_id: providerSessionId,
     package: packageName,
   };
 }
@@ -114,10 +123,13 @@ export function buildClaudeCliArgs(operation) {
   const args = ['-p', '--output-format', 'stream-json', '--verbose'];
   const modelId = optionalNonBlankString(operation.model_id, 'model_id');
   if (modelId) args.push('--model', modelId);
-  const sessionId = optionalNonBlankString(operation.session_id, 'session_id');
-  if (sessionId) args.push('--resume', sessionId);
+  const providerSessionId = optionalNonBlankString(
+    operation.provider_session_id,
+    'provider_session_id',
+  );
+  if (providerSessionId) args.push('--resume', providerSessionId);
   if (optionalBoolean(executionOptions.ephemeral, 'ephemeral')) {
-    if (sessionId) throw new Error('claude_cli_ephemeral_resume_conflict');
+    if (providerSessionId) throw new Error('claude_cli_ephemeral_resume_conflict');
     args.push('--no-session-persistence');
   }
   args.push('--permission-mode', resolveClaudePermissionMode(executionOptions));
@@ -144,8 +156,11 @@ export function buildGeminiCliArgs(operation) {
   }
   const modelId = optionalNonBlankString(operation.model_id, 'model_id');
   if (modelId) args.push('-m', modelId);
-  const sessionId = optionalNonBlankString(operation.session_id, 'session_id');
-  if (sessionId) args.push('--resume', sessionId);
+  const providerSessionId = optionalNonBlankString(
+    operation.provider_session_id,
+    'provider_session_id',
+  );
+  if (providerSessionId) args.push('--resume', providerSessionId);
   return args;
 }
 
@@ -165,8 +180,11 @@ export function buildOpenCodeCliArgs(operation) {
   if (workingDirectory) args.push('--dir', workingDirectory);
   const modelId = optionalNonBlankString(operation.model_id, 'model_id');
   if (modelId) args.push('--model', modelId);
-  const sessionId = optionalNonBlankString(operation.session_id, 'session_id');
-  if (sessionId) args.push('--session', sessionId);
+  const providerSessionId = optionalNonBlankString(
+    operation.provider_session_id,
+    'provider_session_id',
+  );
+  if (providerSessionId) args.push('--session', providerSessionId);
   return args;
 }
 
@@ -378,6 +396,24 @@ function optionalNonBlankString(value, fieldName) {
   if (value == null) return null;
   if (typeof value !== 'string') throw new Error(`${fieldName} must be a string`);
   return value.trim() || null;
+}
+
+function verifyProviderSessionId(provider, candidate, requestedProviderSessionId) {
+  const providerSessionId = optionalNonBlankString(
+    candidate,
+    'provider_session_id',
+  );
+  if (requestedProviderSessionId && !providerSessionId) {
+    throw new Error(
+      `${provider}_cli completed without the requested provider session identity`,
+    );
+  }
+  if (requestedProviderSessionId && providerSessionId !== requestedProviderSessionId) {
+    throw new Error(
+      `${provider}_cli resumed a different provider session than requested`,
+    );
+  }
+  return providerSessionId;
 }
 
 function optionalBoolean(value, fieldName) {

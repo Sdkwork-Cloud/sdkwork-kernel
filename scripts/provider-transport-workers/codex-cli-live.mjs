@@ -64,9 +64,12 @@ export function buildCodexCliArgs(operation) {
     args.push('--cd', workingDirectory);
   }
 
-  const sessionId = optionalNonBlankString(operation.session_id, 'session_id');
-  if (sessionId) {
-    args.push('resume', sessionId);
+  const providerSessionId = optionalNonBlankString(
+    operation.provider_session_id,
+    'provider_session_id',
+  );
+  if (providerSessionId) {
+    args.push('resume', providerSessionId);
   }
   args.push('-');
   return args;

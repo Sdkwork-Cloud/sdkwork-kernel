@@ -74,6 +74,10 @@ pub enum SdkRuntimeOperation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         working_directory: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         timeout_ms: Option<u64>,
@@ -89,6 +93,10 @@ pub enum SdkRuntimeOperation {
         model_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_session_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        turn_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         working_directory: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -215,6 +223,62 @@ impl SdkRuntimeRequest {
         timeout_ms: Option<u64>,
         execution_options: Option<SdkRuntimeExecutionOptions>,
     ) -> Self {
+        Self::model_chat_with_session_identities(
+            capability_id,
+            model_request_id,
+            messages,
+            wire_messages,
+            model_id,
+            session_id,
+            None,
+            working_directory,
+            timeout_ms,
+            execution_options,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn model_chat_with_session_identities(
+        capability_id: impl Into<String>,
+        model_request_id: impl Into<String>,
+        messages: Vec<String>,
+        wire_messages: Option<Value>,
+        model_id: Option<String>,
+        session_id: Option<String>,
+        provider_session_id: Option<String>,
+        working_directory: Option<String>,
+        timeout_ms: Option<u64>,
+        execution_options: Option<SdkRuntimeExecutionOptions>,
+    ) -> Self {
+        Self::model_chat_with_execution_identities(
+            capability_id,
+            model_request_id,
+            messages,
+            wire_messages,
+            model_id,
+            session_id,
+            provider_session_id,
+            None,
+            working_directory,
+            timeout_ms,
+            execution_options,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn model_chat_with_execution_identities(
+        capability_id: impl Into<String>,
+        model_request_id: impl Into<String>,
+        messages: Vec<String>,
+        wire_messages: Option<Value>,
+        model_id: Option<String>,
+        session_id: Option<String>,
+        provider_session_id: Option<String>,
+        turn_id: Option<String>,
+        working_directory: Option<String>,
+        timeout_ms: Option<u64>,
+        execution_options: Option<SdkRuntimeExecutionOptions>,
+    ) -> Self {
         Self {
             capability_id: capability_id.into(),
             operation: SdkRuntimeOperation::ModelChat {
@@ -223,6 +287,8 @@ impl SdkRuntimeRequest {
                 wire_messages,
                 model_id: normalize_optional_string(model_id),
                 session_id: normalize_optional_string(session_id),
+                provider_session_id: normalize_optional_string(provider_session_id),
+                turn_id: normalize_optional_string(turn_id),
                 working_directory: normalize_optional_string(working_directory),
                 timeout_ms,
                 execution_options: normalize_execution_options(execution_options),
@@ -262,6 +328,62 @@ impl SdkRuntimeRequest {
         timeout_ms: Option<u64>,
         execution_options: Option<SdkRuntimeExecutionOptions>,
     ) -> Self {
+        Self::model_chat_stream_with_session_identities(
+            capability_id,
+            model_request_id,
+            messages,
+            wire_messages,
+            model_id,
+            session_id,
+            None,
+            working_directory,
+            timeout_ms,
+            execution_options,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn model_chat_stream_with_session_identities(
+        capability_id: impl Into<String>,
+        model_request_id: impl Into<String>,
+        messages: Vec<String>,
+        wire_messages: Option<Value>,
+        model_id: Option<String>,
+        session_id: Option<String>,
+        provider_session_id: Option<String>,
+        working_directory: Option<String>,
+        timeout_ms: Option<u64>,
+        execution_options: Option<SdkRuntimeExecutionOptions>,
+    ) -> Self {
+        Self::model_chat_stream_with_execution_identities(
+            capability_id,
+            model_request_id,
+            messages,
+            wire_messages,
+            model_id,
+            session_id,
+            provider_session_id,
+            None,
+            working_directory,
+            timeout_ms,
+            execution_options,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn model_chat_stream_with_execution_identities(
+        capability_id: impl Into<String>,
+        model_request_id: impl Into<String>,
+        messages: Vec<String>,
+        wire_messages: Option<Value>,
+        model_id: Option<String>,
+        session_id: Option<String>,
+        provider_session_id: Option<String>,
+        turn_id: Option<String>,
+        working_directory: Option<String>,
+        timeout_ms: Option<u64>,
+        execution_options: Option<SdkRuntimeExecutionOptions>,
+    ) -> Self {
         Self {
             capability_id: capability_id.into(),
             operation: SdkRuntimeOperation::ModelChatStream {
@@ -270,6 +392,8 @@ impl SdkRuntimeRequest {
                 wire_messages,
                 model_id: normalize_optional_string(model_id),
                 session_id: normalize_optional_string(session_id),
+                provider_session_id: normalize_optional_string(provider_session_id),
+                turn_id: normalize_optional_string(turn_id),
                 working_directory: normalize_optional_string(working_directory),
                 timeout_ms,
                 execution_options: normalize_execution_options(execution_options),
@@ -287,13 +411,15 @@ impl SdkRuntimeRequest {
                 SdkRuntimeError::new("invalid_model_request", error.to_string())
             })?;
         let execution_options = execution_options_from_model_request(request)?;
-        Ok(Self::model_chat_with_context(
+        Ok(Self::model_chat_with_execution_identities(
             capability_id,
             model_request_id,
             messages,
             wire_messages,
             request.model_id.clone(),
             request.session_id.clone(),
+            request.provider_session_id.clone(),
+            request.step_id.clone(),
             metadata_string(request, "sdkwork.code_engine.working_directory"),
             request.timeout_ms,
             execution_options,
@@ -309,13 +435,15 @@ impl SdkRuntimeRequest {
                 SdkRuntimeError::new("invalid_model_request", error.to_string())
             })?;
         let execution_options = execution_options_from_model_request(request)?;
-        Ok(Self::model_chat_stream_with_context(
+        Ok(Self::model_chat_stream_with_execution_identities(
             capability_id,
             model_request_id,
             messages,
             wire_messages,
             request.model_id.clone(),
             request.session_id.clone(),
+            request.provider_session_id.clone(),
+            request.step_id.clone(),
             metadata_string(request, "sdkwork.code_engine.working_directory"),
             request.timeout_ms,
             execution_options,
@@ -712,6 +840,8 @@ mod tests {
         for key in [
             "model_id",
             "session_id",
+            "provider_session_id",
+            "turn_id",
             "working_directory",
             "timeout_ms",
             "execution_options",
@@ -736,6 +866,8 @@ mod tests {
             SdkRuntimeOperation::ModelChat {
                 model_id,
                 session_id,
+                provider_session_id,
+                turn_id,
                 working_directory,
                 timeout_ms,
                 execution_options,
@@ -743,6 +875,8 @@ mod tests {
             } => {
                 assert_eq!(model_id, None);
                 assert_eq!(session_id, None);
+                assert_eq!(provider_session_id, None);
+                assert_eq!(turn_id, None);
                 assert_eq!(working_directory, None);
                 assert_eq!(timeout_ms, None);
                 assert_eq!(execution_options, None);
@@ -755,7 +889,9 @@ mod tests {
     fn from_model_request_projects_code_engine_context_and_generation_options() {
         let request = ModelRequest::new("req-context", vec!["hello".to_string()])
             .with_model_id("codex-test")
-            .for_session("provider-session")
+            .for_session("session-canonical")
+            .for_provider_session("provider-session")
+            .for_step("turn-canonical")
             .with_timeout_ms(42_000)
             .with_metadata("sdkwork.code_engine.working_directory", " C:/workspace ")
             .with_metadata("sdkwork.code_engine.approval_policy", "on-request")
@@ -775,13 +911,17 @@ mod tests {
             SdkRuntimeOperation::ModelChat {
                 model_id,
                 session_id,
+                provider_session_id,
+                turn_id,
                 working_directory,
                 timeout_ms,
                 execution_options: Some(options),
                 ..
             } => {
                 assert_eq!(model_id.as_deref(), Some("codex-test"));
-                assert_eq!(session_id.as_deref(), Some("provider-session"));
+                assert_eq!(session_id.as_deref(), Some("session-canonical"));
+                assert_eq!(provider_session_id.as_deref(), Some("provider-session"));
+                assert_eq!(turn_id.as_deref(), Some("turn-canonical"));
                 assert_eq!(working_directory.as_deref(), Some("C:/workspace"));
                 assert_eq!(timeout_ms, Some(42_000));
                 assert_eq!(options.approval_policy.as_deref(), Some("on-request"));
@@ -803,7 +943,9 @@ mod tests {
     fn stream_from_model_request_projects_the_same_context() {
         let request = ModelRequest::new("req-stream", vec!["hello".to_string()])
             .with_model_id("codex-stream")
-            .for_session("stream-session")
+            .for_session("session-stream")
+            .for_provider_session("provider-stream-session")
+            .for_step("turn-stream")
             .with_timeout_ms(9_000)
             .with_metadata("sdkwork.code_engine.working_directory", "C:/stream")
             .with_metadata("sdkwork.code_engine.max_tokens", "512");
@@ -815,13 +957,20 @@ mod tests {
             SdkRuntimeOperation::ModelChatStream {
                 model_id,
                 session_id,
+                provider_session_id,
+                turn_id,
                 working_directory,
                 timeout_ms,
                 execution_options: Some(options),
                 ..
             } => {
                 assert_eq!(model_id.as_deref(), Some("codex-stream"));
-                assert_eq!(session_id.as_deref(), Some("stream-session"));
+                assert_eq!(session_id.as_deref(), Some("session-stream"));
+                assert_eq!(
+                    provider_session_id.as_deref(),
+                    Some("provider-stream-session")
+                );
+                assert_eq!(turn_id.as_deref(), Some("turn-stream"));
                 assert_eq!(working_directory.as_deref(), Some("C:/stream"));
                 assert_eq!(timeout_ms, Some(9_000));
                 assert_eq!(options.max_tokens, Some(512));

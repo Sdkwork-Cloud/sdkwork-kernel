@@ -88,7 +88,7 @@ fn installer(executor: FakeCommandExecutor) -> ProcessAdapterInstaller {
         ProcessAdapterPackage::npm(PACKAGE_ID, PACKAGE_VERSION),
     )
     .with_dependency(ProcessAdapterPackage::npm("openai", "7.1.0"))
-    .with_install_root(PathBuf::from("provider-runtime"))
+    .with_install_root(PathBuf::from("provider-host"))
     .with_executor(Arc::new(executor))
 }
 
@@ -581,7 +581,7 @@ fn descriptors_and_lifecycle_requests_reject_invalid_identity_fields() {
             provider_version,
             ProcessAdapterPackage::npm(PACKAGE_ID, PACKAGE_VERSION),
         )
-        .with_install_root(PathBuf::from("provider-runtime"));
+        .with_install_root(PathBuf::from("provider-host"));
         let error = invalid
             .detect_installation(agent_id)
             .expect_err("invalid installer identity must fail before execution");
@@ -820,7 +820,7 @@ fn concurrent_installer(executor: ConcurrentExecutor) -> ProcessAdapterInstaller
         ProcessAdapterPackage::npm(PACKAGE_ID, PACKAGE_VERSION),
     )
     .with_dependency(ProcessAdapterPackage::npm("openai", "7.1.0"))
-    .with_install_root(PathBuf::from("provider-runtime-concurrency-contract"))
+    .with_install_root(PathBuf::from("provider-host-concurrency-contract"))
     .with_executor(Arc::new(executor))
 }
 
@@ -886,7 +886,7 @@ fn concurrent_detections_share_the_runtime_read_lock() {
     )
     .with_dependency(ProcessAdapterPackage::npm("openai", "7.1.0"))
     .with_install_root(PathBuf::from(
-        "provider-runtime-detection-concurrency-contract",
+        "provider-host-detection-concurrency-contract",
     ))
     .with_executor(Arc::new(executor.clone()));
     let second = first.clone();

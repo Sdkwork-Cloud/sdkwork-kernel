@@ -77,6 +77,7 @@
     "sdkClients": [],
     "events": [],
     "configKeys": [
+      "SDKWORK_AGENT_PROVIDER_HOST_ROOT",
       "SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT",
       "SDKWORK_AGENT_PYTHON_BINARY"
     ]

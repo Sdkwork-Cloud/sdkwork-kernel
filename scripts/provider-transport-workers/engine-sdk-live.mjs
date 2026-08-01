@@ -9,6 +9,14 @@ import {
   probeCodexCli,
 } from './codex-cli-live.mjs';
 import {
+  closeCodexAppServerRuntime,
+  interruptCodexAppServerTurn,
+  invokeCodexAppServerModelChat,
+  isCodexAppServerFallbackSafe,
+  probeCodexAppServerRuntime,
+  respondToCodexAppServerRequest,
+} from './codex-app-server-runtime.mjs';
+import {
   invokeProviderCliModelChat,
   isProviderCliPackage,
   probeProviderCli,
@@ -232,6 +240,9 @@ export function probePackage(packageName) {
 
 export function probeModelChatRuntime(packageName) {
   const packageProbe = probePackage(packageName);
+  const appServerProbe = isCodexPackage(packageName)
+    ? probeCodexAppServerRuntime()
+    : null;
   const cliProbe = isCodexPackage(packageName)
     ? probeCodexCli()
     : isProviderCliPackage(packageName)
@@ -240,9 +251,16 @@ export function probeModelChatRuntime(packageName) {
   const cliAvailable = Boolean(cliProbe?.available);
   return {
     ...packageProbe,
+    app_server_available: Boolean(appServerProbe?.app_server_available),
     cli_available: cliAvailable,
     runtime_available: packageProbe.resolved || cliAvailable,
-    runtime_mode: cliAvailable ? 'sdk_cli' : packageProbe.resolved ? 'sdk_live' : null,
+    runtime_mode: appServerProbe?.app_server_available
+      ? 'app_server'
+      : cliAvailable
+        ? 'sdk_cli'
+        : packageProbe.resolved
+          ? 'sdk_live'
+          : null,
   };
 }
 
@@ -429,11 +447,18 @@ export function resolveOpenClawWireMessages(operation) {
 
 async function invokeCodexModelChat(prompt, operation, packageName, activity) {
   const { thread } = await createCodexThread(operation, packageName);
-  const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
+  const requestedProviderSessionId = optionalOperationString(
+    operation.provider_session_id,
+    'provider_session_id',
+  );
   const initialProviderSessionId = verifiedCodexProviderSessionId(thread);
   if (initialProviderSessionId) {
     await activity.establish(
-      verifyProviderSessionId('codex_sdk', initialProviderSessionId, requestedSessionId),
+      verifyProviderSessionId(
+        'codex_sdk',
+        initialProviderSessionId,
+        requestedProviderSessionId,
+      ),
     );
   }
   const turn = await runCodexThread(thread, prompt, operation.timeout_ms);
@@ -441,8 +466,9 @@ async function invokeCodexModelChat(prompt, operation, packageName, activity) {
   const providerSessionId = verifyProviderSessionId(
     'codex_sdk',
     verifiedCodexProviderSessionId(thread),
-    requestedSessionId,
+    requestedProviderSessionId,
   );
+  await activity.establish(providerSessionId);
   return liveSuccess(text, operation, {
     package: packageName,
     provider_session_id: providerSessionId,
@@ -467,9 +493,12 @@ async function createCodexThread(operation, packageName) {
       : undefined,
   );
   const threadOptions = buildCodexThreadOptions(operation);
-  const sessionId = optionalOperationString(operation.session_id, 'session_id');
-  const thread = sessionId
-    ? codex.resumeThread(sessionId, threadOptions)
+  const providerSessionId = optionalOperationString(
+    operation.provider_session_id,
+    'provider_session_id',
+  );
+  const thread = providerSessionId
+    ? codex.resumeThread(providerSessionId, threadOptions)
     : codex.startThread(threadOptions);
   return { thread };
 }
@@ -483,11 +512,18 @@ async function invokeCodexModelChatStream(
   onEvent,
 ) {
   const { thread } = await createCodexThread(operation, packageName);
-  const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
+  const requestedProviderSessionId = optionalOperationString(
+    operation.provider_session_id,
+    'provider_session_id',
+  );
   const initialProviderSessionId = verifiedCodexProviderSessionId(thread);
   if (initialProviderSessionId) {
     await activity.establish(
-      verifyProviderSessionId('codex_sdk', initialProviderSessionId, requestedSessionId),
+      verifyProviderSessionId(
+        'codex_sdk',
+        initialProviderSessionId,
+        requestedProviderSessionId,
+      ),
     );
   }
   if (typeof thread.runStreamed !== 'function') {
@@ -508,7 +544,11 @@ async function invokeCodexModelChatStream(
         event?.thread_id ?? event?.threadId ?? verifiedCodexProviderSessionId(thread);
       if (eventProviderSessionId) {
         await activity.establish(
-          verifyProviderSessionId('codex_sdk', eventProviderSessionId, requestedSessionId),
+          verifyProviderSessionId(
+            'codex_sdk',
+            eventProviderSessionId,
+            requestedProviderSessionId,
+          ),
         );
       }
       if (onEvent) {
@@ -567,7 +607,7 @@ async function invokeCodexModelChatStream(
   const providerSessionId = verifyProviderSessionId(
     'codex_sdk',
     verifiedCodexProviderSessionId(thread),
-    requestedSessionId,
+    requestedProviderSessionId,
   );
   return {
     ...liveSuccess(collectChunks ? chunks.map((chunk) => chunk.content) : [], operation, {
@@ -622,6 +662,64 @@ function buildCodexThreadOptions(operation) {
   return threadOptions;
 }
 
+function buildCodexAppServerInvocationOptions(operation) {
+  const threadOptions = buildCodexThreadOptions(operation);
+  const executionOptions = readCodexExecutionOptions(operation);
+  const approvalsReviewer = normalizeCodexApprovalsReviewer(
+    executionOptions.approvals_reviewer,
+  );
+  const sessionOptions = {};
+  const turnOptions = {};
+  if (threadOptions.model) {
+    sessionOptions.model = threadOptions.model;
+    turnOptions.model = threadOptions.model;
+  }
+  if (threadOptions.workingDirectory) {
+    sessionOptions.cwd = threadOptions.workingDirectory;
+    turnOptions.cwd = threadOptions.workingDirectory;
+  }
+  if (threadOptions.sandboxMode) {
+    sessionOptions.sandbox = threadOptions.sandboxMode;
+  }
+  if (threadOptions.approvalPolicy) {
+    sessionOptions.approvalPolicy = threadOptions.approvalPolicy;
+    turnOptions.approvalPolicy = threadOptions.approvalPolicy;
+  }
+  if (approvalsReviewer) {
+    sessionOptions.approvalsReviewer = approvalsReviewer;
+    turnOptions.approvalsReviewer = approvalsReviewer;
+  }
+  const serviceTier = optionalOperationString(operation.service_tier, 'service_tier');
+  if (serviceTier) {
+    sessionOptions.serviceTier = serviceTier;
+    turnOptions.serviceTier = serviceTier;
+  }
+  const effort = optionalOperationString(
+    executionOptions.reasoning_effort,
+    'execution_options.reasoning_effort',
+  );
+  if (effort) {
+    turnOptions.effort = effort;
+  }
+  return { sessionOptions, turnOptions };
+}
+
+async function invokeCodexAppServerModelRuntime(operation, options, activity) {
+  const invocationOptions = buildCodexAppServerInvocationOptions(operation);
+  const result = await invokeCodexAppServerModelChat(operation, {
+    ...invocationOptions,
+    activity,
+    onChunk: options?.onChunk,
+    onEvent: options?.onEvent,
+    prompt: resolveModelChatPrompt(operation),
+  });
+  return {
+    ...result,
+    package: options?.packageName ?? '@openai/codex-sdk',
+    [VERIFIED_PROVIDER_SESSION_ID]: true,
+  };
+}
+
 async function runCodexThread(thread, prompt, timeoutMs) {
   return runCodexOperation(timeoutMs, (turnOptions) => thread.run(prompt, turnOptions));
 }
@@ -661,6 +759,13 @@ function readCodexExecutionOptions(operation) {
     throw new Error('execution_options must be an object');
   }
   return options;
+}
+
+function codexAppServerPreferred(operation) {
+  const value = readCodexExecutionOptions(operation).prefer_app_server;
+  return value == null
+    ? true
+    : optionalOperationBoolean(value, 'prefer_app_server');
 }
 
 function optionalOperationString(value, fieldName) {
@@ -749,14 +854,17 @@ async function invokeClaudeModelChat(prompt, operation, packageName, activity) {
   }
 
   return runProviderOperation(operation, 'claude_agent_sdk', async (abortController) => {
-    const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
+    const requestedProviderSessionId = optionalOperationString(
+      operation.provider_session_id,
+      'provider_session_id',
+    );
     const modelId = optionalOperationString(operation.model_id, 'model_id');
     const permissionSettings = resolveClaudeSdkPermissionSettings(operation);
     const options = {
       cwd: resolveProviderWorkingDirectory(operation),
       abortController,
       ...(modelId ? { model: modelId } : {}),
-      ...(requestedSessionId ? { resume: requestedSessionId } : {}),
+      ...(requestedProviderSessionId ? { resume: requestedProviderSessionId } : {}),
       ...permissionSettings,
     };
     let text = '';
@@ -771,7 +879,11 @@ async function invokeClaudeModelChat(prompt, operation, packageName, activity) {
         event?.session_id ?? event?.sessionId ?? event?.message?.session_id,
       );
       if (providerSessionId) {
-        verifyProviderSessionId('claude_agent_sdk', providerSessionId, requestedSessionId);
+        verifyProviderSessionId(
+          'claude_agent_sdk',
+          providerSessionId,
+          requestedProviderSessionId,
+        );
         await activity.establish(providerSessionId);
       }
       if (event?.type === 'permission_request') {
@@ -804,7 +916,7 @@ async function invokeClaudeModelChat(prompt, operation, packageName, activity) {
     const verifiedSessionId = verifyProviderSessionId(
       'claude_agent_sdk',
       providerSessionId,
-      requestedSessionId,
+      requestedProviderSessionId,
     );
     const output = resultText ?? text;
     if (!output.trim()) {
@@ -851,13 +963,16 @@ async function invokeGeminiModelChat(prompt, operation, packageName, activity) {
   }
 
   return runProviderOperation(operation, 'gemini_cli_sdk', async (abortController) => {
-    const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
+    const requestedProviderSessionId = optionalOperationString(
+      operation.provider_session_id,
+      'provider_session_id',
+    );
     const agent = new Agent(buildGeminiAgentOptions(operation));
-    const session = await resolveGeminiSession(agent, requestedSessionId);
+    const session = await resolveGeminiSession(agent, requestedProviderSessionId);
     const verifiedSessionId = verifyProviderSessionId(
       'gemini_cli_sdk',
       session?.id,
-      requestedSessionId,
+      requestedProviderSessionId,
     );
     await activity.establish(verifiedSessionId);
     let text = '';
@@ -991,12 +1106,12 @@ function buildGeminiAgentOptions(operation) {
   };
 }
 
-async function resolveGeminiSession(agent, requestedSessionId) {
-  if (requestedSessionId) {
+async function resolveGeminiSession(agent, requestedProviderSessionId) {
+  if (requestedProviderSessionId) {
     if (typeof agent?.resumeSession !== 'function') {
       throw new Error('gemini cli sdk session is missing resumeSession()');
     }
-    return agent.resumeSession(requestedSessionId);
+    return agent.resumeSession(requestedProviderSessionId);
   }
   if (typeof agent?.session !== 'function') {
     throw new Error('gemini cli sdk agent is missing session()');
@@ -1032,15 +1147,18 @@ async function invokeOpencodeClient(client, prompt, operation, packageName, sign
   if (!client?.session?.prompt || !client?.session?.create) {
     throw new Error('opencode sdk client is missing session.create/session.prompt');
   }
-  const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
+  const requestedProviderSessionId = optionalOperationString(
+    operation.provider_session_id,
+    'provider_session_id',
+  );
   const permission = resolveOpencodePermissionRules(operation);
-  const createdSessionId = requestedSessionId
+  const createdSessionId = requestedProviderSessionId
     ? null
     : await createOpencodeSession(client, signal, permission);
-  const sessionId = requestedSessionId
-    ? await verifyOpencodeSession(client, requestedSessionId, signal)
+  const sessionId = requestedProviderSessionId
+    ? await verifyOpencodeSession(client, requestedProviderSessionId, signal)
     : createdSessionId;
-  if (requestedSessionId && permission) {
+  if (requestedProviderSessionId && permission) {
     await updateOpencodeSessionPermissions(client, sessionId, signal, permission);
   }
   await activity.establish(sessionId);
@@ -1067,7 +1185,7 @@ async function invokeOpencodeClient(client, prompt, operation, packageName, sign
   });
 }
 
-async function verifyOpencodeSession(client, requestedSessionId, signal) {
+async function verifyOpencodeSession(client, requestedProviderSessionId, signal) {
   if (typeof client?.session?.get !== 'function') {
     throw new Error(
       'opencode sdk client is missing session.get required to verify a resumed provider session',
@@ -1075,7 +1193,7 @@ async function verifyOpencodeSession(client, requestedSessionId, signal) {
   }
   const response = await client.session.get({
     signal,
-    path: { id: requestedSessionId },
+    path: { id: requestedProviderSessionId },
   });
   const error = readProviderError(response?.error);
   if (error) {
@@ -1088,7 +1206,7 @@ async function verifyOpencodeSession(client, requestedSessionId, signal) {
   return verifyProviderSessionId(
     'opencode_sdk',
     providerSessionId,
-    requestedSessionId,
+    requestedProviderSessionId,
   );
 }
 
@@ -1184,9 +1302,9 @@ function collectProviderSessionId(provider, current, candidate) {
   return next;
 }
 
-function verifyProviderSessionId(provider, candidate, requestedSessionId) {
+function verifyProviderSessionId(provider, candidate, requestedProviderSessionId) {
   const providerSessionId = requireProviderSessionId(provider, candidate);
-  if (requestedSessionId && providerSessionId !== requestedSessionId) {
+  if (requestedProviderSessionId && providerSessionId !== requestedProviderSessionId) {
     throw new Error(`${provider} resumed a different provider session than requested`);
   }
   return providerSessionId;
@@ -1356,6 +1474,77 @@ export async function invokeModelChatStreamLive(packageName, operation, options 
   return result;
 }
 
+export async function invokeModelChatStreamRuntime(packageName, operation, options = {}) {
+  if (!isCodexPackage(packageName)) {
+    return invokeModelChatStreamLive(packageName, operation, options);
+  }
+  const activity = createRuntimeActivityReporter(operation, options?.onActivity);
+  const appServerProbe = probeCodexAppServerRuntime();
+  if (appServerProbe.app_server_available && codexAppServerPreferred(operation)) {
+    try {
+      const result = await invokeCodexAppServerModelRuntime(
+        operation,
+        { ...options, packageName },
+        activity,
+      );
+      await activity.succeed(result.provider_session_id);
+      return result;
+    } catch (error) {
+      if (!isCodexAppServerFallbackSafe(error)) {
+        await activity.fail();
+        throw error;
+      }
+    }
+  }
+
+  if (probePackage(packageName).resolved) {
+    try {
+      const result = await invokeCodexModelChatStream(
+        resolveModelChatPrompt(operation),
+        operation,
+        packageName,
+        options?.onChunk,
+        activity,
+        options?.onEvent,
+      );
+      await activity.succeed(result.provider_session_id);
+      return result;
+    } catch (error) {
+      await activity.fail();
+      throw error;
+    }
+  }
+
+  const cliProbe = probeCodexCli();
+  if (cliProbe.available) {
+    try {
+      const onEvent = createCliActivityHandler(packageName, operation, activity);
+      const baseResult = markVerifiedCliProviderSession(
+        await invokeCodexCliModelChat(operation, {
+          packageName,
+          prompt: resolveModelChatPrompt(operation),
+          onEvent,
+        }),
+      );
+      const result = buildModelChatStreamResult(baseResult);
+      if (options?.onChunk) {
+        for (const chunk of result.chunks) {
+          await options.onChunk(chunk);
+        }
+        result.chunks = [];
+      }
+      await activity.succeed(result.provider_session_id);
+      return result;
+    } catch (error) {
+      await activity.fail();
+      throw error;
+    }
+  }
+
+  await activity.fail();
+  throw new Error(`package not resolved and Codex app-server/CLI unavailable: ${packageName}`);
+}
+
 export function buildCodexKernelStreamEvent(
   providerEvent,
   operation,
@@ -1372,9 +1561,10 @@ export function buildCodexKernelStreamEvent(
     throw new Error('Codex stream event is missing model_request_id');
   }
   const normalizedSequence = Number.isSafeInteger(sequence) && sequence >= 0 ? sequence : 0;
-  const resolvedSessionId = readProviderSessionId(providerSessionId)
+  const resolvedProviderSessionId = readProviderSessionId(providerSessionId)
     ?? readProviderSessionId(providerEvent)
-    ?? optionalOperationString(operation.session_id, 'session_id');
+    ?? optionalOperationString(operation.provider_session_id, 'provider_session_id');
+  const sessionId = optionalOperationString(operation.session_id, 'session_id');
 
   return {
     event_id: `event.${modelRequestId}.${normalizedSequence}`,
@@ -1383,7 +1573,7 @@ export function buildCodexKernelStreamEvent(
     occurred_at: new Date().toISOString(),
     source: codexKernelEventSource(providerEventType, item?.type),
     severity: codexKernelEventSeverity(providerEventType, item?.type),
-    session_id: resolvedSessionId,
+    session_id: sessionId,
     run_id: modelRequestId,
     step_id: itemId,
     correlation_id: modelRequestId,
@@ -1393,8 +1583,8 @@ export function buildCodexKernelStreamEvent(
       schemaVersion: 1,
       providerId: 'codex',
       providerEventType,
+      providerSessionId: resolvedProviderSessionId,
       sequence: normalizedSequence,
-      threadId: resolvedSessionId,
       item,
       usage: providerEvent?.usage ?? null,
       error: providerEvent?.error ?? (
@@ -1402,6 +1592,7 @@ export function buildCodexKernelStreamEvent(
           ? { message: providerEvent.message }
           : null
       ),
+      rawProviderPayload: providerEvent,
     },
     replay: false,
   };
@@ -1462,8 +1653,27 @@ export async function invokeModelChatRuntime(packageName, operation, options = {
   let cliError = null;
   const activity = createRuntimeActivityReporter(operation, options?.onActivity);
 
-  // The CLI transport is the production-complete Codex lane. Prefer it when
-  // present so an incomplete or version-skewed SDK facade cannot shadow it.
+  if (codexPackage
+    && codexAppServerPreferred(operation)
+    && probeCodexAppServerRuntime().app_server_available) {
+    try {
+      const result = await invokeCodexAppServerModelRuntime(
+        operation,
+        { ...options, packageName },
+        activity,
+      );
+      await activity.succeed(result.provider_session_id);
+      return result;
+    } catch (error) {
+      if (!isCodexAppServerFallbackSafe(error)) {
+        await activity.fail();
+        throw error;
+      }
+    }
+  }
+
+  // Retain the established CLI-before-SDK fallback after app-server handshake
+  // failure. No fallback is attempted after app-server Session/Turn effects.
   if (cliProbe?.available) {
     try {
       const prompt = resolveModelChatPrompt(operation);
@@ -1504,8 +1714,23 @@ export async function invokeModelChatRuntime(packageName, operation, options = {
   throw new Error(`package not resolved: ${packageName}`);
 }
 
+export async function respondToSdkLiveServerRequest(command) {
+  return respondToCodexAppServerRequest(command);
+}
+
+export async function interruptSdkLiveTurn(command) {
+  return interruptCodexAppServerTurn(command);
+}
+
+export async function closeSdkLiveRuntimes() {
+  await closeCodexAppServerRuntime();
+}
+
 function createCliActivityHandler(packageName, operation, activity) {
-  const requestedSessionId = optionalOperationString(operation.session_id, 'session_id');
+  const requestedProviderSessionId = optionalOperationString(
+    operation.provider_session_id,
+    'provider_session_id',
+  );
   const transport = isCodexPackage(packageName)
     ? 'codex_cli'
     : packageName === '@anthropic-ai/claude-agent-sdk'
@@ -1517,7 +1742,7 @@ function createCliActivityHandler(packageName, operation, activity) {
   return async (event) => {
     const candidate = cliEventProviderSessionId(packageName, event);
     const providerSessionId = candidate
-      ? verifyProviderSessionId(transport, candidate, requestedSessionId)
+      ? verifyProviderSessionId(transport, candidate, requestedProviderSessionId)
       : null;
     const phase = cliEventActivityPhase(packageName, event);
     if (!phase) {

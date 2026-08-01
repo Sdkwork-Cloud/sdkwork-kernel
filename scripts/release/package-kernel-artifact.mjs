@@ -31,6 +31,8 @@ const binaryPath = process.env.SDKWORK_KERNEL_RELEASE_BINARY?.trim()
 const providerWorkerRelativePaths = [
   'generic-ts-sdk-worker.mjs',
   'engine-sdk-live.mjs',
+  'codex-app-server-runtime.mjs',
+  'codex-app-server-live.mjs',
   'codex-cli-live.mjs',
   'provider-cli-live.mjs',
 ];
@@ -92,8 +94,8 @@ function stageReleasePayload(stagingDir) {
   const stagedBinary = path.join(stagingDir, path.basename(binaryPath));
   copyRequiredFile(binaryPath, stagedBinary, 'release binary');
 
-  const providerRuntimeDir = path.join(stagingDir, 'provider-runtime');
-  const workerTargetDir = path.join(providerRuntimeDir, 'workers');
+  const providerHostDir = path.join(stagingDir, 'provider-host');
+  const workerTargetDir = path.join(providerHostDir, 'workers');
   for (const workerRelativePath of providerWorkerRelativePaths) {
     copyRequiredFile(
       path.join(kernelRoot, 'scripts', 'provider-transport-workers', workerRelativePath),
@@ -110,8 +112,8 @@ function stageReleasePayload(stagingDir) {
     );
   }
   const nodeTarget = targetIsWindows
-    ? path.join(providerRuntimeDir, 'node', 'node.exe')
-    : path.join(providerRuntimeDir, 'node', 'bin', 'node');
+    ? path.join(providerHostDir, 'node', 'node.exe')
+    : path.join(providerHostDir, 'node', 'bin', 'node');
   copyRequiredFile(nodeSource, nodeTarget, 'Node runtime');
 
   if (!targetIsWindows) {
@@ -120,7 +122,7 @@ function stageReleasePayload(stagingDir) {
   }
 
   fs.writeFileSync(
-    path.join(providerRuntimeDir, 'manifest.json'),
+    path.join(providerHostDir, 'manifest.json'),
     `${JSON.stringify(
       {
         schemaVersion: 1,

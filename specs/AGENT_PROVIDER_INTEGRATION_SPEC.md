@@ -118,6 +118,32 @@ Default global priority when a binding does not override transport order:
 4. `http_openapi`
 5. `ipc_protocol`
 
+### 4.1 Packaged Provider Host Discovery
+
+Desktop, server-archive, and container releases may package Node/Python workers,
+provider CLIs, and their supporting binaries in one provider host root.
+
+Rules:
+
+- The canonical directory name is `provider-host` and the canonical explicit
+  root variable is `SDKWORK_AGENT_PROVIDER_HOST_ROOT`.
+- Release producers `MUST` emit only the canonical directory and variable.
+  `provider-runtime` and `SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT` are read-only
+  compatibility inputs governed by
+  [`MIG-2026-0002-provider-host-root`](../docs/migrations/MIG-2026-0002-provider-host-root.md).
+- Consumers resolve an explicit worker or language binary first, then the
+  canonical host-root variable, the legacy variable during its compatibility
+  window, a canonical packaged directory, a legacy packaged directory during
+  that window, and finally a repository source path only in debug/test builds.
+- Canonical packaged directories take precedence across the complete executable
+  ancestor search. A nearer legacy directory `MUST NOT` shadow a canonical
+  directory at a higher application-bundle level.
+- Empty explicit root variables fail closed at installer/configuration
+  boundaries. A canonical variable that is present but empty `MUST NOT` activate
+  the legacy alias.
+- Release verification `MUST` prove that the packaged worker inventory and
+  language binaries resolve without a sibling source checkout.
+
 ## 5. Provider Crate Layout
 
 Each external framework `MUST` ship as one crate:
@@ -150,6 +176,58 @@ Negotiation steps:
 5. Fail closed when any required capability is missing.
 
 Operation dispatch rules:
+
+### 6.1 Canonical Session And Provider Session Identity
+
+The SDKWork Session and a provider-owned resumable Session are separate
+identities across every provider transport.
+
+Rules:
+
+- `session_id` is the canonical SDKWork `AgentSession` identity. It remains the
+  Session ownership key on kernel events, persistence, activity correlation,
+  and product APIs.
+- `provider_session_id` is the provider-returned opaque continuation identity.
+  Provider-specific names such as Codex `threadId` are wire-adapter or raw
+  evidence fields only; shared contracts and normalized payloads use the
+  `providerSessionId` family.
+- When `provider_session_id` is absent, an SDK or CLI adapter `MUST` use the
+  provider's create/start path. It `MUST NOT` pass `session_id` to a provider
+  resume API, `--resume`, `--session`, or an equivalent continuation option.
+- When `provider_session_id` is present, the adapter `MUST` pass that exact
+  value to the provider continuation path and `MUST` reject a different or
+  missing provider-emitted identity before publishing verified activity or
+  terminal continuation metadata.
+- An adapter `MUST NOT` synthesize `provider_session_id` from `session_id`,
+  `model_request_id`, a local database id, or any transport-generated id.
+- A normalized `KernelEvent.session_id` retains canonical SDKWork Session
+  identity. Provider continuation identity belongs in normalized payload
+  metadata as `providerSessionId`; raw provider payload may retain original
+  wire field names for evidence.
+- `turn_id` is the canonical SDKWork Turn identity when the caller has already
+  established one. `provider_turn_id` is the provider-returned opaque Turn
+  identity; Codex `turnId` remains private to its adapter and raw evidence.
+- When a provider request is built from the kernel `ModelRequest`, the canonical
+  `turn_id` is carried by `ModelRequest.step_id` and serialized as the explicit
+  runtime operation field `turn_id`. This is a compatibility name at the kernel
+  SPI boundary only: it must never be rendered or documented as a provider
+  `step`, and a missing value must remain omitted rather than inferred from a
+  Session, request, or provider Turn identity.
+- A normalized `KernelEvent.step_id` uses canonical `turn_id` when available.
+  Provider Turn identity belongs in normalized payload metadata as
+  `providerTurnId` and must not replace the canonical Turn identity.
+- Turn control and Interaction responses must validate canonical `turn_id` and
+  opaque `provider_turn_id` independently. Neither identity may be accepted as
+  an alias for the other.
+- Conformance tests `MUST` cover canonical-only creation, independent
+  canonical/provider-id continuation, provider-id mismatch rejection, and the
+  absence of synthesized provider terminal identity for each SDK and CLI lane.
+- A resident transport that installs listeners before `turn/start` completes
+  `MUST NOT` bind the new execution to the first same-Session event. It buffers
+  at most 1,024 ordered events carrying a provider Turn id until the
+  `turn/start` response supplies the authoritative id, replays only matching
+  events, and discards late events from previous Turns. Turnless host requests
+  may continue immediately under provider Session affinity.
 
 - The selected backend's `runtime_operations[]` is the executable operation
   allowlist for that negotiated capability.
@@ -185,6 +263,103 @@ Operation dispatch rules:
 - Capabilities with `execution_scope: transport_runtime` may execute through the
   selected transport only when the backend runtime is healthy and the requested
   operation is explicitly declared.
+
+### 6.2 User-Mediated Server Requests
+
+A long-lived provider transport may receive a request that pauses the active
+Turn until the user responds. The transport adapter owns the provider wire
+method and exact JSON-RPC request-id type; shared runtime events use a canonical
+Session Interaction envelope.
+
+The Codex app-server adapter maps the supported request family as follows:
+
+| Canonical category | Canonical kind | Provider request |
+| --- | --- | --- |
+| `approval` | `command_execution` | command execution approval |
+| `approval` | `file_change` | file-change approval |
+| `approval` | `permission_profile` | permission-profile approval |
+| `user_input` | `question_set` | one or more questions keyed by stable question id |
+| `user_input` | `onboarding_question_set` | desktop onboarding dynamic tool with one to three structured questions |
+| `user_input` | `option_picker` | direct or dynamic single/multiple option picker |
+| `user_input` | `context_source_picker` | direct or dynamic context-source picker |
+| `setup` | `setup_step` | incomplete role, task, or context setup step |
+| `elicitation` | `mcp_elicitation` | MCP form, OpenAI form, or URL elicitation |
+
+Rules:
+
+- The envelope `MUST` carry canonical `sessionId`, category, kind, prompt,
+  allowed actions, typed request data, and provider correlation metadata.
+- Correlation `MUST` preserve `providerSessionId`, provider Turn and item ids,
+  the exact `string | number` provider request id and its wire type, and the
+  adapter-private protocol method. Provider-specific Session names remain raw
+  wire evidence only.
+- Command responses preserve six distinct actions, including Session scope,
+  exec-policy amendment and network-policy amendment. File-change responses
+  preserve four distinct actions.
+- Question responses preserve an answer-array map keyed by question id and the
+  request preserves `autoResolutionMs`, headers, other/secret flags and nullable
+  options.
+- MCP elicitation preserves mode, schema or URL, elicitation id, structured
+  content and metadata. Permission approval preserves requested/granted
+  profiles, Turn-or-Session scope and optional strict automatic review.
+- Desktop onboarding preserves its one-to-three-question and minimum-two-option
+  constraints. Option-picker requests preserve multiple-selection mode and
+  nullable submit/skip labels. Context-source and setup-step requests preserve
+  their distinct action sets.
+- Dynamic onboarding, option-picker, context-source, and setup-step resolutions
+  compile to `success: true` with one `inputText` content item whose text is the
+  JSON-encoded typed payload. The two direct desktop request methods return the
+  typed payload without that dynamic-tool envelope.
+- Malformed `request_option_picker`, `request_onboarding_input`, and
+  `setup_codex_step` arguments receive the desktop-compatible failed dynamic
+  tool result and never become a canonical Interaction.
+- Canonical resolutions are compiled back to the exact provider response only
+  inside the provider adapter. Unknown request methods, actions, question ids,
+  malformed amendments, or invalid permission scopes fail closed.
+- A response is sent at most once for one exact provider request on one
+  connection. A provider resolution notification clears runtime state but is
+  not proof that this client sent the response.
+- Business persistence and App SDK exposure remain owned by `sdkwork-agents`;
+  products do not persist raw provider requests or call this transport directly.
+
+Executable evidence:
+
+```bash
+node --test scripts/provider-transport-workers/codex-app-server-interactions.test.mjs
+node --test scripts/provider-transport-workers/generic-ts-sdk-worker-app-server.test.mjs
+node --test scripts/provider-transport-workers/codex-app-server-live.test.mjs
+```
+
+### 6.3 Host Auto-Responses
+
+Provider requests owned entirely by the Kernel host do not become product
+Interactions. The Codex app-server `currentTime/read` request and the valid
+`setup_codex_step` completion signal are handled inside the resident transport
+runtime.
+
+Rules:
+
+- The adapter `MUST` validate the exact string-or-number request id and the
+  provider Session affinity before responding.
+- The response `MUST` contain `currentTimeAt` as whole Unix seconds. The clock
+  is injectable for contract tests and `MUST` fail closed when it returns a
+  negative, fractional, non-finite, or unsafe millisecond timestamp.
+- The provider Session wire field remains adapter-private. The response does
+  not create a canonical Session item or enter Agents business persistence.
+- A valid setup completion signal returns a successful dynamic-tool envelope
+  containing `{ "completed": true }`. Role, task, and context setup steps remain
+  user-mediated Interactions.
+- Dynamic tools, token refresh, and attestation require separate typed host
+  ports. Setup completion is the only registered setup-tool exception; ordinary
+  dynamic tools `MUST NOT` be routed through the clock handler or exposed as raw
+  product requests.
+
+Executable evidence:
+
+```bash
+node --test scripts/provider-transport-workers/codex-app-server-host-requests.test.mjs
+node --test scripts/provider-transport-workers/generic-ts-sdk-worker-app-server.test.mjs
+```
 
 ## 7. Extension Rules
 

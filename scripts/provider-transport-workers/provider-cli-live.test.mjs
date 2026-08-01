@@ -33,28 +33,29 @@ const args = process.argv.slice(2);
 const sessionFlag = kind === 'opencode' ? '--session' : kind === 'gemini' ? '--resume' : '--resume';
 const sessionIndex = args.indexOf(sessionFlag);
 const existingSession = sessionIndex >= 0 ? args[sessionIndex + 1] : null;
-const sessionId = existingSession || kind + '-session-123';
+const sessionId = process.env.SDKWORK_PROVIDER_CLI_TEST_SESSION_ID || existingSession || kind + '-session-123';
+const omitSessionId = process.env.SDKWORK_PROVIDER_CLI_TEST_OMIT_SESSION_ID === '1';
 const positional = input;
 const delayMs = Number(process.env.SDKWORK_PROVIDER_CLI_TEST_DELAY_MS || 0);
 const terminalOnly = process.env.SDKWORK_PROVIDER_CLI_TEST_TERMINAL_ONLY === '1';
 if (kind === 'claude') {
   if (terminalOnly) {
-    process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', session_id: sessionId, result: 'claude:' + positional }) + '\\n');
+    process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', ...(omitSessionId ? {} : { session_id: sessionId }), result: 'claude:' + positional }) + '\\n');
   } else {
-    process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', session_id: sessionId }) + '\\n');
+    process.stdout.write(JSON.stringify({ type: 'system', subtype: 'init', ...(omitSessionId ? {} : { session_id: sessionId }) }) + '\\n');
     const complete = () => {
       process.stdout.write(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'claude:' + positional }] } }) + '\\n');
-      process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', session_id: sessionId }) + '\\n');
+      process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', ...(omitSessionId ? {} : { session_id: sessionId }) }) + '\\n');
     };
     delayMs > 0 ? setTimeout(complete, delayMs) : complete();
   }
 } else if (kind === 'gemini') {
-  process.stdout.write(JSON.stringify({ type: 'init', session_id: sessionId }) + '\\n');
+  process.stdout.write(JSON.stringify({ type: 'init', ...(omitSessionId ? {} : { session_id: sessionId }) }) + '\\n');
   const complete = () => process.stdout.write(JSON.stringify({ type: 'content', value: 'gemini:' + positional }) + '\\n');
   delayMs > 0 ? setTimeout(complete, delayMs) : complete();
 } else {
-  process.stdout.write(JSON.stringify({ type: 'step_start', sessionID: sessionId }) + '\\n');
-  const complete = () => process.stdout.write(JSON.stringify({ type: 'text', sessionID: sessionId, part: { text: 'opencode:' + positional } }) + '\\n');
+  process.stdout.write(JSON.stringify({ type: 'step_start', ...(omitSessionId ? {} : { sessionID: sessionId }) }) + '\\n');
+  const complete = () => process.stdout.write(JSON.stringify({ type: 'text', ...(omitSessionId ? {} : { sessionID: sessionId }), part: { text: 'opencode:' + positional } }) + '\\n');
   delayMs > 0 ? setTimeout(complete, delayMs) : complete();
 }
 `,
@@ -66,7 +67,8 @@ if (kind === 'claude') {
     model_request_id: 'req-provider-cli',
     messages: ['implement the change'],
     model_id: 'provider/model-test',
-    session_id: 'existing-session-456',
+    session_id: 'session-canonical-cli',
+    provider_session_id: 'existing-session-456',
     working_directory: workingDirectory,
     timeout_ms: LIVE_TEST_TIMEOUT_MS,
     execution_options: {
@@ -95,6 +97,12 @@ if (kind === 'claude') {
   assertIncludesPair(opencodeArgs, '--dir', path.resolve(workingDirectory));
   assertIncludesPair(opencodeArgs, '--session', 'existing-session-456');
   assert.equal(opencodeArgs.includes('implement the change'), false);
+
+  const canonicalOnlyOperation = { ...operation };
+  delete canonicalOnlyOperation.provider_session_id;
+  assert.equal(buildClaudeCliArgs(canonicalOnlyOperation).includes('--resume'), false);
+  assert.equal(buildGeminiCliArgs(canonicalOnlyOperation).includes('--resume'), false);
+  assert.equal(buildOpenCodeCliArgs(canonicalOnlyOperation).includes('--session'), false);
 
   assert.throws(
     () =>
@@ -227,6 +235,44 @@ if (kind === 'claude') {
     assert.equal(result.mode, 'sdk_cli');
     assert.equal(result.provider_session_id, 'existing-session-456');
     assert.equal(result.messages[0], `${provider.kind}:implement the change`);
+
+    const createdResult = await invokeProviderCliModelChat(
+      provider.packageName,
+      canonicalOnlyOperation,
+      {
+        env: environment,
+        prompt: 'create provider session',
+      },
+    );
+    assert.equal(createdResult.provider_session_id, `${provider.kind}-session-123`);
+
+    await assert.rejects(
+      invokeProviderCliModelChat(provider.packageName, operation, {
+        env: {
+          ...environment,
+          SDKWORK_PROVIDER_CLI_TEST_SESSION_ID: `${provider.kind}-session-different`,
+        },
+        prompt: 'reject provider session mismatch',
+      }),
+      /resumed a different provider session/,
+    );
+
+    const identitylessResult = await invokeProviderCliModelChat(
+      provider.packageName,
+      canonicalOnlyOperation,
+      {
+        env: {
+          ...environment,
+          SDKWORK_PROVIDER_CLI_TEST_OMIT_SESSION_ID: '1',
+        },
+        prompt: 'do not synthesize provider identity',
+      },
+    );
+    assert.equal(
+      identitylessResult.provider_session_id,
+      null,
+      'a provider Session identity must never be synthesized from canonical session_id.',
+    );
 
     const workerEnvironment = {
       ...environment,

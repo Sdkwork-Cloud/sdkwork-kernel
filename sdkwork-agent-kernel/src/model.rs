@@ -166,7 +166,10 @@ impl ModelUsage {
 pub struct ModelRequest {
     pub model_request_id: String,
     pub model_id: Option<String>,
+    /// Canonical SDKWork Session identity used for ownership, persistence, and events.
     pub session_id: Option<String>,
+    /// Opaque continuation identity established by the selected provider.
+    pub provider_session_id: Option<String>,
     pub task_id: Option<String>,
     pub run_id: Option<String>,
     pub step_id: Option<String>,
@@ -190,6 +193,7 @@ impl ModelRequest {
             model_request_id: model_request_id.into(),
             model_id: None,
             session_id: None,
+            provider_session_id: None,
             task_id: None,
             run_id: None,
             step_id: None,
@@ -271,6 +275,11 @@ impl ModelRequest {
 
     pub fn for_session(mut self, session_id: impl Into<String>) -> Self {
         self.session_id = Some(session_id.into());
+        self
+    }
+
+    pub fn for_provider_session(mut self, provider_session_id: impl Into<String>) -> Self {
+        self.provider_session_id = Some(provider_session_id.into());
         self
     }
 

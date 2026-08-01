@@ -31,7 +31,8 @@ use serde_json::Value;
 
 use crate::StandardPluginIds;
 
-const PROVIDER_RUNTIME_ROOT_ENV: &str = "SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT";
+const PROVIDER_HOST_ROOT_ENV: &str = "SDKWORK_AGENT_PROVIDER_HOST_ROOT";
+const LEGACY_PROVIDER_RUNTIME_ROOT_ENV: &str = "SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT";
 const PYTHON_BINARY_ENV: &str = "SDKWORK_AGENT_PYTHON_BINARY";
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const DETECTION_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
@@ -846,8 +847,7 @@ impl ProcessAdapterInstaller {
     }
 
     fn validate_descriptor(&self) -> KernelResult<ProcessAdapterPackageManager> {
-        StandardPluginIds::validate_agent_id(&self.agent_id)
-            .map_err(KernelError::validation)?;
+        StandardPluginIds::validate_agent_id(&self.agent_id).map_err(KernelError::validation)?;
         StandardPluginIds::validate_provider_id(&self.provider_id)
             .map_err(KernelError::validation)?;
         if !is_exact_semantic_version(&self.provider_version) {
@@ -1039,21 +1039,17 @@ impl ProcessAdapterInstaller {
     fn npm_install_root(&self) -> KernelResult<PathBuf> {
         let root = if let Some(root) = &self.install_root {
             root.clone()
+        } else if let Some(root) = configured_provider_host_root()? {
+            root
         } else {
-            match std::env::var_os(PROVIDER_RUNTIME_ROOT_ENV) {
-                Some(root) if root.is_empty() => {
-                    return Err(KernelError::validation(format!(
-                        "{PROVIDER_RUNTIME_ROOT_ENV} must not be empty"
-                    )));
-                }
-                Some(root) => PathBuf::from(root),
-                None => find_packaged_provider_runtime_root().ok_or_else(|| {
-                    KernelError::provider_error(
-                        "provider_install_root_missing",
-                        format!("{PROVIDER_RUNTIME_ROOT_ENV} is not configured"),
-                    )
-                })?,
-            }
+            find_packaged_provider_host_root().ok_or_else(|| {
+                KernelError::provider_error(
+                    "provider_install_root_missing",
+                    format!(
+                        "{PROVIDER_HOST_ROOT_ENV} is not configured and no packaged provider-host directory was found"
+                    ),
+                )
+            })?
         };
         resolve_install_root(&root)
     }
@@ -1501,6 +1497,21 @@ fn resolve_install_root(root: &Path) -> KernelResult<PathBuf> {
     Ok(canonical_ancestor.join(missing_tail))
 }
 
+fn configured_provider_host_root() -> KernelResult<Option<PathBuf>> {
+    for environment_key in [PROVIDER_HOST_ROOT_ENV, LEGACY_PROVIDER_RUNTIME_ROOT_ENV] {
+        match std::env::var_os(environment_key) {
+            Some(root) if root.is_empty() => {
+                return Err(KernelError::validation(format!(
+                    "{environment_key} must not be empty"
+                )));
+            }
+            Some(root) => return Ok(Some(PathBuf::from(root))),
+            None => {}
+        }
+    }
+    Ok(None)
+}
+
 fn executable_lock_identity(program: &str) -> String {
     let path = resolve_executable_path(program).unwrap_or_else(|| {
         let path = Path::new(program);
@@ -1927,23 +1938,29 @@ fn dependency_detection(
     }
 }
 
-fn find_packaged_provider_runtime_root() -> Option<PathBuf> {
+fn find_packaged_provider_host_root() -> Option<PathBuf> {
     let executable = std::env::current_exe().ok()?;
-    let mut ancestors = executable.parent();
-    while let Some(directory) = ancestors {
-        let candidates = [
-            directory.join("provider-runtime"),
-            directory.join("resources").join("provider-runtime"),
-            directory.join("Resources").join("provider-runtime"),
-        ];
-        if let Some(candidate) = candidates.into_iter().find(|path| {
-            path.join("workers")
-                .join("generic-ts-sdk-worker.mjs")
-                .is_file()
-        }) {
-            return Some(candidate);
+    find_packaged_provider_host_root_from(executable.parent()?)
+}
+
+fn find_packaged_provider_host_root_from(start_directory: &Path) -> Option<PathBuf> {
+    for directory_name in ["provider-host", "provider-runtime"] {
+        let mut ancestors = Some(start_directory);
+        while let Some(directory) = ancestors {
+            let candidates = [
+                directory.join(directory_name),
+                directory.join("resources").join(directory_name),
+                directory.join("Resources").join(directory_name),
+            ];
+            if let Some(candidate) = candidates.into_iter().find(|path| {
+                path.join("workers")
+                    .join("generic-ts-sdk-worker.mjs")
+                    .is_file()
+            }) {
+                return Some(candidate);
+            }
+            ancestors = directory.parent();
         }
-        ancestors = directory.parent();
     }
     None
 }

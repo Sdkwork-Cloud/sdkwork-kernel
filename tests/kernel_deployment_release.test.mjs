@@ -211,14 +211,17 @@ test('production docker image defaults to cloud deployment profile', () => {
   assert.match(dockerfile, /SDKWORK_KERNEL_AGENT_PLUGIN=rig/);
   assert.match(dockerfile, /FROM node:22-bookworm-slim AS node-runtime/);
   assert.match(dockerfile, /generic-ts-sdk-worker\.mjs/);
+  assert.match(dockerfile, /codex-app-server-runtime\.mjs/);
+  assert.match(dockerfile, /codex-app-server-live\.mjs/);
   assert.match(dockerfile, /provider-cli-live\.mjs/);
   assert.match(dockerfile, /SDKWORK_AGENT_NODE_BINARY=\/usr\/local\/bin\/node/);
-  assert.match(dockerfile, /SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT=\/app\/provider-runtime/);
+  assert.match(dockerfile, /SDKWORK_AGENT_PROVIDER_HOST_ROOT=\/app\/provider-host/);
+  assert.doesNotMatch(dockerfile, /SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT|provider-runtime/);
   assert.doesNotMatch(dockerfile, /SDKWORK_KERNEL_HOSTING/);
   assert.doesNotMatch(dockerfile, /SDKWORK_BIND_ADDRESS/);
 });
 
-test('release archives stage the provider worker runtime beside the server binary', () => {
+test('release archives stage the provider host beside the server binary', () => {
   const packager = fs.readFileSync(
     path.join(root, 'scripts/release/package-kernel-artifact.mjs'),
     'utf8',
@@ -227,12 +230,15 @@ test('release archives stage the provider worker runtime beside the server binar
   for (const worker of [
     'generic-ts-sdk-worker.mjs',
     'engine-sdk-live.mjs',
+    'codex-app-server-runtime.mjs',
+    'codex-app-server-live.mjs',
     'codex-cli-live.mjs',
     'provider-cli-live.mjs',
   ]) {
     assert.match(packager, new RegExp(worker.replaceAll('.', '\\.'), 'u'));
   }
-  assert.match(packager, /provider-runtime/);
+  assert.match(packager, /provider-host/);
+  assert.doesNotMatch(packager, /provider-runtime|providerRuntime/);
   assert.match(packager, /process\.execPath/);
   assert.match(packager, /stageReleasePayload/);
   assert.match(packager, /assertPathWithin/);
@@ -442,6 +448,8 @@ test('commercial release verification requires live dependencies explicitly', ()
   assert.match(verifier, /commercial release verification requires live runtime PostgreSQL/);
   assert.match(verifier, /check-agent-workflow-standard\.mjs/);
   assert.match(verifier, /generic-ts-sdk-worker\.test\.mjs/);
+  assert.match(verifier, /codex-app-server-live\.test\.mjs/);
+  assert.match(verifier, /generic-ts-sdk-worker-app-server\.test\.mjs/);
   assert.match(verifier, /codex-cli-live\.test\.mjs/);
   assert.match(verifier, /provider-cli-live\.test\.mjs/);
   assert.match(verifier, /generic-python-sdk-worker\.test\.mjs/);

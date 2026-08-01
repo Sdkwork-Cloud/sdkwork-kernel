@@ -9,7 +9,7 @@ use sdkwork_agent_provider_transport_ipc::{
     TransportError, SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_PING_METHOD,
 };
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
@@ -19,6 +19,12 @@ const HEALTH_WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(2);
 const DEFAULT_WORKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_WORKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(3600);
 const PYTHON_BINARY_ENV: &str = "SDKWORK_AGENT_PYTHON_BINARY";
+const WORKER_SCRIPT_ENV: &str = "SDKWORK_AGENT_PYTHON_WORKER_SCRIPT";
+const PROVIDER_HOST_ROOT_ENV: &str = "SDKWORK_AGENT_PROVIDER_HOST_ROOT";
+const LEGACY_PROVIDER_RUNTIME_ROOT_ENV: &str = "SDKWORK_AGENT_PROVIDER_RUNTIME_ROOT";
+const PROVIDER_HOST_DIR_NAME: &str = "provider-host";
+const LEGACY_PROVIDER_RUNTIME_DIR_NAME: &str = "provider-runtime";
+const PYTHON_WORKER_RELATIVE_PATH: &str = "workers/generic_python_sdk_worker.py";
 
 #[derive(Debug, Clone)]
 pub struct PythonWorkerLaunchOptions {
@@ -50,8 +56,70 @@ pub fn default_python_binary() -> String {
 }
 
 pub fn default_python_worker_script() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../scripts/provider-transport-workers/generic_python_sdk_worker.py")
+    if let Some(configured) = std::env::var_os(WORKER_SCRIPT_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+    {
+        return configured;
+    }
+
+    if let Some(root) = provider_host_root() {
+        return root.join(PYTHON_WORKER_RELATIVE_PATH);
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../scripts/provider-transport-workers/generic_python_sdk_worker.py")
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        PathBuf::from(PROVIDER_HOST_DIR_NAME).join(PYTHON_WORKER_RELATIVE_PATH)
+    }
+}
+
+fn provider_host_root() -> Option<PathBuf> {
+    for environment_key in [PROVIDER_HOST_ROOT_ENV, LEGACY_PROVIDER_RUNTIME_ROOT_ENV] {
+        if let Some(configured) = std::env::var_os(environment_key)
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+        {
+            return Some(configured);
+        }
+    }
+
+    let executable = std::env::current_exe().ok()?;
+    find_packaged_provider_host_root(executable.parent()?, PYTHON_WORKER_RELATIVE_PATH)
+}
+
+fn find_packaged_provider_host_root(
+    start_directory: &Path,
+    worker_relative_path: &str,
+) -> Option<PathBuf> {
+    for directory_name in [PROVIDER_HOST_DIR_NAME, LEGACY_PROVIDER_RUNTIME_DIR_NAME] {
+        let mut ancestors = Some(start_directory);
+        while let Some(directory) = ancestors {
+            let candidates = [
+                directory.join(directory_name),
+                directory.join("resources").join(directory_name),
+                directory.join("Resources").join(directory_name),
+                directory
+                    .join("share")
+                    .join("sdkwork-birdcoder")
+                    .join(directory_name),
+            ];
+            if let Some(candidate) = candidates
+                .into_iter()
+                .find(|path| path.join(worker_relative_path).is_file())
+            {
+                return Some(candidate);
+            }
+            ancestors = directory.parent();
+        }
+    }
+
+    None
 }
 
 enum PythonRuntimeBackend {
@@ -414,12 +482,145 @@ mod tests {
 
     #[test]
     fn default_worker_script_points_to_repository_script() {
+        let _lock = env_lock();
+        let _host_root = EnvVarGuard::set(PROVIDER_HOST_ROOT_ENV, None);
+        let _legacy_root = EnvVarGuard::set(LEGACY_PROVIDER_RUNTIME_ROOT_ENV, None);
+        let _script = EnvVarGuard::set(WORKER_SCRIPT_ENV, None);
         let script = default_python_worker_script();
         assert!(
             script.exists(),
             "default Python worker script must exist: {}",
             script.display()
         );
+    }
+
+    #[test]
+    fn packaged_host_root_resolves_python_worker_without_repository_paths() {
+        let _lock = env_lock();
+        let root = std::env::temp_dir().join(format!(
+            "sdkwork-python-provider-host-test-{}",
+            std::process::id()
+        ));
+        let worker = root.join(PYTHON_WORKER_RELATIVE_PATH);
+        std::fs::create_dir_all(worker.parent().expect("worker parent")).expect("worker dir");
+        std::fs::write(&worker, "#!/usr/bin/env python3\n").expect("worker file");
+
+        let _host_root = EnvVarGuard::set(
+            PROVIDER_HOST_ROOT_ENV,
+            Some(root.to_string_lossy().as_ref()),
+        );
+        let _legacy_root = EnvVarGuard::set(LEGACY_PROVIDER_RUNTIME_ROOT_ENV, None);
+        let _script = EnvVarGuard::set(WORKER_SCRIPT_ENV, None);
+
+        assert_eq!(default_python_worker_script(), worker);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn canonical_host_root_precedes_the_legacy_runtime_root() {
+        let _lock = env_lock();
+        let base = std::env::temp_dir().join(format!(
+            "sdkwork-python-provider-host-precedence-test-{}",
+            std::process::id()
+        ));
+        let host_root = base.join("provider-host");
+        let legacy_root = base.join("provider-runtime");
+        let host_worker = host_root.join(PYTHON_WORKER_RELATIVE_PATH);
+        let legacy_worker = legacy_root.join(PYTHON_WORKER_RELATIVE_PATH);
+        std::fs::create_dir_all(host_worker.parent().expect("host worker parent"))
+            .expect("host worker dir");
+        std::fs::create_dir_all(legacy_worker.parent().expect("legacy worker parent"))
+            .expect("legacy worker dir");
+        std::fs::write(&host_worker, "host worker\n").expect("host worker file");
+        std::fs::write(&legacy_worker, "legacy worker\n").expect("legacy worker file");
+
+        let _host_root = EnvVarGuard::set(
+            PROVIDER_HOST_ROOT_ENV,
+            Some(host_root.to_string_lossy().as_ref()),
+        );
+        let _legacy_root = EnvVarGuard::set(
+            LEGACY_PROVIDER_RUNTIME_ROOT_ENV,
+            Some(legacy_root.to_string_lossy().as_ref()),
+        );
+        let _script = EnvVarGuard::set(WORKER_SCRIPT_ENV, None);
+
+        assert_eq!(default_python_worker_script(), host_worker);
+
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn legacy_runtime_root_remains_a_compatibility_input() {
+        let _lock = env_lock();
+        let root = std::env::temp_dir().join(format!(
+            "sdkwork-python-provider-runtime-compatibility-test-{}",
+            std::process::id()
+        ));
+        let worker = root.join(PYTHON_WORKER_RELATIVE_PATH);
+        std::fs::create_dir_all(worker.parent().expect("worker parent")).expect("worker dir");
+        std::fs::write(&worker, "legacy worker\n").expect("worker file");
+
+        let _host_root = EnvVarGuard::set(PROVIDER_HOST_ROOT_ENV, None);
+        let _legacy_root = EnvVarGuard::set(
+            LEGACY_PROVIDER_RUNTIME_ROOT_ENV,
+            Some(root.to_string_lossy().as_ref()),
+        );
+        let _script = EnvVarGuard::set(WORKER_SCRIPT_ENV, None);
+
+        assert_eq!(default_python_worker_script(), worker);
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn packaged_host_directory_precedes_a_nearer_legacy_runtime_directory() {
+        let base = std::env::temp_dir().join(format!(
+            "sdkwork-python-provider-host-directory-precedence-test-{}",
+            std::process::id()
+        ));
+        let start_directory = base.join("application").join("bin");
+        let host_root = base.join(PROVIDER_HOST_DIR_NAME);
+        let legacy_root = start_directory.join(LEGACY_PROVIDER_RUNTIME_DIR_NAME);
+        let host_worker = host_root.join(PYTHON_WORKER_RELATIVE_PATH);
+        let legacy_worker = legacy_root.join(PYTHON_WORKER_RELATIVE_PATH);
+        std::fs::create_dir_all(&start_directory).expect("start directory");
+        std::fs::create_dir_all(host_worker.parent().expect("host worker parent"))
+            .expect("host worker directory");
+        std::fs::create_dir_all(legacy_worker.parent().expect("legacy worker parent"))
+            .expect("legacy worker directory");
+        std::fs::write(&host_worker, "host worker\n").expect("host worker file");
+        std::fs::write(&legacy_worker, "legacy worker\n").expect("legacy worker file");
+
+        assert_eq!(
+            find_packaged_provider_host_root(&start_directory, PYTHON_WORKER_RELATIVE_PATH),
+            Some(host_root)
+        );
+
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn explicit_python_worker_path_takes_precedence_over_packaged_host() {
+        let _lock = env_lock();
+        let root = std::env::temp_dir().join(format!(
+            "sdkwork-python-provider-host-explicit-test-{}",
+            std::process::id()
+        ));
+        let explicit_worker = root.join("explicit-worker.py");
+        std::fs::create_dir_all(&root).expect("runtime test dir");
+        std::fs::write(&explicit_worker, "worker\n").expect("worker file");
+
+        let _host_root = EnvVarGuard::set(PROVIDER_HOST_ROOT_ENV, None);
+        let _legacy_root = EnvVarGuard::set(LEGACY_PROVIDER_RUNTIME_ROOT_ENV, None);
+        let _script = EnvVarGuard::set(
+            WORKER_SCRIPT_ENV,
+            Some(explicit_worker.to_string_lossy().as_ref()),
+        );
+
+        assert_eq!(default_python_worker_script(), explicit_worker);
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

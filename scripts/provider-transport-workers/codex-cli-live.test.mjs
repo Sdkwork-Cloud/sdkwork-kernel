@@ -84,7 +84,8 @@ const operation = {
   messages: ['legacy prompt'],
   wire_messages: [{ role: 'user', content: [{ type: 'text', text: 'structured prompt' }] }],
   model_id: 'codex-test-model',
-  session_id: 'thread-existing-456',
+  session_id: 'session-canonical-456',
+  provider_session_id: 'thread-existing-456',
   working_directory: workingDirectory,
   timeout_ms: 5_000,
   execution_options: {
@@ -94,6 +95,7 @@ const operation = {
     skip_git_repo_check: true,
     ephemeral: true,
     max_output_bytes: 4_096,
+    prefer_app_server: false,
     temperature: 0.2,
     top_p: 0.8,
     max_tokens: 1_024,
@@ -107,6 +109,16 @@ assertIncludesPair(args, '--sandbox', 'workspace-write');
 assertIncludesPair(args, '--config', 'approval_policy="on-request"');
 assertIncludesPair(args, '--cd', path.resolve(workingDirectory));
 assertIncludesPair(args, 'resume', 'thread-existing-456');
+const canonicalSessionOnlyArgs = buildCodexCliArgs({
+  ...operation,
+  provider_session_id: undefined,
+});
+assert.equal(
+  canonicalSessionOnlyArgs.includes('resume'),
+  false,
+  'canonical session_id must never be used as Codex provider resume identity',
+);
+assert.equal(canonicalSessionOnlyArgs.includes('session-canonical-456'), false);
 assert.ok(args.includes('--skip-git-repo-check'));
 assert.ok(args.includes('--ephemeral'));
 assert.equal(args.at(-1), '-');
@@ -122,6 +134,7 @@ const result = await invokeCodexCliModelChat(operation, {
 assert.equal(result.ok, true);
 assert.equal(result.mode, 'sdk_cli');
 assert.equal(result.provider_session_id, 'thread-existing-456');
+assert.equal(Object.hasOwn(result, 'session_id'), false);
 assert.deepEqual(result.messages, ['answer:structured prompt']);
 
 const capture = JSON.parse(fs.readFileSync(capturePath, 'utf8'));
@@ -131,6 +144,22 @@ assertIncludesPair(capture.args, '--model', 'codex-test-model');
 assertIncludesPair(capture.args, 'resume', 'thread-existing-456');
 assertIncludesPair(capture.args, '--sandbox', 'workspace-write');
 assertIncludesPair(capture.args, '--config', 'approval_policy="on-request"');
+
+const canonicalSessionOnlyResult = await invokeCodexCliModelChat(
+  {
+    ...operation,
+    provider_session_id: undefined,
+  },
+  {
+    env: cliEnvironment,
+    packageName: '@openai/codex-sdk',
+    prompt: 'new provider session',
+  },
+);
+assert.equal(canonicalSessionOnlyResult.provider_session_id, 'thread-fixture-123');
+const canonicalSessionOnlyCapture = JSON.parse(fs.readFileSync(capturePath, 'utf8'));
+assert.equal(canonicalSessionOnlyCapture.args.includes('resume'), false);
+assert.equal(canonicalSessionOnlyCapture.args.includes('session-canonical-456'), false);
 
 const resultWithoutProviderSession = await invokeCodexCliModelChat(operation, {
   env: cliEnvironment,
@@ -208,11 +237,16 @@ const productionEnvironment = {
 };
 const pingResponse = await invokeWorker('@openai/codex-sdk', null, productionEnvironment, 'sdkwork/ping');
 assert.equal(pingResponse.result.package_resolved, false);
+assert.equal(pingResponse.result.app_server_available, true);
 assert.equal(pingResponse.result.cli_available, true);
 assert.equal(pingResponse.result.runtime_available, true);
-assert.equal(pingResponse.result.runtime_mode, 'sdk_cli');
+assert.equal(pingResponse.result.runtime_mode, 'app_server');
 
-const workerResponse = await invokeWorker('@openai/codex-sdk', operation, productionEnvironment);
+const workerResponse = await invokeWorker(
+  '@openai/codex-sdk',
+  operation,
+  productionEnvironment,
+);
 assert.equal(workerResponse.result.ok, true, 'production should use a real Codex CLI transport');
 assert.equal(workerResponse.result.mode, 'sdk_cli');
 assert.equal(workerResponse.result.provider_session_id, 'thread-existing-456');
@@ -222,7 +256,8 @@ const liveActivityFrames = await invokeWorkerFrames(
   {
     ...operation,
     model_request_id: 'req-cli-live-activity',
-    session_id: undefined,
+    session_id: 'session-canonical-activity',
+    provider_session_id: undefined,
     messages: ['live activity'],
     wire_messages: undefined,
   },

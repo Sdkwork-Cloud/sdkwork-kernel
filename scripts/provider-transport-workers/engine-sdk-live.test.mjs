@@ -147,7 +147,10 @@ export class GeminiCliAgent {
   async resumeSession(id) {
     this.record.resume_session_id = id;
     capture(this.record);
-    return new FakeSession(id, this.record);
+    return new FakeSession(
+      id === 'gemini-sdk-mismatch-request' ? 'gemini-sdk-different' : id,
+      this.record,
+    );
   }
 }
 `,
@@ -429,6 +432,7 @@ const claudeResult = await invokeModelChatLive(
   '@anthropic-ai/claude-agent-sdk',
   {
     model_request_id: 'req-claude-sdk-new',
+    session_id: 'session-canonical-claude-new',
     model_id: 'claude-sonnet-4-6',
     working_directory: 'C:/sdkwork/claude-workspace',
     timeout_ms: 2_000,
@@ -457,9 +461,15 @@ assert.deepEqual(claudeCapture, {
       permission_mode: 'acceptEdits',
     },
   });
+assert.equal(
+  Object.hasOwn(claudeCapture.options, 'resume'),
+  false,
+  'canonical session_id must not resume a Claude provider Session.',
+);
 const resumedClaudeResult = await invokeModelChatLive('@anthropic-ai/claude-agent-sdk', {
   model_request_id: 'req-claude-sdk-resume',
-  session_id: 'claude-sdk-existing',
+  session_id: 'session-canonical-claude-resume',
+  provider_session_id: 'claude-sdk-existing',
   messages: ['Resume Claude'],
 });
 assert.equal(resumedClaudeResult.provider_session_id, 'claude-sdk-existing');
@@ -483,7 +493,8 @@ await assert.rejects(
     '@anthropic-ai/claude-agent-sdk',
     {
       model_request_id: 'req-claude-sdk-mismatch',
-      session_id: 'claude-sdk-existing',
+      session_id: 'session-canonical-claude-mismatch',
+      provider_session_id: 'claude-sdk-existing',
       messages: ['mismatched Claude session'],
     },
     { onActivity: async (event) => mismatchedClaudeActivity.push(event) },
@@ -501,6 +512,7 @@ process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
 });
 const geminiResult = await invokeModelChatLive('@google/gemini-cli-sdk', {
   model_request_id: 'req-gemini-sdk-new',
+  session_id: 'session-canonical-gemini-new',
   model_id: 'gemini-2.5-pro',
   working_directory: 'C:/sdkwork/gemini-workspace',
   timeout_ms: 2_000,
@@ -522,7 +534,8 @@ assert.deepEqual(geminiCapture.send_stream, {
 });
 const resumedGeminiResult = await invokeModelChatLive('@google/gemini-cli-sdk', {
   model_request_id: 'req-gemini-sdk-resume',
-  session_id: 'gemini-sdk-existing',
+  session_id: 'session-canonical-gemini-resume',
+  provider_session_id: 'gemini-sdk-existing',
   messages: ['Resume Gemini'],
 });
 assert.equal(resumedGeminiResult.provider_session_id, 'gemini-sdk-existing');
@@ -532,12 +545,22 @@ assert.equal(
   'gemini-sdk-existing',
   'Gemini resume must use the official agent.resumeSession API.',
 );
+await assert.rejects(
+  invokeModelChatLive('@google/gemini-cli-sdk', {
+    model_request_id: 'req-gemini-sdk-mismatch',
+    session_id: 'session-canonical-gemini-mismatch',
+    provider_session_id: 'gemini-sdk-mismatch-request',
+    messages: ['Mismatch Gemini'],
+  }),
+  /resumed a different provider session/,
+);
 
 process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
   '@opencode-ai/sdk': opencodeSdkMirror,
 });
 const opencodeResult = await invokeModelChatLive('@opencode-ai/sdk', {
   model_request_id: 'req-opencode-sdk-new',
+  session_id: 'session-canonical-opencode-new',
   model_id: 'opencode/big-pickle',
   working_directory: 'C:/sdkwork/opencode-workspace',
   timeout_ms: 2_000,
@@ -578,7 +601,8 @@ const resumedOpencodeResult = await invokeModelChatLive(
   '@opencode-ai/sdk',
   {
     model_request_id: 'req-opencode-sdk-resume',
-    session_id: 'opencode-sdk-existing',
+    session_id: 'session-canonical-opencode-resume',
+    provider_session_id: 'opencode-sdk-existing',
     messages: ['Resume OpenCode'],
     execution_options: { approval_policy: 'allow-all' },
   },
@@ -613,7 +637,8 @@ await assert.rejects(
     '@opencode-ai/sdk',
     {
       model_request_id: 'req-opencode-sdk-mismatch',
-      session_id: 'opencode-sdk-mismatch-request',
+      session_id: 'session-canonical-opencode-mismatch',
+      provider_session_id: 'opencode-sdk-mismatch-request',
       messages: ['Do not invoke the mismatched session'],
     },
     { onActivity: async (event) => mismatchedOpencodeActivity.push(event) },
@@ -628,7 +653,8 @@ process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
 const codexOperation = {
   model_request_id: 'req-codex-sdk',
   model_id: 'gpt-5.4',
-  session_id: 'thread-sdk-existing',
+  session_id: 'session-canonical-sdk',
+  provider_session_id: 'thread-sdk-existing',
   working_directory: 'C:/sdkwork/workspace',
   timeout_ms: 2_000,
   messages: ['legacy prompt'],
@@ -679,6 +705,7 @@ const callbackCodexStreamResult = await invokeModelChatStreamLive(
   '@openai/codex-sdk',
   {
     model_request_id: 'req-codex-sdk-stream-callback',
+    session_id: 'session-canonical-stream',
     messages: ['stream callback prompt'],
     timeout_ms: 2_000,
   },
@@ -712,7 +739,12 @@ assert.deepEqual(
     'agent.turn.completed',
   ],
 );
-assert.equal(deliveredCodexEvents[0].session_id, 'thread-sdk-streamed');
+assert.equal(deliveredCodexEvents[0].session_id, 'session-canonical-stream');
+assert.equal(
+  deliveredCodexEvents[0].payload.providerSessionId,
+  'thread-sdk-streamed',
+);
+assert.equal(Object.hasOwn(deliveredCodexEvents[0].payload, 'threadId'), false);
 assert.equal(deliveredCodexEvents[1].step_id, 'message-1');
 assert.equal(deliveredCodexEvents[1].correlation_id, 'req-codex-sdk-stream-callback');
 assert.equal(deliveredCodexEvents[1].payload.providerEventType, 'item.updated');
@@ -729,7 +761,7 @@ const commandKernelEvent = buildCodexKernelStreamEvent(
       status: 'completed',
     },
   },
-  { model_request_id: 'req-command' },
+  { model_request_id: 'req-command', session_id: 'session-canonical-command' },
   'thread-command',
   3,
 );
@@ -737,6 +769,8 @@ assert.equal(commandKernelEvent.event_type, 'agent.tool.completed');
 assert.equal(commandKernelEvent.source, 'tool');
 assert.equal(commandKernelEvent.step_id, 'command-1');
 assert.equal(commandKernelEvent.payload.sequence, 3);
+assert.equal(commandKernelEvent.session_id, 'session-canonical-command');
+assert.equal(commandKernelEvent.payload.providerSessionId, 'thread-command');
 
 const failedCodexChunks = [];
 await assert.rejects(

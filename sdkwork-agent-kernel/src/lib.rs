@@ -295,8 +295,9 @@ pub use session_activity::{
     SessionActivityState,
 };
 pub use skill::{
-    AgentSkillDescriptor, AgentSkillInvocationMode, AgentSkillProvider, AgentSkillRequest,
-    AgentSkillResult, AgentSkillStatus,
+    parse_skill_markdown_frontmatter, AgentSkillDescriptor, AgentSkillInvocationMode,
+    AgentSkillProvider, AgentSkillRequest, AgentSkillResult, AgentSkillStatus, SkillContentFile,
+    SkillContentLayer, SkillContentLayout, SkillMarkdownFrontmatter, SkillVisibility,
 };
 pub use stream_event::{
     stream_event_with_trace, AgentStreamEvent, AgentStreamSink, CancelledEvent,

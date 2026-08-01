@@ -22,6 +22,247 @@ impl AgentSkillInvocationMode {
     }
 }
 
+/// SKILL.md frontmatter contract, aligned with the agent skill ecosystem
+/// (Anthropic Agent Skills, ZCode `SKILL.md`, and SDKWORK workspace
+/// `.sdkwork/skills/<name>/SKILL.md` conventions).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkillMarkdownFrontmatter {
+    pub name: String,
+    pub description: String,
+    pub version: Option<String>,
+    pub license: Option<String>,
+    pub argument_hint: Option<String>,
+    pub allowed_tools: Vec<String>,
+    pub disallowed_tools: Vec<String>,
+    pub paths: Vec<String>,
+}
+
+impl SkillMarkdownFrontmatter {
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            version: None,
+            license: None,
+            argument_hint: None,
+            allowed_tools: Vec::new(),
+            disallowed_tools: Vec::new(),
+            paths: Vec::new(),
+        }
+    }
+
+    pub fn with_version(mut self, version: impl Into<String>) -> Self {
+        self.version = Some(version.into());
+        self
+    }
+
+    pub fn with_license(mut self, license: impl Into<String>) -> Self {
+        self.license = Some(license.into());
+        self
+    }
+
+    pub fn with_argument_hint(mut self, argument_hint: impl Into<String>) -> Self {
+        self.argument_hint = Some(argument_hint.into());
+        self
+    }
+
+    pub fn with_allowed_tool(mut self, tool: impl Into<String>) -> Self {
+        self.allowed_tools.push(tool.into());
+        self
+    }
+
+    pub fn with_disallowed_tool(mut self, tool: impl Into<String>) -> Self {
+        self.disallowed_tools.push(tool.into());
+        self
+    }
+
+    pub fn with_path(mut self, path: impl Into<String>) -> Self {
+        self.paths.push(path.into());
+        self
+    }
+}
+
+/// Content layer of a skill, following the three-layer progressive
+/// disclosure model: SKILL.md body always resident, `references/` and
+/// `scripts/` loaded on demand, `assets/` never loaded into context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkillContentLayer {
+    Body,
+    References,
+    Scripts,
+    Assets,
+}
+
+impl SkillContentLayer {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Body => "body",
+            Self::References => "references",
+            Self::Scripts => "scripts",
+            Self::Assets => "assets",
+        }
+    }
+}
+
+/// A skill content file with the one-line description used for progressive
+/// disclosure decisions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkillContentFile {
+    pub path: String,
+    pub description: Option<String>,
+    pub size_hint: Option<u64>,
+}
+
+impl SkillContentFile {
+    pub fn new(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            description: None,
+            size_hint: None,
+        }
+    }
+
+    pub fn with_description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    pub fn with_size_hint(mut self, size_hint: u64) -> Self {
+        self.size_hint = Some(size_hint);
+        self
+    }
+}
+
+/// Three-layer skill content layout.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SkillContentLayout {
+    /// SKILL.md body (resident in context).
+    pub body: String,
+    /// `references/` — loaded on demand.
+    pub references: Vec<SkillContentFile>,
+    /// `scripts/` — executed or read on demand.
+    pub scripts: Vec<SkillContentFile>,
+    /// `assets/` — output resources, never loaded into context.
+    pub assets: Vec<SkillContentFile>,
+}
+
+impl SkillContentLayout {
+    pub fn with_body(body: impl Into<String>) -> Self {
+        Self {
+            body: body.into(),
+            references: Vec::new(),
+            scripts: Vec::new(),
+            assets: Vec::new(),
+        }
+    }
+
+    pub fn with_reference(mut self, reference: SkillContentFile) -> Self {
+        self.references.push(reference);
+        self
+    }
+
+    pub fn with_script(mut self, script: SkillContentFile) -> Self {
+        self.scripts.push(script);
+        self
+    }
+
+    pub fn with_asset(mut self, asset: SkillContentFile) -> Self {
+        self.assets.push(asset);
+        self
+    }
+}
+
+/// Skill visibility control, aligned with the `skillOverrides` settings
+/// (`off` / `user-invocable-only` / `name-only`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SkillVisibility {
+    /// Default: description-driven model invocation is allowed.
+    ModelInvocable,
+    /// Only explicit user invocation (or the Skill tool) can trigger it.
+    UserInvocableOnly,
+    /// Only exact-name invocation can trigger it.
+    NameOnly,
+    /// Disabled entirely.
+    Off,
+}
+
+impl SkillVisibility {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::ModelInvocable => "model_invocable",
+            Self::UserInvocableOnly => "user_invocable_only",
+            Self::NameOnly => "name_only",
+            Self::Off => "off",
+        }
+    }
+
+    /// Whether the model may autonomously invoke the skill from its
+    /// description alone.
+    pub fn allows_model_invocation(&self) -> bool {
+        matches!(self, Self::ModelInvocable)
+    }
+}
+
+/// Parse the YAML-style frontmatter block of a SKILL.md document
+/// (`---` delimited). Unknown keys are ignored; known list keys accept
+/// comma-separated values. Returns `None` when no frontmatter block exists.
+pub fn parse_skill_markdown_frontmatter(input: &str) -> Option<SkillMarkdownFrontmatter> {
+    let trimmed = input.trim_start();
+    if !trimmed.starts_with("---") {
+        return None;
+    }
+    let rest = &trimmed[3..];
+    let end = rest.find("\n---")?;
+    let block = &rest[..end];
+
+    let mut frontmatter = SkillMarkdownFrontmatter::new("", "");
+    let mut seen_name = false;
+    let mut seen_description = false;
+    for line in block.lines() {
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = value.trim().trim_matches('"').trim();
+        match key {
+            "name" => {
+                frontmatter.name = value.to_string();
+                seen_name = true;
+            }
+            "description" => {
+                frontmatter.description = value.to_string();
+                seen_description = true;
+            }
+            "version" => frontmatter.version = Some(value.to_string()),
+            "license" => frontmatter.license = Some(value.to_string()),
+            "argument-hint" => frontmatter.argument_hint = Some(value.to_string()),
+            "allowed-tools" => {
+                frontmatter.allowed_tools = comma_list(value);
+            }
+            "disallowed-tools" => {
+                frontmatter.disallowed_tools = comma_list(value);
+            }
+            "paths" => {
+                frontmatter.paths = comma_list(value);
+            }
+            _ => {}
+        }
+    }
+    if !seen_name && !seen_description {
+        return None;
+    }
+    Some(frontmatter)
+}
+
+fn comma_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentSkillDescriptor {
     pub skill_id: String,
@@ -40,6 +281,17 @@ pub struct AgentSkillDescriptor {
     pub cancellation_supported: bool,
     pub audit_required: bool,
     pub metadata: Vec<(String, String)>,
+    /// SKILL.md frontmatter when the skill ships as a markdown skill.
+    pub frontmatter: Option<SkillMarkdownFrontmatter>,
+    /// Progressive-disclosure content layout when the skill ships files.
+    pub content_layout: Option<SkillContentLayout>,
+    /// Context budget hint (characters) for the skill body.
+    pub context_budget: Option<u64>,
+    /// Skill visibility override.
+    pub visibility: SkillVisibility,
+    pub disallowed_tools: Vec<String>,
+    pub paths: Vec<String>,
+    pub argument_hint: Option<String>,
 }
 
 impl AgentSkillDescriptor {
@@ -67,6 +319,13 @@ impl AgentSkillDescriptor {
             cancellation_supported: false,
             audit_required: false,
             metadata: Vec::new(),
+            frontmatter: None,
+            content_layout: None,
+            context_budget: None,
+            visibility: SkillVisibility::ModelInvocable,
+            disallowed_tools: Vec::new(),
+            paths: Vec::new(),
+            argument_hint: None,
         }
     }
 
@@ -123,6 +382,62 @@ impl AgentSkillDescriptor {
     pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.push((key.into(), value.into()));
         self
+    }
+
+    pub fn with_frontmatter(mut self, frontmatter: SkillMarkdownFrontmatter) -> Self {
+        self.frontmatter = Some(frontmatter);
+        self
+    }
+
+    pub fn with_content_layout(mut self, content_layout: SkillContentLayout) -> Self {
+        self.content_layout = Some(content_layout);
+        self
+    }
+
+    pub fn with_context_budget(mut self, context_budget: u64) -> Self {
+        self.context_budget = Some(context_budget);
+        self
+    }
+
+    pub fn with_visibility(mut self, visibility: SkillVisibility) -> Self {
+        self.visibility = visibility;
+        self
+    }
+
+    pub fn with_disallowed_tool(mut self, tool: impl Into<String>) -> Self {
+        self.disallowed_tools.push(tool.into());
+        self
+    }
+
+    pub fn with_path(mut self, path: impl Into<String>) -> Self {
+        self.paths.push(path.into());
+        self
+    }
+
+    pub fn with_argument_hint(mut self, argument_hint: impl Into<String>) -> Self {
+        self.argument_hint = Some(argument_hint.into());
+        self
+    }
+
+    pub fn with_license(mut self, license: impl Into<String>) -> Self {
+        self.frontmatter = Some(
+            self.frontmatter
+                .unwrap_or_else(|| SkillMarkdownFrontmatter::new("", ""))
+                .with_license(license),
+        );
+        self
+    }
+
+    /// Whether the model may autonomously invoke this skill from its
+    /// description alone, honoring the visibility override.
+    pub fn allows_model_invocation(&self) -> bool {
+        self.visibility.allows_model_invocation()
+    }
+
+    /// Whether a tool call with this name may invoke the skill.
+    pub fn allows_tool_invocation(&self, tool_name: &str) -> bool {
+        !matches!(self.visibility, SkillVisibility::Off)
+            && !self.disallowed_tools.iter().any(|tool| tool == tool_name)
     }
 
     pub fn requires_policy(&self) -> bool {
@@ -364,6 +679,26 @@ pub trait AgentSkillProvider {
             .ok_or_else(|| KernelError::CapabilityMissing {
                 capability_id: skill_id.to_string(),
             })
+    }
+
+    /// Prepare a skill for invocation: load frontmatter, resolve content
+    /// layers, warm caches. Providers without a prepare phase may leave the
+    /// default no-op.
+    fn prepare_skill(&self, _skill_id: &str) -> KernelResult<()> {
+        Ok(())
+    }
+
+    /// Load a content file from a skill's progressive-disclosure layer.
+    /// Providers without file-backed skills report capability missing.
+    fn load_skill_content(
+        &self,
+        _skill_id: &str,
+        _layer: SkillContentLayer,
+        _path: &str,
+    ) -> KernelResult<String> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: format!("skill.content.{_layer:?}"),
+        })
     }
 
     fn invoke_skill(&self, request: AgentSkillRequest) -> KernelResult<AgentSkillResult>;

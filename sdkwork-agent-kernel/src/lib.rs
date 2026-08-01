@@ -145,7 +145,8 @@ pub use classification::{
 };
 pub use collaboration::{
     AgentCard, AgentCollaborationProvider, AgentDelegation, AgentDelegationRequest,
-    AgentDelegationResult, AgentDelegationStatus, AgentHandoffRequest, AgentHandoffResult,
+    AgentDelegationResult, AgentDelegationService, AgentDelegationStatus,
+    AgentDelegationStreamRequest, AgentHandoffRequest, AgentHandoffResult,
 };
 pub use configuration::{
     AgentConfigEntry, AgentConfigField, AgentConfigSection, AgentConfigSectionKind,

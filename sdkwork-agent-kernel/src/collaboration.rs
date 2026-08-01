@@ -1,6 +1,7 @@
 use crate::{
-    AgentMessage, KernelError, KernelResult, ProviderHealth, ProviderManifest,
-    RedactionClassification, TraceContext, TrustLevel,
+    AgentExecutionRequest, AgentExecutionService, AgentMessage, AgentRuntime, AgentStreamEvent,
+    AgentStreamSink, KernelError, KernelResult, PolicySubject, ProgressEvent, ProviderHealth,
+    ProviderManifest, RedactionClassification, TraceContext, TrustLevel,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -470,4 +471,191 @@ pub trait AgentCollaborationProvider {
     fn handoff(&self, request: AgentHandoffRequest) -> KernelResult<AgentHandoffResult>;
 
     fn delegate(&self, request: AgentDelegationRequest) -> KernelResult<AgentDelegationResult>;
+}
+
+// ============================================================================
+// Streaming Delegation - agent-as-tool sub-agent execution
+// ============================================================================
+
+/// Streaming delegation request: run a task on a sub-agent session and
+/// relay its stream to the parent, aligning with the agent SDK delegation
+/// primitives (codex `spawn_agent`, claude `Task` tool, hermes
+/// `delegate_task`, rig agent-as-tool).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AgentDelegationStreamRequest {
+    pub delegation_id: String,
+    /// Parent session that spawned the delegation.
+    pub source_session_id: String,
+    /// Parent tool call that produced this delegation; child messages link
+    /// back through the parent chain (`parent_tool_use_id` semantics).
+    pub tool_call_id: Option<String>,
+    pub task_description: String,
+    pub provider_id: Option<String>,
+    pub model_id: Option<String>,
+    pub timeout_ms: Option<u64>,
+    pub subject: Option<PolicySubject>,
+    pub trace_context: Option<TraceContext>,
+}
+
+impl AgentDelegationStreamRequest {
+    pub fn new(
+        delegation_id: impl Into<String>,
+        source_session_id: impl Into<String>,
+        task_description: impl Into<String>,
+    ) -> Self {
+        Self {
+            delegation_id: delegation_id.into(),
+            source_session_id: source_session_id.into(),
+            tool_call_id: None,
+            task_description: task_description.into(),
+            provider_id: None,
+            model_id: None,
+            timeout_ms: None,
+            subject: None,
+            trace_context: None,
+        }
+    }
+
+    pub fn from_tool_call(
+        delegation_id: impl Into<String>,
+        source_session_id: impl Into<String>,
+        tool_call_id: impl Into<String>,
+        task_description: impl Into<String>,
+    ) -> Self {
+        Self {
+            tool_call_id: Some(tool_call_id.into()),
+            ..Self::new(delegation_id, source_session_id, task_description)
+        }
+    }
+
+    pub fn with_provider_id(mut self, provider_id: impl Into<String>) -> Self {
+        self.provider_id = Some(provider_id.into());
+        self
+    }
+
+    pub fn with_model_id(mut self, model_id: impl Into<String>) -> Self {
+        self.model_id = Some(model_id.into());
+        self
+    }
+
+    pub fn with_timeout_ms(mut self, timeout_ms: u64) -> Self {
+        self.timeout_ms = Some(timeout_ms);
+        self
+    }
+
+    pub fn with_subject(mut self, subject: PolicySubject) -> Self {
+        self.subject = Some(subject);
+        self
+    }
+
+    pub fn with_trace_context(mut self, trace_context: TraceContext) -> Self {
+        self.trace_context = Some(trace_context);
+        self
+    }
+}
+
+/// Streaming delegation service. Runs the delegated task on a sub-agent
+/// session through the kernel execution loop and relays the child stream to
+/// the parent sink, tagging child messages with the parent tool call id.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct AgentDelegationService;
+
+impl AgentDelegationService {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn delegate_streaming(
+        &self,
+        runtime: &AgentRuntime,
+        request: AgentDelegationStreamRequest,
+        sink: &mut dyn AgentStreamSink,
+    ) -> KernelResult<()> {
+        let child_session_id = format!("session.subagent.{}", request.delegation_id);
+
+        // Task lifecycle: spawned notice before the child runs.
+        sink.push_event(
+            AgentStreamEvent::Progress(
+                ProgressEvent::new(
+                    format!("{}.delegate.spawned", request.delegation_id),
+                    "delegate.task_spawned",
+                )
+                .with_detail(format!(
+                    "delegating to sub-agent session {child_session_id}"
+                ))
+                .with_stream_id(request.delegation_id.clone()),
+            )
+            .with_session_id(request.source_session_id.clone()),
+        )?;
+
+        let mut execution_request = AgentExecutionRequest::new(
+            format!("exec.delegation.{}", request.delegation_id),
+            vec![request.task_description],
+        )
+        .for_session(child_session_id.clone())
+        .with_timeout_ms(request.timeout_ms.unwrap_or(60_000));
+        if let Some(provider_id) = &request.provider_id {
+            execution_request = execution_request.with_provider_id(provider_id.clone());
+        }
+        if let Some(model_id) = &request.model_id {
+            execution_request = execution_request.with_model_id(model_id.clone());
+        }
+        if let Some(subject) = &request.subject {
+            execution_request = execution_request.with_subject(subject.clone());
+        }
+        if let Some(trace_context) = &request.trace_context {
+            execution_request = execution_request.with_trace_context(trace_context.clone());
+        }
+
+        let mut relay = DelegationRelaySink {
+            inner: sink,
+            tool_call_id: request.tool_call_id.clone(),
+            source_session_id: request.source_session_id.clone(),
+            child_session_id: child_session_id.clone(),
+            delegation_id: request.delegation_id.clone(),
+        };
+        AgentExecutionService::new().execute_streaming(runtime, execution_request, &mut relay)?;
+
+        // Task lifecycle: completed notice after the child stream ends.
+        sink.push_event(
+            AgentStreamEvent::Progress(
+                ProgressEvent::new(
+                    format!("{}.delegate.completed", request.delegation_id),
+                    "delegate.task_completed",
+                )
+                .with_detail(format!("sub-agent session {child_session_id} completed"))
+                .with_stream_id(request.delegation_id.clone()),
+            )
+            .with_session_id(request.source_session_id.clone()),
+        )?;
+
+        Ok(())
+    }
+}
+
+/// Relay that rewrites child message starts with the parent tool call id so
+/// the parent can reconstruct the delegation lineage.
+struct DelegationRelaySink<'a> {
+    inner: &'a mut dyn AgentStreamSink,
+    tool_call_id: Option<String>,
+    source_session_id: String,
+    child_session_id: String,
+    delegation_id: String,
+}
+
+impl AgentStreamSink for DelegationRelaySink<'_> {
+    fn push_event(&mut self, event: AgentStreamEvent) -> KernelResult<()> {
+        let event = match event {
+            AgentStreamEvent::MessageStart(mut start) => {
+                if let Some(tool_call_id) = &self.tool_call_id {
+                    if start.parent_message_id.is_none() {
+                        start = start.with_parent_message(tool_call_id.clone());
+                    }
+                }
+                AgentStreamEvent::MessageStart(start)
+            }
+            other => other,
+        };
+        self.inner.push_event(event)
+    }
 }

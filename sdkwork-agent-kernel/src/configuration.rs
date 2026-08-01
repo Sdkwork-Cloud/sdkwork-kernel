@@ -359,17 +359,221 @@ pub trait AgentConfigurationStore: Send + Sync {
         &mut self,
         request: &AgentProfileArchiveRequest,
     ) -> KernelResult<AgentConfigurationStoreRecord>;
+
+    /// Optimistic save: conflicts when the stored profile version differs
+    /// from the expected version, or when a profile is expected but absent.
+    /// The default implementation is store-agnostic: it reads through the
+    /// existing `find_profile`/`save_profile` surface, so any store gets
+    /// conflict semantics without changes.
+    fn save_profile_if_version(
+        &mut self,
+        profile: AgentConfigurationProfile,
+        expected_version: &str,
+    ) -> KernelResult<AgentConfigurationStoreRecord> {
+        if let Some(existing) = self.find_profile(&profile.agent_id, &profile.profile_id)? {
+            if existing.configuration_version != expected_version {
+                return Err(KernelError::conflict(format!(
+                    "agent configuration profile {}/{} version conflict: expected {expected_version}, found {}",
+                    profile.agent_id, profile.profile_id, existing.configuration_version
+                )));
+            }
+        } else if !expected_version.is_empty() && expected_version != "0" {
+            return Err(KernelError::conflict(format!(
+                "agent configuration profile {}/{} does not exist; expected version {expected_version}",
+                profile.agent_id, profile.profile_id
+            )));
+        }
+        self.save_profile(profile)
+    }
+
+    /// Subscribe to configuration changes. The default implementation is a
+    /// no-op; stores with change delivery override it.
+    fn subscribe(&mut self, subscriber: AgentConfigurationSubscriber) -> ConfigurationSubscription {
+        let _ = subscriber;
+        ConfigurationSubscription::noop()
+    }
+}
+
+/// Configuration change kind delivered to subscribers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentConfigurationChange {
+    Saved,
+    Migrated,
+    Archived,
+}
+
+impl AgentConfigurationChange {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Saved => "saved",
+            Self::Migrated => "migrated",
+            Self::Archived => "archived",
+        }
+    }
+}
+
+/// Subscriber callback receiving the affected store record and the change
+/// kind. Subscribers must not call back into the store.
+pub type AgentConfigurationSubscriber =
+    Box<dyn Fn(&AgentConfigurationStoreRecord, AgentConfigurationChange) + Send + Sync>;
+
+/// Subscription handle; dropping it does not unsubscribe, call
+/// [`ConfigurationSubscription::unsubscribe`] to detach.
+pub struct ConfigurationSubscription {
+    pub subscription_id: String,
+    registry:
+        Option<std::sync::Arc<std::sync::RwLock<Vec<(String, AgentConfigurationSubscriber)>>>>,
+}
+
+impl ConfigurationSubscription {
+    fn noop() -> Self {
+        Self {
+            subscription_id: "noop".to_string(),
+            registry: None,
+        }
+    }
+
+    fn registered(
+        subscription_id: String,
+        registry: std::sync::Arc<std::sync::RwLock<Vec<(String, AgentConfigurationSubscriber)>>>,
+    ) -> Self {
+        Self {
+            subscription_id,
+            registry: Some(registry),
+        }
+    }
+
+    pub fn unsubscribe(&self) {
+        if let Some(registry) = &self.registry {
+            if let Ok(mut subscribers) = registry.write() {
+                subscribers.retain(|(id, _)| id != &self.subscription_id);
+            }
+        }
+    }
+}
+
+/// Settings scope hierarchy, aligning with the agent SDK settings layers
+/// (enterprise managed > user > project > local).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AgentSettingsScope {
+    Enterprise,
+    User,
+    Project,
+    Local,
+}
+
+impl AgentSettingsScope {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Enterprise => "enterprise",
+            Self::User => "user",
+            Self::Project => "project",
+            Self::Local => "local",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "enterprise" => Some(Self::Enterprise),
+            "user" => Some(Self::User),
+            "project" => Some(Self::Project),
+            "local" => Some(Self::Local),
+            _ => None,
+        }
+    }
+}
+
+/// Explicit settings source selection (`settingSources`): which scopes are
+/// loaded. Empty selection loads no filesystem settings; `all()` loads the
+/// full hierarchy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentSettingSources {
+    pub scopes: Vec<AgentSettingsScope>,
+}
+
+impl AgentSettingSources {
+    pub fn all() -> Self {
+        Self {
+            scopes: vec![
+                AgentSettingsScope::Enterprise,
+                AgentSettingsScope::User,
+                AgentSettingsScope::Project,
+                AgentSettingsScope::Local,
+            ],
+        }
+    }
+
+    pub fn none() -> Self {
+        Self { scopes: Vec::new() }
+    }
+
+    pub fn with_scope(mut self, scope: AgentSettingsScope) -> Self {
+        if !self.scopes.contains(&scope) {
+            self.scopes.push(scope);
+        }
+        self
+    }
+
+    pub fn allows(&self, scope: AgentSettingsScope) -> bool {
+        self.scopes.contains(&scope)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.scopes.is_empty()
+    }
 }
 
 /// Deterministic configuration store for tests and explicitly ephemeral runtimes.
-#[derive(Debug, Clone, Default)]
+#[derive(Default)]
 pub struct InMemoryAgentConfigurationStore {
     profiles: Vec<AgentConfigurationProfile>,
+    subscribers: std::sync::Arc<std::sync::RwLock<Vec<(String, AgentConfigurationSubscriber)>>>,
+    next_subscription_id: std::sync::atomic::AtomicU64,
+}
+
+impl std::fmt::Debug for InMemoryAgentConfigurationStore {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("InMemoryAgentConfigurationStore")
+            .field("profiles", &self.profiles)
+            .field("subscriber_count", &self.subscriber_count())
+            .finish()
+    }
+}
+
+impl InMemoryAgentConfigurationStore {
+    fn subscriber_count(&self) -> usize {
+        self.subscribers
+            .read()
+            .map(|subscribers| subscribers.len())
+            .unwrap_or(0)
+    }
+}
+
+impl Clone for InMemoryAgentConfigurationStore {
+    fn clone(&self) -> Self {
+        Self {
+            profiles: self.profiles.clone(),
+            subscribers: std::sync::Arc::clone(&self.subscribers),
+            next_subscription_id: std::sync::atomic::AtomicU64::new(
+                self.next_subscription_id
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
+        }
+    }
 }
 
 impl InMemoryAgentConfigurationStore {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn notify(&self, record: &AgentConfigurationStoreRecord, change: AgentConfigurationChange) {
+        if let Ok(subscribers) = self.subscribers.read() {
+            for (_, subscriber) in subscribers.iter() {
+                subscriber(record, change);
+            }
+        }
     }
 }
 
@@ -382,7 +586,9 @@ impl AgentConfigurationStore for InMemoryAgentConfigurationStore {
             existing.agent_id != profile.agent_id || existing.profile_id != profile.profile_id
         });
         self.profiles.push(profile.clone());
-        Ok(AgentConfigurationStoreRecord::created(profile))
+        let record = AgentConfigurationStoreRecord::created(profile);
+        self.notify(&record, AgentConfigurationChange::Saved);
+        Ok(record)
     }
 
     fn load_profile(
@@ -422,10 +628,9 @@ impl AgentConfigurationStore for InMemoryAgentConfigurationStore {
                 || existing.profile_id != current_profile.profile_id
         });
         self.profiles.push(current_profile.clone());
-        Ok(AgentConfigurationStoreRecord::migrated(
-            current_profile,
-            &plan.plan_id,
-        ))
+        let record = AgentConfigurationStoreRecord::migrated(current_profile, &plan.plan_id);
+        self.notify(&record, AgentConfigurationChange::Migrated);
+        Ok(record)
     }
 
     fn archive_profile(
@@ -439,10 +644,21 @@ impl AgentConfigurationStore for InMemoryAgentConfigurationStore {
             existing.agent_id != profile.agent_id || existing.profile_id != profile.profile_id
         });
         self.profiles.push(profile.clone());
-        Ok(AgentConfigurationStoreRecord::archived(
-            profile,
-            &request.request_id,
-        ))
+        let record = AgentConfigurationStoreRecord::archived(profile, &request.request_id);
+        self.notify(&record, AgentConfigurationChange::Archived);
+        Ok(record)
+    }
+
+    fn subscribe(&mut self, subscriber: AgentConfigurationSubscriber) -> ConfigurationSubscription {
+        let subscription_id = format!(
+            "subscription.{}",
+            self.next_subscription_id
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        if let Ok(mut subscribers) = self.subscribers.write() {
+            subscribers.push((subscription_id.clone(), subscriber));
+        }
+        ConfigurationSubscription::registered(subscription_id, self.subscribers.clone())
     }
 }
 

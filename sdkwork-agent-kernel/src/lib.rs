@@ -147,14 +147,15 @@ pub use collaboration::{
 };
 pub use configuration::{
     AgentConfigEntry, AgentConfigField, AgentConfigSection, AgentConfigSectionKind,
-    AgentConfigValue, AgentConfigValueKind, AgentConfiguration, AgentConfigurationInvalidField,
-    AgentConfigurationProfile, AgentConfigurationProfileStatus, AgentConfigurationProvider,
-    AgentConfigurationSpec, AgentConfigurationStore, AgentConfigurationStoreAction,
-    AgentConfigurationStoreRecord, AgentConfigurationUpgradePlan, AgentConfigurationUpgradeRequest,
-    AgentConfigurationValidation, AgentModelConfigurationApplication,
-    AgentModelConfigurationFieldMapping, AgentModelConfigurationRequest,
-    AgentModelSelectionRequest, AgentProfileArchiveRequest, AgentSecretBinding,
-    AgentSecretBindingKind, ConfigurationMigrationStep, ConfigurationMigrationStepKind,
+    AgentConfigValue, AgentConfigValueKind, AgentConfiguration, AgentConfigurationChange,
+    AgentConfigurationInvalidField, AgentConfigurationProfile, AgentConfigurationProfileStatus,
+    AgentConfigurationProvider, AgentConfigurationSpec, AgentConfigurationStore,
+    AgentConfigurationStoreAction, AgentConfigurationStoreRecord, AgentConfigurationSubscriber,
+    AgentConfigurationUpgradePlan, AgentConfigurationUpgradeRequest, AgentConfigurationValidation,
+    AgentModelConfigurationApplication, AgentModelConfigurationFieldMapping,
+    AgentModelConfigurationRequest, AgentModelSelectionRequest, AgentProfileArchiveRequest,
+    AgentSecretBinding, AgentSecretBindingKind, AgentSettingSources, AgentSettingsScope,
+    ConfigurationMigrationStep, ConfigurationMigrationStepKind, ConfigurationSubscription,
     InMemoryAgentConfigurationStore,
 };
 pub use conformance::{

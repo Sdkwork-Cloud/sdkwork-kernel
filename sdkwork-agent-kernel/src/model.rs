@@ -2,10 +2,11 @@ use crate::{
     agent_messages_from_text_lines, agent_messages_to_text_lines,
     validate_structured_model_input_with_options, AgentInputContract, AgentInputPolicy,
     AgentMessage, AgentMessageRole, AgentRuntime, ContextFrame, InputModalityPreprocessor,
-    KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelEventSource,
-    KernelResult, ModelInputResolveOptions, PolicyCategory, PolicyDecision, PolicyDecisionValue,
-    PolicyRequest, PolicySubject, ProviderHealth, ProviderManifest, RedactionClassification,
-    SideEffectLevel, SkillInputModalityPreprocessor, ToolCall, ToolDescriptor, TraceContext,
+    KernelError, KernelErrorSource, KernelEvent, KernelEventRedaction, KernelEventSeverity,
+    KernelEventSource, KernelResult, ModelInputResolveOptions, PolicyCategory, PolicyDecision,
+    PolicyDecisionValue, PolicyRequest, PolicySubject, ProviderHealth, ProviderManifest,
+    RedactionClassification, SideEffectLevel, SkillInputModalityPreprocessor, ToolCall,
+    ToolDescriptor, TraceContext,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -824,8 +825,20 @@ impl ModelExecutionService {
             &invoke_policy_decision,
             sensitive_context_policy_decision.as_ref(),
         );
+        match runtime.hooks().run_before_model_invoke(&model_request)? {
+            crate::HookAction::Continue => {}
+            crate::HookAction::Terminate { reason } => {
+                return Err(KernelError::cancelled(format!(
+                    "model invocation terminated by kernel hook: {reason}"
+                ))
+                .from_source(KernelErrorSource::Runtime));
+            }
+        }
         let validation_request = model_request.clone();
         let model_response = provider.invoke(model_request)?;
+        let _ = runtime
+            .hooks()
+            .run_after_model_invoke(&validation_request, &model_response)?;
         let structured_output_validation =
             self.validate_structured_output(provider, &validation_request, &model_response)?;
 
@@ -907,6 +920,15 @@ impl ModelExecutionService {
             &invoke_policy_decision,
             sensitive_context_policy_decision.as_ref(),
         );
+        match runtime.hooks().run_before_model_invoke(&model_request)? {
+            crate::HookAction::Continue => {}
+            crate::HookAction::Terminate { reason } => {
+                return Err(KernelError::cancelled(format!(
+                    "model streaming terminated by kernel hook: {reason}"
+                ))
+                .from_source(KernelErrorSource::Runtime));
+            }
+        }
         provider.stream_into(model_request, sink)?;
         Ok(())
     }

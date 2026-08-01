@@ -4,11 +4,11 @@ use crate::{
     AgentRuntimeConformanceProfile, AgentSkillProvider, Capability, CapabilityManifest,
     CapabilityRequirement, ContextProvider, EnvFileSecretFallbackHostProvider, HostProvider,
     KernelConformanceCase, KernelConformanceReport, KernelError, KernelEvent, KernelEventSeverity,
-    KernelResult, KnowledgeProvider, McpProvider, MemoryProvider, MessageQueryProvider,
-    ModelProvider, PlanningProvider, PlatformSandboxProvider, PolicyCategory, PolicyProvider,
-    ProtocolAdapter, ProviderHealth, ProviderManifest, ProviderSessionActivityProvider,
-    SandboxProvider, SandboxingHostProvider, SideEffectLevel, TaskSchedulingProvider,
-    TelemetryProvider, ToolProvider, AGENT_KERNEL_SPEC_VERSION,
+    KernelHook, KernelHookRegistry, KernelResult, KnowledgeProvider, McpProvider, MemoryProvider,
+    MessageQueryProvider, ModelProvider, PlanningProvider, PlatformSandboxProvider, PolicyCategory,
+    PolicyProvider, ProtocolAdapter, ProviderHealth, ProviderManifest,
+    ProviderSessionActivityProvider, SandboxProvider, SandboxingHostProvider, SideEffectLevel,
+    TaskSchedulingProvider, TelemetryProvider, ToolProvider, AGENT_KERNEL_SPEC_VERSION,
 };
 use std::sync::{Arc, Mutex};
 
@@ -24,6 +24,7 @@ pub struct AgentRuntime {
     state: RuntimeState,
     capability_manifest: CapabilityManifest,
     provider_registry: RuntimeProviderRegistry,
+    hooks: KernelHookRegistry,
 }
 
 impl AgentRuntime {
@@ -31,12 +32,14 @@ impl AgentRuntime {
         Self::from_capability_manifest_with_provider_registry(
             capability_manifest,
             RuntimeProviderRegistry::default(),
+            KernelHookRegistry::new(),
         )
     }
 
     fn from_capability_manifest_with_provider_registry(
         capability_manifest: CapabilityManifest,
         provider_registry: RuntimeProviderRegistry,
+        hooks: KernelHookRegistry,
     ) -> Self {
         let state = if !capability_manifest.missing_required_capabilities.is_empty() {
             RuntimeState::Failed
@@ -52,7 +55,13 @@ impl AgentRuntime {
             state,
             capability_manifest,
             provider_registry,
+            hooks,
         }
+    }
+
+    /// Kernel hooks attached to this runtime.
+    pub fn hooks(&self) -> &KernelHookRegistry {
+        &self.hooks
     }
 
     pub fn state(&self) -> RuntimeState {
@@ -898,6 +907,7 @@ pub struct RuntimeBuilder {
     generated_at: String,
     host_sandbox_provider: Option<Arc<dyn SandboxProvider>>,
     host_sandbox_enabled: bool,
+    kernel_hooks: KernelHookRegistry,
 }
 
 impl std::fmt::Debug for RuntimeBuilder {
@@ -929,7 +939,15 @@ impl RuntimeBuilder {
             generated_at: "1970-01-01T00:00:00Z".to_string(),
             host_sandbox_provider: None,
             host_sandbox_enabled: false,
+            kernel_hooks: KernelHookRegistry::new(),
         }
+    }
+
+    /// Register a kernel hook; hooks run in registration order at phase
+    /// boundaries (model, tool, user prompt, session lifecycle).
+    pub fn register_kernel_hook(mut self, hook: Arc<dyn KernelHook>) -> Self {
+        self.kernel_hooks.register(hook);
+        self
     }
 
     pub fn register_provider(mut self, provider: ProviderManifest) -> Self {
@@ -1705,6 +1723,7 @@ impl RuntimeBuilder {
         let runtime = AgentRuntime::from_capability_manifest_with_provider_registry(
             capability_manifest,
             self.provider_registry.clone(),
+            self.kernel_hooks.clone(),
         );
         events.push(match runtime.state() {
             RuntimeState::Ready => self.runtime_event("agent.runtime.ready"),

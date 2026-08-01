@@ -416,6 +416,17 @@ impl AgentChatService {
         model_request = self.attach_memory_context(runtime, &request, model_request)?;
         model_request = self.attach_knowledge_context(runtime, &request, model_request)?;
         model_request = self.attach_tool_descriptors(runtime, &request, model_request)?;
+        if let Some(prompt) = request.messages.last() {
+            match runtime.hooks().run_user_prompt(prompt)? {
+                crate::HookAction::Continue => {}
+                crate::HookAction::Terminate { reason } => {
+                    return Err(KernelError::cancelled(format!(
+                        "user prompt terminated by kernel hook: {reason}"
+                    ))
+                    .from_source(KernelErrorSource::Runtime));
+                }
+            }
+        }
         let mut model_execution_request =
             ModelExecutionRequest::new(request.chat_request_id.clone(), model_request);
         if let Some(provider_id) = &request.provider_id {

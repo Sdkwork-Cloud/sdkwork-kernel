@@ -19,6 +19,7 @@ mod error;
 mod event;
 mod execution;
 mod execution_settings;
+mod hook;
 mod host;
 mod host_sandbox;
 mod installation;
@@ -188,6 +189,7 @@ pub use execution_settings::{
     AgentExecutionSettingsSpec, AgentExecutionWorkspaceAccess, APPROVE_FOR_ME_ACCESS_MODE_ID,
     ASK_FOR_APPROVAL_ACCESS_MODE_ID, FULL_ACCESS_MODE_ID,
 };
+pub use hook::{HookAction, KernelHook, KernelHookRegistry, ToolHookAction};
 pub use host::{
     EnvironmentRequest, EnvironmentResult, ExecutorRequest, ExecutorResult, ExecutorStatus,
     FilesystemOperation, FilesystemRequest, FilesystemResult, HostEnvPolicy, HostPathPolicy,

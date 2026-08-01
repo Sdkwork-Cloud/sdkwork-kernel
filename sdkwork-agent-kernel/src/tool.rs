@@ -1,7 +1,7 @@
 use crate::{
-    AgentRuntime, KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity,
-    KernelEventSource, KernelResult, PolicyCategory, PolicyDecision, PolicyDecisionValue,
-    PolicyRequest, ProviderHealth, ProviderManifest, TraceContext,
+    AgentRuntime, KernelError, KernelErrorSource, KernelEvent, KernelEventRedaction,
+    KernelEventSeverity, KernelEventSource, KernelResult, PolicyCategory, PolicyDecision,
+    PolicyDecisionValue, PolicyRequest, ProviderHealth, ProviderManifest, TraceContext,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -340,6 +340,24 @@ impl ToolResult {
         }
     }
 
+    /// Tool result for a hook-skipped or policy-denied invocation: the tool
+    /// did not execute and the reason is delivered back to the model.
+    pub fn denied(tool_call_id: impl Into<String>, reason: impl Into<String>) -> Self {
+        Self {
+            tool_call_id: tool_call_id.into(),
+            status: "denied".to_string(),
+            normalized_status: ToolCallStatus::Denied,
+            output: String::new(),
+            error: Some(reason.into()),
+            started_at: None,
+            completed_at: None,
+            duration_ms: None,
+            trace_context: None,
+            redaction_classification: KernelEventRedaction::Internal,
+            audit_refs: Vec::new(),
+        }
+    }
+
     pub fn with_status(mut self, status: ToolCallStatus) -> Self {
         self.status = status.as_str().to_string();
         self.normalized_status = status;
@@ -617,7 +635,30 @@ impl ToolExecutionService {
         let (descriptor, policy_decision) =
             self.authorize_tool_call(runtime, provider, &request.tool_call)?;
         let tool_call = self.with_policy_metadata(request.tool_call, &descriptor, &policy_decision);
-        let result = provider.invoke_tool(tool_call)?;
+
+        match runtime.hooks().run_before_tool_invoke(&tool_call)? {
+            crate::ToolHookAction::Continue => {}
+            crate::ToolHookAction::Skip { reason } => {
+                let result = ToolResult::denied(tool_call.tool_call_id.clone(), reason);
+                let _ = runtime.hooks().run_after_tool_invoke(&tool_call, &result)?;
+                return Ok(ToolExecutionResponse {
+                    tool_execution_id: request.tool_execution_id,
+                    provider_id: descriptor.provider_id.clone(),
+                    descriptor,
+                    policy_decision,
+                    result,
+                });
+            }
+            crate::ToolHookAction::Terminate { reason } => {
+                return Err(KernelError::cancelled(format!(
+                    "tool invocation terminated by kernel hook: {reason}"
+                ))
+                .from_source(KernelErrorSource::Runtime));
+            }
+        }
+
+        let result = provider.invoke_tool(tool_call.clone())?;
+        let _ = runtime.hooks().run_after_tool_invoke(&tool_call, &result)?;
 
         Ok(ToolExecutionResponse {
             tool_execution_id: request.tool_execution_id,

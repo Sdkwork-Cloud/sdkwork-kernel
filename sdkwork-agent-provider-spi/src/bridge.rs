@@ -443,6 +443,7 @@ pub fn model_response_from_runtime(
     let mut model_response = ModelResponse {
         model_request_id: model_request_id.to_string(),
         provider_id: provider_id.to_string(),
+        model_id: payload.get("model").and_then(Value::as_str).map(str::to_string),
         status: ModelStatus::Succeeded,
         messages,
         tool_calls,

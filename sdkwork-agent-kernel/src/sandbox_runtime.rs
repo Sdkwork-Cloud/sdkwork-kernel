@@ -47,6 +47,28 @@ pub struct SandboxSessionRuntimeProjection {
 }
 
 impl SandboxSessionRuntimeProjection {
+    /// Construct a projection directly (tooling/tests). Runtime paths
+    /// produce projections via `From<SandboxSession>`.
+    pub fn new(
+        sandbox_workspace_id: impl Into<String>,
+        sandbox_session_id: impl Into<String>,
+        sandbox_session_state: SandboxSessionState,
+        sandbox_id: Option<impl Into<String>>,
+        sandbox_runtime_binding_id: Option<impl Into<String>>,
+        sandbox_provider_id: Option<impl Into<String>>,
+        agent_runtime_location_id: Option<impl Into<String>>,
+    ) -> Self {
+        Self {
+            sandbox_workspace_id: sandbox_workspace_id.into(),
+            sandbox_session_id: sandbox_session_id.into(),
+            sandbox_session_state,
+            sandbox_id: sandbox_id.map(Into::into),
+            sandbox_runtime_binding_id: sandbox_runtime_binding_id.map(Into::into),
+            sandbox_provider_id: sandbox_provider_id.map(Into::into),
+            agent_runtime_location_id: agent_runtime_location_id.map(Into::into),
+        }
+    }
+
     pub fn sandbox_workspace_id(&self) -> &str {
         self.sandbox_workspace_id.as_str()
     }
@@ -208,6 +230,184 @@ impl SandboxSessionLifecycleAdapter {
         sandbox_result
             .map(SandboxSessionRuntimeProjection::from)
             .map_err(map_sandbox_lifecycle_error)
+    }
+}
+
+/// Kernel-side sandbox session lifecycle surface consumed by the
+/// execution coordinator. Implemented by [`SandboxSessionLifecycleAdapter`]
+/// over the Sandbox-owned port; kept as a kernel trait so execution
+/// paths and contract tests can substitute a recording double.
+#[async_trait::async_trait]
+pub trait SandboxedSessionPort: Send + Sync {
+    async fn get_sandbox_session(
+        &self,
+        tenant_id: String,
+        agent_session_id: String,
+    ) -> KernelResult<SandboxSessionRuntimeProjection>;
+
+    async fn start_sandbox_session(
+        &self,
+        request: SandboxSessionCommandRequest,
+    ) -> KernelResult<SandboxSessionRuntimeProjection>;
+
+    async fn stop_sandbox_session(
+        &self,
+        request: SandboxSessionCommandRequest,
+    ) -> KernelResult<SandboxSessionRuntimeProjection>;
+}
+
+#[async_trait::async_trait]
+impl SandboxedSessionPort for SandboxSessionLifecycleAdapter {
+    async fn get_sandbox_session(
+        &self,
+        tenant_id: String,
+        agent_session_id: String,
+    ) -> KernelResult<SandboxSessionRuntimeProjection> {
+        self.get_sandbox_session(tenant_id, agent_session_id).await
+    }
+
+    async fn start_sandbox_session(
+        &self,
+        request: SandboxSessionCommandRequest,
+    ) -> KernelResult<SandboxSessionRuntimeProjection> {
+        self.start_sandbox_session(request).await
+    }
+
+    async fn stop_sandbox_session(
+        &self,
+        request: SandboxSessionCommandRequest,
+    ) -> KernelResult<SandboxSessionRuntimeProjection> {
+        self.stop_sandbox_session(request).await
+    }
+}
+
+/// One step of a sandboxed execution lifecycle, recorded in order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SandboxedLifecycleStep {
+    /// The bound session was found before execution.
+    SessionFound,
+    /// The coordinator issued a start; the session was not running.
+    SessionStarted,
+    /// The session was already running; no start was issued.
+    SessionAlreadyRunning,
+    /// The coordinator issued a stop after execution.
+    SessionStopped,
+    /// The session was already stopped; no stop was issued.
+    SessionAlreadyStopped,
+    /// The bound session does not exist; execution was refused.
+    SessionMissing,
+}
+
+/// Outcome of a sandboxed execution: the action result plus the lifecycle
+/// trace observed around it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SandboxedExecutionResult<T> {
+    pub result: T,
+    pub lifecycle: Vec<SandboxedLifecycleStep>,
+}
+
+/// Coordinates execution inside a bound sandbox session lifecycle:
+/// get -> (start when `auto_start`) -> run action -> (stop when
+/// `auto_stop`). Fail-closed: a missing session refuses execution before
+/// the action runs, and lifecycle failures propagate as kernel errors.
+#[derive(Clone)]
+pub struct SandboxedExecutionCoordinator {
+    sandboxed_session_port: Arc<dyn SandboxedSessionPort>,
+}
+
+impl SandboxedExecutionCoordinator {
+    pub fn new(sandboxed_session_port: Arc<dyn SandboxedSessionPort>) -> Self {
+        Self {
+            sandboxed_session_port,
+        }
+    }
+
+    pub async fn run_sandboxed<T, F, Fut>(
+        &self,
+        tenant_id: String,
+        binding: &crate::SandboxExecutionBinding,
+        operation_id: String,
+        action: F,
+    ) -> KernelResult<SandboxedExecutionResult<T>>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = KernelResult<T>>,
+    {
+        binding.validate()?;
+
+        let mut lifecycle = Vec::new();
+
+        // Fail-closed lookup: the bound session must exist before any
+        // execution work is allowed to proceed.
+        let projection = self
+            .sandboxed_session_port
+            .get_sandbox_session(tenant_id.clone(), binding.sandbox_session_id.clone())
+            .await
+            .map_err(|error| match error.kind() {
+                crate::KernelErrorKind::ValidationError => {
+                    lifecycle.push(SandboxedLifecycleStep::SessionMissing);
+                    error
+                }
+                _ => error,
+            })?;
+        lifecycle.push(SandboxedLifecycleStep::SessionFound);
+
+        // Ensure the session is running: explicit start when requested,
+        // otherwise refuse when the session is not already running.
+        if projection.sandbox_session_state() != SandboxSessionState::Running {
+            if !binding.auto_start {
+                return Err(crate::KernelError::validation(format!(
+                    "sandbox session '{}' is not running and auto_start is disabled",
+                    binding.sandbox_session_id
+                )));
+            }
+            self.sandboxed_session_port
+                .start_sandbox_session(SandboxSessionCommandRequest {
+                    tenant_id: tenant_id.clone(),
+                    agent_session_id: binding.sandbox_session_id.clone(),
+                    sandbox_operation_id: operation_id.clone(),
+                })
+                .await?;
+            lifecycle.push(SandboxedLifecycleStep::SessionStarted);
+        } else {
+            lifecycle.push(SandboxedLifecycleStep::SessionAlreadyRunning);
+        }
+
+        // Run the action, then always attempt the stop cleanup when
+        // requested, even if the action failed.
+        let action_result = action().await;
+        let stop_result = if binding.auto_stop {
+            Some(
+                self.sandboxed_session_port
+                    .stop_sandbox_session(SandboxSessionCommandRequest {
+                        tenant_id: tenant_id.clone(),
+                        agent_session_id: binding.sandbox_session_id.clone(),
+                        sandbox_operation_id: operation_id,
+                    })
+                    .await,
+            )
+        } else {
+            None
+        };
+
+        if let Some(stop_result) = stop_result {
+            match stop_result {
+                Ok(_) => lifecycle.push(SandboxedLifecycleStep::SessionStopped),
+                // The action already failed: keep its error as the primary
+                // result and record the cleanup as already-stopped.
+                Err(_) if action_result.is_err() => {
+                    lifecycle.push(SandboxedLifecycleStep::SessionAlreadyStopped)
+                }
+                // Fail-closed: a failed stop on a successful action
+                // surfaces the cleanup failure instead of hiding it.
+                Err(error) => return Err(error),
+            }
+        }
+
+        Ok(SandboxedExecutionResult {
+            result: action_result?,
+            lifecycle,
+        })
     }
 }
 

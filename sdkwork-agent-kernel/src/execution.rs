@@ -224,6 +224,58 @@ impl AgentObservation {
     }
 }
 
+/// Optional sandbox session binding for an execution.
+///
+/// When present, the execution is expected to run inside the referenced
+/// sandbox session lifecycle: `auto_start` requests the coordinator to
+/// start the session before the model/tool rounds when it is not already
+/// running, and `auto_stop` stops it again afterwards. The binding is a
+/// kernel-owned identifier surface; lifecycle enforcement happens through
+/// [`crate::SandboxedExecutionCoordinator`], never through business
+/// persistence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SandboxExecutionBinding {
+    pub sandbox_session_id: String,
+    pub sandbox_workspace_id: Option<String>,
+    pub auto_start: bool,
+    pub auto_stop: bool,
+}
+
+impl SandboxExecutionBinding {
+    pub fn new(sandbox_session_id: impl Into<String>) -> Self {
+        Self {
+            sandbox_session_id: sandbox_session_id.into(),
+            sandbox_workspace_id: None,
+            auto_start: false,
+            auto_stop: false,
+        }
+    }
+
+    pub fn with_workspace_id(mut self, sandbox_workspace_id: impl Into<String>) -> Self {
+        self.sandbox_workspace_id = Some(sandbox_workspace_id.into());
+        self
+    }
+
+    pub fn with_auto_start(mut self) -> Self {
+        self.auto_start = true;
+        self
+    }
+
+    pub fn with_auto_stop(mut self) -> Self {
+        self.auto_stop = true;
+        self
+    }
+
+    pub(crate) fn validate(&self) -> KernelResult<()> {
+        if self.sandbox_session_id.trim().is_empty() {
+            return Err(KernelError::validation(
+                "sandbox binding requires a non-empty session id",
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgentExecutionRequest {
     pub execution_id: String,
@@ -252,6 +304,8 @@ pub struct AgentExecutionRequest {
     pub deadline_ms: Option<u64>,
     /// Retry policy for the model round; `None` disables retries.
     pub retry: Option<RetryConfig>,
+    /// Optional sandbox session binding; validated at execution start.
+    pub sandbox_binding: Option<SandboxExecutionBinding>,
 }
 
 impl AgentExecutionRequest {
@@ -279,6 +333,7 @@ impl AgentExecutionRequest {
             cancellation_token: None,
             deadline_ms: None,
             retry: None,
+            sandbox_binding: None,
         }
     }
 
@@ -294,6 +349,11 @@ impl AgentExecutionRequest {
 
     pub fn with_retry(mut self, retry: RetryConfig) -> Self {
         self.retry = Some(retry);
+        self
+    }
+
+    pub fn with_sandbox_binding(mut self, binding: SandboxExecutionBinding) -> Self {
+        self.sandbox_binding = Some(binding);
         self
     }
 
@@ -477,6 +537,10 @@ impl AgentExecutionRequest {
             return Err(KernelError::validation(
                 "execution messages must not be blank",
             ));
+        }
+
+        if let Some(binding) = &self.sandbox_binding {
+            binding.validate()?;
         }
 
         Ok(())

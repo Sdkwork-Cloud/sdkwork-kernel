@@ -13,6 +13,7 @@ sdkwork-models = ["dep:sdkwork-models"]
 secret-vault = ["dep:ureq"]
 
 [dependencies]
+async-trait.workspace = true
 sdkwork-utils-rust.workspace = true
 sdkwork-intelligence-sandbox-service.workspace = true
 sdkwork-sandbox-provider-spi.workspace = true

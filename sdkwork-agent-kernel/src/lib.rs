@@ -93,6 +93,12 @@ pub use sandbox::{
     NoOpSandboxProvider, PlatformSandboxProvider, SandboxCommand, SandboxError,
     SandboxExecutionResult, SandboxPolicy, SandboxProvider, SandboxType,
 };
+pub use sandbox_runtime::{
+    SandboxSessionCommandRequest, SandboxSessionCreateRequest, SandboxSessionLifecycleAdapter,
+    SandboxSessionRuntimeProjection, SandboxedExecutionCoordinator, SandboxedExecutionResult,
+    SandboxedLifecycleStep, SandboxedSessionPort,
+};
+pub use sdkwork_intelligence_sandbox_service::SandboxSessionState;
 mod host_secret_env;
 mod secret;
 mod secret_composite;
@@ -186,6 +192,7 @@ pub use event::{
 pub use execution::{
     AgentExecutionReport, AgentExecutionRequest, AgentExecutionResumeDecision,
     AgentExecutionResumeRequest, AgentExecutionService, AgentExecutionStatus, AgentObservation,
+    SandboxExecutionBinding,
 };
 pub use execution_settings::{
     AgentExecutionAccessModeDescriptor, AgentExecutionApprovalBehavior,

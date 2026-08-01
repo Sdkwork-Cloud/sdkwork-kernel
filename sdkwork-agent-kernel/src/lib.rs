@@ -14,6 +14,7 @@ mod collaboration;
 mod configuration;
 mod conformance;
 mod context_memory;
+mod cost;
 mod definition;
 mod error;
 mod event;
@@ -167,6 +168,7 @@ pub use context_memory::{
     ContextExplanation, ContextFrame, ContextProvider, ContextRanking, MemoryProvider,
     MemoryRecord, MemoryScope, MemoryTier, RedactionClassification, TrustLevel,
 };
+pub use cost::{CostEstimate, ModelCostCalculator, ModelPrice};
 pub use definition::{
     parse_agent_input_contract_json, parse_agent_input_policy_json, AgentDefinition,
     AgentProviderBinding, AgentProviderBindingMode, AgentProviderFamily, MemoryStrategy,

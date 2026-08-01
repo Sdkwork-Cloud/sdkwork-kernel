@@ -5,10 +5,11 @@ use crate::{
     CapabilityRequirement, ContextProvider, EnvFileSecretFallbackHostProvider, HostProvider,
     KernelConformanceCase, KernelConformanceReport, KernelError, KernelEvent, KernelEventSeverity,
     KernelHook, KernelHookRegistry, KernelResult, KnowledgeProvider, McpProvider, MemoryProvider,
-    MessageQueryProvider, ModelProvider, PlanningProvider, PlatformSandboxProvider, PolicyCategory,
-    PolicyProvider, ProtocolAdapter, ProviderHealth, ProviderManifest,
-    ProviderSessionActivityProvider, SandboxProvider, SandboxingHostProvider, SideEffectLevel,
-    TaskSchedulingProvider, TelemetryProvider, ToolProvider, AGENT_KERNEL_SPEC_VERSION,
+    MessageQueryProvider, ModelCostCalculator, ModelPrice, ModelProvider, PlanningProvider,
+    PlatformSandboxProvider, PolicyCategory, PolicyProvider, ProtocolAdapter, ProviderHealth,
+    ProviderManifest, ProviderSessionActivityProvider, SandboxProvider, SandboxingHostProvider,
+    SideEffectLevel, TaskSchedulingProvider, TelemetryProvider, ToolProvider,
+    AGENT_KERNEL_SPEC_VERSION,
 };
 use std::sync::{Arc, Mutex};
 
@@ -25,6 +26,7 @@ pub struct AgentRuntime {
     capability_manifest: CapabilityManifest,
     provider_registry: RuntimeProviderRegistry,
     hooks: KernelHookRegistry,
+    cost_calculator: ModelCostCalculator,
 }
 
 impl AgentRuntime {
@@ -33,6 +35,7 @@ impl AgentRuntime {
             capability_manifest,
             RuntimeProviderRegistry::default(),
             KernelHookRegistry::new(),
+            ModelCostCalculator::default(),
         )
     }
 
@@ -40,6 +43,7 @@ impl AgentRuntime {
         capability_manifest: CapabilityManifest,
         provider_registry: RuntimeProviderRegistry,
         hooks: KernelHookRegistry,
+        cost_calculator: ModelCostCalculator,
     ) -> Self {
         let state = if !capability_manifest.missing_required_capabilities.is_empty() {
             RuntimeState::Failed
@@ -56,12 +60,18 @@ impl AgentRuntime {
             capability_manifest,
             provider_registry,
             hooks,
+            cost_calculator,
         }
     }
 
     /// Kernel hooks attached to this runtime.
     pub fn hooks(&self) -> &KernelHookRegistry {
         &self.hooks
+    }
+
+    /// Model price table used for cost estimation.
+    pub fn cost_calculator(&self) -> &ModelCostCalculator {
+        &self.cost_calculator
     }
 
     pub fn state(&self) -> RuntimeState {
@@ -908,6 +918,7 @@ pub struct RuntimeBuilder {
     host_sandbox_provider: Option<Arc<dyn SandboxProvider>>,
     host_sandbox_enabled: bool,
     kernel_hooks: KernelHookRegistry,
+    model_prices: Vec<ModelPrice>,
 }
 
 impl std::fmt::Debug for RuntimeBuilder {
@@ -940,7 +951,15 @@ impl RuntimeBuilder {
             host_sandbox_provider: None,
             host_sandbox_enabled: false,
             kernel_hooks: KernelHookRegistry::new(),
+            model_prices: Vec::new(),
         }
+    }
+
+    /// Register model prices for cost estimation; prices are keyed by
+    /// model id and the first registration wins.
+    pub fn with_model_prices(mut self, prices: Vec<ModelPrice>) -> Self {
+        self.model_prices = prices;
+        self
     }
 
     /// Register a kernel hook; hooks run in registration order at phase
@@ -1724,6 +1743,7 @@ impl RuntimeBuilder {
             capability_manifest,
             self.provider_registry.clone(),
             self.kernel_hooks.clone(),
+            ModelCostCalculator::new(self.model_prices.clone()),
         );
         events.push(match runtime.state() {
             RuntimeState::Ready => self.runtime_event("agent.runtime.ready"),

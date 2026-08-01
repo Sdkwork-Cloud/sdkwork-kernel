@@ -1223,12 +1223,32 @@ impl AgentExecutionService {
                 usage.input_tokens,
                 usage.output_tokens,
             )
+            .with_cached_input_tokens(usage.cached_input_tokens)
+            .with_reasoning_tokens(usage.reasoning_tokens)
             .with_stream_id(stream_id.clone())
         });
         if let Some(usage) = &usage {
             sink.push_event(
                 AgentStreamEvent::Usage(usage.clone()).with_session_id_optional(&session_id),
             )?;
+        }
+
+        // Cost accounting: derive cents from the runtime price table and
+        // surface a CostEvent before the terminal result.
+        if let (Some(model_id), Some(model_usage)) = (
+            model_response.model_id.as_deref(),
+            model_response.usage.as_ref(),
+        ) {
+            if let Some(estimate) = runtime.cost_calculator().estimate(model_id, model_usage) {
+                sink.push_event(
+                    AgentStreamEvent::Cost(
+                        estimate
+                            .to_cost_event(format!("{}.cost", request.execution_id))
+                            .with_stream_id(stream_id.clone()),
+                    )
+                    .with_session_id_optional(&session_id),
+                )?;
+            }
         }
 
         let is_error = model_response.status != crate::ModelStatus::Succeeded || tool_failed;

@@ -189,6 +189,12 @@ pub enum ModelStatus {
 pub struct ModelUsage {
     pub input_tokens: u32,
     pub output_tokens: u32,
+    /// Prompt-cache read tokens (billed at the cached rate).
+    pub cached_input_tokens: u32,
+    /// Reasoning/thinking tokens.
+    pub reasoning_tokens: u32,
+    /// Provider-reported duration when available.
+    pub duration_ms: Option<u64>,
 }
 
 impl ModelUsage {
@@ -196,7 +202,25 @@ impl ModelUsage {
         Self {
             input_tokens,
             output_tokens,
+            cached_input_tokens: 0,
+            reasoning_tokens: 0,
+            duration_ms: None,
         }
+    }
+
+    pub fn with_cached_input_tokens(mut self, cached_input_tokens: u32) -> Self {
+        self.cached_input_tokens = cached_input_tokens;
+        self
+    }
+
+    pub fn with_reasoning_tokens(mut self, reasoning_tokens: u32) -> Self {
+        self.reasoning_tokens = reasoning_tokens;
+        self
+    }
+
+    pub fn with_duration_ms(mut self, duration_ms: u64) -> Self {
+        self.duration_ms = Some(duration_ms);
+        self
     }
 
     pub fn total_tokens(&self) -> u32 {
@@ -404,6 +428,9 @@ impl ModelRequest {
 pub struct ModelResponse {
     pub model_request_id: String,
     pub provider_id: String,
+    /// Model identity used for pricing and diagnostics; `None` means the
+    /// provider default.
+    pub model_id: Option<String>,
     pub status: ModelStatus,
     pub messages: Vec<String>,
     pub tool_calls: Vec<ToolCall>,
@@ -423,6 +450,7 @@ impl ModelResponse {
         Self {
             model_request_id: model_request_id.into(),
             provider_id: provider_id.into(),
+            model_id: None,
             status: ModelStatus::Succeeded,
             messages: vec![message.into()],
             tool_calls: Vec::new(),
@@ -438,6 +466,7 @@ impl ModelResponse {
         Self {
             model_request_id: model_request_id.into(),
             provider_id: provider_id.into(),
+            model_id: None,
             status: ModelStatus::Cancelled,
             messages: Vec::new(),
             tool_calls: Vec::new(),
@@ -451,6 +480,11 @@ impl ModelResponse {
 
     pub fn with_status(mut self, status: ModelStatus) -> Self {
         self.status = status;
+        self
+    }
+
+    pub fn with_model_id(mut self, model_id: impl Into<String>) -> Self {
+        self.model_id = Some(model_id.into());
         self
     }
 

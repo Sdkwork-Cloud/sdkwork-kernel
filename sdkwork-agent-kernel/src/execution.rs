@@ -1076,6 +1076,101 @@ impl AgentExecutionService {
         request: AgentExecutionRequest,
         sink: &mut dyn AgentStreamSink,
     ) -> KernelResult<()> {
+        self.run_streaming_rounds(runtime, &request, sink)
+    }
+
+    /// Synchronous multi-turn streaming core: bounded tool-use rounds,
+    /// history accumulation, usage/cost accounting, and terminal events.
+    /// Kept synchronous so tool/model providers stay blocking; the
+    /// sandbox-aware async entry wraps it with lifecycle coordination.
+    /// Sandbox-aware streaming entry: when `request.sandbox_binding` is
+    /// present, the execution runs inside the bound sandbox session
+    /// lifecycle (pending -> start -> rounds -> stop -> completed) through
+    /// the [`SandboxedExecutionCoordinator`]; `agent.stream.sandbox`
+    /// events surface the lifecycle in the stream. Without a binding this
+    /// is the plain synchronous streaming path.
+    pub async fn execute_streaming_sandboxed(
+        &self,
+        runtime: &AgentRuntime,
+        request: AgentExecutionRequest,
+        sink: &mut dyn AgentStreamSink,
+        sandboxed_session_port: std::sync::Arc<dyn crate::SandboxedSessionPort>,
+    ) -> KernelResult<()> {
+        let Some(binding) = request.sandbox_binding.clone() else {
+            return self.run_streaming_rounds(runtime, &request, sink);
+        };
+        binding.validate()?;
+
+        let tenant_id = request
+            .subject
+            .as_ref()
+            .map(|subject| subject.tenant_id.clone())
+            .unwrap_or_else(|| "system".to_string());
+        let stream_id = format!("execution.{}", request.execution_id);
+        let session_id = request.session_id.clone();
+
+        sink.push_event(
+            AgentStreamEvent::Sandbox(
+                crate::SandboxEvent::pending(
+                    format!("{}.sandbox.pending", request.execution_id),
+                    binding.sandbox_session_id.clone(),
+                )
+                .with_stream_id(stream_id.clone()),
+            )
+            .with_session_id_optional(&session_id),
+        )?;
+
+        let coordinator = crate::SandboxedExecutionCoordinator::new(sandboxed_session_port);
+        let outcome = coordinator
+            .run_sandboxed(
+                tenant_id,
+                &binding,
+                format!("{}.sandbox", request.execution_id),
+                || async {
+                    // The synchronous rounds core runs as the sandboxed
+                    // action; lifecycle errors surface before/after it.
+                    self.run_streaming_rounds(runtime, &request, sink)
+                },
+            )
+            .await;
+
+        match outcome {
+            Ok(outcome) => {
+                sink.push_event(
+                    AgentStreamEvent::Sandbox(
+                        crate::SandboxEvent::completed(
+                            format!("{}.sandbox.completed", request.execution_id),
+                            binding.sandbox_session_id,
+                        )
+                        .with_stream_id(stream_id),
+                    )
+                    .with_session_id_optional(&session_id),
+                )?;
+                Ok(outcome.result)
+            }
+            Err(error) => {
+                sink.push_event(
+                    AgentStreamEvent::Sandbox(
+                        crate::SandboxEvent::failed(
+                            format!("{}.sandbox.failed", request.execution_id),
+                            binding.sandbox_session_id,
+                        )
+                        .with_message(error.safe_message())
+                        .with_stream_id(stream_id),
+                    )
+                    .with_session_id_optional(&session_id),
+                )?;
+                Err(error)
+            }
+        }
+    }
+
+    fn run_streaming_rounds(
+        &self,
+        runtime: &AgentRuntime,
+        request: &AgentExecutionRequest,
+        sink: &mut dyn AgentStreamSink,
+    ) -> KernelResult<()> {
         request.validate()?;
         self.ensure_runtime_executable(runtime)?;
 

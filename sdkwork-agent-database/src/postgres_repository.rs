@@ -182,7 +182,7 @@ impl RuntimeMaintenance for PostgresDatabase {
                     ("permissions", &mut counts.permissions),
                 ] {
                     let sql = format!("SELECT COUNT(*) FROM {table} WHERE session_id = ANY($1)");
-                    let value = sqlx::query_scalar::<_, i64>(&sql)
+                    let value = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql.clone()))
                         .bind(&session_ids)
                         .fetch_one(&mut *tx)
                         .await
@@ -377,9 +377,9 @@ impl RuntimeMaintenance for PostgresDatabase {
                     ("steps", &mut counts.steps),
                     ("permission_operations", &mut counts.permission_operations),
                 ] {
-                    let value = sqlx::query_scalar::<_, i64>(&format!(
+                    let value = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(format!(
                         "SELECT COUNT(*) FROM {table} WHERE run_id = ANY($1)"
-                    ))
+                    )))
                     .bind(&run_ids)
                     .fetch_one(&mut *tx)
                     .await

@@ -217,10 +217,10 @@ impl PermissionOperationRepository for PostgresDatabase {
         let pool = self.pool.pool().clone();
         let permission_request_id = permission_request_id.to_string();
         self.pool.run_db(async move {
-            sqlx::query(&format!(
+            sqlx::query(sqlx::AssertSqlSafe(format!(
                 "SELECT {OPERATION_COLUMNS} FROM permission_operations
                  WHERE permission_request_id = $1"
-            ))
+            )))
             .bind(permission_request_id)
             .fetch_optional(&pool)
             .await
@@ -250,10 +250,10 @@ impl PermissionOperationRepository for PostgresDatabase {
         let event = event.clone();
         self.pool.run_db(async move {
             let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
-            let row = sqlx::query(&format!(
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "SELECT {OPERATION_COLUMNS} FROM permission_operations
                  WHERE permission_request_id = $1 FOR UPDATE"
-            ))
+            )))
             .bind(&permission_request_id)
             .fetch_optional(&mut *tx)
             .await
@@ -341,10 +341,10 @@ impl PermissionOperationRepository for PostgresDatabase {
                 .map_err(map_sqlx_error)?;
             }
             crate::postgres_repository::postgres_save_event_idempotent(&mut *tx, &event).await?;
-            let updated = sqlx::query(&format!(
+            let updated = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "SELECT {OPERATION_COLUMNS} FROM permission_operations
                  WHERE permission_request_id = $1"
-            ))
+            )))
             .bind(&permission_request_id)
             .fetch_one(&mut *tx)
             .await
@@ -367,7 +367,7 @@ impl PermissionOperationRepository for PostgresDatabase {
         let lease_expires_at = lease_expires_at.to_string();
         self.pool.run_db(async move {
             let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
-            let operation = sqlx::query(&format!(
+            let operation = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "WITH candidate AS (
                     SELECT permission_request_id FROM permission_operations
                     WHERE expires_at > $1
@@ -387,7 +387,7 @@ impl PermissionOperationRepository for PostgresDatabase {
                     .map(|column| format!("operation.{}", column.trim()))
                     .collect::<Vec<_>>()
                     .join(", ")
-            ))
+            )))
             .bind(&now)
             .bind(&worker_id)
             .bind(&lease_expires_at)
@@ -399,14 +399,14 @@ impl PermissionOperationRepository for PostgresDatabase {
                 return Ok(None);
             };
             let operation = map_operation_row(&operation)?;
-            let run_row = sqlx::query(&format!("SELECT {RUN_COLUMNS} FROM runs WHERE run_id = $1"))
+            let run_row = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {RUN_COLUMNS} FROM runs WHERE run_id = $1")))
                 .bind(&operation.run_id)
                 .fetch_one(&mut *tx)
                 .await
                 .map_err(map_sqlx_error)?;
-            let step_row = sqlx::query(&format!(
+            let step_row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "SELECT {STEP_COLUMNS} FROM steps WHERE step_id = $1"
-            ))
+            )))
             .bind(&operation.step_id)
             .fetch_one(&mut *tx)
             .await

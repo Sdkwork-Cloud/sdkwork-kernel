@@ -219,7 +219,7 @@ impl RuntimeExecutionRepository for PostgresDatabase {
         let pool = self.pool.pool().clone();
         let run_id = run_id.to_string();
         self.pool.run_db(async move {
-            let row = sqlx::query(&format!("SELECT {RUN_COLUMNS} FROM runs WHERE run_id = $1"))
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {RUN_COLUMNS} FROM runs WHERE run_id = $1")))
                 .bind(&run_id)
                 .fetch_optional(&pool)
                 .await
@@ -232,10 +232,10 @@ impl RuntimeExecutionRepository for PostgresDatabase {
         let pool = self.pool.pool().clone();
         let run_id = run_id.to_string();
         self.pool.run_db(async move {
-            let rows = sqlx::query(&format!(
+            let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "SELECT {STEP_COLUMNS} FROM steps
                  WHERE run_id = $1 ORDER BY sequence_no LIMIT 201"
-            ))
+            )))
             .bind(&run_id)
             .fetch_all(&pool)
             .await
@@ -287,7 +287,7 @@ impl RuntimeExecutionRepository for PostgresDatabase {
         let lease_expires_at = lease_expires_at.to_string();
         self.pool.run_db(async move {
             let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
-            let row = sqlx::query(&format!(
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "WITH candidate AS (
                     SELECT run_id FROM runs
                     WHERE state IN ('created', 'planning', 'executing')
@@ -310,7 +310,7 @@ impl RuntimeExecutionRepository for PostgresDatabase {
                     .map(|column| format!("claimed.{column}"))
                     .collect::<Vec<_>>()
                     .join(", ")
-            ))
+            )))
             .bind(&now)
             .bind(&worker_id)
             .bind(&lease_expires_at)
@@ -341,11 +341,11 @@ impl RuntimeExecutionRepository for PostgresDatabase {
             .execute(&mut *tx)
             .await
             .map_err(map_sqlx_error)?;
-            let step_row = sqlx::query(&format!(
+            let step_row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "SELECT {STEP_COLUMNS} FROM steps
                  WHERE run_id = $1 AND state IN ('ready', 'running')
                  ORDER BY sequence_no LIMIT 1"
-            ))
+            )))
             .bind(&run.run_id)
             .fetch_optional(&mut *tx)
             .await
@@ -688,9 +688,9 @@ impl RuntimeExecutionRepository for PostgresDatabase {
         let event = event.clone();
         self.pool.run_db(async move {
             let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
-            let current_row = sqlx::query(&format!(
+            let current_row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "SELECT {RUN_COLUMNS} FROM runs WHERE run_id = $1 FOR UPDATE"
-            ))
+            )))
             .bind(&run_id)
             .fetch_optional(&mut *tx)
             .await
@@ -734,7 +734,7 @@ impl RuntimeExecutionRepository for PostgresDatabase {
                  WHERE run_id = $4 AND state IN ({from_states})
                  RETURNING {RUN_COLUMNS}"
             );
-            let updated_row = sqlx::query(&sql)
+            let updated_row = sqlx::query(sqlx::AssertSqlSafe(sql.clone()))
                 .bind(run_state)
                 .bind(is_cancel)
                 .bind(&changed_at)

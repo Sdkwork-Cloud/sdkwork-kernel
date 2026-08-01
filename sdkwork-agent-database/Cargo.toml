@@ -23,7 +23,10 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2.0"
 sdkwork-database-config = { workspace = true, optional = true }
 sdkwork-database-sqlx = { workspace = true, optional = true }
-sqlx = { version = "0.8", default-features = false, optional = true, features = ["runtime-tokio", "postgres"] }
+# sqlx 0.9 aligns with the sdkwork-database migration unified with the kernel
+# Codex graph (see ../sdkwork-database/Cargo.toml); the sibling
+# sdkwork-database-sqlx crate consumes it through the workspace declaration.
+sqlx = { version = "0.9", default-features = false, optional = true, features = ["runtime-tokio", "postgres"] }
 tokio = { version = "1.0", optional = true, features = ["rt-multi-thread", "macros"] }
 
 # SQLite

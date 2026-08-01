@@ -88,7 +88,7 @@ impl AgentDatabase for PostgresDatabase {
         let sql = sql.to_owned();
         let bindings: Vec<String> = params.iter().map(|param| param.as_sql_value()).collect();
         self.pool.run_db(async move {
-            let mut query = sqlx::query(&sql);
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.clone()));
             for value in &bindings {
                 query = query.bind(value);
             }
@@ -106,7 +106,7 @@ impl AgentDatabase for PostgresDatabase {
         let sql = sql.to_owned();
         let bindings: Vec<String> = params.iter().map(|param| param.as_sql_value()).collect();
         self.pool.run_db(async move {
-            let mut query = sqlx::query(&sql);
+            let mut query = sqlx::query(sqlx::AssertSqlSafe(sql.clone()));
             for value in &bindings {
                 query = query.bind(value);
             }

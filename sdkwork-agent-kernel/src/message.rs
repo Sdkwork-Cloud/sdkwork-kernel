@@ -281,6 +281,11 @@ pub struct AgentMessage {
     pub task_id: Option<String>,
     pub run_id: Option<String>,
     pub step_id: Option<String>,
+    /// Parent message in the lineage chain. Links assistant messages back to
+    /// the tool call that produced them (sub-agent/task lineage) and chains
+    /// messages into a fork-safe history graph, mirroring the transcript
+    /// parent-chain organization used by the agent SDKs.
+    pub parent_message_id: Option<String>,
     pub role: AgentMessageRole,
     pub parts: Vec<AgentPart>,
     pub created_at: Option<String>,
@@ -301,6 +306,7 @@ impl AgentMessage {
             task_id: None,
             run_id: None,
             step_id: None,
+            parent_message_id: None,
             role,
             parts,
             created_at: None,
@@ -312,6 +318,11 @@ impl AgentMessage {
 
     pub fn for_session(mut self, session_id: impl Into<String>) -> Self {
         self.session_id = Some(session_id.into());
+        self
+    }
+
+    pub fn with_parent_message(mut self, parent_message_id: impl Into<String>) -> Self {
+        self.parent_message_id = Some(parent_message_id.into());
         self
     }
 

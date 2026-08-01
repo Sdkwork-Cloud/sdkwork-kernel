@@ -211,8 +211,9 @@ pub use knowledge::{
     KnowledgeRetrievalMethod, KnowledgeSearchRequest, KnowledgeSearchResult,
 };
 pub use lifecycle::{
-    AgentRun, AgentSession, AgentStep, AgentTask, RunState, SessionChangeSummary, SessionKind,
-    SessionSource, SessionState, SessionTokenUsage, StepState, TaskState,
+    AgentRun, AgentSession, AgentStep, AgentTask, RunState, SessionChangeSummary,
+    SessionContinuation, SessionContinuationMode, SessionKind, SessionSource, SessionState,
+    SessionTokenUsage, StepState, TaskState,
 };
 pub use manifest::{
     AgentManifest, Capability, CapabilityManifest, CapabilityRequirement, ProviderHealth,

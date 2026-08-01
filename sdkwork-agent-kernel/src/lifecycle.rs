@@ -93,6 +93,120 @@ impl SessionKind {
 }
 
 // ============================================================================
+// Session Continuation - how a run attaches to an existing session
+// ============================================================================
+
+/// How a new agent run attaches to an existing session, aligning the kernel
+/// with the agent SDK resume primitives (`resume`, `continue`, `forkSession`,
+/// `resumeSessionAt`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionContinuationMode {
+    /// Resume an explicit session by id.
+    Resume { session_id: String },
+    /// Continue the most recent session for the agent/user scope.
+    ContinueLatest,
+    /// Fork a new session from a point in an existing session.
+    Fork {
+        source_session_id: String,
+        /// Truncate the forked history before this message when present.
+        before_message_id: Option<String>,
+    },
+    /// Resume the session as of a given timestamp.
+    ResumeAt { session_id: String, at: String },
+}
+
+impl SessionContinuationMode {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Resume { .. } => "resume",
+            Self::ContinueLatest => "continue_latest",
+            Self::Fork { .. } => "fork",
+            Self::ResumeAt { .. } => "resume_at",
+        }
+    }
+
+    /// The session id this continuation targets, when explicit.
+    pub fn target_session_id(&self) -> Option<&str> {
+        match self {
+            Self::Resume { session_id } => Some(session_id),
+            Self::ContinueLatest => None,
+            Self::Fork {
+                source_session_id, ..
+            } => Some(source_session_id),
+            Self::ResumeAt { session_id, .. } => Some(session_id),
+        }
+    }
+}
+
+/// A session continuation request: the explicit attachment strategy a run
+/// uses to resume, continue, or fork session history.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionContinuation {
+    pub mode: SessionContinuationMode,
+    pub reason: Option<String>,
+}
+
+impl SessionContinuation {
+    pub fn resume(session_id: impl Into<String>) -> Self {
+        Self {
+            mode: SessionContinuationMode::Resume {
+                session_id: session_id.into(),
+            },
+            reason: None,
+        }
+    }
+
+    pub fn continue_latest() -> Self {
+        Self {
+            mode: SessionContinuationMode::ContinueLatest,
+            reason: None,
+        }
+    }
+
+    pub fn fork(source_session_id: impl Into<String>) -> Self {
+        Self {
+            mode: SessionContinuationMode::Fork {
+                source_session_id: source_session_id.into(),
+                before_message_id: None,
+            },
+            reason: None,
+        }
+    }
+
+    pub fn fork_before(
+        source_session_id: impl Into<String>,
+        before_message_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            mode: SessionContinuationMode::Fork {
+                source_session_id: source_session_id.into(),
+                before_message_id: Some(before_message_id.into()),
+            },
+            reason: None,
+        }
+    }
+
+    pub fn resume_at(session_id: impl Into<String>, at: impl Into<String>) -> Self {
+        Self {
+            mode: SessionContinuationMode::ResumeAt {
+                session_id: session_id.into(),
+                at: at.into(),
+            },
+            reason: None,
+        }
+    }
+
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
+    }
+
+    pub fn mode(&self) -> &SessionContinuationMode {
+        &self.mode
+    }
+}
+
+// ============================================================================
 // Session Source - where the session originated
 // ============================================================================
 

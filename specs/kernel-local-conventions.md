@@ -13,7 +13,7 @@ This document contains repository-specific guidance derived from the previous `A
 This repository defines the SDKWork kernel standard for agent and code-agent systems. Rust crates live at:
 
 ### L0 SPI Layer
-- `sdkwork-agent-kernel/` - Agent SPI definitions (18 core provider families plus extension SPI: secret, sandbox, cancellation, rate_limit, model_stream, session_activity, a2a, backend_health, plugin, resilience, hooks, stream events)
+- `sdkwork-agent-kernel/` - Agent SPI definitions (18 core provider families plus extension SPI: secret, sandbox, cancellation, rate_limit, model_stream, session_activity, a2a, backend_health, plugin, resilience, hooks, stream events, layered settings, plugin contributions, sandboxed execution coordination)
 - `sdkwork-code-kernel/` - Code-agent SPI definitions
 
 ### L1 Provider Integration Layer
@@ -91,6 +91,9 @@ SDKWork follows a Linux-kernel-style split. This repository (`sdkwork-kernel`) o
 - Cross-repository Runtime dependency is `sdkwork-agents -> sdkwork-kernel -> sdkwork-sandbox`. Sandbox **MUST NOT** depend on Kernel or Agents.
 - Kernel maps authorized Agents IDs to `SandboxWorkspaceId` and `SandboxSessionId` through `sandbox_runtime::SandboxSessionLifecycleAdapter`; it does not copy Agents models or select a concrete Sandbox Provider.
 - The root-exported legacy `SandboxProvider` is a one-shot host-command mechanism. New Runtime lifecycle integration consumes `sdkwork-sandbox` through the namespaced adapter and must not expand the legacy mechanism into a second lifecycle authority.
+- `SandboxedExecutionCoordinator` runs an action inside a bound sandbox session lifecycle (`SandboxExecutionBinding` on `AgentExecutionRequest`, get -> start when `auto_start` -> action -> stop when `auto_stop`) through the kernel-side `SandboxedSessionPort`. It is fail-closed: a missing session refuses execution, and lifecycle failures propagate instead of being hidden.
+- Layered settings resolution (`AgentSettingsDocument` + `AgentSettingsService`) merges per-scope layers with the agent SDK hierarchy (enterprise > user > project > local) under explicit `AgentSettingSources` selection; the kernel owns the resolution mechanism, not settings persistence.
+- Plugins declare contribution points (`PluginContribution` of kind provider/tool/hook/stream/memory/skill) surfaced by `PluginRegistry` discovery; contribution ids must be unique across one registry, mirroring `sdkwork-kernel-plugins` `KernelPluginManifest` provider bindings at the kernel SPI level.
 
 ---
 

@@ -110,6 +110,111 @@ impl ContextFrame {
     }
 }
 
+// ============================================================================
+// External Memory Vocabulary Mapping
+// ============================================================================
+
+/// Memory types of the sibling sdkwork-memory service. The kernel maps this
+/// external vocabulary onto its tier hierarchy so integrations can align
+/// records without duplicating models.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExternalMemoryType {
+    Working,
+    Session,
+    Semantic,
+    Episodic,
+    Procedural,
+    Habit,
+    Relationship,
+    DomainKnowledge,
+}
+
+impl ExternalMemoryType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Working => "working",
+            Self::Session => "session",
+            Self::Semantic => "semantic",
+            Self::Episodic => "episodic",
+            Self::Procedural => "procedural",
+            Self::Habit => "habit",
+            Self::Relationship => "relationship",
+            Self::DomainKnowledge => "domain_knowledge",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "working" => Some(Self::Working),
+            "session" => Some(Self::Session),
+            "semantic" => Some(Self::Semantic),
+            "episodic" => Some(Self::Episodic),
+            "procedural" => Some(Self::Procedural),
+            "habit" => Some(Self::Habit),
+            "relationship" => Some(Self::Relationship),
+            "domain_knowledge" => Some(Self::DomainKnowledge),
+            _ => None,
+        }
+    }
+
+    /// Map the external memory type onto the kernel tier hierarchy.
+    pub fn to_kernel_tier(&self) -> MemoryTier {
+        match self {
+            Self::Working => MemoryTier::Ephemeral,
+            Self::Session => MemoryTier::ShortTerm,
+            Self::Semantic | Self::Episodic | Self::Procedural => MemoryTier::LongTerm,
+            Self::Relationship | Self::DomainKnowledge => MemoryTier::Permanent,
+            Self::Habit => MemoryTier::Growing,
+        }
+    }
+}
+
+impl MemoryTier {
+    /// External memory types that land on this tier.
+    pub fn to_external_types(&self) -> Vec<ExternalMemoryType> {
+        match self {
+            Self::Ephemeral => vec![ExternalMemoryType::Working],
+            Self::ShortTerm => vec![ExternalMemoryType::Session],
+            Self::LongTerm => vec![
+                ExternalMemoryType::Semantic,
+                ExternalMemoryType::Episodic,
+                ExternalMemoryType::Procedural,
+            ],
+            Self::Permanent => vec![
+                ExternalMemoryType::Relationship,
+                ExternalMemoryType::DomainKnowledge,
+            ],
+            Self::Growing => vec![ExternalMemoryType::Habit],
+        }
+    }
+}
+
+impl MemoryScope {
+    /// External scope string used by the sibling memory service.
+    pub fn to_external_scope(&self) -> &'static str {
+        match self {
+            Self::Session => "session",
+            Self::User => "user",
+            Self::Tenant => "tenant",
+            Self::Organization => "organization",
+            Self::Agent => "agent",
+            Self::Application => "application",
+        }
+    }
+
+    pub fn from_external_scope(value: &str) -> Option<Self> {
+        match value {
+            "session" => Some(Self::Session),
+            "user" => Some(Self::User),
+            "tenant" => Some(Self::Tenant),
+            "organization" => Some(Self::Organization),
+            "agent" => Some(Self::Agent),
+            "application" => Some(Self::Application),
+            _ => None,
+        }
+    }
+}
+
 pub trait ContextProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(

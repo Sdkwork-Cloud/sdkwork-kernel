@@ -166,8 +166,8 @@ pub use conformance::{
     KernelConformanceReport,
 };
 pub use context_memory::{
-    ContextExplanation, ContextFrame, ContextProvider, ContextRanking, MemoryProvider,
-    MemoryRecord, MemoryScope, MemoryTier, RedactionClassification, TrustLevel,
+    ContextExplanation, ContextFrame, ContextProvider, ContextRanking, ExternalMemoryType,
+    MemoryProvider, MemoryRecord, MemoryScope, MemoryTier, RedactionClassification, TrustLevel,
 };
 pub use cost::{CostEstimate, ModelCostCalculator, ModelPrice};
 pub use definition::{

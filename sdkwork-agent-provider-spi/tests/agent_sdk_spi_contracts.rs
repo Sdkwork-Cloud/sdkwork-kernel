@@ -1,6 +1,7 @@
 use sdkwork_agent_provider_spi::{
-    bootstrap_binding, AgentSdkBindingManifest, AgentSdkCapabilityDriver, BindingRegistry,
-    DriverRegistry, SdkBackendKind, SdkDriverHealth, SdkRuntimeOperationKind, CODEX_BINDING_ID,
+    bootstrap_binding, describe_capability, AgentSdkBindingManifest, AgentSdkCapabilityDriver,
+    BindingRegistry, DriverRegistry, SdkBackendKind, SdkDriverHealth, SdkRuntimeOperationKind,
+    CODEX_BINDING_ID,
 };
 use std::sync::Arc;
 
@@ -34,6 +35,40 @@ fn codex_binding_manifest_parses() {
     let manifest = AgentSdkBindingManifest::from_json(json).expect("manifest should parse");
     assert_eq!(manifest.agent_id, "agent.intelligence.codex");
     assert!(manifest.capability_binding("sdk.model.chat").is_some());
+}
+
+#[test]
+fn session_control_is_a_standard_provider_sdk_capability() {
+    let descriptor = describe_capability("sdk.session.control").expect("standard capability");
+    assert_eq!(descriptor.kernel_spi_family, "session.control");
+}
+
+#[test]
+fn opencode_binding_declares_live_session_control_operations() {
+    let json =
+        include_str!("../../bindings/agent-providers/opencode/provider-binding.manifest.json");
+    let manifest = AgentSdkBindingManifest::from_json(json).expect("opencode manifest");
+    let typescript = manifest
+        .language_packages
+        .as_ref()
+        .and_then(|packages| packages.typescript.as_ref())
+        .expect("OpenCode TypeScript SDK");
+    assert_eq!(typescript.version.as_deref(), Some("1.18.11"));
+
+    let control = manifest
+        .capability_binding("sdk.session.control")
+        .expect("OpenCode session control capability");
+    assert!(!control.required);
+    assert_eq!(control.backends.len(), 1);
+    assert_eq!(
+        control.backends[0].runtime_operations,
+        vec![
+            SdkRuntimeOperationKind::Ping,
+            SdkRuntimeOperationKind::SessionInterrupt,
+            SdkRuntimeOperationKind::SessionCompact,
+            SdkRuntimeOperationKind::SessionFork,
+        ]
+    );
 }
 
 #[test]

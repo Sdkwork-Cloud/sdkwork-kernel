@@ -38,6 +38,9 @@ fn kernel_plugin_manifest_declares_runtime_providers() {
     assert!(manifest
         .provider_ids
         .contains(&"provider.model.opencode".to_string()));
+    assert!(manifest
+        .provider_ids
+        .contains(&"provider.session-control.opencode".to_string()));
     assert!(!manifest
         .provider_ids
         .contains(&"provider.tool.opencode".to_string()));
@@ -48,14 +51,30 @@ fn kernel_plugin_manifest_declares_runtime_providers() {
 
 #[test]
 fn provider_manifests_exclude_agent_internal_tools() {
-    let provider_ids: Vec<String> = opencode_provider_manifests()
-        .into_iter()
-        .map(|manifest| manifest.provider_id)
+    let manifests = opencode_provider_manifests();
+    let provider_ids: Vec<String> = manifests
+        .iter()
+        .map(|manifest| manifest.provider_id.clone())
         .collect();
     assert!(provider_ids.contains(&"provider.model.opencode".to_string()));
+    assert!(provider_ids.contains(&"provider.session-control.opencode".to_string()));
     assert!(!provider_ids.contains(&"provider.tool.opencode".to_string()));
     assert!(provider_ids.contains(&"provider.policy.sdk-standard".to_string()));
     assert!(provider_ids.contains(&"provider.agent.installer.opencode".to_string()));
+
+    let session_control = manifests
+        .iter()
+        .find(|manifest| manifest.provider_id == "provider.session-control.opencode")
+        .expect("session control provider manifest");
+    assert_eq!(session_control.provider_family, "session_control");
+    assert_eq!(
+        session_control.capabilities,
+        vec![
+            "session.control.interrupt".to_string(),
+            "session.control.compact".to_string(),
+            "session.control.fork".to_string(),
+        ]
+    );
 }
 
 #[test]
@@ -109,5 +128,21 @@ fn kernel_plugin_configures_runtime() {
             .provider_manifest()
             .provider_id,
         "provider.agent.installer.opencode"
+    );
+    assert_eq!(
+        report.runtime.provider_session_control_provider_ids(),
+        ["provider.session-control.opencode"]
+    );
+    let session_control = report
+        .runtime
+        .provider_session_control_provider_by_id("provider.session-control.opencode")
+        .expect("typed session control provider");
+    assert_eq!(
+        session_control.provider_manifest().capabilities,
+        vec![
+            "session.control.interrupt".to_string(),
+            "session.control.compact".to_string(),
+            "session.control.fork".to_string(),
+        ]
     );
 }

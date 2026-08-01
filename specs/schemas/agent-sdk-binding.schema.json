@@ -166,6 +166,9 @@
       "enum": [
         "ping",
         "session_create",
+        "session_interrupt",
+        "session_compact",
+        "session_fork",
         "model_chat",
         "model_chat_stream",
         "tool_invoke",

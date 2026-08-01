@@ -13,8 +13,8 @@ use sdkwork_agent_provider_core::{
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
     DriverRegistry, ProviderSessionActivityRuntimeSink, SdkNegotiationError,
-    SdkRuntimeBackedModelProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
-    OPENCODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
+    SdkRuntimeBackedModelProvider, SdkRuntimeBackedSessionControlProvider, SdkRuntimeRequest,
+    SdkRuntimeResponse, SdkRuntimeRouter, OPENCODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -37,6 +37,7 @@ pub struct OpenCodeSdkIntegration {
     pub runtime: Arc<SdkRuntimeRouter>,
     pub lifecycle: OpenCodeLifecycleProvider,
     pub model: SdkRuntimeBackedModelProvider,
+    pub session_control: SdkRuntimeBackedSessionControlProvider,
     pub session_adapter: OpenCodeAdapter,
     pub message_adapter: OpenCodeMessageAdapter,
     activity: Arc<InMemoryProviderSessionActivityProvider>,
@@ -70,6 +71,10 @@ impl OpenCodeSdkIntegration {
             SDK_CAPABILITY_MODEL_CHAT,
             "provider.model.opencode",
         );
+        let session_control = SdkRuntimeBackedSessionControlProvider::new(
+            runtime.clone(),
+            crate::ids::SESSION_CONTROL_PROVIDER_ID,
+        );
 
         Ok(Self {
             sdk: AgentSdkIntegration::new(negotiation),
@@ -77,6 +82,7 @@ impl OpenCodeSdkIntegration {
             runtime,
             lifecycle: OpenCodeLifecycleProvider::new(),
             model,
+            session_control,
             session_adapter: OpenCodeAdapter::new(),
             message_adapter: OpenCodeMessageAdapter::new(),
             activity,

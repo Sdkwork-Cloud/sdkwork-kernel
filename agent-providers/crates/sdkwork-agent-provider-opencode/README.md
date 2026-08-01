@@ -34,6 +34,15 @@ this integration. Independently running OpenCode processes remain `Unsupported`
 unless a runtime host attaches an authoritative event subscriber; database
 timestamps are not live evidence.
 
+## Provider Session Control
+
+The optional `provider.session-control.opencode` extension exposes interrupt,
+compact, and fork through the negotiated `sdk.session.control` runtime. The
+live adapter requires an existing `OPENCODE_SERVER_URL`, uses only the official
+`@opencode-ai/sdk` surface, preserves the opaque provider Session id, and has no
+mock or synthetic fallback. Every mutation remains policy-gated by the kernel
+request contract.
+
 ## Verification
 
 ```bash

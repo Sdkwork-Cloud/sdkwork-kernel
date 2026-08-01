@@ -47,6 +47,10 @@ const providerLocalCapabilities = new Set([
 ]);
 
 const runtimeOperationsByCapability = new Map([
+  [
+    'sdk.session.control',
+    ['ping', 'session_interrupt', 'session_compact', 'session_fork'],
+  ],
   ['sdk.model.chat', ['ping', 'model_chat', 'model_chat_stream']],
   ['sdk.model.stream', ['ping', 'model_chat_stream']],
   ['sdk.tool.invoke', ['ping', 'tool_invoke']],
@@ -55,6 +59,9 @@ const runtimeOperationsByCapability = new Map([
 
 const unsupportedRustRuntimeOperations = new Set([
   'session_create',
+  'session_interrupt',
+  'session_compact',
+  'session_fork',
   'skill_invoke',
 ]);
 

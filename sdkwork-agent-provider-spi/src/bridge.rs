@@ -6,7 +6,10 @@ use crate::runtime::{
 use sdkwork_agent_kernel::{
     KernelEvent, KernelEventRedaction, KernelEventSeverity, KernelEventSource, KernelResult,
     ModelProvider, ModelRequest, ModelResponse, ModelStatus, ModelStreamChunk, ModelStreamSink,
-    ProviderHealth, ProviderManifest, ToolCall, ToolProvider, ToolResult, TraceContext,
+    ProviderHealth, ProviderManifest, ProviderSessionControlActionKind,
+    ProviderSessionControlOutput, ProviderSessionControlProvider, ProviderSessionControlRequest,
+    ProviderSessionControlResult, ProviderSessionControlStatus, ToolCall, ToolProvider, ToolResult,
+    TraceContext,
 };
 use sdkwork_agent_provider_core::mock_provider_invocation_allowed;
 use sdkwork_agent_provider_core::validate_runtime_model_payload;
@@ -18,6 +21,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 pub const SDK_CAPABILITY_SESSION_LIFECYCLE: &str = "sdk.session.lifecycle";
+pub const SDK_CAPABILITY_SESSION_CONTROL: &str = "sdk.session.control";
 pub const SDK_CAPABILITY_MODEL_CHAT: &str = "sdk.model.chat";
 pub const SDK_CAPABILITY_TOOL_INVOKE: &str = "sdk.tool.invoke";
 pub const SDK_CAPABILITY_SKILL_INVOKE: &str = "sdk.skill.invoke";
@@ -343,6 +347,180 @@ fn request_requires_live_provider(request: &ModelRequest) -> bool {
     !value.eq_ignore_ascii_case("false")
 }
 
+/// Kernel session-control extension backed by a negotiated provider SDK runtime.
+pub struct SdkRuntimeBackedSessionControlProvider {
+    runtime: Arc<SdkRuntimeRouter>,
+    capability_id: String,
+    provider_id: String,
+}
+
+impl SdkRuntimeBackedSessionControlProvider {
+    pub fn new(runtime: Arc<SdkRuntimeRouter>, provider_id: impl Into<String>) -> Self {
+        Self {
+            runtime,
+            capability_id: SDK_CAPABILITY_SESSION_CONTROL.to_string(),
+            provider_id: provider_id.into(),
+        }
+    }
+
+    pub fn with_capability_id(mut self, capability_id: impl Into<String>) -> Self {
+        self.capability_id = capability_id.into();
+        self
+    }
+
+    fn capabilities(&self) -> Vec<String> {
+        [
+            (
+                crate::runtime::SdkRuntimeOperationKind::SessionInterrupt,
+                ProviderSessionControlActionKind::Interrupt,
+            ),
+            (
+                crate::runtime::SdkRuntimeOperationKind::SessionCompact,
+                ProviderSessionControlActionKind::Compact,
+            ),
+            (
+                crate::runtime::SdkRuntimeOperationKind::SessionFork,
+                ProviderSessionControlActionKind::Fork,
+            ),
+        ]
+        .into_iter()
+        .filter(|(operation, _)| {
+            self.runtime
+                .supports_operation(&self.capability_id, *operation)
+        })
+        .map(|(_, action)| action.capability_id().to_string())
+        .collect()
+    }
+}
+
+impl ProviderSessionControlProvider for SdkRuntimeBackedSessionControlProvider {
+    fn provider_manifest(&self) -> ProviderManifest {
+        ProviderManifest::new(
+            self.provider_id.clone(),
+            "session_control",
+            "Runtime-backed provider session control",
+            "0.1.0",
+            self.capabilities(),
+        )
+    }
+
+    fn control(
+        &self,
+        request: ProviderSessionControlRequest,
+    ) -> KernelResult<ProviderSessionControlResult> {
+        let runtime_request =
+            SdkRuntimeRequest::from_session_control_request(&self.capability_id, &request)
+                .map_err(|error| runtime_session_control_error(&self.provider_id, error))?;
+        let response = self
+            .runtime
+            .invoke(&runtime_request)
+            .map_err(|error| runtime_session_control_error(&self.provider_id, error))?;
+        session_control_result_from_runtime(response, &request)
+            .map_err(|error| runtime_session_control_error(&self.provider_id, error))
+    }
+
+    fn health(&self) -> ProviderHealth {
+        match self.runtime.capability_health(&self.capability_id) {
+            Ok(health) if health.is_usable() => ProviderHealth::available(),
+            Ok(health) => ProviderHealth::unavailable(
+                health
+                    .message
+                    .unwrap_or_else(|| "session control runtime is unhealthy".to_string()),
+            ),
+            Err(error) => ProviderHealth::unavailable(error.message),
+        }
+    }
+}
+
+fn session_control_result_from_runtime(
+    response: SdkRuntimeResponse,
+    request: &ProviderSessionControlRequest,
+) -> Result<ProviderSessionControlResult, SdkRuntimeError> {
+    if !response.success {
+        return Err(SdkRuntimeError::new(
+            "runtime_failure",
+            response
+                .message
+                .unwrap_or_else(|| "runtime session control failed".to_string()),
+        ));
+    }
+    let payload = response.payload.ok_or_else(|| {
+        SdkRuntimeError::new(
+            "missing_payload",
+            "runtime session control response is missing payload",
+        )
+    })?;
+    let provider_session_id = required_payload_string(&payload, "provider_session_id")?;
+    if provider_session_id != request.provider_session_id {
+        return Err(SdkRuntimeError::new(
+            "session_control_mismatch",
+            "runtime session control response provider_session_id does not match the request",
+        ));
+    }
+    let status = match required_payload_string(&payload, "status")? {
+        "applied" => ProviderSessionControlStatus::Applied,
+        "no_op" => ProviderSessionControlStatus::NoOp,
+        _ => {
+            return Err(SdkRuntimeError::new(
+                "invalid_session_control_response",
+                "runtime session control response has an unknown status",
+            ))
+        }
+    };
+    let output = if request.action.kind() == ProviderSessionControlActionKind::Fork {
+        let forked_provider_session_id =
+            required_payload_string(&payload, "forked_provider_session_id")?;
+        if forked_provider_session_id == provider_session_id {
+            return Err(SdkRuntimeError::new(
+                "session_control_mismatch",
+                "forked provider session id must differ from the source session id",
+            ));
+        }
+        ProviderSessionControlOutput::Forked {
+            provider_session_id: forked_provider_session_id.to_string(),
+        }
+    } else {
+        ProviderSessionControlOutput::Acknowledged
+    };
+    Ok(ProviderSessionControlResult {
+        control_request_id: request.control_request_id.clone(),
+        session_id: request.session_id.clone(),
+        provider_session_id: request.provider_session_id.clone(),
+        action: request.action.kind(),
+        status,
+        output,
+        metadata: Vec::new(),
+    })
+}
+
+fn required_payload_string<'a>(
+    payload: &'a Value,
+    field: &str,
+) -> Result<&'a str, SdkRuntimeError> {
+    payload
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            SdkRuntimeError::new(
+                "invalid_session_control_response",
+                format!("runtime session control response is missing {field}"),
+            )
+        })
+}
+
+fn runtime_session_control_error(
+    provider_id: &str,
+    error: SdkRuntimeError,
+) -> sdkwork_agent_kernel::KernelError {
+    sdkwork_agent_kernel::KernelError::provider_error(
+        error.code,
+        format!("{provider_id}: {}", error.message),
+    )
+    .with_provider(provider_id)
+}
+
 /// Kernel `ToolProvider` that routes `invoke_tool` through `SdkRuntimeRouter` with fallback.
 pub struct SdkRuntimeBackedToolProvider {
     runtime: Arc<SdkRuntimeRouter>,
@@ -443,7 +621,10 @@ pub fn model_response_from_runtime(
     let mut model_response = ModelResponse {
         model_request_id: model_request_id.to_string(),
         provider_id: provider_id.to_string(),
-        model_id: payload.get("model").and_then(Value::as_str).map(str::to_string),
+        model_id: payload
+            .get("model")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         status: ModelStatus::Succeeded,
         messages,
         tool_calls,

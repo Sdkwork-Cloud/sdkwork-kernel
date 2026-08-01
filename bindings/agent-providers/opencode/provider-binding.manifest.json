@@ -14,7 +14,7 @@
   "language_packages": {
     "typescript": {
       "package": "@opencode-ai/sdk",
-      "version": "1.18.10",
+      "version": "1.18.11",
       "optional": false
     }
   },
@@ -47,6 +47,24 @@
           "kind": "typescript_node",
           "driver_id": "driver.opencode.model.chat.ts",
           "runtime_operations": ["ping", "model_chat"],
+          "package": "@opencode-ai/sdk"
+        }
+      ]
+    },
+    {
+      "capability_id": "sdk.session.control",
+      "required": false,
+      "execution_scope": "transport_runtime",
+      "backends": [
+        {
+          "kind": "typescript_node",
+          "driver_id": "driver.opencode.session.control.ts",
+          "runtime_operations": [
+            "ping",
+            "session_interrupt",
+            "session_compact",
+            "session_fork"
+          ],
           "package": "@opencode-ai/sdk"
         }
       ]

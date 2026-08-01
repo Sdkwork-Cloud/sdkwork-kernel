@@ -9,6 +9,7 @@ import {
   buildStubModelChatResult,
   invokeModelChatLive,
   invokeModelChatStreamLive,
+  invokeSessionControlRuntime,
   mockProviderInvocationAllowed,
   probePackage,
   probeModelChatRuntime,
@@ -39,7 +40,7 @@ fs.writeFileSync(
     type: 'module',
     name: '@opencode-ai/sdk',
     version: '0.0.0-test',
-    exports: { '.': './index.js' },
+    exports: { '.': './index.js', './v2': './v2.js' },
   }),
   'utf8',
 );
@@ -231,6 +232,11 @@ export function createOpencodeClient(options = {}) {
         capture(record);
         return { data: { id: path.id } };
       },
+      fork: async ({ path, body, signal } = {}) => {
+        record.session_fork = { path, body, signal_present: Boolean(signal) };
+        capture(record);
+        return { data: { id: 'opencode-sdk-forked' } };
+      },
       prompt: async ({ path, body, signal } = {}) => {
         record.session_prompt = { path, body, signal_present: Boolean(signal) };
         capture(record);
@@ -239,6 +245,42 @@ export function createOpencodeClient(options = {}) {
             parts: [{ type: 'text', text: 'opencode sdk:' + body.parts[0].text }],
           },
         };
+      },
+    },
+  };
+}
+`,
+  'utf8',
+);
+fs.writeFileSync(
+  path.join(opencodeSdkMirror, 'v2.js'),
+  `import fs from 'node:fs';
+
+const capturePath = ${JSON.stringify(opencodeCapturePath)};
+
+function capture(record) {
+  fs.writeFileSync(capturePath, JSON.stringify(record), 'utf8');
+}
+
+export function createOpencodeClient(options = {}) {
+  const record = { client_options: { base_url: options.baseUrl, directory: options.directory } };
+  capture(record);
+  return {
+    session: {
+      get: async ({ sessionID } = {}, { signal } = {}) => {
+        record.session_get_v2 = { session_id: sessionID, signal_present: Boolean(signal) };
+        capture(record);
+        return { data: { data: { id: sessionID } } };
+      },
+      interrupt: async ({ sessionID } = {}, { signal } = {}) => {
+        record.session_interrupt = { session_id: sessionID, signal_present: Boolean(signal) };
+        capture(record);
+        return { data: undefined };
+      },
+      compact: async ({ sessionID } = {}, { signal } = {}) => {
+        record.session_compact = { session_id: sessionID, signal_present: Boolean(signal) };
+        capture(record);
+        return { data: undefined };
       },
     },
   };
@@ -389,6 +431,50 @@ assert.ok(
   opencodePath.endsWith('/index.js') && opencodePath.includes('opencode-sdk'),
   'opencode resolver should return an importable package entry file',
 );
+
+process.env.OPENCODE_SERVER_URL = 'http://127.0.0.1:4096';
+const sessionControlBase = {
+  control_request_id: 'control-opencode',
+  session_id: 'session-canonical-control',
+  provider_session_id: 'opencode-sdk-existing',
+  policy_decision_id: 'policy-decision-control',
+  timeout_ms: 2_000,
+};
+const interrupted = await invokeSessionControlRuntime('@opencode-ai/sdk', {
+  ...sessionControlBase,
+  operation: 'session_interrupt',
+  reason: 'user_cancelled',
+});
+assert.equal(interrupted.status, 'applied');
+assert.equal(interrupted.provider_session_id, 'opencode-sdk-existing');
+assert.deepEqual(JSON.parse(fs.readFileSync(opencodeCapturePath, 'utf8')).session_interrupt, {
+  session_id: 'opencode-sdk-existing',
+  signal_present: true,
+});
+
+const compacted = await invokeSessionControlRuntime('@opencode-ai/sdk', {
+  ...sessionControlBase,
+  operation: 'session_compact',
+});
+assert.equal(compacted.status, 'applied');
+assert.deepEqual(JSON.parse(fs.readFileSync(opencodeCapturePath, 'utf8')).session_compact, {
+  session_id: 'opencode-sdk-existing',
+  signal_present: true,
+});
+
+const forked = await invokeSessionControlRuntime('@opencode-ai/sdk', {
+  ...sessionControlBase,
+  operation: 'session_fork',
+  before_message_id: 'message-7',
+});
+assert.equal(forked.provider_session_id, 'opencode-sdk-existing');
+assert.equal(forked.forked_provider_session_id, 'opencode-sdk-forked');
+assert.deepEqual(JSON.parse(fs.readFileSync(opencodeCapturePath, 'utf8')).session_fork, {
+  path: { id: 'opencode-sdk-existing' },
+  body: { messageID: 'message-7' },
+  signal_present: true,
+});
+delete process.env.OPENCODE_SERVER_URL;
 
 process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
   '@sdkwork/invalid-sdk': invalidSdkMirror,

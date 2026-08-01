@@ -8,6 +8,7 @@ import {
   interruptSdkLiveTurn,
   invokeModelChatStreamRuntime,
   invokeModelChatRuntime,
+  invokeSessionControlRuntime,
   mockProviderInvocationAllowed,
   probePackage,
   probeModelChatRuntime,
@@ -172,6 +173,26 @@ async function handleCapabilityInvoke(params, streamOptions = {}) {
       package: packageName,
       package_resolved: packageProbe.resolved,
     };
+  }
+
+  if (
+    op === 'session_interrupt' ||
+    op === 'session_compact' ||
+    op === 'session_fork'
+  ) {
+    try {
+      return await invokeSessionControlRuntime(packageName, operation);
+    } catch (error) {
+      return {
+        ok: false,
+        mode: 'sdk_live_failed',
+        package: packageName,
+        package_resolved: packageProbe.resolved,
+        operation: op,
+        control_request_id: operation.control_request_id ?? null,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   if (op === 'model_chat' || op === 'model_chat_stream') {

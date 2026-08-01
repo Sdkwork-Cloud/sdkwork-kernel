@@ -123,6 +123,42 @@ pub enum SdkRuntimeOperation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         user_ref: Option<String>,
     },
+    SessionInterrupt {
+        control_request_id: String,
+        session_id: String,
+        provider_session_id: String,
+        policy_decision_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        working_directory: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
+    },
+    SessionCompact {
+        control_request_id: String,
+        session_id: String,
+        provider_session_id: String,
+        policy_decision_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        focus: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        working_directory: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
+    },
+    SessionFork {
+        control_request_id: String,
+        session_id: String,
+        provider_session_id: String,
+        policy_decision_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before_message_id: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        working_directory: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout_ms: Option<u64>,
+    },
     ModelChat {
         model_request_id: String,
         messages: Vec<String>,
@@ -180,6 +216,9 @@ pub enum SdkRuntimeOperation {
 pub enum SdkRuntimeOperationKind {
     Ping,
     SessionCreate,
+    SessionInterrupt,
+    SessionCompact,
+    SessionFork,
     ModelChat,
     ModelChatStream,
     ToolInvoke,
@@ -191,6 +230,9 @@ impl SdkRuntimeOperation {
         match self {
             Self::Ping => SdkRuntimeOperationKind::Ping,
             Self::SessionCreate { .. } => SdkRuntimeOperationKind::SessionCreate,
+            Self::SessionInterrupt { .. } => SdkRuntimeOperationKind::SessionInterrupt,
+            Self::SessionCompact { .. } => SdkRuntimeOperationKind::SessionCompact,
+            Self::SessionFork { .. } => SdkRuntimeOperationKind::SessionFork,
             Self::ModelChat { .. } => SdkRuntimeOperationKind::ModelChat,
             Self::ModelChatStream { .. } => SdkRuntimeOperationKind::ModelChatStream,
             Self::ToolInvoke { .. } => SdkRuntimeOperationKind::ToolInvoke,
@@ -208,6 +250,15 @@ impl SdkRuntimeOperation {
                 model_request_id, ..
             } => Some(model_request_id),
             Self::ToolInvoke { tool_call_id, .. } => Some(tool_call_id),
+            Self::SessionInterrupt {
+                control_request_id, ..
+            }
+            | Self::SessionCompact {
+                control_request_id, ..
+            }
+            | Self::SessionFork {
+                control_request_id, ..
+            } => Some(control_request_id),
             Self::Ping | Self::SessionCreate { .. } | Self::SkillInvoke { .. } => None,
         }
     }
@@ -218,6 +269,9 @@ impl SdkRuntimeOperationKind {
         match self {
             Self::Ping => "ping",
             Self::SessionCreate => "session_create",
+            Self::SessionInterrupt => "session_interrupt",
+            Self::SessionCompact => "session_compact",
+            Self::SessionFork => "session_fork",
             Self::ModelChat => "model_chat",
             Self::ModelChatStream => "model_chat_stream",
             Self::ToolInvoke => "tool_invoke",
@@ -241,6 +295,56 @@ impl SdkRuntimeRequest {
             operation: SdkRuntimeOperation::Ping,
             payload: None,
         }
+    }
+
+    pub fn from_session_control_request(
+        capability_id: impl Into<String>,
+        request: &sdkwork_agent_kernel::ProviderSessionControlRequest,
+    ) -> Result<Self, SdkRuntimeError> {
+        request.validate().map_err(|error| {
+            SdkRuntimeError::new("invalid_session_control_request", error.to_string())
+        })?;
+        let capability_id = capability_id.into();
+        let operation = match &request.action {
+            sdkwork_agent_kernel::ProviderSessionControlAction::Interrupt { reason } => {
+                SdkRuntimeOperation::SessionInterrupt {
+                    control_request_id: request.control_request_id.clone(),
+                    session_id: request.session_id.clone(),
+                    provider_session_id: request.provider_session_id.clone(),
+                    policy_decision_id: request.policy_decision_id.clone(),
+                    reason: reason.clone(),
+                    working_directory: request.working_directory.clone(),
+                    timeout_ms: request.timeout_ms,
+                }
+            }
+            sdkwork_agent_kernel::ProviderSessionControlAction::Compact { focus } => {
+                SdkRuntimeOperation::SessionCompact {
+                    control_request_id: request.control_request_id.clone(),
+                    session_id: request.session_id.clone(),
+                    provider_session_id: request.provider_session_id.clone(),
+                    policy_decision_id: request.policy_decision_id.clone(),
+                    focus: focus.clone(),
+                    working_directory: request.working_directory.clone(),
+                    timeout_ms: request.timeout_ms,
+                }
+            }
+            sdkwork_agent_kernel::ProviderSessionControlAction::Fork { before_message_id } => {
+                SdkRuntimeOperation::SessionFork {
+                    control_request_id: request.control_request_id.clone(),
+                    session_id: request.session_id.clone(),
+                    provider_session_id: request.provider_session_id.clone(),
+                    policy_decision_id: request.policy_decision_id.clone(),
+                    before_message_id: before_message_id.clone(),
+                    working_directory: request.working_directory.clone(),
+                    timeout_ms: request.timeout_ms,
+                }
+            }
+        };
+        Ok(Self {
+            capability_id,
+            operation,
+            payload: None,
+        })
     }
 
     pub fn model_chat(
@@ -824,6 +928,30 @@ impl SdkRuntimeRouter {
             .ok_or_else(|| SdkRuntimeError::backend_unavailable(selected.backend_kind))?;
 
         runtime.invoke(request)
+    }
+
+    pub fn supports_operation(
+        &self,
+        capability_id: &str,
+        operation: SdkRuntimeOperationKind,
+    ) -> bool {
+        self.negotiation
+            .selected_driver(capability_id)
+            .is_some_and(|selected| selected.runtime_operations.contains(&operation))
+    }
+
+    pub fn capability_health(
+        &self,
+        capability_id: &str,
+    ) -> Result<SdkDriverHealth, SdkRuntimeError> {
+        let selected = self
+            .negotiation
+            .selected_driver(capability_id)
+            .ok_or_else(|| SdkRuntimeError::capability_not_negotiated(capability_id))?;
+        let runtime = self
+            .runtime_for(selected.backend_kind)
+            .ok_or_else(|| SdkRuntimeError::backend_unavailable(selected.backend_kind))?;
+        Ok(runtime.health())
     }
 
     pub fn invoke_streaming(

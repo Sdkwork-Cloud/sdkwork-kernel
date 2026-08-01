@@ -77,6 +77,9 @@ Required cases:
 - Runtime registers `agent_installer` and `agent_configuration` providers when
   install/configuration capabilities are enabled.
 - Runtime can register multiple model providers and select them by provider id.
+- Runtime can register multiple provider-session-control extension providers,
+  select them by provider id, and report typed health without making the
+  extension a required core provider family.
 - Runtime typed model registration preserves provider-declared model
   capabilities such as `model.catalog`, `model.tool_call`, and
   `model.structured_output` in the capability manifest.
@@ -237,6 +240,9 @@ Required cases:
 - Denied tool returns denied result and audit record.
 - Streaming tool emits start/chunk/completion events.
 - Cancellation is idempotent.
+- Provider-session control preserves canonical and opaque provider identities,
+  requires policy evidence, rejects undeclared actions before dispatch, and
+  returns a distinct provider session id for forks.
 - Provider error maps to kernel error kind.
 - Tool output is marked untrusted by default.
 

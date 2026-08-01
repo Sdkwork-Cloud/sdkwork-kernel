@@ -44,6 +44,8 @@ surfaces: they use `execution_scope: provider_local` and expose only
 capabilities use `execution_scope: transport_runtime`; runtime dispatch
 rejects any operation that is not declared in the selected backend
 `runtime_operations` allowlist before invoking a worker.
+`sdk.session.control` is a separate optional transport-runtime extension; it
+does not turn provider-local lifecycle metadata into executable transport RPC.
 
 | Provider crate | Plugin id | Agent id | Runtime entrypoint |
 | --- | --- | --- | --- |
@@ -71,6 +73,7 @@ Legend: **R** = required in manifest, **O** = optional, **—** = not declared (
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `sdk.session.lifecycle` | R | R | R | R | R | R | R | — |
 | `sdk.session.history` | R | — | — | — | — | — | — | — |
+| `sdk.session.control` | — | — | — | O | — | — | — | — |
 | `sdk.model.chat` | R | R | R | R | R | R | R | R |
 | `sdk.model.stream` | O | — | O | — | — | — | — | — |
 | `sdk.tool.invoke` | — | — | O | — | O | — | — | — |
@@ -143,8 +146,12 @@ a binding manifest declares `integration_sources`.
 
 ### OpenCode
 
-- **Strengths:** Bun server SDK through the typed `@opencode-ai/sdk` worker.
-- **Gaps:** Experimental status; streaming and HTTP OpenAPI fallback are not in binding yet.
+- **Strengths:** Bun server SDK through the typed `@opencode-ai/sdk@1.18.11`
+  worker; official v2 `interrupt`/`compact` and root-client `fork` are wired as
+  policy-gated `sdk.session.control` operations with exact session identity.
+- **Gaps:** Experimental status; streaming, context-usage inspection, model and
+  agent switching, durable event subscription, and HTTP OpenAPI fallback are
+  not in binding yet.
 - **BirdCoder:** Engine catalog entry; release proof uses the staging live SDK gate.
 
 ### OpenClaw

@@ -82,12 +82,21 @@ const capabilityExecutionScopes = new Set(['transport_runtime', 'provider_local'
 const runtimeOperations = new Set([
   'ping',
   'session_create',
+  'session_interrupt',
+  'session_compact',
+  'session_fork',
   'model_chat',
   'model_chat_stream',
   'tool_invoke',
   'skill_invoke'
 ]);
-const unsupportedRustRuntimeOperations = new Set(['session_create', 'skill_invoke']);
+const unsupportedRustRuntimeOperations = new Set([
+  'session_create',
+  'session_interrupt',
+  'session_compact',
+  'session_fork',
+  'skill_invoke',
+]);
 const sourceTreeScanSkipDirectories = new Set([
   '.git',
   '.next',

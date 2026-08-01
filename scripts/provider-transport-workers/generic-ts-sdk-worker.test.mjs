@@ -57,15 +57,44 @@ function invokeWorker(operation, env = {}) {
 
 for (const operation of [
   { operation: 'session_create', agent_id: 'agent-1' },
+  {
+    operation: 'session_interrupt',
+    control_request_id: 'control-1',
+    session_id: 'session-1',
+    provider_session_id: 'provider-session-1',
+    policy_decision_id: 'policy-1',
+  },
+  {
+    operation: 'session_compact',
+    control_request_id: 'control-2',
+    session_id: 'session-1',
+    provider_session_id: 'provider-session-1',
+    policy_decision_id: 'policy-1',
+  },
+  {
+    operation: 'session_fork',
+    control_request_id: 'control-3',
+    session_id: 'session-1',
+    provider_session_id: 'provider-session-1',
+    policy_decision_id: 'policy-1',
+  },
   { operation: 'tool_invoke', tool_id: 'tool-1' },
   { operation: 'skill_invoke', skill_id: 'skill-1' },
   { operation: 'unknown_operation' },
 ]) {
   const response = await invokeWorker(operation);
   assert.equal(response.result.ok, false, `${operation.operation} must fail closed`);
-  if (operation.operation === 'session_create') {
+  if (
+    operation.operation === 'session_create' ||
+    operation.operation.startsWith('session_')
+  ) {
     assert.equal(response.result.mode, 'sdk_live_failed');
-    assert.match(response.result.error, /mock fallback is disabled/);
+    assert.match(
+      response.result.error,
+      operation.operation === 'session_create'
+        ? /mock fallback is disabled/
+        : /live session control handler|package not resolved|official sdk package is not resolved/,
+    );
   } else {
     assert.equal(response.result.mode, 'unsupported_operation');
     assert.match(response.result.error, /not implemented by the official provider SDK adapter/);

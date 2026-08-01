@@ -124,14 +124,21 @@ function fileExists(filePath) {
   }
 }
 
-function packageEntryCandidates(packageJson) {
+function packageEntryCandidates(packageJson, exportKey = '.') {
   const candidates = [];
-  const rootExport = packageJson.exports?.['.'] ?? packageJson.exports;
+  const rootExport =
+    packageJson.exports && typeof packageJson.exports === 'object'
+      ? packageJson.exports[exportKey] ?? (exportKey === '.' ? packageJson.exports : null)
+      : exportKey === '.'
+        ? packageJson.exports
+        : null;
 
   appendExportCandidates(candidates, rootExport);
-  for (const field of ['module', 'main']) {
-    if (typeof packageJson[field] === 'string') {
-      candidates.push(packageJson[field]);
+  if (exportKey === '.') {
+    for (const field of ['module', 'main']) {
+      if (typeof packageJson[field] === 'string') {
+        candidates.push(packageJson[field]);
+      }
     }
   }
   return candidates;
@@ -167,10 +174,10 @@ function localPackageNameMatches(requestedPackageName, actualPackageName) {
   return requestedPackageName === '@openai/codex' && actualPackageName === '@openai/codex-sdk';
 }
 
-function resolveLocalPackageSpecifier(packageName, localPath) {
+function resolveLocalPackageSpecifier(packageName, localPath, exportKey = '.') {
   if (Array.isArray(localPath)) {
     for (const candidate of localPath) {
-      const resolved = resolveLocalPackageSpecifier(packageName, candidate);
+      const resolved = resolveLocalPackageSpecifier(packageName, candidate, exportKey);
       if (resolved) {
         return resolved;
       }
@@ -182,6 +189,9 @@ function resolveLocalPackageSpecifier(packageName, localPath) {
   }
 
   if (fileExists(localPath)) {
+    if (exportKey !== '.') {
+      return null;
+    }
     const extension = path.extname(localPath).toLowerCase();
     return ['.js', '.mjs', '.cjs'].includes(extension) ? pathToFileURL(localPath).href : null;
   }
@@ -202,7 +212,7 @@ function resolveLocalPackageSpecifier(packageName, localPath) {
     return null;
   }
 
-  for (const candidate of packageEntryCandidates(packageJson)) {
+  for (const candidate of packageEntryCandidates(packageJson, exportKey)) {
     if (!candidate || !candidate.startsWith('.')) {
       continue;
     }
@@ -216,19 +226,28 @@ function resolveLocalPackageSpecifier(packageName, localPath) {
 }
 
 export function resolvePackageSpecifier(packageName) {
+  return resolvePackageExportSpecifier(packageName, '.');
+}
+
+export function resolvePackageExportSpecifier(packageName, exportKey) {
+  if (exportKey !== '.' && !/^\.\/[a-zA-Z0-9._/-]+$/u.test(exportKey)) {
+    return null;
+  }
   const configuredPaths = configuredPackagePaths();
   if (Object.hasOwn(configuredPaths, packageName)) {
-    return resolveLocalPackageSpecifier(packageName, configuredPaths[packageName]);
+    return resolveLocalPackageSpecifier(packageName, configuredPaths[packageName], exportKey);
   }
 
   const require = createRequire(import.meta.url);
+  const requestedSpecifier =
+    exportKey === '.' ? packageName : `${packageName}/${exportKey.slice(2)}`;
   try {
-    const resolved = require.resolve(packageName);
+    const resolved = require.resolve(requestedSpecifier);
     return path.isAbsolute(resolved) ? pathToFileURL(resolved).href : resolved;
   } catch {
     const paths = defaultPackagePaths(workspaceRoot() ?? '');
     const localPath = paths[packageName];
-    return resolveLocalPackageSpecifier(packageName, localPath);
+    return resolveLocalPackageSpecifier(packageName, localPath, exportKey);
   }
 }
 
@@ -277,6 +296,14 @@ async function loadPackage(packageName) {
   const specifier = resolvePackageSpecifier(packageName);
   if (!specifier) {
     throw new Error(`package not resolved: ${packageName}`);
+  }
+  return import(specifier);
+}
+
+async function loadPackageExport(packageName, exportKey) {
+  const specifier = resolvePackageExportSpecifier(packageName, exportKey);
+  if (!specifier) {
+    throw new Error(`package export not resolved: ${packageName} ${exportKey}`);
   }
   return import(specifier);
 }
@@ -788,6 +815,14 @@ function optionalOperationString(value, fieldName) {
   return normalized || null;
 }
 
+function requiredOperationString(value, fieldName) {
+  const normalized = optionalOperationString(value, fieldName);
+  if (!normalized) {
+    throw new Error(`${fieldName} must be a non-empty string`);
+  }
+  return normalized;
+}
+
 function optionalOperationBoolean(value, fieldName) {
   if (typeof value !== 'boolean') {
     throw new Error(`execution_options.${fieldName} must be a boolean`);
@@ -1121,6 +1156,160 @@ async function invokeOpencodeModelChat(prompt, operation, packageName, activity)
 
     throw new Error('opencode sdk missing createOpencodeServer/createOpencodeClient session entrypoints');
   });
+}
+
+const OPENCODE_SESSION_CONTROL_OPERATIONS = new Set([
+  'session_interrupt',
+  'session_compact',
+  'session_fork',
+]);
+
+export async function invokeSessionControlRuntime(packageName, operation) {
+  if (packageName !== '@opencode-ai/sdk') {
+    throw new Error(`no live session control handler for package ${packageName}`);
+  }
+  const operationName = requiredOperationString(operation?.operation, 'operation');
+  if (!OPENCODE_SESSION_CONTROL_OPERATIONS.has(operationName)) {
+    throw new Error(`unsupported OpenCode session control operation: ${operationName}`);
+  }
+  const controlRequestId = requiredOperationString(
+    operation.control_request_id,
+    'control_request_id',
+  );
+  const sessionId = requiredOperationString(operation.session_id, 'session_id');
+  const providerSessionId = requiredOperationString(
+    operation.provider_session_id,
+    'provider_session_id',
+  );
+  const policyDecisionId = requiredOperationString(
+    operation.policy_decision_id,
+    'policy_decision_id',
+  );
+  const baseUrl = process.env.OPENCODE_SERVER_URL?.trim();
+  if (!baseUrl) {
+    throw new Error('OpenCode session control requires OPENCODE_SERVER_URL for the owning server');
+  }
+
+  return runProviderOperation(operation, 'opencode_session_control', async (abortController) => {
+    const signal = abortController.signal;
+    const workingDirectory = resolveProviderWorkingDirectory(operation);
+    let forkedProviderSessionId = null;
+
+    if (operationName === 'session_fork') {
+      const moduleNamespace = await loadPackage(packageName);
+      if (typeof moduleNamespace.createOpencodeClient !== 'function') {
+        throw new Error('opencode sdk missing createOpencodeClient() for session fork');
+      }
+      const client = moduleNamespace.createOpencodeClient({
+        baseUrl,
+        directory: workingDirectory,
+      });
+      await verifyOpencodeSession(client, providerSessionId, signal);
+      if (typeof client?.session?.fork !== 'function') {
+        throw new Error('opencode sdk client is missing session.fork');
+      }
+      const beforeMessageId = optionalOperationString(
+        operation.before_message_id,
+        'before_message_id',
+      );
+      const response = await client.session.fork({
+        path: { id: providerSessionId },
+        body: beforeMessageId ? { messageID: beforeMessageId } : {},
+        signal,
+      });
+      const error = readProviderError(response?.error);
+      if (error) {
+        throw new Error(`opencode session.fork failed: ${error}`);
+      }
+      forkedProviderSessionId = requireProviderSessionId(
+        'opencode_sdk',
+        response?.data?.id ?? response?.id,
+      );
+      if (forkedProviderSessionId === providerSessionId) {
+        throw new Error('opencode session.fork returned the source provider session id');
+      }
+    } else {
+      const moduleNamespace = await loadPackageExport(packageName, './v2');
+      if (typeof moduleNamespace.createOpencodeClient !== 'function') {
+        throw new Error('opencode v2 sdk missing createOpencodeClient()');
+      }
+      const client = moduleNamespace.createOpencodeClient({
+        baseUrl,
+        directory: workingDirectory,
+      });
+      await verifyOpencodeV2Session(client, providerSessionId, signal);
+      if (operationName === 'session_interrupt') {
+        if (typeof client?.session?.interrupt !== 'function') {
+          throw new Error('opencode v2 sdk client is missing session.interrupt');
+        }
+        await invokeOpencodeV2Control(
+          client.session.interrupt.bind(client.session),
+          providerSessionId,
+          signal,
+          'interrupt',
+        );
+      } else {
+        if (optionalOperationString(operation.focus, 'focus')) {
+          throw new Error('opencode v2 session.compact does not support a focus parameter');
+        }
+        if (typeof client?.session?.compact !== 'function') {
+          throw new Error('opencode v2 sdk client is missing session.compact');
+        }
+        await invokeOpencodeV2Control(
+          client.session.compact.bind(client.session),
+          providerSessionId,
+          signal,
+          'compact',
+        );
+      }
+    }
+
+    return {
+      ok: true,
+      mode: 'sdk_live',
+      package: packageName,
+      operation: operationName,
+      control_request_id: controlRequestId,
+      session_id: sessionId,
+      provider_session_id: providerSessionId,
+      policy_decision_id: policyDecisionId,
+      status: 'applied',
+      ...(forkedProviderSessionId
+        ? { forked_provider_session_id: forkedProviderSessionId }
+        : {}),
+    };
+  });
+}
+
+async function verifyOpencodeV2Session(client, requestedProviderSessionId, signal) {
+  if (typeof client?.session?.get !== 'function') {
+    throw new Error('opencode v2 sdk client is missing session.get');
+  }
+  const response = await client.session.get(
+    { sessionID: requestedProviderSessionId },
+    { signal },
+  );
+  const error = readProviderError(response?.error);
+  if (error) {
+    throw new Error(`opencode v2 session.get failed: ${error}`);
+  }
+  const providerSessionId = requireProviderSessionId(
+    'opencode_sdk',
+    response?.data?.data?.id ?? response?.data?.id ?? response?.id,
+  );
+  return verifyProviderSessionId(
+    'opencode_sdk',
+    providerSessionId,
+    requestedProviderSessionId,
+  );
+}
+
+async function invokeOpencodeV2Control(method, providerSessionId, signal, action) {
+  const response = await method({ sessionID: providerSessionId }, { signal });
+  const error = readProviderError(response?.error);
+  if (error) {
+    throw new Error(`opencode v2 session.${action} failed: ${error}`);
+  }
 }
 
 function resolveProviderWorkingDirectory(operation) {

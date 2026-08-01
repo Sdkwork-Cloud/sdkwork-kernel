@@ -42,6 +42,11 @@ pub const STANDARD_SDK_CAPABILITIES: &[SdkCapabilityDescriptor] = &[
         kernel_spi_family: "conversation",
     },
     SdkCapabilityDescriptor {
+        capability_id: "sdk.session.control",
+        display_name: "Session control",
+        kernel_spi_family: "session.control",
+    },
+    SdkCapabilityDescriptor {
         capability_id: "sdk.model.chat",
         display_name: "Model chat",
         kernel_spi_family: "model",

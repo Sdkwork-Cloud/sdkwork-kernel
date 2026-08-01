@@ -96,6 +96,12 @@ impl ProviderBackedRustHandler {
                      (agent_id={agent_id}, user_ref={user_ref:?})"
                 ),
             )),
+            SdkRuntimeOperation::SessionInterrupt { .. }
+            | SdkRuntimeOperation::SessionCompact { .. }
+            | SdkRuntimeOperation::SessionFork { .. } => Err(SdkRuntimeError::new(
+                "unsupported_operation",
+                "provider session control is not configured for this Rust provider runtime",
+            )),
             SdkRuntimeOperation::SkillInvoke {
                 skill_id,
                 arguments,
@@ -352,6 +358,56 @@ mod tests {
             })
             .expect_err("session create must fail closed on rust_native");
         assert_eq!(error.code, "unsupported_operation");
+    }
+
+    #[test]
+    fn session_control_is_unsupported_on_generic_rust_native_transport() {
+        let handler = Arc::new(ProviderBackedRustHandler::new(
+            Arc::new(StubModelProvider) as Arc<dyn ModelProvider + Send + Sync>,
+            Arc::new(StubToolProvider) as Arc<dyn ToolProvider + Send + Sync>,
+            "stub-model",
+        ));
+        let runtime = InProcessRustSdkRuntime::new(handler);
+        let operations = vec![
+            SdkRuntimeOperation::SessionInterrupt {
+                control_request_id: "control.interrupt".to_string(),
+                session_id: "session.1".to_string(),
+                provider_session_id: "provider-session.1".to_string(),
+                policy_decision_id: "policy.1".to_string(),
+                reason: None,
+                working_directory: None,
+                timeout_ms: None,
+            },
+            SdkRuntimeOperation::SessionCompact {
+                control_request_id: "control.compact".to_string(),
+                session_id: "session.1".to_string(),
+                provider_session_id: "provider-session.1".to_string(),
+                policy_decision_id: "policy.1".to_string(),
+                focus: None,
+                working_directory: None,
+                timeout_ms: None,
+            },
+            SdkRuntimeOperation::SessionFork {
+                control_request_id: "control.fork".to_string(),
+                session_id: "session.1".to_string(),
+                provider_session_id: "provider-session.1".to_string(),
+                policy_decision_id: "policy.1".to_string(),
+                before_message_id: None,
+                working_directory: None,
+                timeout_ms: None,
+            },
+        ];
+
+        for operation in operations {
+            let error = runtime
+                .invoke(&SdkRuntimeRequest {
+                    capability_id: "sdk.session.control".to_string(),
+                    operation,
+                    payload: None,
+                })
+                .expect_err("session control must fail closed on generic rust_native");
+            assert_eq!(error.code, "unsupported_operation");
+        }
     }
 
     #[test]

@@ -7,9 +7,9 @@ use crate::{
     KernelHook, KernelHookRegistry, KernelResult, KnowledgeProvider, McpProvider, MemoryProvider,
     MessageQueryProvider, ModelCostCalculator, ModelPrice, ModelProvider, PlanningProvider,
     PlatformSandboxProvider, PolicyCategory, PolicyProvider, ProtocolAdapter, ProviderHealth,
-    ProviderManifest, ProviderSessionActivityProvider, SandboxProvider, SandboxingHostProvider,
-    SideEffectLevel, TaskSchedulingProvider, TelemetryProvider, ToolProvider,
-    AGENT_KERNEL_SPEC_VERSION,
+    ProviderManifest, ProviderSessionActivityProvider, ProviderSessionControlProvider,
+    SandboxProvider, SandboxingHostProvider, SideEffectLevel, TaskSchedulingProvider,
+    TelemetryProvider, ToolProvider, AGENT_KERNEL_SPEC_VERSION,
 };
 use std::sync::{Arc, Mutex};
 
@@ -224,6 +224,33 @@ impl AgentRuntime {
     pub fn provider_session_activity_provider_ids(&self) -> Vec<String> {
         self.provider_registry
             .provider_session_activity_provider_ids()
+    }
+
+    pub fn provider_session_control_provider(
+        &self,
+    ) -> KernelResult<&(dyn ProviderSessionControlProvider + Send + Sync)> {
+        self.provider_registry
+            .provider_session_control_provider
+            .as_deref()
+            .ok_or_else(|| {
+                self.provider_error_for_family("session_control", "session.control.interrupt")
+            })
+    }
+
+    pub fn provider_session_control_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> KernelResult<&(dyn ProviderSessionControlProvider + Send + Sync)> {
+        self.provider_registry
+            .provider_session_control_provider_by_id(provider_id)
+            .ok_or_else(|| {
+                self.provider_error_for_provider_id(provider_id, "session.control.interrupt")
+            })
+    }
+
+    pub fn provider_session_control_provider_ids(&self) -> Vec<String> {
+        self.provider_registry
+            .provider_session_control_provider_ids()
     }
 
     pub fn tool_provider(&self) -> KernelResult<&(dyn ToolProvider + Send + Sync)> {
@@ -1021,6 +1048,50 @@ impl RuntimeBuilder {
     ) -> Self {
         self.provider_registry
             .add_provider_session_activity_provider(provider_id.into(), provider);
+        self
+    }
+
+    pub fn register_provider_session_control_provider_manifest(
+        self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+    ) -> Self {
+        self.register_provider(core_provider_manifest(
+            provider_id,
+            "session_control",
+            version,
+            vec![
+                "session.control.interrupt",
+                "session.control.compact",
+                "session.control.fork",
+            ],
+        ))
+    }
+
+    pub fn register_provider_session_control_provider<T>(
+        mut self,
+        provider_id: impl Into<String>,
+        version: impl Into<String>,
+        provider: T,
+    ) -> Self
+    where
+        T: ProviderSessionControlProvider + Send + Sync + 'static,
+    {
+        let provider_id = provider_id.into();
+        let provider_manifest = typed_provider_manifest(
+            provider.provider_manifest(),
+            provider_id.clone(),
+            "session_control",
+            version,
+            vec![
+                "session.control.interrupt",
+                "session.control.compact",
+                "session.control.fork",
+            ],
+        );
+        self.providers.push(provider_manifest);
+        self.provider_registry
+            .add_provider_session_control_provider(provider_id, Arc::new(provider));
         self
     }
 
@@ -1929,6 +2000,13 @@ pub struct RuntimeProviderRegistry {
         String,
         Arc<dyn ProviderSessionActivityProvider + Send + Sync>,
     )>,
+    provider_session_control_provider_id: Option<String>,
+    provider_session_control_provider:
+        Option<Arc<dyn ProviderSessionControlProvider + Send + Sync>>,
+    provider_session_control_providers: Vec<(
+        String,
+        Arc<dyn ProviderSessionControlProvider + Send + Sync>,
+    )>,
     tool_provider_id: Option<String>,
     tool_provider: Option<Arc<dyn ToolProvider + Send + Sync>>,
     tool_providers: Vec<(String, Arc<dyn ToolProvider + Send + Sync>)>,
@@ -2027,6 +2105,36 @@ impl RuntimeProviderRegistry {
 
     pub fn provider_session_activity_provider_ids(&self) -> Vec<String> {
         self.provider_session_activity_providers
+            .iter()
+            .map(|(provider_id, _)| provider_id.clone())
+            .collect()
+    }
+
+    fn add_provider_session_control_provider(
+        &mut self,
+        provider_id: String,
+        provider: Arc<dyn ProviderSessionControlProvider + Send + Sync>,
+    ) {
+        if self.provider_session_control_provider.is_none() {
+            self.provider_session_control_provider_id = Some(provider_id.clone());
+            self.provider_session_control_provider = Some(provider.clone());
+        }
+        self.provider_session_control_providers
+            .push((provider_id, provider));
+    }
+
+    fn provider_session_control_provider_by_id(
+        &self,
+        provider_id: &str,
+    ) -> Option<&(dyn ProviderSessionControlProvider + Send + Sync)> {
+        self.provider_session_control_providers
+            .iter()
+            .find(|(registered_provider_id, _)| registered_provider_id == provider_id)
+            .map(|(_, provider)| provider.as_ref())
+    }
+
+    pub fn provider_session_control_provider_ids(&self) -> Vec<String> {
+        self.provider_session_control_providers
             .iter()
             .map(|(provider_id, _)| provider_id.clone())
             .collect()
@@ -2329,6 +2437,10 @@ impl RuntimeProviderRegistry {
         !self.provider_session_activity_providers.is_empty()
     }
 
+    pub fn has_provider_session_control_provider(&self) -> bool {
+        !self.provider_session_control_providers.is_empty()
+    }
+
     pub fn has_tool_provider(&self) -> bool {
         !self.tool_providers.is_empty()
     }
@@ -2548,6 +2660,9 @@ impl RuntimeProviderRegistry {
             "model" => self
                 .model_provider_by_id(provider.provider_id.as_str())
                 .is_some(),
+            "session_control" => self
+                .provider_session_control_provider_by_id(provider.provider_id.as_str())
+                .is_some(),
             "tool" => self
                 .tool_provider_by_id(provider.provider_id.as_str())
                 .is_some(),
@@ -2617,6 +2732,11 @@ impl RuntimeProviderRegistry {
             }
             "model" => self
                 .model_providers
+                .iter()
+                .find(|(provider_id, _)| provider_id == &provider.provider_id)
+                .map(|(_, provider)| provider.health()),
+            "session_control" => self
+                .provider_session_control_providers
                 .iter()
                 .find(|(provider_id, _)| provider_id == &provider.provider_id)
                 .map(|(_, provider)| provider.health()),
@@ -2735,6 +2855,18 @@ impl std::fmt::Debug for RuntimeProviderRegistry {
                 "has_provider_session_activity_provider",
                 &self.has_provider_session_activity_provider(),
             )
+            .field(
+                "provider_session_control_provider_id",
+                &self.provider_session_control_provider_id,
+            )
+            .field(
+                "provider_session_control_provider_ids",
+                &self.provider_session_control_provider_ids(),
+            )
+            .field(
+                "has_provider_session_control_provider",
+                &self.has_provider_session_control_provider(),
+            )
             .field("tool_provider_id", &self.tool_provider_id)
             .field("tool_provider_ids", &self.tool_provider_ids())
             .field("has_tool_provider", &self.has_tool_provider())
@@ -2826,6 +2958,12 @@ impl PartialEq for RuntimeProviderRegistry {
                 == other.provider_session_activity_provider_ids()
             && self.has_provider_session_activity_provider()
                 == other.has_provider_session_activity_provider()
+            && self.provider_session_control_provider_id
+                == other.provider_session_control_provider_id
+            && self.provider_session_control_provider_ids()
+                == other.provider_session_control_provider_ids()
+            && self.has_provider_session_control_provider()
+                == other.has_provider_session_control_provider()
             && self.tool_provider_id == other.tool_provider_id
             && self.tool_provider_ids() == other.tool_provider_ids()
             && self.has_tool_provider() == other.has_tool_provider()
@@ -3191,6 +3329,21 @@ fn capability_metadata(capability_id: &str) -> CapabilityMetadata {
             vec!["create_plan", "validate_plan", "health"],
             SideEffectLevel::ReadOnly,
             PolicyCategory::ProductSpecific("planning.create".to_string()),
+        ),
+        "session.control.interrupt" => lifecycle_capability_metadata(
+            vec!["control", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::ProductSpecific("session.control.interrupt".to_string()),
+        ),
+        "session.control.compact" => lifecycle_capability_metadata(
+            vec!["control", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::ProductSpecific("session.control.compact".to_string()),
+        ),
+        "session.control.fork" => lifecycle_capability_metadata(
+            vec!["control", "health"],
+            SideEffectLevel::SideEffectful,
+            PolicyCategory::ProductSpecific("session.control.fork".to_string()),
         ),
         "telemetry.record" => lifecycle_capability_metadata(
             vec!["record_event", "record_metric", "record_log", "health"],

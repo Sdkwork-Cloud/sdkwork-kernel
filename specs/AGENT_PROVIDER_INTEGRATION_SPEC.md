@@ -271,6 +271,38 @@ Rules:
   selected transport only when the backend runtime is healthy and the requested
   operation is explicitly declared.
 
+#### 6.1.1 Provider Session Control
+
+Provider-session control is an optional L0 extension, not a new core provider
+family and not a copy of any provider's complete RPC catalog. The standard
+capability is `sdk.session.control`; its executable actions are the independent
+`session_interrupt`, `session_compact`, and `session_fork` runtime operations.
+
+Rules:
+
+- Every request `MUST` carry a unique `control_request_id`, canonical
+  `session_id`, opaque `provider_session_id`, and `policy_decision_id`.
+- Control adapters `MUST` validate the provider session through the official
+  SDK or protocol before mutation. They `MUST NOT` substitute the canonical
+  SDKWork Session id for the provider identity.
+- Session-control actions are side-effectful and `MUST` be policy-gated before
+  transport dispatch. Missing policy evidence fails validation.
+- `session_interrupt` is idempotent; interrupting an idle provider session may
+  return `no_op` but is not a generic provider failure.
+- `session_compact` preserves canonical and provider session identity. An
+  adapter `MUST` reject action parameters that its upstream API cannot preserve
+  instead of silently dropping them.
+- `session_fork` returns a new opaque `forked_provider_session_id` which `MUST`
+  differ from the source `provider_session_id`. The kernel creates or updates
+  canonical session state separately; a provider id never becomes a kernel id.
+- Control operations require a live Provider runtime and `MUST NOT` use mock or
+  synthetic fallback in development or production.
+- The initial executable reference lane is OpenCode: `interrupt` and `compact`
+  use the official `@opencode-ai/sdk/v2` export against the owning
+  `OPENCODE_SERVER_URL`; `fork` uses the same package's official root client.
+  Codex and Claude Code control surfaces remain undeclared until their resident
+  transport lifetimes are wired and proved by equivalent conformance tests.
+
 ### 6.2 User-Mediated Server Requests
 
 A long-lived provider transport may receive a request that pauses the active

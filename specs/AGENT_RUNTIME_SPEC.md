@@ -103,6 +103,10 @@ Rules:
   runtime. The default model provider is the deterministic first registered
   typed model provider; callers that need a specific LLM implementation `MUST`
   select it by provider id.
+- Runtime builders `MUST` support multiple typed provider-session-control
+  extension providers without adding that extension to the required core
+  provider-family profile. The first registered typed provider is the default;
+  callers may select a provider by id.
 - Typed model provider registration `MUST` preserve the provider manifest's
   declared model capabilities, including `model.catalog`,
   `model.structured_output`, `model.tool_call`, `model.streaming`, and
@@ -235,6 +239,9 @@ Required runtime operations:
 - `get_model_provider`
 - `list_model_provider_ids`
 - `get_model_provider_by_id`
+- `get_provider_session_control_provider`
+- `list_provider_session_control_provider_ids`
+- `get_provider_session_control_provider_by_id`
 - `get_tool_provider`
 - `list_tool_provider_ids`
 - `get_tool_provider_by_id`
@@ -457,6 +464,9 @@ Required cases:
 - Core SPI providers can be registered as typed local providers and invoked
   through runtime accessors.
 - Multiple model providers can be registered and selected by provider id.
+- Multiple typed provider-session-control extensions can be registered and
+  selected by provider id while preserving exact `session.control.*`
+  capabilities and provider health in diagnostics.
 - Multiple tool providers can be registered and selected by provider id.
 - Multiple policy providers can be registered and selected by provider id.
 - Multiple context providers can be registered and selected by provider id.

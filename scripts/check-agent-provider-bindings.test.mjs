@@ -77,6 +77,9 @@ test('binding schema exposes runtime operations as a reusable top-level definiti
   assert.deepEqual(schema.$defs.runtimeOperation.enum, [
     'ping',
     'session_create',
+    'session_interrupt',
+    'session_compact',
+    'session_fork',
     'model_chat',
     'model_chat_stream',
     'tool_invoke',

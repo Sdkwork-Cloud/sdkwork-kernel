@@ -147,11 +147,20 @@ a binding manifest declares `integration_sources`.
 ### OpenCode
 
 - **Strengths:** Bun server SDK through the typed `@opencode-ai/sdk@1.18.11`
-  worker; official v2 `interrupt`/`compact` and root-client `fork` are wired as
-  policy-gated `sdk.session.control` operations with exact session identity.
+  worker; official `client.v2.session` `interrupt`/`compact` and root-client
+  `fork` are wired as policy-gated `sdk.session.control` operations with exact
+  session identity.
+- **Package evidence:** npm tarball SHA-1
+  `5c5482c7ddfe0ed6a1c9f8d836c00795e391fb79` (integrity
+  `sha512-yDImmNv4PhxdMgtiHVNWQWEVwQlAm7Dr0y4XU7CT4dOIbzgO+VP+9I02lAP7Zva1FhGeyI7oKMI2tzB9RUsWaQ==`)
+  exposes both the root client and `./v2`; its generated types place the
+  `/api/session/*` controls under `client.v2.session`.
 - **Gaps:** Experimental status; streaming, context-usage inspection, model and
   agent switching, durable event subscription, and HTTP OpenAPI fallback are
-  not in binding yet.
+  not in binding yet. The pinned `external/opencode` tree is the archived
+  legacy Go project rather than the source authority for
+  `@opencode-ai/sdk@1.18.11`; replacing that gitlink requires human-reviewed
+  provenance and supply-chain evidence before release.
 - **BirdCoder:** Engine catalog entry; release proof uses the staging live SDK gate.
 
 ### OpenClaw

@@ -266,21 +266,23 @@ export function createOpencodeClient(options = {}) {
   const record = { client_options: { base_url: options.baseUrl, directory: options.directory } };
   capture(record);
   return {
-    session: {
-      get: async ({ sessionID } = {}, { signal } = {}) => {
-        record.session_get_v2 = { session_id: sessionID, signal_present: Boolean(signal) };
-        capture(record);
-        return { data: { data: { id: sessionID } } };
-      },
-      interrupt: async ({ sessionID } = {}, { signal } = {}) => {
-        record.session_interrupt = { session_id: sessionID, signal_present: Boolean(signal) };
-        capture(record);
-        return { data: undefined };
-      },
-      compact: async ({ sessionID } = {}, { signal } = {}) => {
-        record.session_compact = { session_id: sessionID, signal_present: Boolean(signal) };
-        capture(record);
-        return { data: undefined };
+    v2: {
+      session: {
+        get: async ({ sessionID } = {}, { signal } = {}) => {
+          record.session_get_v2 = { session_id: sessionID, signal_present: Boolean(signal) };
+          capture(record);
+          return { data: { data: { id: sessionID } } };
+        },
+        interrupt: async ({ sessionID } = {}, { signal } = {}) => {
+          record.session_interrupt = { session_id: sessionID, signal_present: Boolean(signal) };
+          capture(record);
+          return { data: undefined };
+        },
+        compact: async ({ sessionID } = {}, { signal } = {}) => {
+          record.session_compact = { session_id: sessionID, signal_present: Boolean(signal) };
+          capture(record);
+          return { data: undefined };
+        },
       },
     },
   };

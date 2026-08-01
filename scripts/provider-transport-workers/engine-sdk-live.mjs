@@ -1237,13 +1237,17 @@ export async function invokeSessionControlRuntime(packageName, operation) {
         baseUrl,
         directory: workingDirectory,
       });
-      await verifyOpencodeV2Session(client, providerSessionId, signal);
+      const sessionClient = client?.v2?.session;
+      if (!sessionClient) {
+        throw new Error('opencode v2 sdk client is missing v2.session');
+      }
+      await verifyOpencodeV2Session(sessionClient, providerSessionId, signal);
       if (operationName === 'session_interrupt') {
-        if (typeof client?.session?.interrupt !== 'function') {
-          throw new Error('opencode v2 sdk client is missing session.interrupt');
+        if (typeof sessionClient.interrupt !== 'function') {
+          throw new Error('opencode v2 sdk client is missing v2.session.interrupt');
         }
         await invokeOpencodeV2Control(
-          client.session.interrupt.bind(client.session),
+          sessionClient.interrupt.bind(sessionClient),
           providerSessionId,
           signal,
           'interrupt',
@@ -1252,11 +1256,11 @@ export async function invokeSessionControlRuntime(packageName, operation) {
         if (optionalOperationString(operation.focus, 'focus')) {
           throw new Error('opencode v2 session.compact does not support a focus parameter');
         }
-        if (typeof client?.session?.compact !== 'function') {
-          throw new Error('opencode v2 sdk client is missing session.compact');
+        if (typeof sessionClient.compact !== 'function') {
+          throw new Error('opencode v2 sdk client is missing v2.session.compact');
         }
         await invokeOpencodeV2Control(
-          client.session.compact.bind(client.session),
+          sessionClient.compact.bind(sessionClient),
           providerSessionId,
           signal,
           'compact',
@@ -1281,11 +1285,11 @@ export async function invokeSessionControlRuntime(packageName, operation) {
   });
 }
 
-async function verifyOpencodeV2Session(client, requestedProviderSessionId, signal) {
-  if (typeof client?.session?.get !== 'function') {
-    throw new Error('opencode v2 sdk client is missing session.get');
+async function verifyOpencodeV2Session(sessionClient, requestedProviderSessionId, signal) {
+  if (typeof sessionClient?.get !== 'function') {
+    throw new Error('opencode v2 sdk client is missing v2.session.get');
   }
-  const response = await client.session.get(
+  const response = await sessionClient.get(
     { sessionID: requestedProviderSessionId },
     { signal },
   );

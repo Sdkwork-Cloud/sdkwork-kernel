@@ -39,9 +39,10 @@ timestamps are not live evidence.
 The optional `provider.session-control.opencode` extension exposes interrupt,
 compact, and fork through the negotiated `sdk.session.control` runtime. The
 live adapter requires an existing `OPENCODE_SERVER_URL`, uses only the official
-`@opencode-ai/sdk` surface, preserves the opaque provider Session id, and has no
-mock or synthetic fallback. Every mutation remains policy-gated by the kernel
-request contract.
+`@opencode-ai/sdk` surface (`client.v2.session` for interrupt/compact and the
+root session client for fork), preserves the opaque provider Session id, and
+has no mock or synthetic fallback. Every mutation remains policy-gated by the
+kernel request contract.
 
 ## Verification
 

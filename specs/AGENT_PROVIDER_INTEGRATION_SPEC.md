@@ -298,8 +298,10 @@ Rules:
 - Control operations require a live Provider runtime and `MUST NOT` use mock or
   synthetic fallback in development or production.
 - The initial executable reference lane is OpenCode: `interrupt` and `compact`
-  use the official `@opencode-ai/sdk/v2` export against the owning
-  `OPENCODE_SERVER_URL`; `fork` uses the same package's official root client.
+  use `client.v2.session` from the official `@opencode-ai/sdk/v2` export against
+  the owning `OPENCODE_SERVER_URL`; `fork` uses the same package's official
+  root client. Adapters `MUST NOT` treat the v2 export's legacy
+  `client.session` projection as the `/api/session/*` control surface.
   Codex and Claude Code control surfaces remain undeclared until their resident
   transport lifetimes are wired and proved by equivalent conformance tests.
 

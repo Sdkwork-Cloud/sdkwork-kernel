@@ -22,7 +22,7 @@ SDKWork integration should happen through the existing kernel boundaries:
 | `external/openclaw` | `https://github.com/openclaw/openclaw.git` | General agent application/runtime patterns and integration surfaces |
 | `external/codex` | `https://github.com/openai/codex.git` | Code-agent runtime, workspace editing, terminal execution, patch/review flow |
 | `external/claude-code` | `https://github.com/anthropics/claude-code.git` | Code-agent CLI behavior, task lifecycle, tool orchestration, permission flow |
-| `external/opencode` | `https://github.com/opencode-ai/opencode.git` | Code-agent runtime, provider abstraction, terminal/workspace orchestration |
+| `external/opencode` | `https://github.com/opencode-ai/opencode.git` | Archived legacy Go implementation retained for provenance; it is not the source authority for the current `@opencode-ai/sdk` binding |
 | `external/gemini-cli` | `https://github.com/google-gemini/gemini-cli.git` | Code-agent CLI behavior, model/tool integration, command workflow |
 | `external/rig` | `https://github.com/0xPlaygrounds/rig.git` | Rust-native agent framework patterns for model/tool/provider composition |
 | `external/mimo-code` | `https://github.com/XiaomiMiMo/MiMo-Code.git` | MiMo Code agent, code-agent runtime, tool orchestration, workspace management |

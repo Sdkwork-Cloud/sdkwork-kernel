@@ -124,6 +124,22 @@ impl ProviderHealth {
             status: "available".to_string(),
         }
     }
+
+    /// Express an unavailable provider with a human-readable reason.
+    ///
+    /// The kernel requires providers to fail closed when required security
+    /// policy is unavailable; this constructor standardizes the unhealthy
+    /// side of the health contract for manifests, diagnostics, and plugins.
+    pub fn unavailable(reason: impl Into<String>) -> Self {
+        Self {
+            status: format!("unavailable: {}", reason.into()),
+        }
+    }
+
+    /// Whether this health snapshot reports an available provider.
+    pub fn is_available(&self) -> bool {
+        self.status == "available"
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

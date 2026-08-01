@@ -257,7 +257,8 @@ impl ResilienceRegistry {
         let service = service_name.into();
         let layer = ResilienceLayer::from_profile(&service, profile);
         self.layers.push(layer);
-        self.layers.last()
+        self.layers
+            .last()
             .expect("resilience registry layer list should not be empty after push")
     }
 
@@ -265,13 +266,16 @@ impl ResilienceRegistry {
     pub fn register_with_config(&mut self, config: ResilienceLayerConfig) -> &ResilienceLayer {
         let layer = ResilienceLayer::new(config);
         self.layers.push(layer);
-        self.layers.last()
+        self.layers
+            .last()
             .expect("resilience registry layer list should not be empty after push")
     }
 
     /// Get resilience layer for a service
     pub fn get(&self, service_name: &str) -> Option<&ResilienceLayer> {
-        self.layers.iter().find(|l| l.service_name() == service_name)
+        self.layers
+            .iter()
+            .find(|l| l.service_name() == service_name)
     }
 
     /// Get all registered services
@@ -297,7 +301,8 @@ mod tests {
 
     #[test]
     fn resilience_layer_config_from_profile() {
-        let config = ResilienceLayerConfig::from_profile("test-service", ResilienceProfile::RpcDefault);
+        let config =
+            ResilienceLayerConfig::from_profile("test-service", ResilienceProfile::RpcDefault);
 
         assert_eq!(config.service_name, "test-service");
         assert_eq!(config.circuit_breaker.failure_threshold, 5);
@@ -340,14 +345,18 @@ mod tests {
         // Request should be blocked
         let result = layer.allow_request();
         assert!(result.is_err());
-        assert!(matches!(result, Err(KernelError::ProviderUnavailable { .. })));
+        assert!(matches!(
+            result,
+            Err(KernelError::ProviderUnavailable { .. })
+        ));
     }
 
     #[test]
     fn resilience_layer_execute_succeeds() {
         let layer = ResilienceLayer::from_profile("test-service", ResilienceProfile::RpcDefault);
 
-        let result: Result<ResilienceResult<i32>, KernelError> = layer.execute(|| Ok::<i32, KernelError>(42));
+        let result: Result<ResilienceResult<i32>, KernelError> =
+            layer.execute(|| Ok::<i32, KernelError>(42));
 
         assert!(result.is_ok());
         let resilience_result = result.unwrap();
@@ -415,7 +424,9 @@ mod tests {
     fn resilience_result_tracking() {
         let layer = ResilienceLayer::from_profile("test-service", ResilienceProfile::RpcDefault);
 
-        let result = layer.execute(|| Ok::<&str, KernelError>("success")).unwrap();
+        let result = layer
+            .execute(|| Ok::<&str, KernelError>("success"))
+            .unwrap();
 
         assert_eq!(result.value, "success");
         assert_eq!(result.attempts, 1);

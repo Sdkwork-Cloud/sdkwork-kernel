@@ -22,6 +22,7 @@ mod execution_settings;
 mod host;
 mod host_sandbox;
 mod installation;
+mod installation_ext;
 mod knowledge;
 mod lifecycle;
 mod manifest;
@@ -70,6 +71,17 @@ pub use rate_limit::{
     RateLimitProviderHealth, RateLimitProviderManifest, RateLimitProviderStatus, RateLimitRequest,
     RateLimitResult, ResourceType, RetryStrategy,
 };
+pub use resilience::{
+    CircuitBreaker, CircuitBreakerConfig, CircuitBreakerHealth, CircuitBreakerMetrics,
+    CircuitState, ResilienceProfile,
+};
+pub use resilience_layer::{
+    ResilienceHealth, ResilienceLayer, ResilienceLayerConfig, ResilienceRegistry, ResilienceResult,
+};
+pub use retry::{
+    calculate_delay, execute_with_retry, is_retryable_error, RetryBudget, RetryBudgetConfig,
+    RetryBudgetStatus, RetryConfig, RetryResult,
+};
 mod ingress_rate_limit;
 pub use ingress_rate_limit::{TokenBucketRateLimitProvider, INGRESS_HTTP_RATE_LIMIT_POLICY_ID};
 mod sandbox;
@@ -102,7 +114,11 @@ pub use secret_vault::{
     VaultSecretProvider, SDKWORK_VAULT_ADDR_ENV, SDKWORK_VAULT_MOUNT_ENV,
     SDKWORK_VAULT_NAMESPACE_ENV, SDKWORK_VAULT_TOKEN_ENV,
 };
+mod plugin;
 mod provider;
+mod resilience;
+mod resilience_layer;
+mod retry;
 mod runtime;
 mod runtime_host;
 mod runtime_topology;
@@ -184,6 +200,11 @@ pub use installation::{
     AgentUninstallReport, AgentUninstallRequest, AgentUpgradePlan, AgentUpgradeReport,
     AgentUpgradeRequest,
 };
+pub use installation_ext::{
+    AgentInstallRecord, AgentInstallRecordStatus, AgentPackageSourceInfo, AgentRollbackReport,
+    AgentRollbackRequest, AgentRollbackStatus, AgentVerifyIssue, AgentVerifyIssueCategory,
+    AgentVerifyIssueSeverity, AgentVerifyReport, AgentVerifyRequest, AgentVerifyStatus,
+};
 pub use knowledge::{
     KnowledgeDocument, KnowledgeDocumentFilter, KnowledgeDocumentKind, KnowledgeProvider,
     KnowledgeRetrievalMethod, KnowledgeSearchRequest, KnowledgeSearchResult,
@@ -236,6 +257,7 @@ pub use package::{
     AgentPackageVersionCompatibility,
 };
 pub use planning::{Action, ActionKind, ActionStatus, Observation, Plan, PlanningProvider};
+pub use plugin::{Plugin, PluginContext, PluginMetadata, PluginRegistry, PluginState};
 pub use policy::{
     PolicyCategory, PolicyDecision, PolicyDecisionConstraint, PolicyDecisionValue,
     PolicyExplanation, PolicyProvider, PolicyRequest, PolicySubject,

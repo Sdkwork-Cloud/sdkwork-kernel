@@ -175,7 +175,10 @@ impl AgentVerifyReport {
         agent_id: impl Into<String>,
         issues: Vec<AgentVerifyIssue>,
     ) -> Self {
-        let status = if issues.iter().any(|i| i.severity == AgentVerifyIssueSeverity::Critical) {
+        let status = if issues
+            .iter()
+            .any(|i| i.severity == AgentVerifyIssueSeverity::Critical)
+        {
             AgentVerifyStatus::Invalid
         } else {
             AgentVerifyStatus::Warnings
@@ -317,9 +320,16 @@ impl AgentInstallRecord {
 /// Package source info for installed record
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentPackageSourceInfo {
-    Registry { registry_id: String, package_id: String },
-    Local { path: String },
-    Remote { url: String },
+    Registry {
+        registry_id: String,
+        package_id: String,
+    },
+    Local {
+        path: String,
+    },
+    Remote {
+        url: String,
+    },
     Unknown,
 }
 
@@ -430,6 +440,9 @@ mod tests {
         );
 
         assert_eq!(report.status, AgentRollbackStatus::Failed);
-        assert_eq!(report.message, Some("Checksum verification failed".to_string()));
+        assert_eq!(
+            report.message,
+            Some("Checksum verification failed".to_string())
+        );
     }
 }

@@ -285,10 +285,9 @@ impl PluginRegistry {
             context,
         };
 
-        let mut plugins = self.plugins.write().map_err(|_| {
-            KernelError::Internal {
-                message: "Plugin registry lock poisoned - a thread panicked while holding the lock".to_string(),
-            }
+        let mut plugins = self.plugins.write().map_err(|_| KernelError::Internal {
+            message: "Plugin registry lock poisoned - a thread panicked while holding the lock"
+                .to_string(),
         })?;
         if plugins.contains_key(&plugin_id) {
             return Err(KernelError::validation(format!(
@@ -303,10 +302,9 @@ impl PluginRegistry {
 
     /// Unregister a plugin
     pub fn unregister(&self, plugin_id: &str) -> KernelResult<()> {
-        let mut plugins = self.plugins.write().map_err(|_| {
-            KernelError::Internal {
-                message: "Plugin registry lock poisoned - a thread panicked while holding the lock".to_string(),
-            }
+        let mut plugins = self.plugins.write().map_err(|_| KernelError::Internal {
+            message: "Plugin registry lock poisoned - a thread panicked while holding the lock"
+                .to_string(),
         })?;
 
         if let Some(entry) = plugins.remove(plugin_id) {
@@ -495,7 +493,10 @@ impl PluginRegistry {
     /// List all registered plugins
     pub fn list(&self) -> KernelResult<Vec<PluginMetadata>> {
         let plugins = handle_lock_error(self.plugins.read())?;
-        Ok(plugins.values().map(|entry| entry.metadata.clone()).collect())
+        Ok(plugins
+            .values()
+            .map(|entry| entry.metadata.clone())
+            .collect())
     }
 
     /// List active plugins

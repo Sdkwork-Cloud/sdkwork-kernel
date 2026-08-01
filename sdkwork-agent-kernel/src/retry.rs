@@ -14,7 +14,12 @@ use std::time::{Duration, Instant};
 
 /// Handle RwLock poisoning errors
 fn handle_lock_error<T>(result: Result<T, std::sync::PoisonError<T>>, op: &str) -> T {
-    result.unwrap_or_else(|_| panic!("Lock poisoned in retry.{}: a thread panicked while holding the lock", op))
+    result.unwrap_or_else(|_| {
+        panic!(
+            "Lock poisoned in retry.{}: a thread panicked while holding the lock",
+            op
+        )
+    })
 }
 
 /// Retry configuration
@@ -32,6 +37,28 @@ pub struct RetryConfig {
     pub jitter: bool,
     /// List of retryable error codes (empty = use defaults)
     pub retryable_errors: Vec<String>,
+}
+
+impl From<crate::RetryStrategy> for RetryConfig {
+    /// Convert a rate-limit retry strategy into a full retry configuration.
+    ///
+    /// Rate-limit strategies use millisecond delays and carry a rate-limit
+    /// retry flag; the generic engine represents the same intent with
+    /// `Duration` delays and the retryable-error list.
+    fn from(strategy: crate::RetryStrategy) -> Self {
+        let mut retryable_errors = Vec::new();
+        if strategy.retry_on_rate_limit {
+            retryable_errors.push("resource_exhausted".to_string());
+        }
+        Self {
+            max_retries: strategy.max_retries,
+            initial_delay: Duration::from_millis(strategy.initial_delay_ms),
+            max_delay: Duration::from_millis(strategy.max_delay_ms),
+            backoff_factor: strategy.backoff_multiplier,
+            jitter: true,
+            retryable_errors,
+        }
+    }
 }
 
 impl Default for RetryConfig {
@@ -145,7 +172,8 @@ impl RetryBudget {
     pub fn allow_retry(&self) -> bool {
         // Reset window if expired
         {
-            let mut window_start = handle_lock_error(self.window_start.write(), "allow_retry.window_start");
+            let mut window_start =
+                handle_lock_error(self.window_start.write(), "allow_retry.window_start");
             if window_start.elapsed() >= self.config.window_duration {
                 *window_start = Instant::now();
                 self.retry_count.store(0, Ordering::Relaxed);
@@ -530,16 +558,10 @@ mod tests {
         let config = RetryConfig::default();
         let mut call_count = 0;
 
-        let result = execute_with_retry::<i32, KernelError, _>(
-            config,
-            None,
-            true,
-            None,
-            || {
-                call_count += 1;
-                Ok(42)
-            },
-        );
+        let result = execute_with_retry::<i32, KernelError, _>(config, None, true, None, || {
+            call_count += 1;
+            Ok(42)
+        });
 
         assert!(result.is_ok());
         let retry_result = result.unwrap();
@@ -559,22 +581,16 @@ mod tests {
         };
         let mut call_count = 0;
 
-        let result = execute_with_retry::<i32, KernelError, _>(
-            config,
-            None,
-            true,
-            None,
-            || {
-                call_count += 1;
-                if call_count < 3 {
-                    Err(KernelError::ProviderUnavailable {
-                        provider_id: "test".into(),
-                    })
-                } else {
-                    Ok(42)
-                }
-            },
-        );
+        let result = execute_with_retry::<i32, KernelError, _>(config, None, true, None, || {
+            call_count += 1;
+            if call_count < 3 {
+                Err(KernelError::ProviderUnavailable {
+                    provider_id: "test".into(),
+                })
+            } else {
+                Ok(42)
+            }
+        });
 
         assert!(result.is_ok());
         let retry_result = result.unwrap();
@@ -593,18 +609,12 @@ mod tests {
         };
         let mut call_count = 0;
 
-        let result = execute_with_retry::<i32, KernelError, _>(
-            config,
-            None,
-            true,
-            None,
-            || {
-                call_count += 1;
-                Err(KernelError::ProviderUnavailable {
-                    provider_id: "test".into(),
-                })
-            },
-        );
+        let result = execute_with_retry::<i32, KernelError, _>(config, None, true, None, || {
+            call_count += 1;
+            Err(KernelError::ProviderUnavailable {
+                provider_id: "test".into(),
+            })
+        });
 
         assert!(result.is_err());
         assert_eq!(call_count, 3); // 1 initial + 2 retries
@@ -620,18 +630,13 @@ mod tests {
         let deadline = Instant::now() + Duration::from_millis(50);
         let mut call_count = 0;
 
-        let result = execute_with_retry::<i32, KernelError, _>(
-            config,
-            None,
-            true,
-            Some(deadline),
-            || {
+        let result =
+            execute_with_retry::<i32, KernelError, _>(config, None, true, Some(deadline), || {
                 call_count += 1;
                 Err(KernelError::ProviderUnavailable {
                     provider_id: "test".into(),
                 })
-            },
-        );
+            });
 
         assert!(result.is_err());
         assert!(matches!(result, Err(KernelError::Internal { .. })));
@@ -651,18 +656,13 @@ mod tests {
         let budget = RetryBudget::new("test-service", budget_config);
         let mut call_count = 0;
 
-        let result = execute_with_retry::<i32, KernelError, _>(
-            config,
-            Some(&budget),
-            true,
-            None,
-            || {
+        let result =
+            execute_with_retry::<i32, KernelError, _>(config, Some(&budget), true, None, || {
                 call_count += 1;
                 Err(KernelError::ProviderUnavailable {
                     provider_id: "test".into(),
                 })
-            },
-        );
+            });
 
         // Should stop early due to budget exhaustion
         assert!(result.is_err());

@@ -11,7 +11,10 @@ use std::time::{Duration, Instant};
 /// Handle RwLock poisoning errors gracefully
 fn handle_lock_poisoned<T>(op: &str) -> KernelError {
     KernelError::Internal {
-        message: format!("Lock poisoned in circuit breaker.{}: a thread panicked while holding the lock", op),
+        message: format!(
+            "Lock poisoned in circuit breaker.{}: a thread panicked while holding the lock",
+            op
+        ),
     }
 }
 
@@ -152,7 +155,9 @@ impl CircuitBreaker {
 
     /// Get current circuit state
     pub fn state(&self) -> CircuitState {
-        self.state.read().map_or(CircuitState::Closed, |state| *state)
+        self.state
+            .read()
+            .map_or(CircuitState::Closed, |state| *state)
     }
 
     /// Check if a request is allowed through the circuit breaker
@@ -176,7 +181,8 @@ impl CircuitBreaker {
                         drop(opened_at);
 
                         // Reset half-open counters
-                        *write_lock(&self.half_open_successes, "allow_request.reset_successes")? = 0;
+                        *write_lock(&self.half_open_successes, "allow_request.reset_successes")? =
+                            0;
                         *write_lock(&self.half_open_requests, "allow_request.reset_requests")? = 0;
 
                         Ok(())
@@ -195,7 +201,8 @@ impl CircuitBreaker {
             }
             CircuitState::HalfOpen => {
                 // Check if we've exceeded max requests in half-open
-                let mut half_open_requests = write_lock(&self.half_open_requests, "allow_request.half_open_requests")?;
+                let mut half_open_requests =
+                    write_lock(&self.half_open_requests, "allow_request.half_open_requests")?;
                 if *half_open_requests >= self.config.half_open_max_requests {
                     self.total_rejected.fetch_add(1, Ordering::Relaxed);
                     Err(KernelError::ProviderUnavailable {
@@ -434,7 +441,9 @@ mod tests {
 
         // Record 3 failures
         for _ in 0..3 {
-            cb.record_failure(&KernelError::Internal { message: "test error".into() });
+            cb.record_failure(&KernelError::Internal {
+                message: "test error".into(),
+            });
         }
 
         // Should be open now
@@ -443,7 +452,10 @@ mod tests {
         // Requests should be rejected
         let result = cb.allow_request();
         assert!(result.is_err());
-        assert!(matches!(result, Err(KernelError::ProviderUnavailable { .. })));
+        assert!(matches!(
+            result,
+            Err(KernelError::ProviderUnavailable { .. })
+        ));
     }
 
     #[test]
@@ -456,8 +468,12 @@ mod tests {
         let cb = CircuitBreaker::new("test-service", config);
 
         // Open the circuit
-        cb.record_failure(&KernelError::Internal { message: "error 1".into() });
-        cb.record_failure(&KernelError::Internal { message: "error 2".into() });
+        cb.record_failure(&KernelError::Internal {
+            message: "error 1".into(),
+        });
+        cb.record_failure(&KernelError::Internal {
+            message: "error 2".into(),
+        });
         assert_eq!(cb.state(), CircuitState::Open);
 
         // Wait for recovery timeout
@@ -479,8 +495,12 @@ mod tests {
         let cb = CircuitBreaker::new("test-service", config);
 
         // Open the circuit
-        cb.record_failure(&KernelError::Internal { message: "error".into() });
-        cb.record_failure(&KernelError::Internal { message: "error".into() });
+        cb.record_failure(&KernelError::Internal {
+            message: "error".into(),
+        });
+        cb.record_failure(&KernelError::Internal {
+            message: "error".into(),
+        });
 
         // Wait for recovery
         sleep(Duration::from_millis(100));
@@ -507,8 +527,12 @@ mod tests {
         let cb = CircuitBreaker::new("test-service", config);
 
         // Open the circuit
-        cb.record_failure(&KernelError::Internal { message: "error".into() });
-        cb.record_failure(&KernelError::Internal { message: "error".into() });
+        cb.record_failure(&KernelError::Internal {
+            message: "error".into(),
+        });
+        cb.record_failure(&KernelError::Internal {
+            message: "error".into(),
+        });
 
         // Wait for recovery
         sleep(Duration::from_millis(100));
@@ -518,7 +542,9 @@ mod tests {
         assert_eq!(cb.state(), CircuitState::HalfOpen);
 
         // Record failure in half-open
-        cb.record_failure(&KernelError::Internal { message: "error".into() });
+        cb.record_failure(&KernelError::Internal {
+            message: "error".into(),
+        });
 
         // Should be open again
         assert_eq!(cb.state(), CircuitState::Open);
@@ -533,8 +559,12 @@ mod tests {
         let cb = CircuitBreaker::new("test-service", config);
 
         // Record some failures
-        cb.record_failure(&KernelError::Internal { message: "error".into() });
-        cb.record_failure(&KernelError::Internal { message: "error".into() });
+        cb.record_failure(&KernelError::Internal {
+            message: "error".into(),
+        });
+        cb.record_failure(&KernelError::Internal {
+            message: "error".into(),
+        });
 
         let health = cb.health();
         assert_eq!(health.consecutive_failures, 2);

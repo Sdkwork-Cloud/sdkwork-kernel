@@ -13,7 +13,7 @@ This document contains repository-specific guidance derived from the previous `A
 This repository defines the SDKWork kernel standard for agent and code-agent systems. Rust crates live at:
 
 ### L0 SPI Layer
-- `sdkwork-agent-kernel/` - Agent SPI definitions (18 provider families)
+- `sdkwork-agent-kernel/` - Agent SPI definitions (18 core provider families plus extension SPI: secret, sandbox, cancellation, rate_limit, model_stream, session_activity, a2a, backend_health, plugin, resilience, hooks, stream events)
 - `sdkwork-code-kernel/` - Code-agent SPI definitions
 
 ### L1 Provider Integration Layer
@@ -65,7 +65,7 @@ SDKWork follows a Linux-kernel-style split. This repository (`sdkwork-kernel`) o
 
 | Concern | Owner | Location |
 |---------|-------|----------|
-| Agent SPI (18 provider families: model, tool, policy, context, memory, knowledge, planning, host, protocol_adapter, mcp, skill, collaboration, telemetry, task_scheduling, agent_classification, message_query, agent_installer, agent_configuration) | kernel | `sdkwork-agent-kernel/src/` |
+| Agent SPI (core provider families: model, tool, policy, context, memory, knowledge, planning, host, protocol_adapter, mcp, skill, collaboration, telemetry, task_scheduling, agent_classification, message_query, agent_installer, agent_configuration; plus extension families: secret, sandbox, cancellation, rate_limit, model_stream, session_activity, a2a, backend_health, plugin, resilience/retry, kernel hooks, unified stream events) | kernel | `sdkwork-agent-kernel/src/` |
 | Provider integration SPI + transports (Rust SDK in-process, Node/Python subprocess, IPC) | kernel | `sdkwork-agent-provider-spi/`, `sdkwork-agent-provider-transport-*/` |
 | Per-framework provider implementations (pluggable, open-closed) | kernel | `agent-providers/crates/sdkwork-agent-provider-*/` |
 | Runtime transient state (active sessions, streaming buffers, in-flight tasks, SSE cursors) | kernel | `sdkwork-agent-database/` (SessionRepository/MessageRepository/TaskRepository/EventRepository traits + sqlite/postgres/memory impls) |

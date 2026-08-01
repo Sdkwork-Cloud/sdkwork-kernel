@@ -113,7 +113,7 @@ SDKWork follows a Linux-kernel-style split. This repository (`sdkwork-kernel`) o
 
 | Concern | Owner | Location |
 | --- | --- | --- |
-| Agent SPI (18 provider families: model, tool, policy, context, memory, knowledge, planning, host, protocol_adapter, mcp, skill, collaboration, telemetry, task_scheduling, agent_classification, message_query, agent_installer, agent_configuration) | kernel | `sdkwork-agent-kernel/src/` |
+| Agent SPI (18 core provider families: model, tool, policy, context, memory, knowledge, planning, host, protocol_adapter, mcp, skill, collaboration, telemetry, task_scheduling, agent_classification, message_query, agent_installer, agent_configuration; extension SPI: secret, sandbox, cancellation, rate_limit, model_stream, session_activity, a2a, backend_health, plugin, resilience/retry, kernel hooks, unified stream events) | kernel | `sdkwork-agent-kernel/src/` |
 | Provider integration SPI + transports (Rust SDK in-process, Node/Python subprocess, IPC) | kernel | `sdkwork-agent-provider-spi/`, `sdkwork-agent-provider-transport-*/` |
 | Per-framework provider implementations (pluggable, open-closed) | kernel | `agent-providers/crates/sdkwork-agent-provider-*/` |
 | Runtime transient state (active sessions, streaming buffers, in-flight tasks, SSE cursors) | kernel | `sdkwork-agent-database/` (SessionRepository/MessageRepository/TaskRepository/EventRepository traits + sqlite/postgres/memory impls) |

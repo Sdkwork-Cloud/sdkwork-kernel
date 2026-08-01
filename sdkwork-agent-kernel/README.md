@@ -114,6 +114,46 @@ agent needs:
   WebSocket streams, and kernel UI clients.
 - Conformance requirements for providers, runtimes, and adapters.
 
+### Unified Streaming, Hooks, and Reliability
+
+Beyond the provider families, the kernel ships cross-cutting mechanisms
+aligned with the agent SDK conventions:
+
+- `AgentStreamEvent` is the unified discriminated-union streaming protocol
+  (`SessionInit`, `MessageStart/Delta/Stop`, `ToolCallStart/Delta/Stop`,
+  `ToolResult`, `Usage`, `Cost`, `Status`, `Error`, `RateLimit`, `Progress`,
+  `CompactBoundary`, `Result`, `Cancelled`, `Ended`). Chat and execution
+  streams deliver through `AgentStreamSink`; every event carries
+  `event_id` and `session_id`/`stream_id` association keys and maps into the
+  `KernelEvent` envelope. `ModelStreamChunk` carries typed kinds
+  (text/reasoning/tool arguments/usage/status).
+- `KernelHook` intercepts model invocation, tool invocation, user prompts,
+  and session lifecycle; tool hooks can skip execution with a denied result.
+  Hooks register through `RuntimeBuilder::register_kernel_hook`.
+- Plugin SPI (`Plugin`, `PluginState`, `PluginRegistry`) manages plugin
+  lifecycle (load/initialize/activate/deactivate/reload/shutdown) with an
+  11-state machine and health checks.
+- Resilience SPI (`CircuitBreaker`, `RetryConfig`/`RetryBudget`/
+  `execute_with_retry`, `ResilienceLayer`) provides circuit breaking,
+  exponential backoff, budgets, and deadlines; `RetryStrategy` converts into
+  the generic retry engine.
+- `AgentExecutionRequest` supports cooperative cancellation tokens, relative
+  deadlines, and retry policies enforced at phase boundaries.
+- Skill SPI aligns with SKILL.md: `SkillMarkdownFrontmatter` parsing,
+  `SkillContentLayout` progressive disclosure (body/references/scripts/
+  assets), and `SkillVisibility` overrides.
+- `SessionContinuation` models resume/continue/fork/resume-at attachment
+  primitives; `AgentMessage.parent_message_id` chains messages into a
+  fork-safe lineage graph.
+- MCP connectors declare `McpTransportKind` (stdio/sse/http/streamable-http/
+  ws), `McpAuthKind`, timeouts, per-server tool allow/deny lists, and an
+  observable `McpServerConnection`; tools are addressed with the namespaced
+  `mcp__<server>__<tool>` convention.
+- Configuration stores support change subscriptions
+  (`AgentConfigurationChange` notifications with detachable handles),
+  optimistic version locking (`save_profile_if_version`), and explicit
+  settings scope selection (`AgentSettingsScope`/`AgentSettingSources`).
+
 The agent kernel does not own code-specific behavior such as patch application,
 repository diffing, terminal command plans, build/test parsing, or code review.
 Those belong in `sdkwork-code-kernel`, which builds on this package.

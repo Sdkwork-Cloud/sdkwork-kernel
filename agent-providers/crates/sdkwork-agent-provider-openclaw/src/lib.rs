@@ -328,6 +328,7 @@ mod manifest;
 mod package;
 
 pub use agent_definition::{openclaw_agent_definition, openclaw_agent_manifest};
+pub use configuration::OpenClawConfigurationProvider;
 pub use conformance::openclaw_conformance_profile;
 pub use installer::{
     openclaw_agent_installer, OPENAI_SDK_PACKAGE, OPENAI_SDK_VERSION, OPENCLAW_PACKAGE,
@@ -685,3 +686,4 @@ mod tests {
         assert_eq!(remaining[0].role, AgentMessageRole::System);
     }
 }
+mod configuration;

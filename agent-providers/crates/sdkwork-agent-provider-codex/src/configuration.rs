@@ -4,7 +4,8 @@ use sdkwork_agent_kernel::{
     AgentConfigurationValidation, AgentExecutionAccessModeDescriptor,
     AgentExecutionApprovalBehavior, AgentExecutionNetworkAccess, AgentExecutionProviderOption,
     AgentExecutionRiskLevel, AgentExecutionSettingsRequest, AgentExecutionSettingsResolution,
-    AgentExecutionSettingsSpec, AgentExecutionWorkspaceAccess, KernelError, KernelResult,
+    AgentExecutionSettingsSpec, AgentExecutionWorkspaceAccess, AgentModelConfigurationApplication,
+    AgentModelConfigurationRequest, AgentModelSelectionRequest, KernelError, KernelResult,
     ProviderHealth, APPROVE_FOR_ME_ACCESS_MODE_ID, ASK_FOR_APPROVAL_ACCESS_MODE_ID,
     FULL_ACCESS_MODE_ID,
 };
@@ -22,7 +23,10 @@ pub struct CodexConfigurationProvider {
 impl CodexConfigurationProvider {
     pub fn new() -> Self {
         Self {
-            base: ProcessAdapterConfigurationProvider::new(ids::AGENT_ID),
+            base: ProcessAdapterConfigurationProvider::with_model_configuration_scope(
+                ids::AGENT_ID,
+                "codex",
+            ),
         }
     }
 
@@ -74,6 +78,20 @@ impl AgentConfigurationProvider for CodexConfigurationProvider {
         configuration: &AgentConfiguration,
     ) -> KernelResult<AgentConfigurationValidation> {
         self.base.validate_configuration(configuration)
+    }
+
+    fn apply_model_configuration(
+        &self,
+        request: &AgentModelConfigurationRequest,
+    ) -> KernelResult<AgentModelConfigurationApplication> {
+        self.base.apply_model_configuration(request)
+    }
+
+    fn apply_model_selection(
+        &self,
+        request: &AgentModelSelectionRequest,
+    ) -> KernelResult<AgentModelConfigurationApplication> {
+        self.base.apply_model_selection(request)
     }
 
     fn execution_settings_spec(&self, agent_id: &str) -> KernelResult<AgentExecutionSettingsSpec> {

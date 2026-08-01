@@ -69,7 +69,32 @@
       "claude_code_kernel_plugin_manifest"
     ],
     "routeManifest": null,
-    "sdkDependencies": [],
+    "sdkDependencies": [
+      {
+        "workspace": "@anthropic-ai/claude-agent-sdk",
+        "apiAuthority": "anthropic-claude-code-agent-sdk",
+        "dependencyMode": "official_sdk",
+        "generatedTransportImportPolicy": "package_exports"
+      },
+      {
+        "workspace": "@anthropic-ai/sdk",
+        "apiAuthority": "anthropic-messages-sdk-peer",
+        "dependencyMode": "peer_compatibility",
+        "generatedTransportImportPolicy": "package_exports"
+      },
+      {
+        "workspace": "@modelcontextprotocol/sdk",
+        "apiAuthority": "modelcontextprotocol-sdk-peer",
+        "dependencyMode": "peer_compatibility",
+        "generatedTransportImportPolicy": "package_exports"
+      },
+      {
+        "workspace": "zod",
+        "apiAuthority": "zod-schema-peer",
+        "dependencyMode": "peer_compatibility",
+        "generatedTransportImportPolicy": "package_exports"
+      }
+    ],
     "dependencyApiExports": [],
     "dependencyApiSurfaces": [],
     "sdkClients": [],

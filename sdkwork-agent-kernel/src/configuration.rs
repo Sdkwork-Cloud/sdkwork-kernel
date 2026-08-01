@@ -22,6 +22,24 @@ pub trait AgentConfigurationProvider {
         configuration: &AgentConfiguration,
     ) -> KernelResult<AgentConfigurationValidation>;
 
+    fn apply_model_configuration(
+        &self,
+        _request: &AgentModelConfigurationRequest,
+    ) -> KernelResult<AgentModelConfigurationApplication> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "agent.configure.model".to_string(),
+        })
+    }
+
+    fn apply_model_selection(
+        &self,
+        _request: &AgentModelSelectionRequest,
+    ) -> KernelResult<AgentModelConfigurationApplication> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "agent.configure.model.select".to_string(),
+        })
+    }
+
     fn plan_configuration_upgrade(
         &self,
         _request: &AgentConfigurationUpgradeRequest,
@@ -49,7 +67,264 @@ pub trait AgentConfigurationProvider {
     fn health(&self) -> ProviderHealth;
 }
 
-pub trait AgentConfigurationStore {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentModelConfigurationRequest {
+    pub request_id: String,
+    pub agent_id: String,
+    pub profile_id: String,
+    pub vendor_code: String,
+    pub base_url: String,
+    pub api_key_secret_ref: String,
+    pub default_model_id: String,
+    pub supported_model_ids: Vec<String>,
+    pub input_context_tokens: Option<i64>,
+    pub output_context_tokens: Option<i64>,
+    pub tool_call_rounds: Option<i64>,
+    pub supports_multimodal: bool,
+}
+
+impl AgentModelConfigurationRequest {
+    pub fn new(
+        request_id: impl Into<String>,
+        agent_id: impl Into<String>,
+        profile_id: impl Into<String>,
+        vendor_code: impl Into<String>,
+        base_url: impl Into<String>,
+        api_key_secret_ref: impl Into<String>,
+        default_model_id: impl Into<String>,
+    ) -> Self {
+        let default_model_id = default_model_id.into();
+        Self {
+            request_id: request_id.into(),
+            agent_id: agent_id.into(),
+            profile_id: profile_id.into(),
+            vendor_code: vendor_code.into(),
+            base_url: base_url.into(),
+            api_key_secret_ref: api_key_secret_ref.into(),
+            supported_model_ids: vec![default_model_id.clone()],
+            default_model_id,
+            input_context_tokens: None,
+            output_context_tokens: None,
+            tool_call_rounds: None,
+            supports_multimodal: false,
+        }
+    }
+
+    pub fn with_supported_models(mut self, supported_model_ids: Vec<String>) -> Self {
+        self.supported_model_ids = supported_model_ids;
+        self
+    }
+
+    pub fn with_input_context_tokens(mut self, input_context_tokens: i64) -> Self {
+        self.input_context_tokens = Some(input_context_tokens);
+        self
+    }
+
+    pub fn with_output_context_tokens(mut self, output_context_tokens: i64) -> Self {
+        self.output_context_tokens = Some(output_context_tokens);
+        self
+    }
+
+    pub fn with_tool_call_rounds(mut self, tool_call_rounds: i64) -> Self {
+        self.tool_call_rounds = Some(tool_call_rounds);
+        self
+    }
+
+    pub fn with_multimodal_support(mut self, supports_multimodal: bool) -> Self {
+        self.supports_multimodal = supports_multimodal;
+        self
+    }
+
+    pub fn validate(&self) -> KernelResult<()> {
+        for (field, value) in [
+            ("request_id", self.request_id.as_str()),
+            ("agent_id", self.agent_id.as_str()),
+            ("profile_id", self.profile_id.as_str()),
+            ("vendor_code", self.vendor_code.as_str()),
+            ("base_url", self.base_url.as_str()),
+            ("api_key_secret_ref", self.api_key_secret_ref.as_str()),
+            ("default_model_id", self.default_model_id.as_str()),
+        ] {
+            if value.trim().is_empty() {
+                return Err(KernelError::validation(format!(
+                    "model configuration {field} must not be empty"
+                )));
+            }
+        }
+
+        let base_url = self.base_url.trim();
+        if !(base_url.starts_with("https://") || base_url.starts_with("http://"))
+            || base_url.chars().any(char::is_whitespace)
+        {
+            return Err(KernelError::validation(
+                "model configuration base_url must be an absolute HTTP(S) URL",
+            ));
+        }
+
+        if self.supported_model_ids.is_empty() {
+            return Err(KernelError::validation(
+                "model configuration supported_model_ids must not be empty",
+            ));
+        }
+        let mut normalized_model_ids = std::collections::BTreeSet::new();
+        for model_id in &self.supported_model_ids {
+            let normalized = model_id.trim();
+            if normalized.is_empty() {
+                return Err(KernelError::validation(
+                    "model configuration supported_model_ids must not contain empty values",
+                ));
+            }
+            if !normalized_model_ids.insert(normalized.to_string()) {
+                return Err(KernelError::validation(
+                    "model configuration supported_model_ids must not contain duplicates",
+                ));
+            }
+        }
+        if !normalized_model_ids.contains(self.default_model_id.trim()) {
+            return Err(KernelError::validation(
+                "model configuration default_model_id must be included in supported_model_ids",
+            ));
+        }
+
+        for (field, value) in [
+            ("input_context_tokens", self.input_context_tokens),
+            ("output_context_tokens", self.output_context_tokens),
+            ("tool_call_rounds", self.tool_call_rounds),
+        ] {
+            if value.is_some_and(|value| value <= 0) {
+                return Err(KernelError::validation(format!(
+                    "model configuration {field} must be greater than zero"
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentModelSelectionRequest {
+    pub request_id: String,
+    pub agent_id: String,
+    pub profile_id: String,
+    pub model_id: String,
+    pub current_profile: Option<AgentConfigurationProfile>,
+    pub enforce_supported_models: bool,
+}
+
+impl AgentModelSelectionRequest {
+    pub fn new(
+        request_id: impl Into<String>,
+        agent_id: impl Into<String>,
+        profile_id: impl Into<String>,
+        model_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            request_id: request_id.into(),
+            agent_id: agent_id.into(),
+            profile_id: profile_id.into(),
+            model_id: model_id.into(),
+            current_profile: None,
+            enforce_supported_models: false,
+        }
+    }
+
+    pub fn with_current_profile(mut self, profile: AgentConfigurationProfile) -> Self {
+        self.current_profile = Some(profile);
+        self
+    }
+
+    pub fn with_supported_model_enforcement(mut self) -> Self {
+        self.enforce_supported_models = true;
+        self
+    }
+
+    pub fn validate(&self) -> KernelResult<()> {
+        for (field, value) in [
+            ("request_id", self.request_id.as_str()),
+            ("agent_id", self.agent_id.as_str()),
+            ("profile_id", self.profile_id.as_str()),
+            ("model_id", self.model_id.as_str()),
+        ] {
+            if value.trim().is_empty() {
+                return Err(KernelError::validation(format!(
+                    "model selection {field} must not be empty"
+                )));
+            }
+        }
+
+        if let Some(profile) = &self.current_profile {
+            if profile.agent_id != self.agent_id
+                || profile.profile_id != self.profile_id
+                || profile.configuration.agent_id != self.agent_id
+                || profile.configuration.profile_id != self.profile_id
+            {
+                return Err(KernelError::validation(
+                    "model selection profile identity does not match the request",
+                ));
+            }
+        } else if self.enforce_supported_models {
+            return Err(KernelError::validation(
+                "supported model enforcement requires an existing configuration profile",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentModelConfigurationApplication {
+    pub request_id: String,
+    pub provider_scope: String,
+    pub profile: AgentConfigurationProfile,
+}
+
+impl AgentModelConfigurationApplication {
+    pub fn new(
+        request_id: impl Into<String>,
+        provider_scope: impl Into<String>,
+        profile: AgentConfigurationProfile,
+    ) -> Self {
+        Self {
+            request_id: request_id.into(),
+            provider_scope: provider_scope.into(),
+            profile,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentModelConfigurationFieldMapping {
+    pub provider_scope: String,
+    pub vendor_key: String,
+    pub base_url_key: String,
+    pub api_key_key: String,
+    pub default_model_key: String,
+    pub supported_models_key: String,
+    pub input_context_tokens_key: String,
+    pub output_context_tokens_key: String,
+    pub tool_call_rounds_key: String,
+    pub supports_multimodal_key: String,
+}
+
+impl AgentModelConfigurationFieldMapping {
+    pub fn namespaced(provider_scope: impl Into<String>) -> Self {
+        let provider_scope = provider_scope.into();
+        Self {
+            vendor_key: format!("{provider_scope}.model.vendor"),
+            base_url_key: format!("{provider_scope}.model.base_url"),
+            api_key_key: format!("{provider_scope}.model.api_key"),
+            default_model_key: format!("{provider_scope}.model.default"),
+            supported_models_key: format!("{provider_scope}.model.supported"),
+            input_context_tokens_key: format!("{provider_scope}.model.input_context_tokens"),
+            output_context_tokens_key: format!("{provider_scope}.model.output_context_tokens"),
+            tool_call_rounds_key: format!("{provider_scope}.model.tool_call_rounds"),
+            supports_multimodal_key: format!("{provider_scope}.model.supports_multimodal"),
+            provider_scope,
+        }
+    }
+}
+
+pub trait AgentConfigurationStore: Send + Sync {
     fn save_profile(
         &mut self,
         profile: AgentConfigurationProfile,
@@ -63,6 +338,17 @@ pub trait AgentConfigurationStore {
 
     fn list_profiles(&self, agent_id: &str) -> KernelResult<Vec<AgentConfigurationProfile>>;
 
+    fn find_profile(
+        &self,
+        agent_id: &str,
+        profile_id: &str,
+    ) -> KernelResult<Option<AgentConfigurationProfile>> {
+        Ok(self
+            .list_profiles(agent_id)?
+            .into_iter()
+            .find(|profile| profile.profile_id == profile_id))
+    }
+
     fn migrate_profile(
         &mut self,
         plan: &AgentConfigurationUpgradePlan,
@@ -73,6 +359,91 @@ pub trait AgentConfigurationStore {
         &mut self,
         request: &AgentProfileArchiveRequest,
     ) -> KernelResult<AgentConfigurationStoreRecord>;
+}
+
+/// Deterministic configuration store for tests and explicitly ephemeral runtimes.
+#[derive(Debug, Clone, Default)]
+pub struct InMemoryAgentConfigurationStore {
+    profiles: Vec<AgentConfigurationProfile>,
+}
+
+impl InMemoryAgentConfigurationStore {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl AgentConfigurationStore for InMemoryAgentConfigurationStore {
+    fn save_profile(
+        &mut self,
+        profile: AgentConfigurationProfile,
+    ) -> KernelResult<AgentConfigurationStoreRecord> {
+        self.profiles.retain(|existing| {
+            existing.agent_id != profile.agent_id || existing.profile_id != profile.profile_id
+        });
+        self.profiles.push(profile.clone());
+        Ok(AgentConfigurationStoreRecord::created(profile))
+    }
+
+    fn load_profile(
+        &self,
+        agent_id: &str,
+        profile_id: &str,
+    ) -> KernelResult<AgentConfigurationProfile> {
+        self.profiles
+            .iter()
+            .find(|profile| profile.agent_id == agent_id && profile.profile_id == profile_id)
+            .cloned()
+            .ok_or_else(|| {
+                KernelError::validation(format!(
+                    "agent configuration profile not found: {agent_id}/{profile_id}"
+                ))
+            })
+    }
+
+    fn list_profiles(&self, agent_id: &str) -> KernelResult<Vec<AgentConfigurationProfile>> {
+        let mut profiles = self
+            .profiles
+            .iter()
+            .filter(|profile| profile.agent_id == agent_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        profiles.sort_by(|left, right| left.profile_id.cmp(&right.profile_id));
+        Ok(profiles)
+    }
+
+    fn migrate_profile(
+        &mut self,
+        plan: &AgentConfigurationUpgradePlan,
+        current_profile: AgentConfigurationProfile,
+    ) -> KernelResult<AgentConfigurationStoreRecord> {
+        self.profiles.retain(|existing| {
+            existing.agent_id != current_profile.agent_id
+                || existing.profile_id != current_profile.profile_id
+        });
+        self.profiles.push(current_profile.clone());
+        Ok(AgentConfigurationStoreRecord::migrated(
+            current_profile,
+            &plan.plan_id,
+        ))
+    }
+
+    fn archive_profile(
+        &mut self,
+        request: &AgentProfileArchiveRequest,
+    ) -> KernelResult<AgentConfigurationStoreRecord> {
+        let profile = self
+            .load_profile(&request.agent_id, &request.profile_id)?
+            .archive();
+        self.profiles.retain(|existing| {
+            existing.agent_id != profile.agent_id || existing.profile_id != profile.profile_id
+        });
+        self.profiles.push(profile.clone());
+        Ok(AgentConfigurationStoreRecord::archived(
+            profile,
+            &request.request_id,
+        ))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

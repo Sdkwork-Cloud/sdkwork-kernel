@@ -480,3 +480,165 @@ fn lifecycle_lock_helper() {
             .expect("acquire installer mutation lock");
     }
 }
+
+#[test]
+fn model_configuration_application_uses_provider_scope_and_secret_reference() {
+    let provider = ProcessAdapterConfigurationProvider::with_model_configuration_scope(
+        "agent.intelligence.test",
+        "test_provider",
+    );
+    let request = AgentModelConfigurationRequest::new(
+        "request.model.test",
+        "agent.intelligence.test",
+        "profile.model.test",
+        "openai-compatible",
+        "https://models.example.test/v1",
+        "secret-model-test",
+        "example-chat",
+    )
+    .with_supported_models(vec![
+        "example-chat".to_string(),
+        "example-reasoning".to_string(),
+    ])
+    .with_input_context_tokens(128_000)
+    .with_output_context_tokens(16_000)
+    .with_tool_call_rounds(32)
+    .with_multimodal_support(true);
+
+    let application = provider
+        .apply_model_configuration(&request)
+        .expect("model configuration applies");
+
+    assert_eq!(application.provider_scope, "test_provider");
+    assert_eq!(
+        application.profile.status,
+        sdkwork_agent_kernel::AgentConfigurationProfileStatus::Active
+    );
+    assert_eq!(
+        application
+            .profile
+            .configuration
+            .value("test_provider.model.api_key"),
+        Some(&AgentConfigValue::secret_ref("secret-model-test")),
+    );
+    assert!(application
+        .profile
+        .requires_secret("test_provider.model.api_key"));
+    assert!(provider
+        .validate_configuration(&application.profile.configuration)
+        .expect("configuration validates")
+        .is_valid());
+}
+
+#[test]
+fn model_configuration_rejects_default_outside_supported_models() {
+    let provider = ProcessAdapterConfigurationProvider::with_model_configuration_scope(
+        "agent.intelligence.test",
+        "test_provider",
+    );
+    let request = AgentModelConfigurationRequest::new(
+        "request.model.invalid",
+        "agent.intelligence.test",
+        "profile.model.invalid",
+        "openai-compatible",
+        "https://models.example.test/v1",
+        "secret-model-test",
+        "example-chat",
+    )
+    .with_supported_models(vec!["different-model".to_string()]);
+
+    let error = provider
+        .apply_model_configuration(&request)
+        .expect_err("invalid default model must fail closed");
+    assert_eq!(
+        error.kind(),
+        sdkwork_agent_kernel::KernelErrorKind::ValidationError
+    );
+}
+
+#[test]
+fn model_selection_applies_provider_default_without_a_credential() {
+    let provider = ProcessAdapterConfigurationProvider::with_model_configuration_scope(
+        "agent.intelligence.test",
+        "test_provider",
+    );
+    let request = sdkwork_agent_kernel::AgentModelSelectionRequest::new(
+        "request.selection.test",
+        "agent.intelligence.test",
+        "profile.selection.test",
+        "catalog-model",
+    );
+
+    let application = provider
+        .apply_model_selection(&request)
+        .expect("catalog model selection applies");
+
+    assert_eq!(application.provider_scope, "test_provider");
+    assert_eq!(
+        application
+            .profile
+            .configuration
+            .value("test_provider.model.default"),
+        Some(&AgentConfigValue::string("catalog-model")),
+    );
+    assert_eq!(
+        application
+            .profile
+            .configuration
+            .value("test_provider.model.api_key"),
+        Some(&AgentConfigValue::secret_ref(
+            "provider-default.test_provider.model.api_key"
+        )),
+    );
+    assert!(application
+        .profile
+        .requires_secret("test_provider.model.api_key"));
+}
+
+#[test]
+fn model_selection_preserves_custom_credentials_and_supported_models() {
+    let provider = ProcessAdapterConfigurationProvider::with_model_configuration_scope(
+        "agent.intelligence.test",
+        "test_provider",
+    );
+    let configured = provider
+        .apply_model_configuration(
+            &AgentModelConfigurationRequest::new(
+                "request.model.test",
+                "agent.intelligence.test",
+                "profile.model.test",
+                "openai-compatible",
+                "https://models.example.test/v1",
+                "secret-model-test",
+                "example-chat",
+            )
+            .with_supported_models(vec![
+                "example-chat".to_string(),
+                "example-reasoning".to_string(),
+            ]),
+        )
+        .expect("custom model configuration applies");
+    let request = sdkwork_agent_kernel::AgentModelSelectionRequest::new(
+        "request.selection.custom",
+        "agent.intelligence.test",
+        "profile.model.test",
+        "example-reasoning",
+    )
+    .with_current_profile(configured.profile)
+    .with_supported_model_enforcement();
+
+    let selected = provider
+        .apply_model_selection(&request)
+        .expect("configured model selection applies");
+
+    assert_eq!(
+        selected
+            .profile
+            .configuration
+            .value("test_provider.model.default"),
+        Some(&AgentConfigValue::string("example-reasoning")),
+    );
+    assert!(selected
+        .profile
+        .requires_secret("test_provider.model.api_key"));
+}

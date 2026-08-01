@@ -29,6 +29,7 @@ test('routes Codex app-server approvals, resume, and interrupt through canonical
       && frame.result?.event === 'stream.event'
       && frame.result.kernel_event?.payload?.providerEventType === 'item/tool/call',
   );
+  assert.equal(optionFrame.result.kernel_event.event_type, 'agent.message.paused');
   const optionInteraction = optionFrame.result.kernel_event.payload.interaction;
   assert.equal(optionInteraction.sessionId, sessionId);
   assert.equal(optionInteraction.kind, 'option_picker');
@@ -54,6 +55,7 @@ test('routes Codex app-server approvals, resume, and interrupt through canonical
         === 'item/commandExecution/requestApproval',
   );
   const approvalEvent = approvalFrame.result.kernel_event;
+  assert.equal(approvalEvent.event_type, 'agent.policy.paused');
   assert.equal(approvalEvent.session_id, sessionId);
   assert.equal(approvalEvent.step_id, 'canonical-turn-1');
   assert.equal(approvalEvent.payload.providerSessionId, 'provider-session-1');

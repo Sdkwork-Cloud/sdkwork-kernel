@@ -1,11 +1,11 @@
-use crate::{hermes_agent_installer, HermesSdkIntegration};
+use crate::{hermes_agent_installer, HermesConfigurationProvider, HermesSdkIntegration};
 use sdkwork_agent_kernel::{
     AgentDefinition, AgentInstaller, AgentManifest, AgentPackageManifest, ModelProvider,
     ProviderManifest, RuntimeBuilder,
 };
 use sdkwork_agent_plugin_core::{
-    KernelPluginConformanceProfile, KernelPluginManifest, ProcessAdapterConfigurationProvider,
-    SdkStandardPolicyProvider, SdkworkKernelPlugin,
+    KernelPluginConformanceProfile, KernelPluginManifest, SdkStandardPolicyProvider,
+    SdkworkKernelPlugin,
 };
 
 use crate::{
@@ -94,7 +94,7 @@ impl SdkworkKernelPlugin for HermesKernelPlugin {
             .register_agent_configuration(
                 ids::CONFIGURATION_PROVIDER_ID,
                 "0.1.0",
-                ProcessAdapterConfigurationProvider::new(ids::AGENT_ID),
+                HermesConfigurationProvider::new(),
             )
     }
 

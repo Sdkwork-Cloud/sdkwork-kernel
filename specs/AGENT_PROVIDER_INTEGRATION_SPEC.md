@@ -97,6 +97,13 @@ Rules:
   `external/mimo-code/packages/sdk/js`, or `external/rig/crates/rig-core`.
   Broader upstream roots remain mapping references only and must not satisfy
   runtime SDK package health.
+- Native source dependencies are permitted only in the owning L3 provider,
+  declared once by the root workspace build manifest, pinned by gitlink, and
+  kept read-only. Provider-neutral L0/L1/L2 crates must not inherit the
+  upstream dependency or expose upstream types.
+- A source dependency must use the upstream public SDK/client/protocol facade.
+  Private databases, tables, caches, logs, transcripts, and file layouts are
+  not supported integration surfaces.
 
 ## 4. Transport Kinds And Priority
 

@@ -55,6 +55,65 @@ impl SdkRuntimeExecutionOptions {
     }
 }
 
+/// Exact correlation required to resolve one provider interaction on an active Turn.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SdkRuntimeInteractionResolution {
+    pub model_request_id: String,
+    pub session_id: String,
+    pub turn_id: String,
+    pub provider_session_id: String,
+    pub provider_turn_id: String,
+    pub provider_request_id: Value,
+    pub resolution: Value,
+}
+
+impl SdkRuntimeInteractionResolution {
+    pub fn validate(&self) -> Result<(), SdkRuntimeError> {
+        for (field, value) in [
+            ("model_request_id", self.model_request_id.as_str()),
+            ("session_id", self.session_id.as_str()),
+            ("turn_id", self.turn_id.as_str()),
+            ("provider_session_id", self.provider_session_id.as_str()),
+            ("provider_turn_id", self.provider_turn_id.as_str()),
+        ] {
+            let value = value.trim();
+            if value.is_empty() {
+                return Err(SdkRuntimeError::new(
+                    "invalid_interaction_resolution",
+                    format!("{field} must not be empty"),
+                ));
+            }
+            if value.len() > 512 {
+                return Err(SdkRuntimeError::new(
+                    "invalid_interaction_resolution",
+                    format!("{field} exceeded byte limit (512)"),
+                ));
+            }
+        }
+        let valid_provider_request_id = self
+            .provider_request_id
+            .as_str()
+            .is_some_and(|value| !value.trim().is_empty() && value.len() <= 512)
+            || self
+                .provider_request_id
+                .as_number()
+                .is_some_and(|value| value.is_i64() || value.is_u64());
+        if !valid_provider_request_id {
+            return Err(SdkRuntimeError::new(
+                "invalid_interaction_resolution",
+                "provider_request_id must be a non-empty string or integer",
+            ));
+        }
+        if !self.resolution.is_object() {
+            return Err(SdkRuntimeError::new(
+                "invalid_interaction_resolution",
+                "resolution must be an object",
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum SdkRuntimeOperation {
@@ -687,6 +746,17 @@ pub trait SdkBackendRuntime: Send + Sync {
     fn cancel_inflight(&self, _request_id: &str) -> Result<bool, SdkRuntimeError> {
         Ok(false)
     }
+
+    fn resolve_interaction(
+        &self,
+        resolution: &SdkRuntimeInteractionResolution,
+    ) -> Result<Value, SdkRuntimeError> {
+        resolution.validate()?;
+        Err(SdkRuntimeError::new(
+            "interaction_resolution_unsupported",
+            "runtime does not support resolving active provider interactions",
+        ))
+    }
 }
 
 /// Routes runtime requests to the negotiated backend implementation.
@@ -791,6 +861,22 @@ impl SdkRuntimeRouter {
         runtime.cancel_inflight(request_id)
     }
 
+    pub fn resolve_interaction(
+        &self,
+        capability_id: &str,
+        resolution: &SdkRuntimeInteractionResolution,
+    ) -> Result<Value, SdkRuntimeError> {
+        resolution.validate()?;
+        let selected = self
+            .negotiation
+            .selected_driver(capability_id)
+            .ok_or_else(|| SdkRuntimeError::capability_not_negotiated(capability_id))?;
+        let runtime = self
+            .runtime_for(selected.backend_kind)
+            .ok_or_else(|| SdkRuntimeError::backend_unavailable(selected.backend_kind))?;
+        runtime.resolve_interaction(resolution)
+    }
+
     fn runtime_for(&self, kind: SdkBackendKind) -> Option<&std::sync::Arc<dyn SdkBackendRuntime>> {
         match kind {
             SdkBackendKind::RustNative => self.rust_runtime.as_ref(),
@@ -825,6 +911,34 @@ mod tests {
     use super::*;
     use sdkwork_agent_kernel::ModelRequest;
     use serde_json::json;
+
+    #[test]
+    fn interaction_resolution_requires_exact_provider_correlation() {
+        let valid = SdkRuntimeInteractionResolution {
+            model_request_id: "model-request-1".to_string(),
+            session_id: "session-1".to_string(),
+            turn_id: "turn-1".to_string(),
+            provider_session_id: "provider-session-1".to_string(),
+            provider_turn_id: "provider-turn-1".to_string(),
+            provider_request_id: json!(41),
+            resolution: json!({"action": "accept"}),
+        };
+        valid.validate().expect("valid exact correlation");
+
+        let mut missing_model_request = valid.clone();
+        missing_model_request.model_request_id.clear();
+        assert_eq!(
+            missing_model_request
+                .validate()
+                .expect_err("model request id is mandatory")
+                .code,
+            "invalid_interaction_resolution"
+        );
+
+        let mut non_integer_provider_request = valid;
+        non_integer_provider_request.provider_request_id = json!(1.5);
+        assert!(non_integer_provider_request.validate().is_err());
+    }
 
     #[test]
     fn legacy_model_chat_constructor_keeps_optional_context_omitted() {

@@ -11,6 +11,7 @@ import {
   invokeModelChatStreamLive,
   mockProviderInvocationAllowed,
   probePackage,
+  probeModelChatRuntime,
   resolveModelChatPrompt,
   resolvePackageSpecifier,
   VERIFIED_PROVIDER_SESSION_ID,
@@ -69,6 +70,7 @@ function capture(prompt, options) {
       permission_mode: options.permissionMode,
       allow_dangerously_skip_permissions: options.allowDangerouslySkipPermissions,
       resume: options.resume,
+      sandbox: options.sandbox,
     },
   }), 'utf8');
 }
@@ -427,6 +429,11 @@ assert.equal(wirePrompt, 'structured', 'wire_messages should drive live prompt r
 process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
   '@anthropic-ai/claude-agent-sdk': claudeSdkMirror,
 });
+assert.equal(
+  probeModelChatRuntime('@anthropic-ai/claude-agent-sdk').runtime_mode,
+  'sdk_live',
+  'a resolved Claude Agent SDK must remain the primary runtime even when the CLI is installed',
+);
 const claudeActivity = [];
 const claudeResult = await invokeModelChatLive(
   '@anthropic-ai/claude-agent-sdk',
@@ -487,6 +494,18 @@ await invokeModelChatLive('@anthropic-ai/claude-agent-sdk', {
 const bypassClaudeCapture = JSON.parse(fs.readFileSync(claudeCapturePath, 'utf8'));
 assert.equal(bypassClaudeCapture.options.permission_mode, 'bypassPermissions');
 assert.equal(bypassClaudeCapture.options.allow_dangerously_skip_permissions, true);
+
+await invokeModelChatLive('@anthropic-ai/claude-agent-sdk', {
+  model_request_id: 'req-claude-sdk-sandbox',
+  messages: ['Sandbox Claude'],
+  execution_options: { sandbox_mode: 'workspace-write' },
+});
+const sandboxClaudeCapture = JSON.parse(fs.readFileSync(claudeCapturePath, 'utf8'));
+assert.deepEqual(sandboxClaudeCapture.options.sandbox, {
+  enabled: true,
+  autoAllowBashIfSandboxed: true,
+  failIfUnavailable: true,
+});
 const mismatchedClaudeActivity = [];
 await assert.rejects(
   invokeModelChatLive(

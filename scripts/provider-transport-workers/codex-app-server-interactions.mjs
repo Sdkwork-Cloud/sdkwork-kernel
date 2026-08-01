@@ -86,6 +86,7 @@ export function normalizeCodexInteractionRequest(event, context = {}) {
   const providerItemId = optionalString(params.itemId ?? params.callId, 'itemId');
   const interactionId = approvalId ?? String(requestId);
   const sessionId = optionalString(context.sessionId, 'sessionId');
+  const modelRequestId = optionalString(context.modelRequestId, 'modelRequestId');
 
   return {
     schemaVersion: 1,
@@ -97,6 +98,7 @@ export function normalizeCodexInteractionRequest(event, context = {}) {
     allowedActions: allowedActions(profile.kind, profile.payload),
     request: normalizeRequestPayload(profile.kind, profile.payload),
     correlation: {
+      modelRequestId,
       providerId: 'codex',
       providerInteractionId: approvalId,
       providerItemId,
@@ -326,12 +328,16 @@ function normalizeRequestPayload(kind, params) {
           params.autoResolutionMs,
           'autoResolutionMs',
         ),
+        isBlocking: params.isBlocking == null
+          ? true
+          : requiredBoolean(params.isBlocking, 'isBlocking'),
         questions: normalizeQuestions(params.questions),
       };
     case 'onboarding_question_set':
       return {
         itemId: common.itemId,
         autoResolutionMs: null,
+        isBlocking: true,
         presentation: 'onboarding',
         questions: params.questions,
       };

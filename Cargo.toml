@@ -32,6 +32,7 @@ members = [
     "agent-providers/crates/sdkwork-agent-provider-mimo-code",
     "agent-providers/crates/sdkwork-agent-provider-rig",
 ]
+exclude = ["external/codex/codex-rs"]
 
 [workspace.package]
 edition = "2021"
@@ -39,9 +40,15 @@ version = "0.1.0"
 
 [workspace.dependencies]
 async-trait = "0.1"
-tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
-rusqlite = { version = "0.32.1", features = ["bundled"] }
+tokio = { version = "1.48", features = ["macros", "rt-multi-thread", "sync"] }
+# 0.39.0 is the newest rusqlite release using libsqlite3-sys 0.37, which is
+# required by the pinned Codex source dependency. Newer rusqlite releases use a
+# different `links = "sqlite3"` provider and cannot coexist in one Cargo graph.
+rusqlite = { version = "0.39.0", features = ["bundled"] }
 time = { version = "0.3.47", features = ["formatting"] }
+codex-app-server-client = { path = "external/codex/codex-rs/app-server-client" }
+codex-app-server-protocol = { path = "external/codex/codex-rs/app-server-protocol" }
+codex-core = { path = "external/codex/codex-rs/core" }
 sdkwork-api-kernel-assembly = { path = "crates/sdkwork-api-kernel-assembly" }
 # SDKWork workspace members - declared once at workspace root
 sdkwork-agent-kernel = { path = "sdkwork-agent-kernel" }
@@ -89,3 +96,9 @@ sdkwork-models = { path = "../sdkwork-models/sdks/sdkwork-models-sdk/sdkwork-mod
 sdkwork-iam-web-adapter = { path = "../sdkwork-iam/crates/sdkwork-iam-web-adapter" }
 sdkwork-routes-agent-internal-manifest = { path = "crates/sdkwork-routes-agent-internal-manifest" }
 sdkwork-routes-agent-internal-api = { path = "crates/sdkwork-routes-agent-internal-api" }
+
+[patch.crates-io]
+# Keep the embedded Codex graph aligned with the upstream workspace patches.
+# The forked websocket crates provide the `proxy` support required by Codex.
+tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186" }
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "4fffad30fe373adbdcffab9545e9e9bf4f2fc19f" }

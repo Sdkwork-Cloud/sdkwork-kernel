@@ -5,7 +5,8 @@ use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
 use sdkwork_agent_provider_claude_code::{
     claude_code_agent_definition, claude_code_agent_installer, claude_code_kernel_plugin_manifest,
     claude_code_package_manifest, claude_code_provider_manifests, ClaudeCodeKernelPlugin,
-    ClaudeModelProvider, CLAUDE_AGENT_SDK_PACKAGE, CLAUDE_AGENT_SDK_VERSION,
+    ClaudeModelProvider, ANTHROPIC_SDK_PACKAGE, ANTHROPIC_SDK_VERSION, CLAUDE_AGENT_SDK_PACKAGE,
+    CLAUDE_AGENT_SDK_VERSION, MCP_SDK_PACKAGE, MCP_SDK_VERSION, ZOD_PACKAGE, ZOD_VERSION,
 };
 use serde_json::Value;
 
@@ -70,6 +71,12 @@ fn installer_descriptor_uses_the_latest_exact_sdk_version() {
     );
     assert_eq!(installer.packages()[0].package_id, CLAUDE_AGENT_SDK_PACKAGE);
     assert_eq!(installer.packages()[0].version, CLAUDE_AGENT_SDK_VERSION);
+    assert_eq!(installer.packages()[1].package_id, ANTHROPIC_SDK_PACKAGE);
+    assert_eq!(installer.packages()[1].version, ANTHROPIC_SDK_VERSION);
+    assert_eq!(installer.packages()[2].package_id, MCP_SDK_PACKAGE);
+    assert_eq!(installer.packages()[2].version, MCP_SDK_VERSION);
+    assert_eq!(installer.packages()[3].package_id, ZOD_PACKAGE);
+    assert_eq!(installer.packages()[3].version, ZOD_VERSION);
     assert_eq!(
         claude_code_package_manifest().source,
         AgentPackageSource::registry("npm", CLAUDE_AGENT_SDK_PACKAGE, CLAUDE_AGENT_SDK_VERSION,)

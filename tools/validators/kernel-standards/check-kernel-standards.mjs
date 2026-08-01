@@ -9,6 +9,7 @@ import {
   validateComponentSpecMetadata
 } from './component-specs.mjs';
 import { validateAgentKnowledgeMemoryContracts } from './agent-knowledge-memory-contracts.mjs';
+import { validateCodexSourceIntegration } from './codex-source-integration.mjs';
 import { validateKernelContracts } from './kernel-contracts.mjs';
 import { validateKernelTopology } from './kernel-topology.mjs';
 import { validatePlatformIntegration } from './platform-integration.mjs';
@@ -27,6 +28,7 @@ export function runKernelStandardsCheck() {
   validatePlatformIntegration({ kernelRoot, errors, ensureFile, readFileIfExists });
   validatePlatformPnpmScripts({ kernelRoot, errors });
   validatePlatformUtils({ kernelRoot, errors, readFileIfExists });
+  validateCodexSourceIntegration({ kernelRoot, errors, readFileIfExists });
 
   const componentSpecContext = { kernelRoot, errors };
   for (const manifestPath of listComponentSpecFiles(kernelRoot)) {

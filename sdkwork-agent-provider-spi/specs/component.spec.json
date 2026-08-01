@@ -60,6 +60,7 @@
       "SdkBackendKind",
       "SdkCapabilityNegotiation",
       "SdkRuntimeRouter",
+      "SdkRuntimeInteractionResolution",
       "SdkRuntimeBackedModelProvider",
       "SdkRuntimeStreamCompletion",
       "SdkRuntimeBackedToolProvider",

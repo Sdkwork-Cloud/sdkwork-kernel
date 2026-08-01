@@ -2,7 +2,7 @@
 
 Status: active
 Owner: SDKWork kernel maintainers
-Updated: 2026-07-28
+Updated: 2026-08-01
 Parent: [TECH_ARCHITECTURE.md](TECH_ARCHITECTURE.md)
 Specs: [AGENT_PROVIDER_BINDING_SPEC.md](../../../specs/AGENT_PROVIDER_BINDING_SPEC.md), [AGENT_PROVIDER_INTEGRATION_SPEC.md](../../../specs/AGENT_PROVIDER_INTEGRATION_SPEC.md)
 
@@ -18,7 +18,7 @@ Binding manifests are authoritative: `bindings/agent-providers/<framework>/provi
 
 | Framework | Class | Binding status | Primary transport | Official SDK integrated |
 | --- | --- | --- | --- | --- |
-| Codex | Code-agent | `standardizing` | `rust_native`, `typescript_node`, `ipc_protocol` | `@openai/codex-sdk`, `codex-core` |
+| Codex | Code-agent | `standardizing` | `rust_native`, `typescript_node`, `ipc_protocol` | Pinned-source `codex-app-server-client` + `codex-app-server-protocol`; `@openai/codex-sdk` execution worker |
 | Claude Code | Code-agent | `standardizing` | `typescript_node`, `ipc_protocol` | `@anthropic-ai/claude-agent-sdk` |
 | Gemini CLI | Code-agent | `standardizing` | `typescript_node`, `ipc_protocol` | Source-tree `@google/gemini-cli-sdk`; CLI npm `@google/gemini-cli` |
 | OpenCode | Code-agent | `experimental` | `typescript_node`, `ipc_protocol` | `@opencode-ai/sdk` |
@@ -91,18 +91,23 @@ How upstream framework strengths map to kernel SPI families (not all are binding
 | Multi-agent delegate | Subagents | Subagents | Limited | Subagent | Code subagents | Embedded runner | `delegate_task` | Multi-agent graph | `AgentCollaborationProvider` + `orchestration` |
 | Streaming model output | Yes | Yes | Yes | Yes | Runtime operation only | Gateway SSE | Ink + gateway | Provider streams | `ModelStreamProvider` + events |
 | Task / cron scheduling | No | No | No | Jobs in server | Jobs in server | Cron plugin | `cronjob` tool | N/A | `TaskSchedulingProvider` |
-| Message history query | Thread rollouts | Session | Session files | DB in opencode | Session records | JSONL transcripts | SQLite FTS | Conversation | `MessageQueryProvider` |
+| Message history query | Typed app-server Thread/Turn/Item APIs | Session | Session files | DB in opencode | Session records | JSONL transcripts | SQLite FTS | Conversation | `MessageQueryProvider` |
 | Code workspace / patch | Yes | Yes | Yes | Yes | Yes | Terminal tools | Terminal + patch | N/A | `sdkwork-code-kernel` |
 
 ## 5. Integration Mode Decision Tree
 
 ```text
-Does the framework publish a stable official SDK?
-  yes -> declare integration_sources.official_sdk in binding manifest
-       -> implement TypeScript/Python/Rust transport worker
-  no  -> defer product integration until SDK exists
-       -> MAY keep external/ mirror for mapping research only
-       -> MUST NOT depend on external/ from kernel crates
+Does the framework expose a supported public SDK, client, protocol, or facade?
+  package -> declare integration_sources.official_sdk in binding manifest
+          -> implement TypeScript/Python/Rust transport worker
+  source  -> pin the upstream external/ gitlink and keep it read-only
+          -> declare the native dependency once at workspace root
+          -> consume it only from the owning L3 provider crate
+  neither -> defer product integration; external/ remains an inspection input
+
+For every mode:
+  -> L0/L1 and provider-neutral L2 contracts remain upstream-neutral
+  -> private databases, tables, caches, logs, and transcripts are forbidden APIs
 
 Is the framework code-agent class?
   yes -> register in sdkwork-agents-runtime-facade + BirdCoder engine catalog
@@ -118,6 +123,12 @@ a binding manifest declares `integration_sources`.
 ### Codex
 
 - **Strengths:** Richest binding (session history, stream, rust + TS + IPC).
+- **History architecture:** The L3 provider embeds the official in-process
+  `codex-app-server-client` and uses typed `ThreadList`, `ThreadRead`,
+  `ThreadTurnsList`, and `ThreadItemsList` requests. SDKWork preserves opaque
+  cursors and the full upstream typed records while projecting Kernel-neutral
+  sessions/messages. It does not resolve state files by path, query private
+  schemas, or parse rollout files; state bootstrap uses the official Codex API.
 - **Gaps:** Production live SDK path is still gated by staging credentials.
   Execution-environment lifecycle and isolation must route through Kernel's
   `SandboxSessionLifecycleAdapter` into `sdkwork-sandbox`; the legacy Kernel
@@ -175,9 +186,9 @@ cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-rig/Car
 ```
 
 Credential-free SDK resolver and fail-closed contract. This verifies that
-installed or explicitly injected SDK packages expose importable entry files,
-that unbuilt source mirrors under `external/` are not treated as live SDK
-packages, and that production profiles fail closed when live execution is
+installed or explicitly injected Node/Python SDK packages expose importable
+entry files. It does not govern approved Rust source dependencies such as the
+Codex L3 in-process facade. Production profiles fail closed when live execution is
 unavailable or when the requested operation is absent from `runtime_operations`:
 `node scripts/provider-transport-workers/engine-sdk-live.test.mjs`
 

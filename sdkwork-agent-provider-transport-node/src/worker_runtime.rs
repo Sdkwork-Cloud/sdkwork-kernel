@@ -1,8 +1,8 @@
 use sdkwork_agent_provider_core::mock_provider_invocation_allowed;
 use sdkwork_agent_provider_spi::{
     SdkBackendKind, SdkBackendRuntime, SdkDriverHealth, SdkRuntimeActivityEvent,
-    SdkRuntimeActivityEventSink, SdkRuntimeError, SdkRuntimeOperation, SdkRuntimeRequest,
-    SdkRuntimeResponse,
+    SdkRuntimeActivityEventSink, SdkRuntimeError, SdkRuntimeInteractionResolution,
+    SdkRuntimeOperation, SdkRuntimeRequest, SdkRuntimeResponse,
 };
 use sdkwork_agent_provider_transport_ipc::{
     is_invoke_terminal_frame, is_session_activity_frame, provider_worker_concurrency_limit,
@@ -21,6 +21,8 @@ const WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
 const HEALTH_WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(2);
 const DEFAULT_WORKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_WORKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(3600);
+const INTERACTION_CONTROL_TIMEOUT: Duration = Duration::from_secs(30);
+const SDKWORK_SERVER_REQUEST_RESPOND_METHOD: &str = "sdkwork/serverRequest.respond";
 
 const NODE_BINARY_ENV: &str = "SDKWORK_AGENT_NODE_BINARY";
 const WORKER_SCRIPT_ENV: &str = "SDKWORK_AGENT_TYPESCRIPT_WORKER_SCRIPT";
@@ -535,6 +537,29 @@ impl SdkBackendRuntime for NodeSdkBackendRuntime {
             NodeRuntimeBackend::Stub(_) | NodeRuntimeBackend::FailClosed(_) => Ok(false),
         }
     }
+
+    fn resolve_interaction(
+        &self,
+        resolution: &SdkRuntimeInteractionResolution,
+    ) -> Result<Value, SdkRuntimeError> {
+        resolution.validate()?;
+        match &self.backend {
+            NodeRuntimeBackend::Managed { pool } => pool
+                .control(
+                    &resolution.model_request_id,
+                    SDKWORK_SERVER_REQUEST_RESPOND_METHOD,
+                    Some(json!(resolution)),
+                    INTERACTION_CONTROL_TIMEOUT,
+                )
+                .map_err(map_transport_error),
+            NodeRuntimeBackend::Stub(_) | NodeRuntimeBackend::FailClosed(_) => {
+                Err(SdkRuntimeError::new(
+                    "interaction_resolution_unavailable",
+                    "active provider interaction control requires a managed Node worker",
+                ))
+            }
+        }
+    }
 }
 
 fn worker_operation_timeout(request: &SdkRuntimeRequest) -> Duration {
@@ -603,7 +628,8 @@ mod tests {
     use super::*;
     use sdkwork_agent_provider_core::mock_provider_invocation_allowed;
     use sdkwork_agent_provider_spi::SdkDriverStatus;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{mpsc, Mutex, OnceLock};
+    use std::thread;
 
     #[derive(Default)]
     struct RecordingActivitySink {
@@ -878,6 +904,99 @@ mod tests {
         let events = sink.events.lock().expect("activity events lock");
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].provider_session_id, "provider.test");
+    }
+
+    #[test]
+    fn managed_runtime_resolves_interaction_on_the_active_stream_worker() {
+        if !Command::new("node")
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+        {
+            return;
+        }
+        let root = std::env::temp_dir().join(format!(
+            "sdkwork-node-interaction-control-{}",
+            std::process::id()
+        ));
+        let worker_script = root.join("worker.mjs");
+        std::fs::create_dir_all(&root).expect("interaction worker test directory");
+        std::fs::write(
+            &worker_script,
+            r#"import readline from 'node:readline';
+const input = readline.createInterface({ input: process.stdin });
+let activeStream = null;
+input.on('line', (line) => {
+  const request = JSON.parse(line);
+  if (request.method === 'sdkwork/ping') {
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { ok: true } })}\n`);
+    return;
+  }
+  if (request.method === 'sdkwork/capability.invoke') {
+    activeStream = request;
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { event: 'stream.event', kernel_event: { event_id: 'paused' } } })}\n`);
+    return;
+  }
+  if (request.method === 'sdkwork/serverRequest.respond') {
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { ok: true, provider_request_id: request.params.provider_request_id } })}\n`);
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: activeStream.id, result: { event: 'stream.done', finish_reason: 'stop', model_request_id: request.params.model_request_id } })}\n`);
+  }
+});
+"#,
+        )
+        .expect("interaction worker test script");
+        let runtime = Arc::new(
+            NodeSdkBackendRuntime::spawn(&NodeWorkerLaunchOptions {
+                node_binary: "node".to_string(),
+                worker_script,
+                package_name: "@openai/codex-sdk".to_string(),
+            })
+            .expect("managed runtime"),
+        );
+        let request = SdkRuntimeRequest::model_chat_stream_with_execution_identities(
+            "sdk.model.chat",
+            "model-request-1",
+            vec!["hello".to_string()],
+            None,
+            None,
+            Some("session-1".to_string()),
+            Some("provider-session-1".to_string()),
+            Some("turn-1".to_string()),
+            None,
+            Some(5_000),
+            None,
+        );
+        let stream_runtime = runtime.clone();
+        let (frame_tx, frame_rx) = mpsc::channel();
+        let stream = thread::spawn(move || {
+            stream_runtime.invoke_streaming(&request, &mut |frame| {
+                frame_tx.send(frame).expect("send stream frame");
+                Ok(true)
+            })
+        });
+        frame_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("provider interaction pause frame");
+
+        let response = runtime
+            .resolve_interaction(&SdkRuntimeInteractionResolution {
+                model_request_id: "model-request-1".to_string(),
+                session_id: "session-1".to_string(),
+                turn_id: "turn-1".to_string(),
+                provider_session_id: "provider-session-1".to_string(),
+                provider_turn_id: "provider-turn-1".to_string(),
+                provider_request_id: json!(41),
+                resolution: json!({"action": "accept"}),
+            })
+            .expect("resolve active provider interaction");
+        assert_eq!(response.get("provider_request_id"), Some(&json!(41)));
+        stream
+            .join()
+            .expect("stream thread should not panic")
+            .expect("same stream should continue to completion");
+        drop(runtime);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

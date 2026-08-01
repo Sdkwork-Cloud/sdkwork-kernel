@@ -1,9 +1,11 @@
 use crate::{
-    ids, GeminiActivityObservation, GeminiCliAdapter, GeminiCliLifecycleProvider,
-    GeminiMessageAdapter, GeminiModelProvider, GeminiToolProvider,
+    discover_gemini_cli_provider_session_messages, discover_gemini_cli_provider_sessions, ids,
+    GeminiActivityObservation, GeminiCliAdapter, GeminiCliLifecycleProvider, GeminiMessageAdapter,
+    GeminiModelProvider, GeminiToolProvider,
 };
 use sdkwork_agent_kernel::{
-    KernelResult, ProviderSessionActivityProvider, SessionActivitySnapshot,
+    AgentMessage, AgentSession, KernelResult, ProviderSessionActivityProvider,
+    SessionActivitySnapshot,
 };
 use sdkwork_agent_provider_core::{
     InMemoryProviderSessionActivityProvider, ProviderSessionActivityAdapter,
@@ -92,6 +94,17 @@ impl GeminiCliSdkIntegration {
 
     pub fn binding_id(&self) -> &str {
         GEMINI_CLI_BINDING_ID
+    }
+
+    pub fn list_provider_sessions(&self) -> KernelResult<Vec<AgentSession>> {
+        discover_gemini_cli_provider_sessions()
+    }
+
+    pub fn get_provider_session_history(
+        &self,
+        provider_session_id: &str,
+    ) -> KernelResult<Vec<AgentMessage>> {
+        discover_gemini_cli_provider_session_messages(provider_session_id)
     }
 
     pub fn invoke_runtime(

@@ -300,6 +300,7 @@ mod manifest;
 mod package;
 
 pub use agent_definition::{hermes_agent_definition, hermes_agent_manifest};
+pub use configuration::HermesConfigurationProvider;
 pub use conformance::hermes_conformance_profile;
 pub use installer::{hermes_agent_installer, HERMES_PACKAGE, HERMES_PACKAGE_VERSION};
 pub use manifest::{hermes_kernel_plugin_manifest, hermes_provider_manifests, HermesKernelPlugin};
@@ -718,3 +719,4 @@ mod tests {
         assert_eq!(closed.state, SessionState::Closed);
     }
 }
+mod configuration;

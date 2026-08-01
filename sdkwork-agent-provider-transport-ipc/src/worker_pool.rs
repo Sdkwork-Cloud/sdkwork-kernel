@@ -144,6 +144,35 @@ impl SpawnedWorkerPool {
         self.acquire(&format!("sdkwork.internal.{purpose}.{id}"), timeout)
     }
 
+    /// Sends a unary control request to the worker leased to one exact model request.
+    ///
+    /// This never acquires or spawns a worker. The pool lock remains held until the
+    /// bounded control call completes so the worker cannot be released and leased
+    /// to another model request between affinity validation and dispatch.
+    pub fn control(
+        &self,
+        request_id: &str,
+        method: &str,
+        params: Option<Value>,
+        timeout: Duration,
+    ) -> Result<Value, TransportError> {
+        let request_id = normalize_request_id(request_id)?;
+        let state =
+            self.inner.state.lock().map_err(|error| {
+                TransportError::new(format!("worker pool lock failed: {error}"))
+            })?;
+        let worker = state.active.get(&request_id).cloned().ok_or_else(|| {
+            TransportError::new(format!(
+                "no active provider worker for request: {request_id}"
+            ))
+        })?;
+        let result = execute_worker_with_timeout(worker.clone(), timeout, || {
+            worker.transport().call(method, params)
+        });
+        drop(state);
+        result
+    }
+
     /// Cancels one active request without affecting workers leased to other requests.
     pub fn cancel(&self, request_id: &str) -> Result<bool, TransportError> {
         let request_id = normalize_request_id(request_id)?;
@@ -231,45 +260,52 @@ impl SpawnedWorkerLease {
         timeout: Duration,
         operation: impl FnOnce() -> Result<T, TransportError>,
     ) -> Result<T, TransportError> {
-        if timeout.is_zero() {
-            return Err(TransportError::new(
-                "provider worker timeout must be greater than zero",
-            ));
-        }
-
-        let (completed_tx, completed_rx) = mpsc::sync_channel(1);
-        let worker = self.worker.clone();
-        let timed_out = Arc::new(AtomicBool::new(false));
-        let watchdog_timed_out = timed_out.clone();
-        let watchdog = thread::Builder::new()
-            .name("sdkwork-provider-worker-deadline".to_string())
-            .spawn(move || {
-                if matches!(
-                    completed_rx.recv_timeout(timeout),
-                    Err(mpsc::RecvTimeoutError::Timeout)
-                ) {
-                    watchdog_timed_out.store(true, Ordering::Release);
-                    let _ = worker.cancel_inflight();
-                }
-            })
-            .map_err(|error| {
-                TransportError::new(format!("provider worker watchdog spawn failed: {error}"))
-            })?;
-
-        let result = operation();
-        let _ = completed_tx.send(());
-        watchdog
-            .join()
-            .map_err(|_| TransportError::new("provider worker watchdog panicked"))?;
-
-        if timed_out.load(Ordering::Acquire) {
-            return Err(TransportError::new(format!(
-                "provider worker operation timed out after {} ms",
-                timeout.as_millis()
-            )));
-        }
-        result
+        execute_worker_with_timeout(self.worker.clone(), timeout, operation)
     }
+}
+
+fn execute_worker_with_timeout<T>(
+    worker: Arc<SpawnedWorker>,
+    timeout: Duration,
+    operation: impl FnOnce() -> Result<T, TransportError>,
+) -> Result<T, TransportError> {
+    if timeout.is_zero() {
+        return Err(TransportError::new(
+            "provider worker timeout must be greater than zero",
+        ));
+    }
+
+    let (completed_tx, completed_rx) = mpsc::sync_channel(1);
+    let timed_out = Arc::new(AtomicBool::new(false));
+    let watchdog_timed_out = timed_out.clone();
+    let watchdog = thread::Builder::new()
+        .name("sdkwork-provider-worker-deadline".to_string())
+        .spawn(move || {
+            if matches!(
+                completed_rx.recv_timeout(timeout),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ) {
+                watchdog_timed_out.store(true, Ordering::Release);
+                let _ = worker.cancel_inflight();
+            }
+        })
+        .map_err(|error| {
+            TransportError::new(format!("provider worker watchdog spawn failed: {error}"))
+        })?;
+
+    let result = operation();
+    let _ = completed_tx.send(());
+    watchdog
+        .join()
+        .map_err(|_| TransportError::new("provider worker watchdog panicked"))?;
+
+    if timed_out.load(Ordering::Acquire) {
+        return Err(TransportError::new(format!(
+            "provider worker operation timed out after {} ms",
+            timeout.as_millis()
+        )));
+    }
+    result
 }
 
 impl Drop for SpawnedWorkerLease {

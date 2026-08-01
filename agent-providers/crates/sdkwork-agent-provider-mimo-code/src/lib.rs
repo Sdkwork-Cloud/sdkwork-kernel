@@ -395,6 +395,7 @@ mod package;
 mod sdk_integration;
 
 pub use agent_definition::{mimo_code_agent_definition, mimo_code_agent_manifest};
+pub use configuration::MiMoCodeConfigurationProvider;
 pub use conformance::mimo_code_conformance_profile;
 pub use installer::{mimo_code_agent_installer, MIMO_CODE_SDK_PACKAGE, MIMO_CODE_SDK_VERSION};
 pub use manifest::{
@@ -805,3 +806,4 @@ mod tests {
         assert_eq!(remaining[0].role, AgentMessageRole::System);
     }
 }
+mod configuration;

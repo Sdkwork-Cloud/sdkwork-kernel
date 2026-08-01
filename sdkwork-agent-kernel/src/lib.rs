@@ -134,8 +134,11 @@ pub use configuration::{
     AgentConfigurationProfile, AgentConfigurationProfileStatus, AgentConfigurationProvider,
     AgentConfigurationSpec, AgentConfigurationStore, AgentConfigurationStoreAction,
     AgentConfigurationStoreRecord, AgentConfigurationUpgradePlan, AgentConfigurationUpgradeRequest,
-    AgentConfigurationValidation, AgentProfileArchiveRequest, AgentSecretBinding,
+    AgentConfigurationValidation, AgentModelConfigurationApplication,
+    AgentModelConfigurationFieldMapping, AgentModelConfigurationRequest,
+    AgentModelSelectionRequest, AgentProfileArchiveRequest, AgentSecretBinding,
     AgentSecretBindingKind, ConfigurationMigrationStep, ConfigurationMigrationStepKind,
+    InMemoryAgentConfigurationStore,
 };
 pub use conformance::{
     AgentRuntimeConformanceProfile, KernelConformanceCase, KernelConformanceCaseStatus,

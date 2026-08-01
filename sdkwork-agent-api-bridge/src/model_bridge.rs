@@ -368,7 +368,7 @@ impl ModelBridge {
         if let Some(runtime) = &self.agent_runtime {
             match self.cancel_typed(runtime, model_request_id, model_provider_id) {
                 Ok(response) => return Ok(response),
-                Err(error) if self.allow_mock_fallback => {}
+                Err(_) if self.allow_mock_fallback => {}
                 Err(error) => return Err(error),
             }
         }

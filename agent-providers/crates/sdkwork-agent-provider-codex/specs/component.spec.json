@@ -49,6 +49,21 @@
       "file": "RUST_CODE_SPEC.md",
       "path": "../../../../sdkwork-specs/RUST_CODE_SPEC.md",
       "purpose": "Rust crate and module rules."
+    },
+    {
+      "file": "INTEGRATION_SPEC.md",
+      "path": "../../../../sdkwork-specs/INTEGRATION_SPEC.md",
+      "purpose": "Read-only external source dependency and public upstream facade rules."
+    },
+    {
+      "file": "PAGINATION_SPEC.md",
+      "path": "../../../../sdkwork-specs/PAGINATION_SPEC.md",
+      "purpose": "Bounded page sizes and opaque cursor pass-through rules."
+    },
+    {
+      "file": "SECURITY_SPEC.md",
+      "path": "../../../../sdkwork-specs/SECURITY_SPEC.md",
+      "purpose": "Untrusted provider output, sensitive raw data, and fail-closed behavior."
     }
   ],
   "contracts": {
@@ -60,7 +75,9 @@
       "codex_provider_manifests",
       "codex_agent_installer",
       "codex_package_manifest",
-      "codex_kernel_plugin_manifest"
+      "codex_kernel_plugin_manifest",
+      "CodexSdkIntegration::bootstrap",
+      "CodexThreadClient"
     ],
     "routeManifest": null,
     "sdkDependencies": [],
@@ -72,7 +89,9 @@
   },
   "verification": {
     "commands": [
-      "cargo test --manifest-path agent-providers/crates/sdkwork-agent-provider-codex/Cargo.toml"
+      "cargo test -p sdkwork-agent-provider-codex",
+      "cargo clippy -p sdkwork-agent-provider-codex --all-targets -- -D warnings",
+      "node scripts/check-kernel-standards.mjs"
     ]
   },
   "plugin": {

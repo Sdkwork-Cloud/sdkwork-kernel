@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -84,7 +84,7 @@ fn read_claude_session_messages_file_with_limits(
     budget.validate_file_size(path)?;
     let file = File::open(path).map_err(claude_inventory_error)?;
     let mut messages = Vec::new();
-    let mut seen_message_ids = HashSet::new();
+    let mut message_indexes = HashMap::new();
     for (line_index, line) in BufReader::new(file).lines().enumerate() {
         let line = line.map_err(claude_inventory_error)?;
         budget.record_source(line.len())?;
@@ -100,9 +100,6 @@ fn read_claude_session_messages_file_with_limits(
         let Some(message_id) = claude_message_id(&value, line_index) else {
             continue;
         };
-        if !seen_message_ids.insert(message_id.clone()) {
-            continue;
-        }
         let mut parts = claude_message_parts(&value, &message_id);
         if parts.is_empty() {
             parts = claude_top_level_parts(&value, &message_id);
@@ -110,7 +107,8 @@ fn read_claude_session_messages_file_with_limits(
         if parts.is_empty() {
             continue;
         }
-        let mut message = AgentMessage::new(message_id, role, parts).for_session(session_id);
+        let mut message =
+            AgentMessage::new(message_id.clone(), role, parts).for_session(session_id);
         if value
             .get("isSidechain")
             .and_then(Value::as_bool)
@@ -128,8 +126,13 @@ fn read_claude_session_messages_file_with_limits(
         if let Some(timestamp) = value.get("timestamp").and_then(Value::as_str) {
             message = message.created_at(timestamp);
         }
-        budget.record_message()?;
-        messages.push(message);
+        if let Some(message_index) = message_indexes.get(&message_id).copied() {
+            messages[message_index] = message;
+        } else {
+            budget.record_message()?;
+            message_indexes.insert(message_id, messages.len());
+            messages.push(message);
+        }
     }
     Ok(messages)
 }
@@ -617,5 +620,35 @@ mod tests {
         .expect_err("oversized history file must fail");
         assert!(error.to_string().contains("exceeds 8 serialized bytes"));
         std::fs::remove_file(path).expect("remove history budget fixture");
+    }
+
+    #[test]
+    fn latest_duplicate_message_replaces_partial_content_without_reordering() {
+        let path = std::env::temp_dir().join(format!(
+            "sdkwork-claude-provider-session-latest-{}.jsonl",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            concat!(
+                "{\"type\":\"assistant\",\"uuid\":\"message-assistant\",\"sessionId\":\"session-latest\",\"timestamp\":\"2026-07-01T00:00:00Z\",\"message\":{\"role\":\"assistant\",\"content\":\"partial\"}}\n",
+                "{\"type\":\"user\",\"uuid\":\"message-user\",\"sessionId\":\"session-latest\",\"timestamp\":\"2026-07-01T00:00:01Z\",\"message\":{\"role\":\"user\",\"content\":\"next\"}}\n",
+                "{\"type\":\"assistant\",\"uuid\":\"message-assistant\",\"sessionId\":\"session-latest\",\"timestamp\":\"2026-07-01T00:00:02Z\",\"message\":{\"role\":\"assistant\",\"content\":\"final answer\"}}\n"
+            ),
+        )
+        .expect("latest message fixture");
+
+        let messages = read_claude_session_messages_file(&path, "session-latest")
+            .expect("provider transcript");
+
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].message_id, "message-assistant");
+        assert_eq!(messages[0].parts[0].text.as_deref(), Some("final answer"));
+        assert_eq!(
+            messages[0].created_at.as_deref(),
+            Some("2026-07-01T00:00:02Z")
+        );
+        assert_eq!(messages[1].message_id, "message-user");
+        std::fs::remove_file(path).expect("remove latest message fixture");
     }
 }

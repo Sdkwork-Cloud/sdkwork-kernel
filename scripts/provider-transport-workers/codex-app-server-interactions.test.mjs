@@ -32,12 +32,13 @@ test('normalizes every user-mediated Codex request into canonical Session intera
       startedAtMs: 1_785_542_400_000,
       turnId: common.turnId,
     },
-  }, { sessionId: 'session.canonical' });
+  }, { modelRequestId: 'model-request-1', sessionId: 'session.canonical' });
 
   assert.equal(command.sessionId, 'session.canonical');
   assert.equal(command.category, 'approval');
   assert.equal(command.kind, 'command_execution');
   assert.equal(command.interactionId, '41');
+  assert.equal(command.correlation.modelRequestId, 'model-request-1');
   assert.equal(command.correlation.providerRequestId, 41);
   assert.equal(command.correlation.providerRequestIdType, 'number');
   assert.equal(command.request.command, 'pnpm test');
@@ -73,6 +74,7 @@ test('normalizes every user-mediated Codex request into canonical Session intera
     requestId: 'question-1',
     params: {
       autoResolutionMs: 60_000,
+      isBlocking: false,
       itemId: 'tool-1',
       providerSessionId: common.providerSessionId,
       questions: [{
@@ -86,6 +88,8 @@ test('normalizes every user-mediated Codex request into canonical Session intera
       turnId: common.turnId,
     },
   }, { sessionId: 'session.canonical' });
+  assert.equal(questions.request.autoResolutionMs, 60_000);
+  assert.equal(questions.request.isBlocking, false);
   assert.equal(questions.category, 'user_input');
   assert.equal(questions.kind, 'question_set');
   assert.equal(questions.request.questions[0].allowOther, true);
@@ -492,13 +496,13 @@ function normalize(method, requestId, params) {
       ...params,
     },
     requestId,
-  }, { sessionId: 'session.canonical' });
+  }, { modelRequestId: 'model-request-1', sessionId: 'session.canonical' });
 }
 
 function normalizeDynamic(requestId, tool, argumentsValue) {
   return normalizeCodexInteractionRequest(
     dynamicRequest(requestId, tool, argumentsValue),
-    { sessionId: 'session.canonical' },
+    { modelRequestId: 'model-request-1', sessionId: 'session.canonical' },
   );
 }
 

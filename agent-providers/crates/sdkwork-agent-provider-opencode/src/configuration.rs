@@ -4,7 +4,8 @@ use sdkwork_agent_kernel::{
     AgentConfigurationValidation, AgentExecutionAccessModeDescriptor,
     AgentExecutionApprovalBehavior, AgentExecutionNetworkAccess, AgentExecutionProviderOption,
     AgentExecutionRiskLevel, AgentExecutionSettingsRequest, AgentExecutionSettingsResolution,
-    AgentExecutionSettingsSpec, AgentExecutionWorkspaceAccess, KernelError, KernelResult,
+    AgentExecutionSettingsSpec, AgentExecutionWorkspaceAccess, AgentModelConfigurationApplication,
+    AgentModelConfigurationRequest, AgentModelSelectionRequest, KernelError, KernelResult,
     ProviderHealth,
 };
 use sdkwork_agent_plugin_core::ProcessAdapterConfigurationProvider;
@@ -22,7 +23,10 @@ pub struct OpenCodeConfigurationProvider {
 impl OpenCodeConfigurationProvider {
     pub fn new() -> Self {
         Self {
-            base: ProcessAdapterConfigurationProvider::new(ids::AGENT_ID),
+            base: ProcessAdapterConfigurationProvider::with_model_configuration_scope(
+                ids::AGENT_ID,
+                "opencode",
+            ),
         }
     }
 
@@ -74,6 +78,20 @@ impl AgentConfigurationProvider for OpenCodeConfigurationProvider {
         configuration: &AgentConfiguration,
     ) -> KernelResult<AgentConfigurationValidation> {
         self.base.validate_configuration(configuration)
+    }
+
+    fn apply_model_configuration(
+        &self,
+        request: &AgentModelConfigurationRequest,
+    ) -> KernelResult<AgentModelConfigurationApplication> {
+        self.base.apply_model_configuration(request)
+    }
+
+    fn apply_model_selection(
+        &self,
+        request: &AgentModelSelectionRequest,
+    ) -> KernelResult<AgentModelConfigurationApplication> {
+        self.base.apply_model_selection(request)
     }
 
     fn execution_settings_spec(&self, agent_id: &str) -> KernelResult<AgentExecutionSettingsSpec> {

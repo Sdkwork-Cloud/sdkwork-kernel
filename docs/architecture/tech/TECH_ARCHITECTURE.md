@@ -164,10 +164,26 @@ sdkwork-kernel/
   scripts/
     check-agent-provider-bindings.mjs
     provider-transport-workers/   # Node/Python SDK workers
-  external/                       # Upstream source mirrors (submodules)
+  external/                       # Pinned read-only upstream source inputs (submodules)
 ```
 
 Root layout authority: [SDKWORK_WORKSPACE_SPEC.md](../../../sdkwork-specs/SDKWORK_WORKSPACE_SPEC.md).
+
+### External source dependency boundary
+
+Provider-neutral L0/L1 contracts and L2 transports do not depend on upstream
+source trees. An owning L3 provider may compile an approved public upstream
+facade from a pinned, read-only `external/` submodule through root Cargo
+workspace dependencies. Provider-specific types terminate at L3 adapters and
+must not appear in Kernel-neutral SPI or internal HTTP contracts.
+
+Codex uses this source-integration path for the official in-process
+`codex-app-server-client` and `codex-app-server-protocol`. Thread, Turn,
+ThreadItem, status, and opaque cursor data flow through typed requests. Kernel
+does not resolve or open Codex private state files by path, query their schema,
+or parse rollout files. The L3 host uses the official Codex state-bootstrap API
+required by the in-process app-server. See
+[TECH-2026-08-01-codex-source-integration.md](TECH-2026-08-01-codex-source-integration.md).
 
 ## 5. API, SDK, And Data Ownership
 
@@ -621,7 +637,8 @@ node ../../../sdkwork-specs/tools/check-repository-docs-standard.mjs --root .
 
 ```bash
 # Credential-free SDK resolver and fail-closed contract.
-# Unbuilt external source mirrors are not treated as live SDK packages.
+# External trees are not auto-discovered as Node/Python SDK packages; approved
+# Rust L3 source dependencies are resolved explicitly by Cargo.
 # Runtime operations must be declared by the selected backend runtime_operations allowlist.
 node scripts/provider-transport-workers/engine-sdk-live.test.mjs
 

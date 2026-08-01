@@ -76,22 +76,24 @@ fn read_opencode_provider_session_messages_with_limits(
              LIMIT ?2",
         )
         .map_err(opencode_inventory_error)?;
+    let source_row_limit = budget
+        .limits()
+        .max_source_records
+        .checked_add(1)
+        .and_then(|limit| i64::try_from(limit).ok())
+        .ok_or_else(|| {
+            KernelError::validation("OpenCode history source row limit exceeds SQLite range")
+        })?;
     let rows = statement
-        .query_map(
-            params![
-                session_id,
-                budget.limits().max_source_records.saturating_add(1)
-            ],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, String>(2)?,
-                    row.get::<_, String>(3)?,
-                    row.get::<_, String>(4)?,
-                ))
-            },
-        )
+        .query_map(params![session_id, source_row_limit], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            ))
+        })
         .map_err(opencode_inventory_error)?;
     let mut grouped = Vec::<(String, i64, Value, Vec<(String, Value)>)>::new();
     for row in rows {
@@ -491,5 +493,36 @@ mod tests {
         .expect_err("oversized joined history must fail");
         assert!(error.to_string().contains("exceeds 1 source records"));
         std::fs::remove_file(path).expect("remove history budget fixture");
+    }
+
+    #[test]
+    fn rejects_source_record_limits_outside_sqlite_integer_range() {
+        let path = std::env::temp_dir().join(format!(
+            "sdkwork-opencode-provider-session-limit-{}.sqlite",
+            std::process::id()
+        ));
+        let connection = Connection::open(&path).expect("fixture database");
+        connection
+            .execute_batch(
+                "CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, \
+                 time_created INTEGER NOT NULL, data TEXT NOT NULL); \
+                 CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT NOT NULL, \
+                 time_created INTEGER NOT NULL, data TEXT NOT NULL);",
+            )
+            .expect("fixture schema");
+        drop(connection);
+
+        let error = read_opencode_provider_session_messages_with_limits(
+            &path,
+            "session-limit",
+            ProviderSessionHistoryLimits {
+                max_source_records: usize::MAX,
+                max_messages: 10,
+                max_serialized_bytes: 16 * 1024,
+            },
+        )
+        .expect_err("SQLite LIMIT values must fit in a signed 64-bit integer");
+        assert!(error.to_string().contains("exceeds SQLite range"));
+        std::fs::remove_file(path).expect("remove source limit fixture");
     }
 }

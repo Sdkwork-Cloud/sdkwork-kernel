@@ -80,14 +80,22 @@ Optional source fields:
 Rules:
 
 - Source entries are closed contracts. Unknown fields are invalid.
-- `source_tree.path` is a reference input for inspection and mapping only; kernel
-  crates must not depend on `external/` paths directly.
+- `source_tree.path` is discovery/provenance metadata and never authorizes
+  automatic runtime loading. A provider-neutral Kernel crate must not depend on
+  it. An owning L3 provider may consume the same concrete crate/package path
+  only when the root native workspace manifest declares the dependency, the
+  external gitlink is fixed and read-only, and the dependency is an upstream
+  public facade mapped behind Kernel-neutral SPI.
 - When a checked-out upstream source tree contains a narrower package or crate
   directory that matches `language_packages`, `rust_crate`, or backend package
   metadata, `source_tree.path` `MUST` point to that package/crate directory, and
   the provider mapping document `MUST` record the same path. Broad upstream
   roots may still be documented as source references, but they must not be
-  treated as runtime SDK package roots.
+  treated as runtime SDK package roots or auto-discovered dependencies.
+- A source-backed L3 integration must not use private provider persistence,
+  caches, logs, transcripts, or implementation schemas as an API. Codex uses
+  its public `codex-app-server-client` and `codex-app-server-protocol` crates;
+  its private state database and rollout files are outside the Kernel contract.
 - `http_openapi.transport` must match at least one capability backend
   `openapi_authority`.
 

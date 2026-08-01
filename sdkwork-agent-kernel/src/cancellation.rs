@@ -530,7 +530,7 @@ impl CancellationProvider for InMemoryCancellationProvider {
 
         // Propagate to children if requested
         if request.propagate {
-            for (_, child_token) in self.tokens.iter() {
+            for child_token in self.tokens.values() {
                 if child_token.parent.as_ref().map(|p| p.token_id.as_str())
                     == Some(request.token_id.as_str())
                 {

@@ -1,6 +1,10 @@
 use crate::{
-    CodexAdapter, CodexLifecycleProvider, CodexMessageAdapter, CodexModelProvider,
-    CodexThreadActivityObservation,
+    map_item_page, map_thread_page, map_thread_record, normalize_page_limit, CodexAdapter,
+    CodexInProcessThreadClient, CodexLifecycleProvider, CodexMessageAdapter, CodexMessagePage,
+    CodexModelProvider, CodexSessionPage, CodexSessionRecord, CodexThreadActivityObservation,
+    CodexThreadClient, ThreadItemsListParams, ThreadItemsListResponse, ThreadListParams,
+    ThreadListResponse, ThreadReadParams, ThreadReadResponse, ThreadTurnsListParams,
+    ThreadTurnsListResponse,
 };
 use sdkwork_agent_kernel::{
     KernelResult, ProviderSessionActivityProvider, SessionActivitySnapshot,
@@ -11,8 +15,8 @@ use sdkwork_agent_provider_core::{
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
     DriverRegistry, ProviderSessionActivityRuntimeSink, SdkNegotiationError,
-    SdkRuntimeBackedModelProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
-    CODEX_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
+    SdkRuntimeBackedModelProvider, SdkRuntimeInteractionResolution, SdkRuntimeRequest,
+    SdkRuntimeResponse, SdkRuntimeRouter, CODEX_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -39,10 +43,29 @@ pub struct CodexSdkIntegration {
     pub session_adapter: CodexAdapter,
     pub message_adapter: CodexMessageAdapter,
     activity: Arc<InMemoryProviderSessionActivityProvider>,
+    thread_client: Arc<dyn CodexThreadClient>,
 }
 
 impl CodexSdkIntegration {
     pub fn bootstrap() -> Result<Self, SdkNegotiationError> {
+        let activity = Arc::new(InMemoryProviderSessionActivityProvider::new());
+        let thread_client = Arc::new(CodexInProcessThreadClient::new(activity.clone()));
+        Self::bootstrap_with_components(activity, thread_client)
+    }
+
+    pub fn bootstrap_with_thread_client(
+        thread_client: Arc<dyn CodexThreadClient>,
+    ) -> Result<Self, SdkNegotiationError> {
+        Self::bootstrap_with_components(
+            Arc::new(InMemoryProviderSessionActivityProvider::new()),
+            thread_client,
+        )
+    }
+
+    fn bootstrap_with_components(
+        activity: Arc<InMemoryProviderSessionActivityProvider>,
+        thread_client: Arc<dyn CodexThreadClient>,
+    ) -> Result<Self, SdkNegotiationError> {
         let manifest = codex_binding_manifest();
         let mut drivers = DriverRegistry::new();
         let mut bindings = BindingRegistry::new();
@@ -54,7 +77,6 @@ impl CodexSdkIntegration {
             "codex-1",
         ));
 
-        let activity = Arc::new(InMemoryProviderSessionActivityProvider::new());
         let runtime_activity_sink =
             Arc::new(ProviderSessionActivityRuntimeSink::new(activity.clone()));
         let mut bootstrap = ProviderTransportBootstrap::new();
@@ -86,6 +108,7 @@ impl CodexSdkIntegration {
             session_adapter: CodexAdapter::new(),
             message_adapter: CodexMessageAdapter::new(),
             activity,
+            thread_client,
         })
     }
 
@@ -93,11 +116,76 @@ impl CodexSdkIntegration {
         CODEX_BINDING_ID
     }
 
+    pub async fn list_codex_threads(
+        &self,
+        mut params: ThreadListParams,
+    ) -> KernelResult<ThreadListResponse> {
+        normalize_page_limit(&mut params.limit)?;
+        self.thread_client.list_threads(params).await
+    }
+
+    pub async fn list_provider_sessions(
+        &self,
+        params: ThreadListParams,
+    ) -> KernelResult<CodexSessionPage> {
+        map_thread_page(self.list_codex_threads(params).await?)
+    }
+
+    pub async fn read_codex_thread(
+        &self,
+        params: ThreadReadParams,
+    ) -> KernelResult<ThreadReadResponse> {
+        self.thread_client.read_thread(params).await
+    }
+
+    pub async fn read_provider_session(
+        &self,
+        params: ThreadReadParams,
+    ) -> KernelResult<CodexSessionRecord> {
+        map_thread_record(self.read_codex_thread(params).await?.thread)
+    }
+
+    pub async fn list_provider_session_turns(
+        &self,
+        mut params: ThreadTurnsListParams,
+    ) -> KernelResult<ThreadTurnsListResponse> {
+        normalize_page_limit(&mut params.limit)?;
+        self.thread_client.list_turns(params).await
+    }
+
+    pub async fn list_codex_thread_items(
+        &self,
+        mut params: ThreadItemsListParams,
+    ) -> KernelResult<ThreadItemsListResponse> {
+        normalize_page_limit(&mut params.limit)?;
+        self.thread_client.list_items(params).await
+    }
+
+    pub async fn get_provider_session_history(
+        &self,
+        params: ThreadItemsListParams,
+    ) -> KernelResult<CodexMessagePage> {
+        let thread_id = params.thread_id.clone();
+        map_item_page(&thread_id, self.list_codex_thread_items(params).await?)
+    }
+
+    pub fn codex_thread_client(&self) -> Arc<dyn CodexThreadClient> {
+        self.thread_client.clone()
+    }
+
     pub fn invoke_runtime(
         &self,
         request: &SdkRuntimeRequest,
     ) -> Result<SdkRuntimeResponse, sdkwork_agent_provider_spi::SdkRuntimeError> {
         self.runtime.invoke(request)
+    }
+
+    pub fn resolve_interaction(
+        &self,
+        resolution: &SdkRuntimeInteractionResolution,
+    ) -> Result<serde_json::Value, sdkwork_agent_provider_spi::SdkRuntimeError> {
+        self.runtime
+            .resolve_interaction(SDK_CAPABILITY_MODEL_CHAT, resolution)
     }
 
     /// Records one status returned by the live Codex app-server thread API.
@@ -128,10 +216,75 @@ impl ProviderSessionActivityProvider for CodexSdkIntegration {
 mod tests {
     use super::*;
     use sdkwork_agent_kernel::{
-        ModelProvider, ModelRequest, SessionActivityFreshness, SessionActivityInteractionHint,
-        SessionActivityState,
+        KernelError, ModelProvider, ModelRequest, SessionActivityFreshness,
+        SessionActivityInteractionHint, SessionActivityState,
     };
     use sdkwork_agent_provider_spi::SdkBackendKind;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct FakeCodexThreadClient {
+        thread_list_params: Mutex<Vec<ThreadListParams>>,
+        turn_list_params: Mutex<Vec<ThreadTurnsListParams>>,
+        item_list_params: Mutex<Vec<ThreadItemsListParams>>,
+    }
+
+    #[async_trait::async_trait]
+    impl CodexThreadClient for FakeCodexThreadClient {
+        async fn list_threads(&self, params: ThreadListParams) -> KernelResult<ThreadListResponse> {
+            self.thread_list_params
+                .lock()
+                .expect("thread params lock")
+                .push(params);
+            Ok(ThreadListResponse {
+                data: Vec::new(),
+                next_cursor: Some("thread-next".to_string()),
+                backwards_cursor: Some("thread-backwards".to_string()),
+            })
+        }
+
+        async fn read_thread(&self, _params: ThreadReadParams) -> KernelResult<ThreadReadResponse> {
+            Err(KernelError::provider_error(
+                "fake_read_not_configured",
+                "fake read response is not configured",
+            ))
+        }
+
+        async fn list_turns(
+            &self,
+            params: ThreadTurnsListParams,
+        ) -> KernelResult<ThreadTurnsListResponse> {
+            self.turn_list_params
+                .lock()
+                .expect("turn params lock")
+                .push(params);
+            Ok(ThreadTurnsListResponse {
+                data: Vec::new(),
+                next_cursor: Some("turn-next".to_string()),
+                backwards_cursor: Some("turn-backwards".to_string()),
+            })
+        }
+
+        async fn list_items(
+            &self,
+            params: ThreadItemsListParams,
+        ) -> KernelResult<ThreadItemsListResponse> {
+            self.item_list_params
+                .lock()
+                .expect("item params lock")
+                .push(params);
+            Ok(ThreadItemsListResponse {
+                data: vec![crate::ThreadItemEntry {
+                    turn_id: "turn-1".to_string(),
+                    item: crate::ThreadItem::ContextCompaction {
+                        id: "item-1".to_string(),
+                    },
+                }],
+                next_cursor: Some("item-next".to_string()),
+                backwards_cursor: Some("item-backwards".to_string()),
+            })
+        }
+    }
 
     #[test]
     fn bootstrap_negotiates_required_codex_capabilities() {
@@ -190,8 +343,8 @@ mod tests {
         integration
             .record_provider_session_activity(&CodexThreadActivityObservation {
                 provider_session_id: "codex.provider.1".to_string(),
-                status: crate::CodexThreadRuntimeStatus::Active {
-                    active_flags: vec![crate::CodexThreadActiveFlag::WaitingOnApproval],
+                status: crate::ThreadStatus::Active {
+                    active_flags: vec![crate::ThreadActiveFlag::WaitingOnApproval],
                 },
                 observed_at: sdkwork_agent_provider_core::now_iso(),
             })
@@ -202,7 +355,7 @@ mod tests {
         integration
             .record_provider_session_activity(&CodexThreadActivityObservation {
                 provider_session_id: "codex.provider.stale".to_string(),
-                status: crate::CodexThreadRuntimeStatus::Active {
+                status: crate::ThreadStatus::Active {
                     active_flags: Vec::new(),
                 },
                 observed_at: "2000-01-01T00:00:00Z".to_string(),
@@ -222,5 +375,82 @@ mod tests {
         );
         assert_eq!(stale.freshness, SessionActivityFreshness::Stale);
         assert_eq!(unknown.freshness, SessionActivityFreshness::Unsupported);
+    }
+
+    #[tokio::test]
+    async fn delegates_typed_pagination_without_rewriting_cursors() {
+        let client = Arc::new(FakeCodexThreadClient::default());
+        let integration = CodexSdkIntegration::bootstrap_with_thread_client(client.clone())
+            .expect("fake client bootstrap");
+        let thread_params: ThreadListParams = serde_json::from_value(serde_json::json!({
+            "cursor": "thread-input"
+        }))
+        .expect("thread list params");
+        let thread_page = integration
+            .list_provider_sessions(thread_params)
+            .await
+            .expect("thread list");
+        let turn_page = integration
+            .list_provider_session_turns(ThreadTurnsListParams {
+                thread_id: "thread-1".to_string(),
+                cursor: Some("turn-input".to_string()),
+                limit: Some(sdkwork_utils_rust::MAX_LIST_PAGE_SIZE as u32),
+                sort_direction: None,
+                items_view: None,
+            })
+            .await
+            .expect("turn list");
+        let item_page = integration
+            .get_provider_session_history(ThreadItemsListParams {
+                thread_id: "thread-1".to_string(),
+                turn_id: Some("turn-1".to_string()),
+                cursor: Some("item-input".to_string()),
+                limit: None,
+                sort_direction: None,
+            })
+            .await
+            .expect("item list");
+
+        assert_eq!(thread_page.next_cursor.as_deref(), Some("thread-next"));
+        assert_eq!(
+            thread_page.backwards_cursor.as_deref(),
+            Some("thread-backwards")
+        );
+        assert_eq!(turn_page.next_cursor.as_deref(), Some("turn-next"));
+        assert_eq!(
+            turn_page.backwards_cursor.as_deref(),
+            Some("turn-backwards")
+        );
+        assert_eq!(item_page.next_cursor.as_deref(), Some("item-next"));
+        assert_eq!(
+            item_page.backwards_cursor.as_deref(),
+            Some("item-backwards")
+        );
+        assert_eq!(
+            item_page.data[0].message.session_id.as_deref(),
+            Some("thread-1")
+        );
+
+        let thread_params = client
+            .thread_list_params
+            .lock()
+            .expect("thread params lock");
+        assert_eq!(thread_params[0].cursor.as_deref(), Some("thread-input"));
+        assert_eq!(
+            thread_params[0].limit,
+            Some(sdkwork_utils_rust::DEFAULT_LIST_PAGE_SIZE as u32)
+        );
+        let turn_params = client.turn_list_params.lock().expect("turn params lock");
+        assert_eq!(turn_params[0].cursor.as_deref(), Some("turn-input"));
+        assert_eq!(
+            turn_params[0].limit,
+            Some(sdkwork_utils_rust::MAX_LIST_PAGE_SIZE as u32)
+        );
+        let item_params = client.item_list_params.lock().expect("item params lock");
+        assert_eq!(item_params[0].cursor.as_deref(), Some("item-input"));
+        assert_eq!(
+            item_params[0].limit,
+            Some(sdkwork_utils_rust::DEFAULT_LIST_PAGE_SIZE as u32)
+        );
     }
 }

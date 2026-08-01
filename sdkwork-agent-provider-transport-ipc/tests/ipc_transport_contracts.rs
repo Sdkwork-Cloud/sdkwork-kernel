@@ -5,6 +5,8 @@ use sdkwork_agent_provider_transport_ipc::{
 };
 use serde_json::json;
 use std::process::Command;
+use std::sync::{mpsc, Arc};
+use std::thread;
 use std::time::{Duration, Instant};
 
 #[test]
@@ -132,4 +134,120 @@ fn worker_lease_timeout_terminates_and_reaps_unresponsive_process() {
     assert!(error.message.contains("timed out after 100 ms"));
     assert!(started.elapsed() < Duration::from_secs(2));
     assert!(!lease.is_running(), "timed-out worker must be reaped");
+}
+
+#[test]
+fn stdio_transport_allows_unary_control_during_active_stream() {
+    if !node_available() {
+        return;
+    }
+    let mut command = Command::new("node");
+    command.args([
+        "-e",
+        "const rl=require('readline').createInterface({input:process.stdin});let stream=null;rl.on('line',line=>{const r=JSON.parse(line);if(r.method==='stream'){stream=r;process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:r.id,result:{event:'stream.event',kernel_event:{event_id:'paused'}}})+'\\n');return;}if(r.method==='control'){process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:r.id,result:{ok:true,request:r.params.request}})+'\\n');process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:stream.id,result:{event:'stream.done',finish_reason:'stop'}})+'\\n');}});",
+    ]);
+    let worker = Arc::new(SpawnedWorker::spawn(command).expect("spawn duplex worker"));
+    let stream_transport = worker.transport();
+    let (frame_tx, frame_rx) = mpsc::channel();
+    let stream = thread::spawn(move || {
+        stream_transport.call_streaming("stream", None, &mut |frame| {
+            frame_tx.send(frame).expect("send observed frame");
+            Ok(true)
+        })
+    });
+
+    let paused = frame_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("stream should pause before control response");
+    assert!(is_stream_kernel_event_frame(&paused));
+
+    let control = worker
+        .transport()
+        .call("control", Some(json!({"request": "approval-1"})))
+        .expect("unary control should complete while stream remains active");
+    assert_eq!(control.get("ok"), Some(&json!(true)));
+    assert_eq!(control.get("request"), Some(&json!("approval-1")));
+
+    stream
+        .join()
+        .expect("stream thread should not panic")
+        .expect("stream should finish after control response");
+    assert!(worker.is_reusable());
+}
+
+#[test]
+fn stdio_transport_demultiplexes_reversed_unary_responses() {
+    if !node_available() {
+        return;
+    }
+    let mut command = Command::new("node");
+    command.args([
+        "-e",
+        "const rl=require('readline').createInterface({input:process.stdin});const requests=[];rl.on('line',line=>{requests.push(JSON.parse(line));if(requests.length===2){for(const r of [...requests].reverse())process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:r.id,result:{method:r.method}})+'\\n');}});",
+    ]);
+    let worker = Arc::new(SpawnedWorker::spawn(command).expect("spawn reverse-order worker"));
+    let first_worker = worker.clone();
+    let first = thread::spawn(move || first_worker.transport().call("first", None));
+    let second_worker = worker.clone();
+    let second = thread::spawn(move || second_worker.transport().call("second", None));
+
+    let first = first
+        .join()
+        .expect("first call thread")
+        .expect("first call");
+    let second = second
+        .join()
+        .expect("second call thread")
+        .expect("second call");
+    assert_eq!(first.get("method"), Some(&json!("first")));
+    assert_eq!(second.get("method"), Some(&json!("second")));
+    assert!(worker.is_reusable());
+}
+
+#[test]
+fn stdio_transport_poisoned_by_unknown_response_id_fails_pending_call() {
+    if !node_available() {
+        return;
+    }
+    let mut command = Command::new("node");
+    command.args([
+        "-e",
+        "const rl=require('readline').createInterface({input:process.stdin});rl.on('line',()=>process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:'unknown',result:{ok:true}})+'\\n'));",
+    ]);
+    let worker = SpawnedWorker::spawn(command).expect("spawn mismatched-id worker");
+    let error = worker
+        .transport()
+        .call("probe", None)
+        .expect_err("unknown response id must poison the session");
+    assert!(error.message.contains("unknown or duplicate response id"));
+    assert!(!worker.is_reusable());
+}
+
+#[test]
+fn stdio_transport_disconnect_fails_all_active_calls() {
+    if !node_available() {
+        return;
+    }
+    let mut command = Command::new("node");
+    command.args([
+        "-e",
+        "const rl=require('readline').createInterface({input:process.stdin});let count=0;rl.on('line',()=>{count+=1;if(count===2)process.exit(0);});",
+    ]);
+    let worker = Arc::new(SpawnedWorker::spawn(command).expect("spawn disconnecting worker"));
+    let first_worker = worker.clone();
+    let first = thread::spawn(move || first_worker.transport().call("first", None));
+    let second_worker = worker.clone();
+    let second = thread::spawn(move || second_worker.transport().call("second", None));
+
+    let first_error = first
+        .join()
+        .expect("first call thread")
+        .expect_err("first call must fail on disconnect");
+    let second_error = second
+        .join()
+        .expect("second call thread")
+        .expect_err("second call must fail on disconnect");
+    assert!(first_error.message.contains("closed stdout"));
+    assert!(second_error.message.contains("closed stdout"));
+    assert!(!worker.is_reusable());
 }

@@ -1,9 +1,11 @@
 use crate::{
+    discover_claude_code_provider_session_messages, discover_claude_code_provider_sessions,
     ClaudeCodeActivityObservation, ClaudeCodeAdapter, ClaudeCodeLifecycleProvider,
     ClaudeMessageAdapter, ClaudeModelProvider,
 };
 use sdkwork_agent_kernel::{
-    KernelResult, ProviderSessionActivityProvider, SessionActivitySnapshot,
+    AgentMessage, AgentSession, KernelResult, ProviderSessionActivityProvider,
+    SessionActivitySnapshot,
 };
 use sdkwork_agent_provider_core::{
     InMemoryProviderSessionActivityProvider, ProviderSessionActivityAdapter,
@@ -83,6 +85,17 @@ impl ClaudeCodeSdkIntegration {
 
     pub fn binding_id(&self) -> &str {
         CLAUDE_CODE_BINDING_ID
+    }
+
+    pub fn list_provider_sessions(&self) -> KernelResult<Vec<AgentSession>> {
+        discover_claude_code_provider_sessions()
+    }
+
+    pub fn get_provider_session_history(
+        &self,
+        provider_session_id: &str,
+    ) -> KernelResult<Vec<AgentMessage>> {
+        discover_claude_code_provider_session_messages(provider_session_id)
     }
 
     pub fn invoke_runtime(

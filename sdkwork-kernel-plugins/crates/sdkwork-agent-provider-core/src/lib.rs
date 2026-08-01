@@ -29,9 +29,7 @@ pub use provider_session_activity::{
     InMemoryProviderSessionActivityProvider, ProviderSessionActivityAdapter,
     DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL, MAX_PROVIDER_SESSION_ACTIVITY_CLOCK_SKEW,
 };
-pub use provider_session_history::{
-    ProviderSessionHistoryBudget, ProviderSessionHistoryLimits,
-};
+pub use provider_session_history::{ProviderSessionHistoryBudget, ProviderSessionHistoryLimits};
 pub use provider_session_path::{
     epoch_millis_to_rfc3339, normalize_provider_session_path,
     provider_session_directory_fingerprint, provider_session_path_basename,

@@ -134,6 +134,7 @@ export async function invokeCodexAppServerModelChat(operation, options = {}) {
       }
       enqueue(entry, async () => {
         const projection = projectCodexInteractionServerRequest(request, {
+          modelRequestId: entry.modelRequestId,
           sessionId: entry.sessionId,
         });
         if (projection.disposition === 'automatic_response') {
@@ -270,7 +271,10 @@ export async function respondToCodexAppServerRequest(command = {}) {
     ?? command.interactionResolution;
   const interaction = canonicalResolution == null
     ? null
-    : normalizeCodexInteractionRequest(request, { sessionId: entry.sessionId });
+    : normalizeCodexInteractionRequest(request, {
+        modelRequestId: entry.modelRequestId,
+        sessionId: entry.sessionId,
+      });
   const response = Object.hasOwn(command, 'error')
     ? { error: command.error }
     : {
@@ -347,11 +351,14 @@ export function buildCodexAppServerKernelEvent(providerEvent, operation, sequenc
   );
   const normalizedSequence = Number.isSafeInteger(sequence) && sequence >= 0 ? sequence : 0;
   const interaction = providerEvent?.serverRequest === true
-    ? providerEvent.interaction ?? normalizeCodexInteractionRequest(providerEvent, { sessionId })
+    ? providerEvent.interaction ?? normalizeCodexInteractionRequest(providerEvent, {
+        modelRequestId,
+        sessionId,
+      })
     : null;
   return {
     event_id: `event.${modelRequestId}.${normalizedSequence}`,
-    event_type: appServerKernelEventType(method, params, item),
+    event_type: appServerKernelEventType(method, params, item, interaction),
     event_version: '1.0.0',
     occurred_at: providerEvent?.receivedAt ?? new Date().toISOString(),
     source: appServerKernelEventSource(method, item),
@@ -585,7 +592,9 @@ function establishProviderTurnId(entry, candidate) {
   entry.providerTurnId = providerTurnId;
 }
 
-function appServerKernelEventType(method, params, item) {
+function appServerKernelEventType(method, params, item, interaction) {
+  if (interaction?.category === 'approval') return 'agent.policy.paused';
+  if (interaction) return 'agent.message.paused';
   if (method === 'session/started' || method === 'session/resumed') {
     return `agent.${method}`;
   }

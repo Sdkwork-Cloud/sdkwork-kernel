@@ -13,8 +13,8 @@
   },
   "language_packages": {
     "rust": {
-      "crate": "codex-core",
-      "version": ">=0.1.0",
+      "crate": "codex-app-server-client",
+      "version": "0.0.0",
       "optional": false
     },
     "typescript": {
@@ -40,7 +40,7 @@
           "kind": "rust_native",
           "driver_id": "driver.codex.session.lifecycle.rust",
           "runtime_operations": ["ping"],
-          "crate": "codex-core"
+          "crate": "codex-app-server-client"
         },
         {
           "kind": "ipc_protocol",
@@ -59,7 +59,7 @@
           "kind": "rust_native",
           "driver_id": "driver.codex.session.history.rust",
           "runtime_operations": ["ping"],
-          "crate": "codex-core"
+          "crate": "codex-app-server-client"
         }
       ]
     },
@@ -109,7 +109,23 @@
     },
     {
       "mode": "rust_crate",
+      "crate": "codex-app-server-client"
+    },
+    {
+      "mode": "rust_crate",
+      "crate": "codex-app-server-protocol"
+    },
+    {
+      "mode": "rust_crate",
       "crate": "codex-core"
+    },
+    {
+      "mode": "source_tree",
+      "path": "external/codex/codex-rs/app-server-client"
+    },
+    {
+      "mode": "source_tree",
+      "path": "external/codex/codex-rs/app-server-protocol"
     },
     {
       "mode": "ipc_protocol",

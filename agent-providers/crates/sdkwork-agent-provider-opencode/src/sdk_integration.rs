@@ -1,9 +1,11 @@
 use crate::{
+    discover_opencode_provider_session_messages, discover_opencode_provider_sessions,
     OpenCodeActivityObservation, OpenCodeAdapter, OpenCodeLifecycleProvider,
     OpenCodeMessageAdapter, OpenCodeModelProvider,
 };
 use sdkwork_agent_kernel::{
-    KernelResult, ProviderSessionActivityProvider, SessionActivitySnapshot,
+    AgentMessage, AgentSession, KernelResult, ProviderSessionActivityProvider,
+    SessionActivitySnapshot,
 };
 use sdkwork_agent_provider_core::{
     InMemoryProviderSessionActivityProvider, ProviderSessionActivityAdapter,
@@ -83,6 +85,17 @@ impl OpenCodeSdkIntegration {
 
     pub fn binding_id(&self) -> &str {
         OPENCODE_BINDING_ID
+    }
+
+    pub fn list_provider_sessions(&self) -> KernelResult<Vec<AgentSession>> {
+        discover_opencode_provider_sessions()
+    }
+
+    pub fn get_provider_session_history(
+        &self,
+        provider_session_id: &str,
+    ) -> KernelResult<Vec<AgentMessage>> {
+        discover_opencode_provider_session_messages(provider_session_id)
     }
 
     pub fn invoke_runtime(

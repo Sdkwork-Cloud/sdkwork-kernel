@@ -307,11 +307,10 @@ impl StreamResult {
         let stream_id = stream_id.into();
         let complete_response = complete_response.into();
         let bytes_sent = complete_response.len() as u64;
-        let throughput_bps = if total_duration_ms > 0 {
-            (bytes_sent * 1000) / total_duration_ms
-        } else {
-            0
-        };
+        let throughput_bps = bytes_sent
+            .saturating_mul(1000)
+            .checked_div(total_duration_ms)
+            .unwrap_or(0);
 
         Self {
             stream_id: stream_id.clone(),
@@ -629,7 +628,7 @@ impl ModelStreamProvider for InMemoryStreamProvider {
 
     fn cancel_provider_streams(&mut self, _provider_id: &str) -> Result<usize, StreamError> {
         let mut count = 0;
-        for (_, (status, _)) in self.streams.iter_mut() {
+        for (status, _) in self.streams.values_mut() {
             status.state = StreamState::Cancelled;
             count += 1;
         }

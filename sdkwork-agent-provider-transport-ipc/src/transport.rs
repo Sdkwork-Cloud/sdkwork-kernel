@@ -9,8 +9,9 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
 
 /// Maximum encoded JSON-RPC request or response frame accepted from a worker.
 ///
@@ -424,11 +425,33 @@ pub fn stub_capability_invoke_result(
 
 pub struct StdioJsonRpcSession {
     stdin: Mutex<ChildStdin>,
-    stdout: Mutex<BufReader<std::process::ChildStdout>>,
-    /// Serializes full request/response pairs so concurrent callers cannot interleave stdio I/O.
-    call_lock: Mutex<()>,
+    pending: Arc<Mutex<HashMap<String, PendingResponse>>>,
     next_id: AtomicU64,
-    poisoned: std::sync::atomic::AtomicBool,
+    poisoned: Arc<AtomicBool>,
+}
+
+#[derive(Clone, Copy)]
+enum PendingResponseMode {
+    Unary,
+    Streaming,
+}
+
+struct PendingResponse {
+    mode: PendingResponseMode,
+    sender: mpsc::Sender<Result<JsonRpcResponse, TransportError>>,
+}
+
+struct PendingCall {
+    request_id: String,
+    pending: Arc<Mutex<HashMap<String, PendingResponse>>>,
+}
+
+impl Drop for PendingCall {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(&self.request_id);
+        }
+    }
 }
 
 impl StdioJsonRpcSession {
@@ -448,13 +471,28 @@ impl StdioJsonRpcSession {
             .stdout
             .take()
             .ok_or_else(|| TransportError::new("worker stdout unavailable"))?;
+        let pending = Arc::new(Mutex::new(HashMap::new()));
+        let poisoned = Arc::new(AtomicBool::new(false));
+        let reader_pending = pending.clone();
+        let reader_poisoned = poisoned.clone();
+        if let Err(error) = thread::Builder::new()
+            .name("sdkwork-provider-jsonrpc-reader".to_string())
+            .spawn(move || {
+                dispatch_worker_responses(BufReader::new(stdout), reader_pending, reader_poisoned)
+            })
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(TransportError::new(format!(
+                "worker response reader spawn failed: {error}"
+            )));
+        }
         Ok((
             Self {
                 stdin: Mutex::new(stdin),
-                stdout: Mutex::new(BufReader::new(stdout)),
-                call_lock: Mutex::new(()),
+                pending,
                 next_id: AtomicU64::new(1),
-                poisoned: std::sync::atomic::AtomicBool::new(false),
+                poisoned,
             },
             child,
         ))
@@ -469,7 +507,66 @@ impl StdioJsonRpcSession {
     }
 
     fn poison(&self) {
-        self.poisoned.store(true, Ordering::Release);
+        poison_pending_requests(
+            &self.pending,
+            &self.poisoned,
+            TransportError::new("worker JSON-RPC session is unavailable"),
+        );
+    }
+
+    fn register_request(
+        &self,
+        request_id: &str,
+        mode: PendingResponseMode,
+    ) -> Result<
+        (
+            mpsc::Receiver<Result<JsonRpcResponse, TransportError>>,
+            PendingCall,
+        ),
+        TransportError,
+    > {
+        if !self.is_reusable() {
+            return Err(TransportError::new(
+                "worker JSON-RPC session is unavailable",
+            ));
+        }
+        let (sender, receiver) = mpsc::channel();
+        let mut pending = self
+            .pending
+            .lock()
+            .map_err(|error| TransportError::new(format!("pending map lock failed: {error}")))?;
+        if self.poisoned.load(Ordering::Acquire) {
+            return Err(TransportError::new(
+                "worker JSON-RPC session is unavailable",
+            ));
+        }
+        if pending
+            .insert(request_id.to_string(), PendingResponse { mode, sender })
+            .is_some()
+        {
+            self.poisoned.store(true, Ordering::Release);
+            return Err(TransportError::new(format!(
+                "duplicate worker JSON-RPC request id: {request_id}"
+            )));
+        }
+        drop(pending);
+        Ok((
+            receiver,
+            PendingCall {
+                request_id: request_id.to_string(),
+                pending: self.pending.clone(),
+            },
+        ))
+    }
+
+    fn receive_response(
+        &self,
+        receiver: &mpsc::Receiver<Result<JsonRpcResponse, TransportError>>,
+    ) -> Result<JsonRpcResponse, TransportError> {
+        receiver.recv().map_err(|_| {
+            self.poison();
+            TransportError::new("worker response dispatcher closed")
+        })?
     }
 
     fn write_request(&self, request: &JsonRpcRequest) -> Result<(), TransportError> {
@@ -493,64 +590,132 @@ impl StdioJsonRpcSession {
                 TransportError::new(format!("worker write failed: {error}"))
             })
     }
+}
 
-    fn read_response(&self) -> Result<JsonRpcResponse, TransportError> {
-        let mut frame = Vec::new();
-        let bytes_read = {
-            let mut stdout = self
-                .stdout
-                .lock()
-                .map_err(|error| TransportError::new(format!("stdout lock failed: {error}")))?;
-            let mut limited = (&mut *stdout).take((MAX_IPC_FRAME_BYTES + 1) as u64);
-            limited.read_until(b'\n', &mut frame).map_err(|error| {
-                self.poison();
-                TransportError::new(format!("worker read failed: {error}"))
-            })?
+fn dispatch_worker_responses(
+    mut stdout: BufReader<std::process::ChildStdout>,
+    pending: Arc<Mutex<HashMap<String, PendingResponse>>>,
+    poisoned: Arc<AtomicBool>,
+) {
+    loop {
+        let response = match read_worker_response(&mut stdout) {
+            Ok(response) => response,
+            Err(error) => {
+                poison_pending_requests(&pending, &poisoned, error);
+                return;
+            }
         };
-        if bytes_read == 0 {
-            self.poison();
-            return Err(TransportError::new("worker closed stdout"));
+        let request_id = response.id.clone();
+        let route = {
+            let mut requests = match pending.lock() {
+                Ok(requests) => requests,
+                Err(error) => {
+                    poisoned.store(true, Ordering::Release);
+                    let _ = error;
+                    return;
+                }
+            };
+            let Some(request) = requests.get(&request_id) else {
+                drop(requests);
+                poison_pending_requests(
+                    &pending,
+                    &poisoned,
+                    TransportError::new(format!(
+                        "worker returned unknown or duplicate response id: {request_id}"
+                    )),
+                );
+                return;
+            };
+            let terminal = response_is_terminal(request.mode, &response);
+            let sender = request.sender.clone();
+            if terminal {
+                requests.remove(&request_id);
+            }
+            sender
+        };
+        if route.send(Ok(response)).is_err() {
+            poison_pending_requests(
+                &pending,
+                &poisoned,
+                TransportError::new(format!(
+                    "worker response receiver closed for request id: {request_id}"
+                )),
+            );
+            return;
         }
-        if frame.len() > MAX_IPC_FRAME_BYTES {
-            self.poison();
-            return Err(TransportError::new(format!(
-                "worker response exceeded frame byte limit ({MAX_IPC_FRAME_BYTES})"
-            )));
+    }
+}
+
+fn response_is_terminal(mode: PendingResponseMode, response: &JsonRpcResponse) -> bool {
+    match mode {
+        PendingResponseMode::Unary => true,
+        PendingResponseMode::Streaming => {
+            if response.error.is_some() {
+                return true;
+            }
+            let result = response.result.as_ref().unwrap_or(&Value::Null);
+            !(is_session_activity_frame(result)
+                || is_stream_kernel_event_frame(result)
+                || is_stream_chunk_frame(result))
         }
-        if !frame.ends_with(b"\n") {
-            self.poison();
-            return Err(TransportError::new(
-                "worker response frame is not newline terminated",
-            ));
-        }
-        let line = std::str::from_utf8(&frame[..frame.len() - 1]).map_err(|error| {
-            self.poison();
-            TransportError::new(format!("worker response is not valid UTF-8: {error}"))
-        })?;
-        serde_json::from_str(line).map_err(|error| {
-            self.poison();
-            TransportError::new(format!("decode worker response failed: {error}"))
-        })
+    }
+}
+
+fn read_worker_response(
+    stdout: &mut BufReader<std::process::ChildStdout>,
+) -> Result<JsonRpcResponse, TransportError> {
+    let mut frame = Vec::new();
+    let bytes_read = {
+        let mut limited = stdout.take((MAX_IPC_FRAME_BYTES + 1) as u64);
+        limited
+            .read_until(b'\n', &mut frame)
+            .map_err(|error| TransportError::new(format!("worker read failed: {error}")))?
+    };
+    if bytes_read == 0 {
+        return Err(TransportError::new("worker closed stdout"));
+    }
+    if frame.len() > MAX_IPC_FRAME_BYTES {
+        return Err(TransportError::new(format!(
+            "worker response exceeded frame byte limit ({MAX_IPC_FRAME_BYTES})"
+        )));
+    }
+    if !frame.ends_with(b"\n") {
+        return Err(TransportError::new(
+            "worker response frame is not newline terminated",
+        ));
+    }
+    let line = std::str::from_utf8(&frame[..frame.len() - 1]).map_err(|error| {
+        TransportError::new(format!("worker response is not valid UTF-8: {error}"))
+    })?;
+    serde_json::from_str(line)
+        .map_err(|error| TransportError::new(format!("decode worker response failed: {error}")))
+}
+
+fn poison_pending_requests(
+    pending: &Arc<Mutex<HashMap<String, PendingResponse>>>,
+    poisoned: &Arc<AtomicBool>,
+    error: TransportError,
+) {
+    poisoned.store(true, Ordering::Release);
+    let requests = match pending.lock() {
+        Ok(mut requests) => requests
+            .drain()
+            .map(|(_, request)| request)
+            .collect::<Vec<_>>(),
+        Err(_) => return,
+    };
+    for request in requests {
+        let _ = request.sender.send(Err(error.clone()));
     }
 }
 
 impl JsonRpcTransport for StdioJsonRpcSession {
     fn call(&self, method: &str, params: Option<Value>) -> Result<Value, TransportError> {
-        let _call_guard = self
-            .call_lock
-            .lock()
-            .map_err(|error| TransportError::new(format!("call lock failed: {error}")))?;
-
         let request = JsonRpcRequest::new(self.next_id(), method, params);
+        let (receiver, _pending_call) =
+            self.register_request(&request.id, PendingResponseMode::Unary)?;
         self.write_request(&request)?;
-        let response = self.read_response()?;
-        if response.id != request.id {
-            self.poison();
-            return Err(TransportError::new(format!(
-                "worker response id mismatch: expected {}, got {}",
-                request.id, response.id
-            )));
-        }
+        let response = self.receive_response(&receiver)?;
 
         response
             .into_result()
@@ -563,25 +728,15 @@ impl JsonRpcTransport for StdioJsonRpcSession {
         params: Option<Value>,
         sink: &mut dyn FnMut(Value) -> Result<bool, TransportError>,
     ) -> Result<(), TransportError> {
-        let _call_guard = self
-            .call_lock
-            .lock()
-            .map_err(|error| TransportError::new(format!("call lock failed: {error}")))?;
-
         let request_id = self.next_id();
         let request = JsonRpcRequest::new(request_id.clone(), method, params);
+        let (receiver, _pending_call) =
+            self.register_request(&request_id, PendingResponseMode::Streaming)?;
         self.write_request(&request)?;
         let mut budget = StreamResourceBudget::new();
 
         loop {
-            let response = self.read_response()?;
-            if response.id != request_id {
-                self.poison();
-                return Err(TransportError::new(format!(
-                    "worker response id mismatch: expected {request_id}, got {}",
-                    response.id
-                )));
-            }
+            let response = self.receive_response(&receiver)?;
 
             let result = response
                 .into_result()

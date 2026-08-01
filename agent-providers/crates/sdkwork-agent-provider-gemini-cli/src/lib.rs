@@ -20,6 +20,12 @@ mod installer;
 mod local_plugins;
 mod manifest;
 mod package;
+mod provider_sessions;
+
+pub use provider_sessions::{
+    discover_gemini_cli_provider_session_messages, discover_gemini_cli_provider_sessions,
+    read_gemini_cli_provider_session_messages, read_gemini_cli_provider_sessions,
+};
 
 // ============================================================================
 // Gemini CLI Message Types
@@ -71,6 +77,9 @@ pub struct GeminiConversationRecord {
     pub memory_scratchpad: Option<String>,
     pub model: Option<String>,
     pub title: Option<String>,
+    pub cwd: Option<String>,
+    pub workspace_roots: Vec<String>,
+    pub parent_session_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,6 +136,12 @@ impl SessionAdapter for GeminiCliAdapter {
         if let Some(ref title) = external.title {
             config = config.with_title(title);
         }
+        if let Some(ref cwd) = external.cwd {
+            config = config.with_cwd(cwd);
+        }
+        for workspace_root in &external.workspace_roots {
+            config = config.with_workspace_root(workspace_root);
+        }
         if let Some(ref scratchpad) = external.memory_scratchpad {
             config = config.with_metadata("memory_scratchpad", scratchpad);
         }
@@ -143,6 +158,9 @@ impl SessionAdapter for GeminiCliAdapter {
         session.updated_at = external.last_updated.clone();
         session.message_count = u32::try_from(external.messages.len()).unwrap_or(u32::MAX);
         session.summary = external.summary.clone();
+        if let Some(parent_session_id) = &external.parent_session_id {
+            session = session.with_parent(parent_session_id);
+        }
 
         finalize_provider_session_snapshot("gemini-cli", session)
     }
@@ -472,6 +490,9 @@ mod tests {
             memory_scratchpad: Some("remember: use traits".to_string()),
             model: Some("gemini-2.5-pro".to_string()),
             title: Some("Rust Help".to_string()),
+            cwd: Some("/workspace/birdcoder".to_string()),
+            workspace_roots: vec!["/workspace/birdcoder".to_string()],
+            parent_session_id: None,
         }
     }
 
@@ -521,6 +542,7 @@ mod tests {
         assert_eq!(session.kind, SessionKind::Main);
         assert_eq!(session.model, Some("gemini-2.5-pro".to_string()));
         assert_eq!(session.title, Some("Rust Help".to_string()));
+        assert_eq!(session.cwd, Some("/workspace/birdcoder".to_string()));
         assert_eq!(session.created_at, Some("2026-01-01T00:00:00Z".to_string()));
         assert_eq!(session.updated_at, Some("2026-01-01T04:00:00Z".to_string()));
         assert_eq!(session.message_count, 3);

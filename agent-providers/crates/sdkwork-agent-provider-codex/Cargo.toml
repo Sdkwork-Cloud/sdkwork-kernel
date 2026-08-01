@@ -9,6 +9,10 @@ name = "sdkwork_agent_provider_codex"
 path = "src/lib.rs"
 
 [dependencies]
+async-trait.workspace = true
+codex-app-server-client.workspace = true
+codex-app-server-protocol.workspace = true
+codex-core.workspace = true
 sdkwork-agent-kernel.workspace = true
 sdkwork-agent-plugin-core.workspace = true
 sdkwork-agent-provider-core.workspace = true
@@ -16,6 +20,13 @@ sdkwork-agent-provider-spi.workspace = true
 sdkwork-agent-provider-transport-core.workspace = true
 sdkwork-agent-provider-transport-node.workspace = true
 sdkwork-agent-provider-transport-rust.workspace = true
+sdkwork-utils-rust.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite.workspace = true
+tokio.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# Codex's Windows PTY facade and portable-pty exchange Win32 HANDLE values
+# through std::os::windows::io. Enable winapi's std compatibility aliases so
+# both public APIs use the same c_void type without modifying external sources.
+winapi = { version = "0.3.9", features = ["std"] }

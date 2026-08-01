@@ -53,7 +53,7 @@ This repository defines the SDKWork kernel standard for agent and code-agent sys
 
 ### Cross-Cutting
 - `specs/` - Cross-cutting contracts and schemas
-- `external/` - Third-party reference source trees (inspection and mapping inputs only, not direct kernel-core dependencies)
+- `external/` - Fixed-revision, read-only third-party source trees used for inspection, mapping, and approved L3 provider public-facade dependencies; never direct kernel-core dependencies
 
 ---
 
@@ -220,11 +220,18 @@ pnpm check
 
 ### Dependency Restrictions
 
-- Kernel crates **MUST NOT** depend on:
+- Kernel core, provider SPI, provider-neutral transports, server, client, and database crates **MUST NOT** depend on:
   - React
   - Vite
   - Product UI
-  - `external/` source trees
+  - Provider-specific `external/` source trees
+- L3 crates under `agent-providers/crates/sdkwork-agent-provider-*` **MAY** consume an `external/` source tree when all of the following hold:
+  - the submodule is pinned by gitlink and remains read-only
+  - the dependency is declared once through the root native workspace manifest
+  - the provider consumes an upstream public facade, client, protocol, or SDK rather than private files, database schemas, caches, logs, or transcripts
+  - provider-specific types remain inside L3 and are mapped into Kernel-neutral L0/L1 contracts
+  - focused conformance tests and a static architecture guard cover the boundary
+- The Codex provider uses `codex-app-server-client` and `codex-app-server-protocol`; direct access to Codex private state SQLite files, tables, PRAGMAs, or rollout files is forbidden.
 
 ### UI Architecture
 

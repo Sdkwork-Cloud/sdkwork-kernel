@@ -3,8 +3,8 @@ use sdkwork_agent_kernel::{
     ProviderManifest, RuntimeBuilder, ToolProvider,
 };
 use sdkwork_agent_plugin_core::{
-    KernelPluginConformanceProfile, KernelPluginManifest, ProcessAdapterConfigurationProvider,
-    SdkStandardPolicyProvider, SdkworkKernelPlugin,
+    KernelPluginConformanceProfile, KernelPluginManifest, SdkStandardPolicyProvider,
+    SdkworkKernelPlugin,
 };
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
     conformance::mimo_code_conformance_profile,
     ids, mimo_code_agent_installer,
     package::mimo_code_package_manifest,
-    MiMoCodeSdkIntegration,
+    MiMoCodeConfigurationProvider, MiMoCodeSdkIntegration,
 };
 
 #[derive(Debug, Clone, Default)]
@@ -111,7 +111,7 @@ impl SdkworkKernelPlugin for MiMoCodeKernelPlugin {
             .register_agent_configuration(
                 ids::CONFIGURATION_PROVIDER_ID,
                 env!("CARGO_PKG_VERSION"),
-                ProcessAdapterConfigurationProvider::new(ids::AGENT_ID),
+                MiMoCodeConfigurationProvider::new(),
             )
     }
 

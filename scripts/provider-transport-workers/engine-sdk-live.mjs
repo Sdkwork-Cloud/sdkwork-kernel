@@ -30,6 +30,7 @@ const ENVIRONMENT_ENV = 'SDKWORK_KERNEL_ENVIRONMENT';
 const ALLOW_MOCK_ENV = 'SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS';
 const PACKAGE_PATHS_ENV = 'SDKWORK_AGENT_SDK_PACKAGE_PATHS';
 const WORKSPACE_ROOT_ENV = 'SDKWORK_AGENT_SDK_WORKSPACE_ROOT';
+const CLAUDE_CLI_FALLBACK_ENV = 'SDKWORK_CLAUDE_CODE_ALLOW_CLI_FALLBACK';
 
 // This marker stays inside the Node worker process. A provider must set it only
 // after it has received the provider session id from its own runtime.
@@ -95,7 +96,6 @@ function defaultPackagePaths(root) {
       path.join(root, 'external/gemini/packages/sdk'),
       path.join(root, 'external/gemini-cli/packages/sdk'),
     ],
-    '@anthropic-ai/claude-agent-sdk': path.join(root, 'external/claude-code'),
     '@opencode-ai/sdk': path.join(root, 'external/opencode/packages/sdk/js'),
   };
 
@@ -249,19 +249,28 @@ export function probeModelChatRuntime(packageName) {
       ? probeProviderCli(packageName)
       : null;
   const cliAvailable = Boolean(cliProbe?.available);
+  const cliFallbackAllowed = !isClaudeAgentSdkPackage(packageName) || claudeCliFallbackEnabled();
   return {
     ...packageProbe,
     app_server_available: Boolean(appServerProbe?.app_server_available),
     cli_available: cliAvailable,
-    runtime_available: packageProbe.resolved || cliAvailable,
+    runtime_available: packageProbe.resolved || (cliAvailable && cliFallbackAllowed),
     runtime_mode: appServerProbe?.app_server_available
       ? 'app_server'
-      : cliAvailable
-        ? 'sdk_cli'
-        : packageProbe.resolved
-          ? 'sdk_live'
+      : packageProbe.resolved
+        ? 'sdk_live'
+        : cliAvailable && cliFallbackAllowed
+          ? 'sdk_cli'
           : null,
   };
+}
+
+function isClaudeAgentSdkPackage(packageName) {
+  return packageName === '@anthropic-ai/claude-agent-sdk';
+}
+
+function claudeCliFallbackEnabled(environment = process.env) {
+  return matchesAllowTruthy(environment[CLAUDE_CLI_FALLBACK_ENV] ?? '');
 }
 
 async function loadPackage(packageName) {
@@ -936,23 +945,46 @@ function resolveClaudeSdkPermissionSettings(operation) {
     executionOptions.approval_policy,
     'execution_options.approval_policy',
   );
+  const settings = {};
+  if (!requested) {
+    return { ...settings, ...resolveClaudeSdkSandboxSettings(executionOptions) };
+  }
+  const compact = requested.toLowerCase().replace(/[_\s]/gu, '-');
+  if (compact === 'default' || compact === 'on-request') {
+    settings.permissionMode = 'default';
+  } else if (compact === 'accept-edits') {
+    settings.permissionMode = 'acceptEdits';
+  } else if (compact === 'bypass-permissions' || compact === 'never') {
+    settings.permissionMode = 'bypassPermissions';
+    settings.allowDangerouslySkipPermissions = true;
+  } else {
+    throw new Error(`unsupported Claude Code permission mode: ${requested}`);
+  }
+  return { ...settings, ...resolveClaudeSdkSandboxSettings(executionOptions) };
+}
+
+function resolveClaudeSdkSandboxSettings(executionOptions) {
+  const requested = optionalOperationString(
+    executionOptions.sandbox_mode,
+    'execution_options.sandbox_mode',
+  );
   if (!requested) {
     return {};
   }
   const compact = requested.toLowerCase().replace(/[_\s]/gu, '-');
-  if (compact === 'default' || compact === 'on-request') {
-    return { permissionMode: 'default' };
-  }
-  if (compact === 'accept-edits') {
-    return { permissionMode: 'acceptEdits' };
-  }
-  if (compact === 'bypass-permissions' || compact === 'never') {
+  if (compact === 'read-only' || compact === 'readonly' || compact === 'workspace-write' || compact === 'workspacewrite') {
     return {
-      permissionMode: 'bypassPermissions',
-      allowDangerouslySkipPermissions: true,
+      sandbox: {
+        enabled: true,
+        autoAllowBashIfSandboxed: true,
+        failIfUnavailable: true,
+      },
     };
   }
-  throw new Error(`unsupported Claude Code permission mode: ${requested}`);
+  if (compact === 'danger-full-access' || compact === 'dangerfullaccess' || compact === 'none') {
+    return { sandbox: { enabled: false } };
+  }
+  throw new Error(`unsupported Claude Code sandbox mode: ${requested}`);
 }
 
 async function invokeGeminiModelChat(prompt, operation, packageName, activity) {
@@ -1652,6 +1684,8 @@ export async function invokeModelChatRuntime(packageName, operation, options = {
   let sdkError = null;
   let cliError = null;
   const activity = createRuntimeActivityReporter(operation, options?.onActivity);
+  const claudePackage = isClaudeAgentSdkPackage(packageName);
+  const cliFallbackAllowed = !claudePackage || claudeCliFallbackEnabled();
 
   if (codexPackage
     && codexAppServerPreferred(operation)
@@ -1672,9 +1706,17 @@ export async function invokeModelChatRuntime(packageName, operation, options = {
     }
   }
 
-  // Retain the established CLI-before-SDK fallback after app-server handshake
-  // failure. No fallback is attempted after app-server Session/Turn effects.
-  if (cliProbe?.available) {
+  if (packageProbe.resolved) {
+    try {
+      return await invokeModelChatLive(packageName, operation, { activityReporter: activity });
+    } catch (error) {
+      sdkError = error;
+    }
+  }
+
+  // Claude Code is an Agent SDK integration. The installed SDK owns the
+  // native Claude Code runtime; use the CLI only when explicitly enabled.
+  if (cliProbe?.available && cliFallbackAllowed) {
     try {
       const prompt = resolveModelChatPrompt(operation);
       const onEvent = createCliActivityHandler(packageName, operation, activity);
@@ -1689,15 +1731,7 @@ export async function invokeModelChatRuntime(packageName, operation, options = {
     }
   }
 
-  if (packageProbe.resolved) {
-    try {
-      return await invokeModelChatLive(packageName, operation, { activityReporter: activity });
-    } catch (error) {
-      sdkError = error;
-    }
-  }
-
-  if ((codexPackage || providerCliPackage) && !cliProbe?.available) {
+  if ((codexPackage || providerCliPackage) && (!cliProbe?.available || !cliFallbackAllowed)) {
     cliError = new Error(`provider_cli_unavailable: no real executable was found for ${packageName}`);
   }
 

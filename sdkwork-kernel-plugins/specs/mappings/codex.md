@@ -5,7 +5,9 @@
 - Local path: `external/codex`
 - Upstream: `https://github.com/openai/codex.git`
 - npm package: `@openai/codex-sdk`
-- Rust crate: `codex-core` (in-process handler path)
+- Rust session/history facade: `external/codex/codex-rs/app-server-client`
+- Rust protocol models: `external/codex/codex-rs/app-server-protocol`
+- Rust startup support: `external/codex/codex-rs/core`
 
 ## SDKWork Surface
 
@@ -27,11 +29,14 @@ activity is projected as events rather than a standalone kernel tool provider.
 
 ## Initial Registration Mode
 
-`process-adapter`
+`typed-local-provider` for session/history plus `process-adapter` for negotiated
+TypeScript/IPC execution
 
-`sdkwork-agent-provider-codex` under `agent-providers/crates/` provides session/message adapters, SDK binding manifest
-negotiation, TypeScript Node + in-process Rust runtime routing, runtime-backed kernel
-providers, and server bootstrap registration when `SDKWORK_KERNEL_AGENT_PLUGIN=codex`.
+`sdkwork-agent-provider-codex` under `agent-providers/crates/` provides typed
+Thread/Turn/ThreadItem session and message adapters through the official
+in-process app-server client, SDK binding negotiation, TypeScript Node +
+in-process Rust runtime routing, runtime-backed kernel providers, and server
+bootstrap registration when `SDKWORK_KERNEL_AGENT_PLUGIN=codex`.
 
 ## Capability Mapping
 
@@ -43,7 +48,9 @@ providers, and server bootstrap registration when `SDKWORK_KERNEL_AGENT_PLUGIN=c
 | Build and test loops | `code.verification.run` |
 | Review output | `code.review.produce` |
 | Logs and reports | `code.artifact.*` |
-| Agent chat / SDK surface | `sdk.model.chat`, `sdk.session.lifecycle` |
+| Thread/session list and read | `sdk.session.lifecycle` via typed app-server requests |
+| Paginated Turn/ThreadItem history | `sdk.session.history` via typed app-server requests |
+| Agent chat / SDK surface | `sdk.model.chat` |
 
 ## Policy Boundaries
 
@@ -83,6 +90,11 @@ and client bridge SDK routing through `SDKWORK_KERNEL_AGENT_PLUGIN`.
   session correlation. `model_chat_stream` consumes the official
   `runStreamed()` event sequence and preserves agent-message deltas rather than
   wrapping a completed response as a synthetic single-chunk stream.
+- Rust session/history client: pinned-source `codex-app-server-client` with
+  `codex-app-server-protocol` request/response types. It preserves opaque
+  cursors and complete typed records. Kernel does not resolve or open Codex
+  private state files by path, query their schemas, or parse rollout files;
+  app-server startup uses the official `codex_core::init_state_db` API.
 - SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`; Codex-internal command, file, MCP, and approval activity maps to agent/model/code events, not an independently invocable `ToolProvider`
 - Binding execution: `sdk.session.lifecycle` and `sdk.session.history` use
   provider-local lifecycle state through provider-core and declare
@@ -92,9 +104,10 @@ and client bridge SDK routing through `SDKWORK_KERNEL_AGENT_PLUGIN`.
   `runtime_operations` allowlist.
 - Merge proof: `node scripts/provider-transport-workers/engine-sdk-live.test.mjs`
   verifies SDK resolver semantics and production fail-closed behavior:
-  installed or explicitly injected SDK packages must expose an importable entry
-  file, and unbuilt `external/` source mirrors do not count as live SDK
-  packages. It is not a staging live invoke proof.
+  installed or explicitly injected Node SDK packages must expose an importable
+  entry file. This resolver rule does not apply to the explicitly declared
+  Cargo source dependency used by the L3 session/history provider. It is not a
+  staging live invoke proof.
 - Release proof: `SDKWORK_KERNEL_STAGING_LIVE_SDK=1 SDKWORK_KERNEL_STAGING_REQUIRE_CREDENTIALS=1 node scripts/provider-transport-workers/engine-sdk-live-staging.mjs --framework codex`
   is the Codex staging live SDK gate.
 - Production safety: SDK backends fail closed when workers cannot spawn, SDK

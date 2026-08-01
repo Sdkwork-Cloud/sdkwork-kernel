@@ -22,9 +22,11 @@ use sdkwork_agent_kernel::{
     AgentConfigValueKind, AgentConfiguration, AgentConfigurationProvider, AgentConfigurationSpec,
     AgentConfigurationValidation, AgentInstallPlan, AgentInstallReport, AgentInstallRequest,
     AgentInstallStep, AgentInstallStepKind, AgentInstallation, AgentInstallationDependency,
-    AgentInstaller, AgentPackageSource, AgentUninstallPlan, AgentUninstallReport,
-    AgentUninstallRequest, AgentUpgradePlan, AgentUpgradeReport, AgentUpgradeRequest, KernelError,
-    KernelEventRedaction, KernelResult, PolicyCategory, ProviderHealth, ProviderManifest,
+    AgentInstaller, AgentModelConfigurationApplication, AgentModelConfigurationFieldMapping,
+    AgentModelConfigurationRequest, AgentModelSelectionRequest, AgentPackageSource,
+    AgentSecretBinding, AgentUninstallPlan, AgentUninstallReport, AgentUninstallRequest,
+    AgentUpgradePlan, AgentUpgradeReport, AgentUpgradeRequest, KernelError, KernelEventRedaction,
+    KernelResult, PolicyCategory, ProviderHealth, ProviderManifest,
 };
 use semver::Version;
 use serde_json::Value;
@@ -443,10 +445,7 @@ impl BoundedReader {
             .spawn(move || {
                 let _active_reader = ActiveOutputReader;
                 let mut buffer = [0_u8; 4096];
-                loop {
-                    let Ok(count) = reader.read(&mut buffer) else {
-                        break;
-                    };
+                while let Ok(count) = reader.read(&mut buffer) {
                     if count == 0 {
                         break;
                     }
@@ -1969,25 +1968,88 @@ fn find_packaged_provider_host_root_from(start_directory: &Path) -> Option<PathB
 #[derive(Debug, Clone)]
 pub struct ProcessAdapterConfigurationProvider {
     agent_id: String,
+    model_mapping: AgentModelConfigurationFieldMapping,
 }
 
 impl ProcessAdapterConfigurationProvider {
     pub fn new(agent_id: impl Into<String>) -> Self {
         Self {
             agent_id: agent_id.into(),
+            model_mapping: AgentModelConfigurationFieldMapping::namespaced("process_adapter"),
+        }
+    }
+
+    pub fn with_model_configuration_scope(
+        agent_id: impl Into<String>,
+        provider_scope: impl Into<String>,
+    ) -> Self {
+        Self {
+            agent_id: agent_id.into(),
+            model_mapping: AgentModelConfigurationFieldMapping::namespaced(provider_scope),
         }
     }
 
     pub fn spec_for(agent_id: &str) -> AgentConfigurationSpec {
+        Self::spec_for_mapping(
+            agent_id,
+            &AgentModelConfigurationFieldMapping::namespaced("process_adapter"),
+        )
+    }
+
+    fn spec_for_mapping(
+        agent_id: &str,
+        mapping: &AgentModelConfigurationFieldMapping,
+    ) -> AgentConfigurationSpec {
         AgentConfigurationSpec::new(agent_id)
             .add_section(
                 AgentConfigSection::base("base", "Base").add_field(
                     AgentConfigField::text("agent.display_name", "Display name").required(),
                 ),
             )
-            .add_section(AgentConfigSection::llm_api_key("llm", "LLM").add_field(
-                AgentConfigField::llm_api_key("llm.api_key", "Model provider API key"),
-            ))
+            .add_section(
+                AgentConfigSection::llm_api_key("model", "Model")
+                    .add_field(AgentConfigField::text(&mapping.vendor_key, "Model vendor"))
+                    .add_field(AgentConfigField::text(
+                        &mapping.base_url_key,
+                        "Model API base URL",
+                    ))
+                    .add_field(AgentConfigField::llm_api_key(
+                        &mapping.api_key_key,
+                        "Model provider API key",
+                    ))
+                    .add_field(AgentConfigField::text(
+                        &mapping.default_model_key,
+                        "Default model",
+                    ))
+                    .add_field(AgentConfigField::new(
+                        &mapping.supported_models_key,
+                        "Supported models",
+                        AgentConfigValueKind::StringList,
+                    ))
+                    .add_field(AgentConfigField::new(
+                        &mapping.input_context_tokens_key,
+                        "Input context tokens",
+                        AgentConfigValueKind::Integer,
+                    ))
+                    .add_field(AgentConfigField::new(
+                        &mapping.output_context_tokens_key,
+                        "Output context tokens",
+                        AgentConfigValueKind::Integer,
+                    ))
+                    .add_field(AgentConfigField::new(
+                        &mapping.tool_call_rounds_key,
+                        "Tool call rounds",
+                        AgentConfigValueKind::Integer,
+                    ))
+                    .add_field(
+                        AgentConfigField::new(
+                            &mapping.supports_multimodal_key,
+                            "Supports multimodal input",
+                            AgentConfigValueKind::Boolean,
+                        )
+                        .with_default(AgentConfigValue::boolean(false)),
+                    ),
+            )
             .add_section(
                 AgentConfigSection::new("runtime", "Runtime", AgentConfigSectionKind::Runtime)
                     .add_field(
@@ -2020,14 +2082,212 @@ impl AgentConfigurationProvider for ProcessAdapterConfigurationProvider {
             });
         }
 
-        Ok(Self::spec_for(agent_id))
+        Ok(Self::spec_for_mapping(agent_id, &self.model_mapping))
     }
 
     fn validate_configuration(
         &self,
         configuration: &AgentConfiguration,
     ) -> KernelResult<AgentConfigurationValidation> {
-        Ok(Self::spec_for(&self.agent_id).validate(configuration))
+        Ok(Self::spec_for_mapping(&self.agent_id, &self.model_mapping).validate(configuration))
+    }
+
+    fn apply_model_configuration(
+        &self,
+        request: &AgentModelConfigurationRequest,
+    ) -> KernelResult<AgentModelConfigurationApplication> {
+        if request.agent_id != self.agent_id {
+            return Err(KernelError::CapabilityMissing {
+                capability_id: request.agent_id.clone(),
+            });
+        }
+        request.validate()?;
+
+        let mapping = &self.model_mapping;
+        let mut configuration = AgentConfiguration::new(&request.agent_id, &request.profile_id)
+            .set(
+                "agent.display_name",
+                AgentConfigValue::string(&request.agent_id),
+            )
+            .set(
+                &mapping.vendor_key,
+                AgentConfigValue::string(request.vendor_code.trim()),
+            )
+            .set(
+                &mapping.base_url_key,
+                AgentConfigValue::string(request.base_url.trim()),
+            )
+            .set(
+                &mapping.api_key_key,
+                AgentConfigValue::secret_ref(request.api_key_secret_ref.trim()),
+            )
+            .set(
+                &mapping.default_model_key,
+                AgentConfigValue::string(request.default_model_id.trim()),
+            )
+            .set(
+                &mapping.supported_models_key,
+                AgentConfigValue::string_list(
+                    request
+                        .supported_model_ids
+                        .iter()
+                        .map(|model_id| model_id.trim().to_string())
+                        .collect(),
+                ),
+            )
+            .set(
+                &mapping.supports_multimodal_key,
+                AgentConfigValue::boolean(request.supports_multimodal),
+            )
+            .set(
+                "runtime.external.backend",
+                AgentConfigValue::string("process_adapter"),
+            )
+            .set("security.fail_closed", AgentConfigValue::string("true"));
+
+        for (key, value) in [
+            (
+                &mapping.input_context_tokens_key,
+                request.input_context_tokens,
+            ),
+            (
+                &mapping.output_context_tokens_key,
+                request.output_context_tokens,
+            ),
+            (&mapping.tool_call_rounds_key, request.tool_call_rounds),
+        ] {
+            if let Some(value) = value {
+                configuration = configuration.set(key, AgentConfigValue::integer(value));
+            }
+        }
+
+        let profile = sdkwork_agent_kernel::AgentConfigurationProfile::new(
+            &request.profile_id,
+            &request.agent_id,
+            "0.2.0",
+            configuration,
+        )
+        .add_secret_binding(AgentSecretBinding::llm_api_key(
+            &mapping.api_key_key,
+            request.vendor_code.trim(),
+            request.api_key_secret_ref.trim(),
+        ))
+        .activate();
+        let validation = profile.validate_against(&Self::spec_for_mapping(&self.agent_id, mapping));
+        if !validation.is_valid() {
+            return Err(KernelError::validation(
+                "provider model configuration does not satisfy the configuration schema",
+            ));
+        }
+
+        Ok(AgentModelConfigurationApplication::new(
+            &request.request_id,
+            &mapping.provider_scope,
+            profile,
+        ))
+    }
+
+    fn apply_model_selection(
+        &self,
+        request: &AgentModelSelectionRequest,
+    ) -> KernelResult<AgentModelConfigurationApplication> {
+        if request.agent_id != self.agent_id {
+            return Err(KernelError::CapabilityMissing {
+                capability_id: request.agent_id.clone(),
+            });
+        }
+        request.validate()?;
+
+        let mapping = &self.model_mapping;
+        let (mut configuration, configuration_version, secret_bindings) =
+            if let Some(profile) = &request.current_profile {
+                (
+                    profile.configuration.clone(),
+                    profile.configuration_version.clone(),
+                    profile.secret_bindings.clone(),
+                )
+            } else {
+                let provider_default_secret_ref =
+                    format!("provider-default.{}.model.api_key", mapping.provider_scope);
+                (
+                    AgentConfiguration::new(&request.agent_id, &request.profile_id)
+                        .set(
+                            "agent.display_name",
+                            AgentConfigValue::string(&request.agent_id),
+                        )
+                        .set(
+                            &mapping.api_key_key,
+                            AgentConfigValue::secret_ref(&provider_default_secret_ref),
+                        )
+                        .set(
+                            "runtime.external.backend",
+                            AgentConfigValue::string("process_adapter"),
+                        )
+                        .set("security.fail_closed", AgentConfigValue::string("true")),
+                    "0.2.0".to_string(),
+                    vec![AgentSecretBinding::llm_api_key(
+                        &mapping.api_key_key,
+                        &mapping.provider_scope,
+                        provider_default_secret_ref,
+                    )],
+                )
+            };
+
+        let mut supported_model_ids = match configuration.value(&mapping.supported_models_key) {
+            Some(AgentConfigValue::StringList(model_ids)) => model_ids.clone(),
+            Some(_) => {
+                return Err(KernelError::validation(
+                    "provider supported model configuration has an invalid value kind",
+                ))
+            }
+            None => Vec::new(),
+        };
+        let selected_model_id = request.model_id.trim();
+        let model_is_supported = supported_model_ids
+            .iter()
+            .any(|model_id| model_id.trim() == selected_model_id);
+        if request.enforce_supported_models && !model_is_supported {
+            return Err(KernelError::validation(
+                "selected model is not included in the configured supported models",
+            ));
+        }
+        if !model_is_supported {
+            supported_model_ids.push(selected_model_id.to_string());
+        }
+
+        configuration = configuration
+            .set(
+                &mapping.default_model_key,
+                AgentConfigValue::string(selected_model_id),
+            )
+            .set(
+                &mapping.supported_models_key,
+                AgentConfigValue::string_list(supported_model_ids),
+            );
+        let mut profile = sdkwork_agent_kernel::AgentConfigurationProfile::new(
+            &request.profile_id,
+            &request.agent_id,
+            configuration_version,
+            configuration,
+        )
+        .activate();
+        for binding in secret_bindings {
+            profile = profile.add_secret_binding(binding);
+        }
+        if !profile
+            .validate_against(&Self::spec_for_mapping(&self.agent_id, mapping))
+            .is_valid()
+        {
+            return Err(KernelError::validation(
+                "provider model selection does not satisfy the configuration schema",
+            ));
+        }
+
+        Ok(AgentModelConfigurationApplication::new(
+            &request.request_id,
+            &mapping.provider_scope,
+            profile,
+        ))
     }
 
     fn health(&self) -> ProviderHealth {

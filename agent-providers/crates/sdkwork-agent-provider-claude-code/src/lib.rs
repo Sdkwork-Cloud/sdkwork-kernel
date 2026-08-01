@@ -402,7 +402,9 @@ pub mod sdk_integration;
 pub use agent_definition::{claude_code_agent_definition, claude_code_agent_manifest};
 pub use conformance::claude_code_conformance_profile;
 pub use installer::{
-    claude_code_agent_installer, CLAUDE_AGENT_SDK_PACKAGE, CLAUDE_AGENT_SDK_VERSION,
+    claude_code_agent_installer, ANTHROPIC_SDK_PACKAGE, ANTHROPIC_SDK_VERSION,
+    CLAUDE_AGENT_SDK_PACKAGE, CLAUDE_AGENT_SDK_VERSION, MCP_SDK_PACKAGE, MCP_SDK_VERSION,
+    ZOD_PACKAGE, ZOD_VERSION,
 };
 pub use manifest::{
     claude_code_kernel_plugin_manifest, claude_code_provider_manifests, ClaudeCodeKernelPlugin,

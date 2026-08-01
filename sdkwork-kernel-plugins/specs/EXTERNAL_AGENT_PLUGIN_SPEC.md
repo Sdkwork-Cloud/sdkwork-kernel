@@ -2,23 +2,29 @@
 
 - Version: 0.1.0
 - Status: standard candidate
-- Scope: external agent source references, mapping documents, manifest-only
-  discovery, future typed provider adapters, process adapter behavior, policy,
-  telemetry, and conformance
+- Scope: fixed read-only external agent sources, mapping documents,
+  manifest-only discovery, approved L3 public-facade source dependencies,
+  typed provider adapters, process adapter behavior, policy, telemetry, and
+  conformance
 - Domain: `intelligence`
 - Capability: `external-agent-plugins`
 
 ## 1. Positioning
 
-External projects under `external/` are implementation references. They may
-inspire or back SDKWork providers, but they do not replace SDKWork kernel
-objects, events, policy decisions, or manifests.
+External projects under `external/` are fixed-revision, read-only upstream
+inputs. They may inform or provide a public facade to an L3 SDKWork provider,
+but they do not replace SDKWork kernel objects, events, policy decisions, or
+manifests.
 
 Rules:
 
-- `external/` repositories MUST be treated as source references.
+- `external/` repositories MUST be pinned by gitlink and remain read-only.
 - `sdkwork-agent-kernel` and `sdkwork-code-kernel` MUST NOT depend on external
   submodule paths.
+- An owning L3 provider MAY consume an upstream public facade through a root
+  native workspace dependency. Provider-specific types MUST terminate at that
+  provider boundary, and private upstream persistence/files MUST NOT be used as
+  an integration contract.
 - Third-party capabilities MUST enter SDKWork through manifests, typed provider
   SPI, protocol adapters, host providers, and conformance reports.
 - Unknown upstream behavior MUST be modeled as unsupported or degraded rather

@@ -225,6 +225,12 @@ if (kind === 'claude') {
       ...process.env,
       [provider.environmentKey]: wrapper,
       SDKWORK_PROVIDER_CLI_TEST_KIND: provider.kind,
+      SDKWORK_AGENT_SDK_PACKAGE_PATHS: JSON.stringify({
+        [provider.packageName]: path.join(tempRoot, 'missing-official-sdk'),
+      }),
+      ...(provider.kind === 'claude'
+        ? { SDKWORK_CLAUDE_CODE_ALLOW_CLI_FALLBACK: '1' }
+        : {}),
     };
     assert.equal(probeProviderCli(provider.packageName, environment).available, true);
     const result = await invokeProviderCliModelChat(provider.packageName, operation, {

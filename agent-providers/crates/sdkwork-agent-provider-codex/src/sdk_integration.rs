@@ -15,8 +15,9 @@ use sdkwork_agent_provider_core::{
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
     DriverRegistry, ProviderSessionActivityRuntimeSink, SdkNegotiationError,
-    SdkRuntimeBackedModelProvider, SdkRuntimeInteractionResolution, SdkRuntimeRequest,
-    SdkRuntimeResponse, SdkRuntimeRouter, CODEX_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
+    SdkRuntimeBackedModelProvider, SdkRuntimeBackedSessionControlProvider,
+    SdkRuntimeInteractionResolution, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
+    CODEX_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -40,6 +41,7 @@ pub struct CodexSdkIntegration {
     pub runtime: Arc<SdkRuntimeRouter>,
     pub lifecycle: CodexLifecycleProvider,
     pub model: SdkRuntimeBackedModelProvider,
+    pub session_control: SdkRuntimeBackedSessionControlProvider,
     pub session_adapter: CodexAdapter,
     pub message_adapter: CodexMessageAdapter,
     activity: Arc<InMemoryProviderSessionActivityProvider>,
@@ -98,6 +100,10 @@ impl CodexSdkIntegration {
             SDK_CAPABILITY_MODEL_CHAT,
             "provider.model.codex",
         );
+        let session_control = SdkRuntimeBackedSessionControlProvider::new(
+            runtime.clone(),
+            crate::ids::SESSION_CONTROL_PROVIDER_ID,
+        );
 
         Ok(Self {
             sdk: AgentSdkIntegration::new(negotiation),
@@ -105,6 +111,7 @@ impl CodexSdkIntegration {
             runtime,
             lifecycle: CodexLifecycleProvider::new(),
             model,
+            session_control,
             session_adapter: CodexAdapter::new(),
             message_adapter: CodexMessageAdapter::new(),
             activity,

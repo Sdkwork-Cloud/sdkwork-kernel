@@ -478,6 +478,30 @@ assert.deepEqual(JSON.parse(fs.readFileSync(opencodeCapturePath, 'utf8')).sessio
 });
 delete process.env.OPENCODE_SERVER_URL;
 
+const codexSessionControlBase = {
+  control_request_id: 'control-codex',
+  session_id: 'session-canonical-codex-control',
+  provider_session_id: 'codex-thread-existing',
+  policy_decision_id: 'policy-decision-codex-control',
+  timeout_ms: 2_000,
+};
+await assert.rejects(
+  invokeSessionControlRuntime('@openai/codex-sdk', {
+    ...codexSessionControlBase,
+    operation: 'session_compact',
+    focus: 'retain deployment context',
+  }),
+  /thread\/compact\/start does not support a focus parameter/,
+);
+await assert.rejects(
+  invokeSessionControlRuntime('@openai/codex-sdk', {
+    ...codexSessionControlBase,
+    operation: 'session_fork',
+    before_message_id: 'message-not-a-turn',
+  }),
+  /cannot be mapped to a Codex Turn id/,
+);
+
 process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
   '@sdkwork/invalid-sdk': invalidSdkMirror,
 });

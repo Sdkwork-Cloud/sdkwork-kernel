@@ -73,7 +73,7 @@ Legend: **R** = required in manifest, **O** = optional, **—** = not declared (
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `sdk.session.lifecycle` | R | R | R | R | R | R | R | — |
 | `sdk.session.history` | R | — | — | — | — | — | — | — |
-| `sdk.session.control` | — | — | — | O | — | — | — | — |
+| `sdk.session.control` | O | — | — | O | — | — | — | — |
 | `sdk.model.chat` | R | R | R | R | R | R | R | R |
 | `sdk.model.stream` | O | — | O | — | — | — | — | — |
 | `sdk.tool.invoke` | — | — | O | — | O | — | — | — |
@@ -132,6 +132,11 @@ a binding manifest declares `integration_sources`.
   cursors and the full upstream typed records while projecting Kernel-neutral
   sessions/messages. It does not resolve state files by path, query private
   schemas, or parse rollout files; state bootstrap uses the official Codex API.
+- **Session control:** Resident app-server `turn/interrupt`,
+  `thread/compact/start`, and `thread/fork` are exposed through the optional
+  policy-gated `sdk.session.control` capability. Active Turn control is routed
+  to the exact worker bound to the canonical Session; idle mutations validate
+  the opaque provider Session with `thread/read` and never use mock fallback.
 - **Gaps:** Production live SDK path is still gated by staging credentials.
   Execution-environment lifecycle and isolation must route through Kernel's
   `SandboxSessionLifecycleAdapter` into `sdkwork-sandbox`; the legacy Kernel

@@ -302,8 +302,18 @@ Rules:
   the owning `OPENCODE_SERVER_URL`; `fork` uses the same package's official
   root client. Adapters `MUST NOT` treat the v2 export's legacy
   `client.session` projection as the `/api/session/*` control surface.
-  Codex and Claude Code control surfaces remain undeclared until their resident
-  transport lifetimes are wired and proved by equivalent conformance tests.
+- The Codex executable reference lane uses one resident app-server connection.
+  An active canonical Session is bound to its exact Node worker and model
+  request before the Turn starts; control is multiplexed to that worker through
+  `sdkwork/session.control`. `interrupt` maps to `turn/interrupt`, `compact`
+  maps to `thread/compact/start`, and `fork` maps to `thread/fork` only after
+  `thread/read` validates the opaque provider Session. Idle interrupt returns
+  `no_op` after that validation. Codex rejects `focus` and
+  `before_message_id`: neither can be represented by the stable upstream
+  methods, and a canonical message id is never guessed to be a Codex Turn id.
+  All three operations use their request-scoped timeout and have no mock lane.
+- Claude Code control remains undeclared until its streaming query lifetime is
+  wired and proved by equivalent conformance tests.
 
 ### 6.2 User-Mediated Server Requests
 

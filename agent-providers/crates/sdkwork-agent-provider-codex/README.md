@@ -34,6 +34,15 @@ Direct in-process model and tool execution is intentionally fail-closed with
 SDK/runtime transport worker so the kernel can preserve policy, audit, trace,
 and provider health semantics.
 
+The optional `provider.session-control.codex` extension exposes interrupt,
+compact, and fork through the negotiated `sdk.session.control` runtime. Active
+Turns retain canonical Session to model-request worker affinity so
+`turn/interrupt` reaches the owning resident app-server. Idle control validates
+the opaque provider Session through `thread/read`; compact and fork then use
+`thread/compact/start` and `thread/fork`. Unsupported compact focus and
+message-id fork boundaries fail explicitly, and control never uses mock
+fallback.
+
 ## Session And History Contract
 
 `CodexSdkIntegration` exposes bounded async methods for:
@@ -77,5 +86,6 @@ a historical `active` flag are never substituted.
 ```bash
 cargo test -p sdkwork-agent-provider-codex
 cargo clippy -p sdkwork-agent-provider-codex --all-targets -- -D warnings
+node --test scripts/provider-transport-workers/codex-app-server-live.test.mjs
 node scripts/check-kernel-standards.mjs
 ```

@@ -1,7 +1,7 @@
 use crate::{codex_agent_installer, CodexConfigurationProvider, CodexSdkIntegration};
 use sdkwork_agent_kernel::{
     AgentDefinition, AgentInstaller, AgentManifest, AgentPackageManifest, ModelProvider,
-    ProviderManifest, RuntimeBuilder,
+    ProviderManifest, ProviderSessionControlProvider, RuntimeBuilder,
 };
 use sdkwork_agent_plugin_core::{
     KernelPluginConformanceProfile, KernelPluginManifest, SdkStandardPolicyProvider,
@@ -29,6 +29,7 @@ pub fn codex_kernel_plugin_manifest() -> KernelPluginManifest {
         .with_source_reference("external/codex")
         .with_agent_id(ids::AGENT_ID)
         .with_provider_id(ids::MODEL_PROVIDER_ID)
+        .with_provider_id(ids::SESSION_CONTROL_PROVIDER_ID)
         .with_provider_id(ids::POLICY_PROVIDER_ID)
         .with_provider_id(ids::INSTALLER_PROVIDER_ID)
         .with_provider_id(ids::CONFIGURATION_PROVIDER_ID)
@@ -42,6 +43,7 @@ pub fn codex_provider_manifests() -> Vec<ProviderManifest> {
     let integration = CodexSdkIntegration::bootstrap().expect("codex sdk integration");
     vec![
         integration.model.provider_manifest(),
+        integration.session_control.provider_manifest(),
         SdkStandardPolicyProvider::new(ids::POLICY_PROVIDER_ID).provider_manifest_for(),
         codex_agent_installer().provider_manifest(),
         configuration_provider_manifest(ids::CONFIGURATION_PROVIDER_ID, "codex-configuration"),
@@ -87,6 +89,11 @@ impl SdkworkKernelPlugin for CodexKernelPlugin {
         builder
             .register_model_provider(ids::MODEL_PROVIDER_ID, "0.2.0", integration.model)
             .register_provider_session_activity_provider(ids::MODEL_PROVIDER_ID, activity)
+            .register_provider_session_control_provider(
+                ids::SESSION_CONTROL_PROVIDER_ID,
+                env!("CARGO_PKG_VERSION"),
+                integration.session_control,
+            )
             .register_policy_provider(
                 ids::POLICY_PROVIDER_ID,
                 "0.1.0",

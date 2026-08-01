@@ -11,10 +11,11 @@ use sdkwork_agent_provider_transport_ipc::{
     SDKWORK_PING_METHOD,
 };
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -23,6 +24,7 @@ const DEFAULT_WORKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_WORKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(3600);
 const INTERACTION_CONTROL_TIMEOUT: Duration = Duration::from_secs(30);
 const SDKWORK_SERVER_REQUEST_RESPOND_METHOD: &str = "sdkwork/serverRequest.respond";
+const SDKWORK_SESSION_CONTROL_METHOD: &str = "sdkwork/session.control";
 
 const NODE_BINARY_ENV: &str = "SDKWORK_AGENT_NODE_BINARY";
 const WORKER_SCRIPT_ENV: &str = "SDKWORK_AGENT_TYPESCRIPT_WORKER_SCRIPT";
@@ -168,6 +170,32 @@ pub struct NodeSdkBackendRuntime {
     package_name: String,
     backend: NodeRuntimeBackend,
     activity_sink: Option<Arc<dyn SdkRuntimeActivityEventSink>>,
+    active_sessions: Arc<Mutex<HashMap<String, ActiveSessionAffinity>>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ActiveSessionAffinity {
+    model_request_id: String,
+    provider_session_id: Option<String>,
+}
+
+struct ActiveSessionAffinityGuard {
+    active_sessions: Arc<Mutex<HashMap<String, ActiveSessionAffinity>>>,
+    model_request_id: String,
+    session_id: String,
+}
+
+impl Drop for ActiveSessionAffinityGuard {
+    fn drop(&mut self) {
+        if let Ok(mut active_sessions) = self.active_sessions.lock() {
+            let belongs_to_request = active_sessions
+                .get(&self.session_id)
+                .is_some_and(|entry| entry.model_request_id == self.model_request_id);
+            if belongs_to_request {
+                active_sessions.remove(&self.session_id);
+            }
+        }
+    }
 }
 
 impl NodeSdkBackendRuntime {
@@ -201,6 +229,7 @@ impl NodeSdkBackendRuntime {
             package_name,
             backend: NodeRuntimeBackend::Stub(transport),
             activity_sink: None,
+            active_sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -228,6 +257,7 @@ impl NodeSdkBackendRuntime {
             package_name: options.package_name.clone(),
             backend: NodeRuntimeBackend::Managed { pool },
             activity_sink: None,
+            active_sessions: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -247,6 +277,7 @@ impl NodeSdkBackendRuntime {
                 "typescript_node",
             ))),
             activity_sink: None,
+            active_sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -257,6 +288,7 @@ impl NodeSdkBackendRuntime {
                 reason.into(),
             ))),
             activity_sink: None,
+            active_sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -318,7 +350,11 @@ impl NodeSdkBackendRuntime {
         });
         match &self.backend {
             NodeRuntimeBackend::Managed { pool } => {
+                if is_session_control_operation(&request.operation) {
+                    return self.invoke_managed_session_control(pool, request, params);
+                }
                 let lease = Self::acquire_worker(pool, request)?;
+                let _affinity = self.register_active_session(request)?;
                 lease
                     .call_with_timeout(
                         SDKWORK_CAPABILITY_INVOKE_METHOD,
@@ -349,6 +385,7 @@ impl NodeSdkBackendRuntime {
         match &self.backend {
             NodeRuntimeBackend::Managed { pool } => {
                 let lease = Self::acquire_worker(pool, request)?;
+                let _affinity = self.register_active_session(request)?;
                 lease
                     .call_streaming_with_timeout(
                         SDKWORK_CAPABILITY_INVOKE_METHOD,
@@ -399,6 +436,7 @@ impl NodeSdkBackendRuntime {
         match &self.backend {
             NodeRuntimeBackend::Managed { pool } => {
                 let lease = Self::acquire_worker(pool, request)?;
+                let _affinity = self.register_active_session(request)?;
                 lease
                     .call_streaming_with_timeout(
                         SDKWORK_CAPABILITY_INVOKE_METHOD,
@@ -455,6 +493,145 @@ impl NodeSdkBackendRuntime {
         sink.ingest_runtime_activity(event)?;
         Ok(true)
     }
+
+    fn register_active_session(
+        &self,
+        request: &SdkRuntimeRequest,
+    ) -> Result<Option<ActiveSessionAffinityGuard>, SdkRuntimeError> {
+        let Some((model_request_id, session_id, provider_session_id)) =
+            model_session_identity(&request.operation)
+        else {
+            return Ok(None);
+        };
+        let mut active_sessions = self.active_sessions.lock().map_err(|error| {
+            SdkRuntimeError::new(
+                "session_affinity_unavailable",
+                format!("active Session affinity lock failed: {error}"),
+            )
+        })?;
+        if let Some(existing) = active_sessions.get(session_id) {
+            return Err(SdkRuntimeError::new(
+                "session_affinity_conflict",
+                format!(
+                    "canonical Session {session_id} is already active on model request {}",
+                    existing.model_request_id
+                ),
+            ));
+        }
+        active_sessions.insert(
+            session_id.to_string(),
+            ActiveSessionAffinity {
+                model_request_id: model_request_id.to_string(),
+                provider_session_id: provider_session_id.map(str::to_string),
+            },
+        );
+        drop(active_sessions);
+        Ok(Some(ActiveSessionAffinityGuard {
+            active_sessions: self.active_sessions.clone(),
+            model_request_id: model_request_id.to_string(),
+            session_id: session_id.to_string(),
+        }))
+    }
+
+    fn invoke_managed_session_control(
+        &self,
+        pool: &SpawnedWorkerPool,
+        request: &SdkRuntimeRequest,
+        mut params: Value,
+    ) -> Result<Value, SdkRuntimeError> {
+        let (session_id, provider_session_id) = session_control_identity(&request.operation)
+            .ok_or_else(|| {
+                SdkRuntimeError::new(
+                    "invalid_session_control_request",
+                    "Session control operation identity is unavailable",
+                )
+            })?;
+        let affinity = self
+            .active_sessions
+            .lock()
+            .map_err(|error| {
+                SdkRuntimeError::new(
+                    "session_affinity_unavailable",
+                    format!("active Session affinity lock failed: {error}"),
+                )
+            })?
+            .get(session_id)
+            .cloned();
+
+        let Some(affinity) = affinity else {
+            let lease = Self::acquire_worker(pool, request)?;
+            return lease
+                .call_with_timeout(
+                    SDKWORK_CAPABILITY_INVOKE_METHOD,
+                    Some(params),
+                    worker_operation_timeout(request),
+                )
+                .map_err(map_transport_error);
+        };
+        if affinity
+            .provider_session_id
+            .as_deref()
+            .is_some_and(|active| active != provider_session_id)
+        {
+            return Err(SdkRuntimeError::new(
+                "session_affinity_mismatch",
+                format!(
+                    "canonical Session {session_id} is active for a different provider Session"
+                ),
+            ));
+        }
+        params["model_request_id"] = Value::String(affinity.model_request_id.clone());
+        pool.control(
+            &affinity.model_request_id,
+            SDKWORK_SESSION_CONTROL_METHOD,
+            Some(params),
+            worker_operation_timeout(request),
+        )
+        .map_err(map_transport_error)
+    }
+}
+
+fn model_session_identity(operation: &SdkRuntimeOperation) -> Option<(&str, &str, Option<&str>)> {
+    match operation {
+        SdkRuntimeOperation::ModelChat {
+            model_request_id,
+            session_id: Some(session_id),
+            provider_session_id,
+            ..
+        }
+        | SdkRuntimeOperation::ModelChatStream {
+            model_request_id,
+            session_id: Some(session_id),
+            provider_session_id,
+            ..
+        } => Some((model_request_id, session_id, provider_session_id.as_deref())),
+        _ => None,
+    }
+}
+
+fn session_control_identity(operation: &SdkRuntimeOperation) -> Option<(&str, &str)> {
+    match operation {
+        SdkRuntimeOperation::SessionInterrupt {
+            session_id,
+            provider_session_id,
+            ..
+        }
+        | SdkRuntimeOperation::SessionCompact {
+            session_id,
+            provider_session_id,
+            ..
+        }
+        | SdkRuntimeOperation::SessionFork {
+            session_id,
+            provider_session_id,
+            ..
+        } => Some((session_id, provider_session_id)),
+        _ => None,
+    }
+}
+
+fn is_session_control_operation(operation: &SdkRuntimeOperation) -> bool {
+    session_control_identity(operation).is_some()
 }
 
 impl SdkBackendRuntime for NodeSdkBackendRuntime {
@@ -565,7 +742,10 @@ impl SdkBackendRuntime for NodeSdkBackendRuntime {
 fn worker_operation_timeout(request: &SdkRuntimeRequest) -> Duration {
     let timeout_ms = match &request.operation {
         SdkRuntimeOperation::ModelChat { timeout_ms, .. }
-        | SdkRuntimeOperation::ModelChatStream { timeout_ms, .. } => *timeout_ms,
+        | SdkRuntimeOperation::ModelChatStream { timeout_ms, .. }
+        | SdkRuntimeOperation::SessionInterrupt { timeout_ms, .. }
+        | SdkRuntimeOperation::SessionCompact { timeout_ms, .. }
+        | SdkRuntimeOperation::SessionFork { timeout_ms, .. } => *timeout_ms,
         _ => None,
     };
     timeout_ms
@@ -1142,7 +1322,10 @@ input.on('line', (line) => {
             payload: None,
         };
 
-        assert_eq!(worker_operation_timeout(&request), Duration::from_millis(1_234));
+        assert_eq!(
+            worker_operation_timeout(&request),
+            Duration::from_millis(1_234)
+        );
     }
 
     #[test]

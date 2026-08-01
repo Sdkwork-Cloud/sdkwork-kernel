@@ -220,6 +220,98 @@ impl McpServerDescriptor {
     }
 }
 
+/// MCP context injector: collects server resources and prompts as
+/// `ContextFrame` entries and attaches them to model requests, closing the
+/// MCP -> context pipeline (resources/prompts flow into the model context
+/// with provenance and trust metadata).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct McpContextInjector;
+
+impl McpContextInjector {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// Collect context frames from an MCP provider: resources and prompts
+    /// become `ContextFrame` entries tagged with `mcp:` provenance.
+    pub fn collect_frames(
+        &self,
+        runtime: &AgentRuntime,
+        session_id: &str,
+        server_id: &str,
+        provider_id: Option<&str>,
+        limit: Option<usize>,
+    ) -> KernelResult<Vec<ContextFrame>> {
+        let provider = match provider_id {
+            Some(provider_id) => runtime.mcp_provider_by_id(provider_id)?,
+            None => runtime.mcp_provider()?,
+        };
+
+        let mut frames = Vec::new();
+        for resource in provider.list_resources(server_id)? {
+            if frames_exhausted(&frames, limit) {
+                break;
+            }
+            if let Ok(content) = provider.read_resource(server_id, &resource.uri) {
+                frames.push(
+                    ContextFrame::new(
+                        format!("mcp.resource.{}.{}", server_id, resource.uri),
+                        session_id,
+                        format!("mcp:{server_id}:resource"),
+                        content.content,
+                        content.trust_level,
+                        content.redaction_classification,
+                    )
+                    .with_content_type(content.mime_type)
+                    .with_provenance(format!("mcp://{server_id}/resource/{}", resource.uri)),
+                );
+            }
+        }
+        for prompt in provider.list_prompts(server_id)? {
+            if frames_exhausted(&frames, limit) {
+                break;
+            }
+            if let Ok(prompt_message) = provider.get_prompt(server_id, &prompt.name, Vec::new()) {
+                frames.push(
+                    ContextFrame::new(
+                        format!("mcp.prompt.{}.{}", server_id, prompt.name),
+                        session_id,
+                        format!("mcp:{server_id}:prompt"),
+                        prompt_message.messages.join(
+                            "
+",
+                        ),
+                        prompt_message.trust_level,
+                        prompt_message.redaction_classification,
+                    )
+                    .with_content_type("text/markdown".to_string())
+                    .with_provenance(format!("mcp://{server_id}/prompt/{}", prompt.name)),
+                );
+            }
+        }
+        Ok(frames)
+    }
+
+    /// Attach collected MCP frames to a model request.
+    pub fn attach_frames(
+        &self,
+        runtime: &AgentRuntime,
+        session_id: &str,
+        server_id: &str,
+        provider_id: Option<&str>,
+        limit: Option<usize>,
+        mut request: crate::ModelRequest,
+    ) -> KernelResult<crate::ModelRequest> {
+        let frames = self.collect_frames(runtime, session_id, server_id, provider_id, limit)?;
+        request.context_frames.extend(frames);
+        Ok(request)
+    }
+}
+
+fn frames_exhausted(frames: &[ContextFrame], limit: Option<usize>) -> bool {
+    limit.map(|limit| frames.len() >= limit).unwrap_or(false)
+}
+
 /// Namespaced MCP tool name: `mcp__<server>__<tool>` (the agent SDK
 /// convention).
 pub fn mcp_tool_name(server_id: &str, tool_name: &str) -> String {

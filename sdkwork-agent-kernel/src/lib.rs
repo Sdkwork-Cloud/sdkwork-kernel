@@ -228,9 +228,9 @@ pub use manifest::{
     ProviderManifest,
 };
 pub use mcp::{
-    mcp_tool_name, parse_mcp_tool_name, McpAuthKind, McpConnectionState, McpPromptDescriptor,
-    McpPromptMessage, McpProvider, McpResourceContent, McpResourceDescriptor, McpServerConnection,
-    McpServerDescriptor, McpToolExecutionRequest, McpToolExecutionResponse,
+    mcp_tool_name, parse_mcp_tool_name, McpAuthKind, McpConnectionState, McpContextInjector,
+    McpPromptDescriptor, McpPromptMessage, McpProvider, McpResourceContent, McpResourceDescriptor,
+    McpServerConnection, McpServerDescriptor, McpToolExecutionRequest, McpToolExecutionResponse,
     McpToolExecutionService, McpTransportKind, ParsedMcpToolName,
 };
 pub use message::{

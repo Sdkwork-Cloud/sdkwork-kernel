@@ -365,6 +365,19 @@ async function handleRequest(request) {
     return;
   }
 
+  if (request.method === 'sdkwork/session.control') {
+    const params = request.params ?? {};
+    const operation = {
+      ...(params.operation ?? {}),
+      ...(params.model_request_id
+        ? { model_request_id: params.model_request_id }
+        : {}),
+    };
+    const result = await invokeSessionControlRuntime(packageName, operation);
+    await writeResponse({ jsonrpc: '2.0', id: request.id, result });
+    return;
+  }
+
   if (request.method === 'sdkwork/turn.interrupt') {
     const result = await interruptSdkLiveTurn(request.params ?? {});
     await writeResponse({ jsonrpc: '2.0', id: request.id, result });

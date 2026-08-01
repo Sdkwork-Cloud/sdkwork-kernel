@@ -322,6 +322,130 @@ export async function interruptCodexAppServerTurn(command = {}) {
   };
 }
 
+export async function controlCodexAppServerSession(operation = {}) {
+  const operationName = requiredString(operation.operation, 'operation');
+  if (![
+    'session_interrupt',
+    'session_compact',
+    'session_fork',
+  ].includes(operationName)) {
+    throw runtimeError(
+      'codex_app_server_unsupported_session_control',
+      `unsupported Codex Session control operation: ${operationName}`,
+    );
+  }
+  const controlRequestId = requiredString(
+    operation.control_request_id,
+    'control_request_id',
+  );
+  const sessionId = requiredString(operation.session_id, 'session_id');
+  const providerSessionId = requiredString(
+    operation.provider_session_id,
+    'provider_session_id',
+  );
+  const policyDecisionId = requiredString(
+    operation.policy_decision_id,
+    'policy_decision_id',
+  );
+  const modelRequestId = optionalString(operation.model_request_id, 'model_request_id');
+  const command = {
+    ...operation,
+    operation: operationName,
+    control_request_id: controlRequestId,
+    session_id: sessionId,
+    provider_session_id: providerSessionId,
+    policy_decision_id: policyDecisionId,
+    ...(modelRequestId ? { model_request_id: modelRequestId } : {}),
+  };
+
+  if (operationName === 'session_compact' && operation.focus != null) {
+    requiredString(operation.focus, 'focus');
+    throw runtimeError(
+      'codex_app_server_unsupported_compact_focus',
+      'Codex thread/compact/start does not support a focus parameter',
+    );
+  }
+  if (operationName === 'session_fork' && operation.before_message_id != null) {
+    requiredString(operation.before_message_id, 'before_message_id');
+    throw runtimeError(
+      'codex_app_server_unsupported_fork_boundary',
+      'before_message_id cannot be mapped to a Codex Turn id without authoritative identity evidence',
+    );
+  }
+
+  if (operationName === 'session_interrupt' && modelRequestId) {
+    const interrupted = await interruptCodexAppServerTurn({
+      model_request_id: modelRequestId,
+      provider_session_id: providerSessionId,
+      session_id: sessionId,
+    });
+    return sessionControlResult(command, {
+      status: interrupted.accepted ? 'applied' : 'no_op',
+      modelRequestId,
+    });
+  }
+
+  let transport;
+  if (modelRequestId) {
+    const entry = activeExecution({ model_request_id: modelRequestId });
+    assertExecutionAffinity(entry, command);
+    transport = entry.transport;
+  } else {
+    transport = await connectResidentTransport();
+  }
+  await transport.readSession({ providerSessionId, sessionId });
+
+  if (operationName === 'session_interrupt') {
+    return sessionControlResult(command, { status: 'no_op' });
+  }
+  if (operationName === 'session_compact') {
+    await transport.compactSession({ providerSessionId, sessionId });
+    return sessionControlResult(command, { status: 'applied', modelRequestId });
+  }
+
+  const forked = await transport.forkSession({
+    cwd: optionalString(operation.working_directory, 'working_directory'),
+    providerSessionId,
+    sessionId,
+  });
+  const forkedProviderSessionId = requiredString(
+    forked.providerSessionId,
+    'forked_provider_session_id',
+  );
+  if (forkedProviderSessionId === providerSessionId) {
+    throw runtimeError(
+      'codex_app_server_fork_identity_mismatch',
+      'thread/fork returned the source provider Session id',
+    );
+  }
+  return sessionControlResult(command, {
+    forkedProviderSessionId,
+    modelRequestId,
+    status: 'applied',
+  });
+}
+
+function sessionControlResult(operation, {
+  forkedProviderSessionId = null,
+  modelRequestId = null,
+  status,
+}) {
+  return {
+    ok: true,
+    mode: 'app_server',
+    operation: operation.operation,
+    control_request_id: operation.control_request_id,
+    session_id: operation.session_id,
+    provider_session_id: operation.provider_session_id,
+    policy_decision_id: operation.policy_decision_id,
+    status,
+    ...(modelRequestId ? { model_request_id: modelRequestId } : {}),
+    ...(forkedProviderSessionId
+      ? { forked_provider_session_id: forkedProviderSessionId }
+      : {}),
+  };
+}
+
 export async function closeCodexAppServerRuntime() {
   const transport = residentTransport;
   residentTransport = null;

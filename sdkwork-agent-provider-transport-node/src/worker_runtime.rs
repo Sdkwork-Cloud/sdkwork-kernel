@@ -1000,6 +1000,152 @@ input.on('line', (line) => {
     }
 
     #[test]
+    fn managed_runtime_routes_session_control_to_the_active_session_worker() {
+        if !Command::new("node")
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+        {
+            return;
+        }
+        let root = std::env::temp_dir().join(format!(
+            "sdkwork-node-session-control-{}",
+            std::process::id()
+        ));
+        let worker_script = root.join("worker.mjs");
+        std::fs::create_dir_all(&root).expect("session control worker test directory");
+        std::fs::write(
+            &worker_script,
+            r#"import readline from 'node:readline';
+const input = readline.createInterface({ input: process.stdin });
+let activeStream = null;
+input.on('line', (line) => {
+  const request = JSON.parse(line);
+  if (request.method === 'sdkwork/ping') {
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { ok: true } })}\n`);
+    return;
+  }
+  if (request.method === 'sdkwork/capability.invoke') {
+    activeStream = request;
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { event: 'stream.event', kernel_event: { event_id: 'active' } } })}\n`);
+    return;
+  }
+  if (request.method === 'sdkwork/session.control') {
+    const operation = request.params.operation;
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {
+      ok: true,
+      status: 'applied',
+      control_request_id: operation.control_request_id,
+      model_request_id: request.params.model_request_id,
+      provider_session_id: operation.provider_session_id,
+    } })}\n`);
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: activeStream.id, result: { event: 'stream.done', finish_reason: 'cancelled', model_request_id: request.params.model_request_id } })}\n`);
+  }
+});
+"#,
+        )
+        .expect("session control worker test script");
+        let runtime = Arc::new(
+            NodeSdkBackendRuntime::spawn(&NodeWorkerLaunchOptions {
+                node_binary: "node".to_string(),
+                worker_script,
+                package_name: "@openai/codex-sdk".to_string(),
+            })
+            .expect("managed runtime"),
+        );
+        let model_request = SdkRuntimeRequest::model_chat_stream_with_execution_identities(
+            "sdk.model.chat",
+            "model-request-control-1",
+            vec!["hello".to_string()],
+            None,
+            None,
+            Some("session-control-1".to_string()),
+            Some("provider-session-control-1".to_string()),
+            Some("turn-control-1".to_string()),
+            None,
+            Some(5_000),
+            None,
+        );
+        let stream_runtime = runtime.clone();
+        let (frame_tx, frame_rx) = mpsc::channel();
+        let stream = thread::spawn(move || {
+            stream_runtime.invoke_streaming(&model_request, &mut |frame| {
+                frame_tx.send(frame).expect("send stream frame");
+                Ok(true)
+            })
+        });
+        frame_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("active stream frame");
+
+        let mismatched = runtime
+            .invoke(&SdkRuntimeRequest {
+                capability_id: "sdk.session.control".to_string(),
+                operation: SdkRuntimeOperation::SessionInterrupt {
+                    control_request_id: "control-mismatch".to_string(),
+                    session_id: "session-control-1".to_string(),
+                    provider_session_id: "provider-session-other".to_string(),
+                    policy_decision_id: "policy-1".to_string(),
+                    reason: None,
+                    working_directory: None,
+                    timeout_ms: Some(2_000),
+                },
+                payload: None,
+            })
+            .expect_err("provider Session mismatch must fail before worker dispatch");
+        assert_eq!(mismatched.code, "session_affinity_mismatch");
+
+        let response = runtime
+            .invoke(&SdkRuntimeRequest {
+                capability_id: "sdk.session.control".to_string(),
+                operation: SdkRuntimeOperation::SessionInterrupt {
+                    control_request_id: "control-1".to_string(),
+                    session_id: "session-control-1".to_string(),
+                    provider_session_id: "provider-session-control-1".to_string(),
+                    policy_decision_id: "policy-1".to_string(),
+                    reason: Some("user requested stop".to_string()),
+                    working_directory: None,
+                    timeout_ms: Some(2_000),
+                },
+                payload: None,
+            })
+            .expect("same-worker session control");
+        assert!(response.success);
+        let payload = response.payload.expect("control response payload");
+        assert_eq!(
+            payload.get("model_request_id"),
+            Some(&json!("model-request-control-1"))
+        );
+        assert_eq!(payload.get("status"), Some(&json!("applied")));
+        stream
+            .join()
+            .expect("stream thread should not panic")
+            .expect("same stream should finish after interrupt");
+        drop(runtime);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn session_control_uses_its_declared_operation_timeout() {
+        let request = SdkRuntimeRequest {
+            capability_id: "sdk.session.control".to_string(),
+            operation: SdkRuntimeOperation::SessionCompact {
+                control_request_id: "control-timeout".to_string(),
+                session_id: "session-timeout".to_string(),
+                provider_session_id: "provider-session-timeout".to_string(),
+                policy_decision_id: "policy-timeout".to_string(),
+                focus: None,
+                working_directory: None,
+                timeout_ms: Some(1_234),
+            },
+            payload: None,
+        };
+
+        assert_eq!(worker_operation_timeout(&request), Duration::from_millis(1_234));
+    }
+
+    #[test]
     fn in_memory_stub_fails_closed_in_production_profile() {
         let _lock = env_lock();
         let _profile = EnvVarGuard::set(

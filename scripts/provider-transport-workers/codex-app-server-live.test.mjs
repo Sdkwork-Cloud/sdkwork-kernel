@@ -87,6 +87,28 @@ test('keeps one app-server process for Session turns and preserves interactive r
   assert.equal(resumed.providerSessionId, started.providerSessionId);
   assert.equal(transport.pid, processId, 'Session resume must reuse the resident process');
 
+  const read = await transport.readSession({
+    sessionId: 'session-canonical-1',
+    providerSessionId: started.providerSessionId,
+  });
+  assert.equal(read.providerSessionId, started.providerSessionId);
+
+  const compacted = await transport.compactSession({
+    sessionId: 'session-canonical-1',
+    providerSessionId: started.providerSessionId,
+  });
+  assert.equal(compacted.compacted, true);
+  assert.equal(compacted.providerSessionId, started.providerSessionId);
+
+  const forked = await transport.forkSession({
+    cwd: fixture.directory,
+    sessionId: 'session-canonical-1',
+    providerSessionId: started.providerSessionId,
+  });
+  assert.equal(forked.sourceProviderSessionId, started.providerSessionId);
+  assert.equal(forked.providerSessionId, 'provider-session-forked');
+  assert.equal(forked.session.parentProviderSessionId, started.providerSessionId);
+
   const interruptedTurn = await transport.startTurn(
     started.providerSessionId,
     'stop this turn',
@@ -135,6 +157,18 @@ test('keeps one app-server process for Session turns and preserves interactive r
     capture.find((entry) => entry.message.method === 'turn/interrupt')
       .message.params.turnId,
     interruptedTurn.turnId,
+  );
+  assert.deepEqual(
+    capture.find((entry) => entry.message.method === 'thread/read').message.params,
+    { threadId: started.providerSessionId, includeTurns: false },
+  );
+  assert.deepEqual(
+    capture.find((entry) => entry.message.method === 'thread/compact/start').message.params,
+    { threadId: started.providerSessionId },
+  );
+  assert.deepEqual(
+    capture.find((entry) => entry.message.method === 'thread/fork').message.params,
+    { threadId: started.providerSessionId, cwd: fixture.directory },
   );
 });
 
@@ -254,6 +288,41 @@ input.on('line', (line) => {
           parentThreadId: null,
           turns: [],
         },
+      },
+    });
+    return;
+  }
+  if (message.method === 'thread/read') {
+    send({
+      id: message.id,
+      result: {
+        thread: {
+          id: message.params.threadId,
+          name: 'Fixture session',
+          parentThreadId: null,
+          turns: [],
+        },
+      },
+    });
+    return;
+  }
+  if (message.method === 'thread/compact/start') {
+    send({ id: message.id, result: {} });
+    return;
+  }
+  if (message.method === 'thread/fork') {
+    send({
+      id: message.id,
+      result: {
+        thread: {
+          id: 'provider-session-forked',
+          name: 'Forked fixture session',
+          parentThreadId: message.params.threadId,
+          turns: [],
+        },
+        cwd: message.params.cwd,
+        model: 'codex-test',
+        modelProvider: 'openai',
       },
     });
     return;

@@ -14,6 +14,9 @@ const DEFAULT_MAX_LINE_BYTES = 8 * 1024 * 1024;
 const MAX_LEDGER_ENTRIES = 512;
 const WIRE_SESSION_START_METHOD = 'thread/start';
 const WIRE_SESSION_RESUME_METHOD = 'thread/resume';
+const WIRE_SESSION_READ_METHOD = 'thread/read';
+const WIRE_SESSION_COMPACT_METHOD = 'thread/compact/start';
+const WIRE_SESSION_FORK_METHOD = 'thread/fork';
 const WIRE_TURN_START_METHOD = 'turn/start';
 const WIRE_TURN_INTERRUPT_METHOD = 'turn/interrupt';
 const WIRE_REQUEST_RESOLVED_METHOD = 'serverRequest/resolved';
@@ -255,6 +258,70 @@ export class CodexAppServerLiveTransport extends EventEmitter {
       true,
       command.providerSessionId,
     );
+  }
+
+  async readSession(commandOrProviderSessionId, options = {}) {
+    const command = normalizeProviderSessionCommand(
+      commandOrProviderSessionId,
+      options,
+      'readSession',
+    );
+    await this.connect();
+    const response = await this.#sendRequest(WIRE_SESSION_READ_METHOD, {
+      threadId: command.providerSessionId,
+      includeTurns: false,
+    });
+    return this.#normalizeSessionResult(
+      response,
+      command.sessionId,
+      true,
+      command.providerSessionId,
+    );
+  }
+
+  async compactSession(commandOrProviderSessionId, options = {}) {
+    const command = normalizeProviderSessionCommand(
+      commandOrProviderSessionId,
+      options,
+      'compactSession',
+    );
+    await this.connect();
+    await this.#sendRequest(WIRE_SESSION_COMPACT_METHOD, {
+      threadId: command.providerSessionId,
+    });
+    return Object.freeze({
+      compacted: true,
+      providerSessionId: command.providerSessionId,
+      sessionId: optionalNonBlankString(command.sessionId, 'sessionId'),
+    });
+  }
+
+  async forkSession(commandOrProviderSessionId, options = {}) {
+    const command = normalizeProviderSessionCommand(
+      commandOrProviderSessionId,
+      options,
+      'forkSession',
+    );
+    const params = { threadId: command.providerSessionId };
+    const cwd = optionalNonBlankString(command.cwd, 'cwd');
+    if (cwd) {
+      params.cwd = cwd;
+    }
+    await this.connect();
+    const response = await this.#sendRequest(WIRE_SESSION_FORK_METHOD, params);
+    const forked = this.#normalizeSessionResult(response, command.sessionId, false, null);
+    if (forked.providerSessionId === command.providerSessionId) {
+      const error = transportError(
+        'codex_app_server_fork_identity_mismatch',
+        'thread/fork returned the source provider Session id',
+      );
+      this.#protocolViolation(error);
+      throw error;
+    }
+    return Object.freeze({
+      ...forked,
+      sourceProviderSessionId: command.providerSessionId,
+    });
   }
 
   async startTurn(commandOrProviderSessionId, options = {}) {

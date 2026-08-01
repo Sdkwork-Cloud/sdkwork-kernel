@@ -10,6 +10,7 @@ import {
 } from './codex-cli-live.mjs';
 import {
   closeCodexAppServerRuntime,
+  controlCodexAppServerSession,
   interruptCodexAppServerTurn,
   invokeCodexAppServerModelChat,
   isCodexAppServerFallbackSafe,
@@ -1165,6 +1166,9 @@ const OPENCODE_SESSION_CONTROL_OPERATIONS = new Set([
 ]);
 
 export async function invokeSessionControlRuntime(packageName, operation) {
+  if (isCodexPackage(packageName)) {
+    return controlCodexAppServerSession(operation);
+  }
   if (packageName !== '@opencode-ai/sdk') {
     throw new Error(`no live session control handler for package ${packageName}`);
   }

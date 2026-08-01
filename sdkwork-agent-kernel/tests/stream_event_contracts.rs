@@ -134,6 +134,20 @@ impl StreamingModelProvider {
 #[derive(Clone)]
 struct ToolCallingModelProvider {
     provider_id: String,
+    /// First N invocations return a tool call, then plain text; drives the
+    /// multi-turn loop deterministically.
+    tool_calls_before_text: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl ToolCallingModelProvider {
+    fn new(provider_id: &str, tool_calls_before_text: usize) -> Self {
+        Self {
+            provider_id: provider_id.to_string(),
+            tool_calls_before_text: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(
+                tool_calls_before_text,
+            )),
+        }
+    }
 }
 
 impl ModelProvider for ToolCallingModelProvider {
@@ -156,20 +170,35 @@ impl ModelProvider for ToolCallingModelProvider {
     }
 
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
-        Ok(ModelResponse::text(
+        let remaining = self
+            .tool_calls_before_text
+            .fetch_update(
+                std::sync::atomic::Ordering::SeqCst,
+                std::sync::atomic::Ordering::SeqCst,
+                |value| Some(value.saturating_sub(1)),
+            )
+            .unwrap_or(0);
+        let mut response = ModelResponse::text(
             request.model_request_id,
             self.provider_id.clone(),
-            "tool call requested",
+            if remaining > 0 {
+                "tool call requested"
+            } else {
+                "final answer"
+            },
         )
-        .with_tool_call(
-            ToolCall::new(
-                "tool-call.from-model.1",
-                "tool.stream.search",
-                r#"{"query":"sdkwork"}"#,
-            )
-            .with_provider("provider.tool.stream"),
-        )
-        .with_usage(sdkwork_agent_kernel::ModelUsage::new(20, 3)))
+        .with_usage(sdkwork_agent_kernel::ModelUsage::new(20, 3));
+        if remaining > 0 {
+            response = response.with_tool_call(
+                ToolCall::new(
+                    "tool-call.from-model.1",
+                    "tool.stream.search",
+                    r#"{"query":"sdkwork"}"#,
+                )
+                .with_provider("provider.tool.stream"),
+            );
+        }
+        Ok(response)
     }
 }
 
@@ -236,9 +265,7 @@ fn runtime_with_tool_calling() -> sdkwork_agent_kernel::AgentRuntime {
     .register_model_provider(
         "provider.model.tool",
         "0.1.0",
-        ToolCallingModelProvider {
-            provider_id: "provider.model.tool".to_string(),
-        },
+        ToolCallingModelProvider::new("provider.model.tool", 1),
     )
     .register_tool_provider(
         "provider.tool.stream",
@@ -529,6 +556,7 @@ fn execution_stream_emits_tool_lifecycle_and_terminal_result() {
     let events = sink.into_events();
     let types: Vec<&str> = events.iter().map(|e| e.event_type()).collect();
 
+    // Round 1: tool-calling turn.
     assert_eq!(types[0], "agent.stream.session.init");
     assert_eq!(types[1], "agent.stream.message.start");
     assert_eq!(types[2], "agent.stream.message.delta");
@@ -536,9 +564,13 @@ fn execution_stream_emits_tool_lifecycle_and_terminal_result() {
     assert_eq!(types[4], "agent.stream.tool.call.stop");
     assert_eq!(types[5], "agent.stream.message.stop");
     assert_eq!(types[6], "agent.stream.tool.result");
-    assert_eq!(types[7], "agent.stream.usage");
-    assert_eq!(types[8], "agent.stream.result");
-    assert_eq!(types[9], "agent.stream.ended");
+    // Round 2: plain-text final turn.
+    assert_eq!(types[7], "agent.stream.message.start");
+    assert_eq!(types[8], "agent.stream.message.delta");
+    assert_eq!(types[9], "agent.stream.message.stop");
+    assert_eq!(types[10], "agent.stream.usage");
+    assert_eq!(types[11], "agent.stream.result");
+    assert_eq!(types[12], "agent.stream.ended");
 
     // Strongly typed tool result carries the outcome.
     match &events[6] {
@@ -552,17 +584,74 @@ fn execution_stream_emits_tool_lifecycle_and_terminal_result() {
         other => panic!("expected ToolResult, got {:?}", other.event_type()),
     }
 
-    // Terminal result aggregates usage and outcome.
-    match &events[8] {
+    // Terminal result aggregates usage across turns (2 x 20/3) and reports
+    // the turn count.
+    match &events[11] {
         AgentStreamEvent::Result(result) => {
             assert!(!result.is_error);
-            assert_eq!(result.num_turns, 1);
+            assert_eq!(result.num_turns, 2);
+            assert_eq!(result.result, "final answer");
             let usage = result.usage.as_ref().expect("result carries usage");
-            assert_eq!(usage.input_tokens, 20);
-            assert_eq!(usage.output_tokens, 3);
+            assert_eq!(usage.input_tokens, 40);
+            assert_eq!(usage.output_tokens, 6);
         }
         other => panic!("expected Result, got {:?}", other.event_type()),
     }
+}
+
+#[test]
+fn execution_stream_caps_turns_at_max() {
+    // A model that always requests tool calls must be bounded: the loop
+    // stops at the turn cap with a status warning and a terminal result.
+    let runtime = RuntimeBuilder::new(
+        "runtime.stream-cap",
+        AgentManifest::from_json(STREAM_AGENT_MANIFEST_JSON).expect("stream manifest parses"),
+    )
+    .with_generated_at("2026-08-01T00:00:00Z")
+    .register_model_provider(
+        "provider.model.tool",
+        "0.1.0",
+        ToolCallingModelProvider::new("provider.model.tool", usize::MAX),
+    )
+    .register_tool_provider(
+        "provider.tool.stream",
+        "0.1.0",
+        StaticToolProvider {
+            provider_id: "provider.tool.stream".to_string(),
+        },
+    )
+    .register_policy_provider("provider.policy.stream", "0.1.0", AllowPolicyProvider)
+    .bootstrap()
+    .expect("cap runtime bootstraps")
+    .runtime;
+
+    let mut sink = InMemoryAgentStreamSink::new();
+    AgentExecutionService::new()
+        .execute_streaming(
+            &runtime,
+            AgentExecutionRequest::new("exec.stream.cap", vec!["loop".to_string()]),
+            &mut sink,
+        )
+        .expect("capped stream returns");
+
+    let types: Vec<&str> = sink.events().iter().map(|e| e.event_type()).collect();
+    // 10 tool-calling rounds + status + usage + result + ended.
+    let result = sink
+        .events()
+        .iter()
+        .find_map(|event| match event {
+            AgentStreamEvent::Result(result) => Some(result),
+            _ => None,
+        })
+        .expect("terminal result present");
+    assert_eq!(result.num_turns, 10);
+    assert_eq!(result.stop_reason.as_deref(), Some("max_turns"));
+
+    assert!(
+        types.iter().any(|t| *t == "agent.stream.status"),
+        "status warning must surface on cap"
+    );
+    assert_eq!(types.last().unwrap(), &"agent.stream.ended");
 }
 
 #[test]

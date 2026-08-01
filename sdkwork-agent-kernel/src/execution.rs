@@ -5,8 +5,8 @@ use crate::{
     AgentStreamEvent, AgentStreamSink, CancellationToken, EndedEvent, ErrorEvent, KernelError,
     KernelErrorKind, KernelErrorSource, KernelEvent, KernelEventRedaction, KernelEventSeverity,
     KernelEventSource, KernelResult, KnowledgeRetrievalMethod, McpToolExecutionRequest,
-    McpToolExecutionResponse, McpToolExecutionService, MessageDeltaEvent, MessageStartEvent,
-    MessageStopEvent, ModelResponse, Plan, PolicySubject, ResultEvent, RetryConfig, RuntimeState,
+    McpToolExecutionResponse, McpToolExecutionService, MessageStartEvent, MessageStopEvent,
+    ModelResponse, ModelUsage, Plan, PolicySubject, ResultEvent, RetryConfig, RuntimeState,
     SessionInitEvent, ToolCall, ToolCallStartEvent, ToolCallStopEvent, ToolExecutionRequest,
     ToolExecutionResponse, ToolExecutionService, ToolResultEvent, TraceContext, UsageEvent,
 };
@@ -1018,6 +1018,8 @@ impl AgentExecutionService {
         let started_at = Instant::now();
         let session_id = request.session_id.clone();
         let stream_id = format!("execution.{}", request.execution_id);
+        // Multi-turn guard: bounded tool-use rounds per run.
+        const MAX_TURNS: u32 = 10;
 
         if let Some(session_id) = &session_id {
             sink.push_event(
@@ -1030,194 +1032,299 @@ impl AgentExecutionService {
             )?;
         }
 
-        let chat_response = match self.invoke_model_round(runtime, &request, started_at) {
-            Ok(chat_response) => chat_response,
-            Err(error) => {
-                sink.push_event(
-                    AgentStreamEvent::Error(
-                        ErrorEvent::new(
-                            format!("{}.error", request.execution_id),
-                            error.to_string(),
-                        )
-                        .with_code(error.kind().as_str())
-                        .with_stream_id(stream_id.clone()),
-                    )
-                    .with_session_id_optional(&session_id),
-                )?;
-                sink.push_event(
-                    AgentStreamEvent::Result(
-                        ResultEvent::new(format!("{}.result", request.execution_id))
-                            .with_run_id(request.run_id.clone().unwrap_or_default())
-                            .with_num_turns(1)
-                            .with_error(true)
-                            .with_result(error.to_string())
-                            .with_stream_id(stream_id.clone()),
-                    )
-                    .with_session_id_optional(&session_id),
-                )?;
-                return self.push_ended(sink, &request, &session_id, &stream_id);
-            }
-        };
-
-        let model_response = chat_response.model_response;
-        let message_id = model_response.model_request_id.clone();
-        let content = model_response.messages.join("\n");
-        let finish_reason = model_response
-            .finish_reason
-            .clone()
-            .or_else(|| Some(model_response.status.as_report_str().to_string()));
-
-        sink.push_event(
-            AgentStreamEvent::MessageStart(
-                MessageStartEvent::new(
-                    format!("{}.message.start", request.execution_id),
-                    message_id.clone(),
-                    AgentMessageRole::Agent,
-                )
-                .with_stream_id(stream_id.clone()),
-            )
-            .with_session_id_optional(&session_id),
-        )?;
-
-        if !content.is_empty() {
-            sink.push_event(
-                AgentStreamEvent::MessageDelta(
-                    MessageDeltaEvent::text(
-                        format!("{}.message.delta", request.execution_id),
-                        message_id.clone(),
-                        content.clone(),
-                    )
-                    .with_stream_id(stream_id.clone()),
-                )
-                .with_session_id_optional(&session_id),
-            )?;
-        }
-
-        for tool_call in &model_response.tool_calls {
-            sink.push_event(
-                AgentStreamEvent::ToolCallStart(
-                    ToolCallStartEvent::new(
-                        format!(
-                            "{}.tool.start.{}",
-                            request.execution_id, tool_call.tool_call_id
-                        ),
-                        tool_call.tool_call_id.clone(),
-                        tool_call.tool_id.clone(),
-                    )
-                    .with_message(message_id.clone())
-                    .with_stream_id(stream_id.clone()),
-                )
-                .with_session_id_optional(&session_id),
-            )?;
-            sink.push_event(
-                AgentStreamEvent::ToolCallStop(
-                    ToolCallStopEvent::new(
-                        format!(
-                            "{}.tool.stop.{}",
-                            request.execution_id, tool_call.tool_call_id
-                        ),
-                        tool_call.tool_call_id.clone(),
-                        tool_call.tool_id.clone(),
-                        tool_call.arguments.clone(),
-                    )
-                    .with_stream_id(stream_id.clone()),
-                )
-                .with_session_id_optional(&session_id),
-            )?;
-        }
-
-        sink.push_event(
-            AgentStreamEvent::MessageStop(
-                MessageStopEvent::new(
-                    format!("{}.message.stop", request.execution_id),
-                    message_id.clone(),
-                )
-                .with_content(content.clone())
-                .with_finish_reason(finish_reason.unwrap_or_default())
-                .with_stream_id(stream_id.clone()),
-            )
-            .with_session_id_optional(&session_id),
-        )?;
-
+        let mut num_turns: u32 = 0;
+        let mut history: Vec<AgentMessage> = Vec::new();
+        let mut aggregate_usage: Option<ModelUsage> = None;
+        let mut model_id_used: Option<String> = None;
         let mut tool_failed = false;
-        for (index, tool_call) in model_response.tool_calls.iter().cloned().enumerate() {
-            if let Err(error) = self.phase_check(&request, started_at) {
-                tool_failed = true;
+        let mut final_content = String::new();
+        let mut stop_reason = "completed".to_string();
+
+        loop {
+            num_turns += 1;
+            if num_turns > MAX_TURNS {
                 sink.push_event(
-                    AgentStreamEvent::ToolResult(
-                        ToolResultEvent::new(
-                            format!("{}.tool.result.{}", request.execution_id, index + 1),
-                            format!("tool.{}", index + 1),
-                            tool_call.tool_id,
-                            error.to_string(),
-                            crate::ToolCallStatus::Cancelled,
+                    AgentStreamEvent::Status(
+                        crate::StatusEvent::warn(
+                            format!("{}.status.turns", request.execution_id),
+                            format!("max turns ({MAX_TURNS}) exceeded; stopping"),
                         )
-                        .with_error(true)
                         .with_stream_id(stream_id.clone()),
                     )
                     .with_session_id_optional(&session_id),
                 )?;
+                stop_reason = "max_turns".to_string();
                 break;
             }
-            let result_event = match self.execute_tool_call(runtime, &request, tool_call, index + 1)
-            {
-                Ok(ExecutedToolCall::Tool(tool_execution)) => {
-                    let result = tool_execution.result;
-                    let failed = result.normalized_status != crate::ToolCallStatus::Succeeded;
-                    tool_failed |= failed;
-                    ToolResultEvent::new(
-                        format!(
-                            "{}.tool.result.{}",
-                            request.execution_id, result.tool_call_id
-                        ),
-                        result.tool_call_id,
-                        tool_execution.descriptor.tool_id,
-                        result.error.clone().unwrap_or(result.output.clone()),
-                        result.normalized_status,
-                    )
-                    .with_error(failed)
-                    .with_duration_ms(result.duration_ms.unwrap_or(0))
-                }
-                Ok(ExecutedToolCall::Mcp(mcp_tool_execution)) => {
-                    let result = mcp_tool_execution.result;
-                    let failed = result.normalized_status != crate::ToolCallStatus::Succeeded;
-                    tool_failed |= failed;
-                    ToolResultEvent::new(
-                        format!(
-                            "{}.tool.result.{}",
-                            request.execution_id, result.tool_call_id
-                        ),
-                        result.tool_call_id,
-                        mcp_tool_execution.descriptor.tool_id,
-                        result.error.clone().unwrap_or(result.output.clone()),
-                        result.normalized_status,
-                    )
-                    .with_error(failed)
-                    .with_duration_ms(result.duration_ms.unwrap_or(0))
-                }
+
+            let chat_response = match self.invoke_model_round_with_history(
+                runtime,
+                &request,
+                started_at,
+                history.clone(),
+            ) {
+                Ok(chat_response) => chat_response,
                 Err(error) => {
+                    sink.push_event(
+                        AgentStreamEvent::Error(
+                            ErrorEvent::new(
+                                format!("{}.error", request.execution_id),
+                                error.to_string(),
+                            )
+                            .with_code(error.kind().as_str())
+                            .with_stream_id(stream_id.clone()),
+                        )
+                        .with_session_id_optional(&session_id),
+                    )?;
                     tool_failed = true;
-                    ToolResultEvent::new(
-                        format!(
-                            "{}.tool.result.{}",
-                            request.execution_id,
-                            error.kind().as_str()
-                        ),
-                        format!("tool.{}", index + 1),
-                        "unknown",
-                        error.to_string(),
-                        crate::ToolCallStatus::Failed,
-                    )
-                    .with_error(true)
+                    final_content = error.to_string();
+                    stop_reason = error.kind().as_str().to_string();
+                    break;
                 }
             };
+
+            let model_response = chat_response.model_response;
+            let message_id = model_response.model_request_id.clone();
+            let content = model_response.messages.join("\n");
+            if model_id_used.is_none() {
+                model_id_used = model_response.model_id.clone();
+            }
+            final_content = content.clone();
+            stop_reason = model_response
+                .finish_reason
+                .clone()
+                .unwrap_or_else(|| model_response.status.as_report_str().to_string());
+
+            // Aggregate usage across turns for the terminal result.
+            if let Some(usage) = &model_response.usage {
+                aggregate_usage = Some(match aggregate_usage {
+                    Some(aggregate) => ModelUsage {
+                        input_tokens: aggregate.input_tokens + usage.input_tokens,
+                        output_tokens: aggregate.output_tokens + usage.output_tokens,
+                        cached_input_tokens: aggregate.cached_input_tokens
+                            + usage.cached_input_tokens,
+                        reasoning_tokens: aggregate.reasoning_tokens + usage.reasoning_tokens,
+                        duration_ms: usage.duration_ms.or(aggregate.duration_ms),
+                    },
+                    None => usage.clone(),
+                });
+            }
+
             sink.push_event(
-                AgentStreamEvent::ToolResult(result_event.with_stream_id(stream_id.clone()))
-                    .with_session_id_optional(&session_id),
+                AgentStreamEvent::MessageStart(
+                    MessageStartEvent::new(
+                        format!("{}.message.start.{}", request.execution_id, num_turns),
+                        message_id.clone(),
+                        AgentMessageRole::Agent,
+                    )
+                    .with_stream_id(stream_id.clone()),
+                )
+                .with_session_id_optional(&session_id),
             )?;
+
+            if !content.is_empty() {
+                sink.push_event(
+                    AgentStreamEvent::MessageDelta(
+                        crate::MessageDeltaEvent::text(
+                            format!("{}.message.delta.{}", request.execution_id, num_turns),
+                            message_id.clone(),
+                            content.clone(),
+                        )
+                        .with_stream_id(stream_id.clone()),
+                    )
+                    .with_session_id_optional(&session_id),
+                )?;
+            }
+
+            for tool_call in &model_response.tool_calls {
+                sink.push_event(
+                    AgentStreamEvent::ToolCallStart(
+                        ToolCallStartEvent::new(
+                            format!(
+                                "{}.tool.start.{}.{}",
+                                request.execution_id, num_turns, tool_call.tool_call_id
+                            ),
+                            tool_call.tool_call_id.clone(),
+                            tool_call.tool_id.clone(),
+                        )
+                        .with_message(message_id.clone())
+                        .with_stream_id(stream_id.clone()),
+                    )
+                    .with_session_id_optional(&session_id),
+                )?;
+                sink.push_event(
+                    AgentStreamEvent::ToolCallStop(
+                        ToolCallStopEvent::new(
+                            format!(
+                                "{}.tool.stop.{}.{}",
+                                request.execution_id, num_turns, tool_call.tool_call_id
+                            ),
+                            tool_call.tool_call_id.clone(),
+                            tool_call.tool_id.clone(),
+                            tool_call.arguments.clone(),
+                        )
+                        .with_stream_id(stream_id.clone()),
+                    )
+                    .with_session_id_optional(&session_id),
+                )?;
+            }
+
+            sink.push_event(
+                AgentStreamEvent::MessageStop(
+                    MessageStopEvent::new(
+                        format!("{}.message.stop.{}", request.execution_id, num_turns),
+                        message_id.clone(),
+                    )
+                    .with_content(content.clone())
+                    .with_finish_reason(stop_reason.clone())
+                    .with_stream_id(stream_id.clone()),
+                )
+                .with_session_id_optional(&session_id),
+            )?;
+
+            // Execute this round's tool calls and record results into the
+            // history so the next model round observes them.
+            let mut tool_results: Vec<(String, String)> = Vec::new();
+            for (index, tool_call) in model_response.tool_calls.iter().cloned().enumerate() {
+                if let Err(error) = self.phase_check(&request, started_at) {
+                    tool_failed = true;
+                    sink.push_event(
+                        AgentStreamEvent::ToolResult(
+                            ToolResultEvent::new(
+                                format!("{}.tool.result.{}", request.execution_id, index + 1),
+                                format!("tool.{}", index + 1),
+                                tool_call.tool_id,
+                                error.to_string(),
+                                crate::ToolCallStatus::Cancelled,
+                            )
+                            .with_error(true)
+                            .with_stream_id(stream_id.clone()),
+                        )
+                        .with_session_id_optional(&session_id),
+                    )?;
+                    tool_results.push((tool_call.tool_call_id, format!("cancelled: {error}")));
+                    continue;
+                }
+                let result_event =
+                    match self.execute_tool_call(runtime, &request, tool_call.clone(), index + 1) {
+                        Ok(ExecutedToolCall::Tool(tool_execution)) => {
+                            let result = tool_execution.result;
+                            let failed =
+                                result.normalized_status != crate::ToolCallStatus::Succeeded;
+                            tool_failed |= failed;
+                            tool_results.push((
+                                result.tool_call_id.clone(),
+                                result.error.clone().unwrap_or(result.output.clone()),
+                            ));
+                            ToolResultEvent::new(
+                                format!(
+                                    "{}.tool.result.{}",
+                                    request.execution_id, result.tool_call_id
+                                ),
+                                result.tool_call_id,
+                                tool_execution.descriptor.tool_id,
+                                result.error.clone().unwrap_or(result.output.clone()),
+                                result.normalized_status,
+                            )
+                            .with_error(failed)
+                            .with_duration_ms(result.duration_ms.unwrap_or(0))
+                        }
+                        Ok(ExecutedToolCall::Mcp(mcp_tool_execution)) => {
+                            let result = mcp_tool_execution.result;
+                            let failed =
+                                result.normalized_status != crate::ToolCallStatus::Succeeded;
+                            tool_failed |= failed;
+                            tool_results.push((
+                                result.tool_call_id.clone(),
+                                result.error.clone().unwrap_or(result.output.clone()),
+                            ));
+                            ToolResultEvent::new(
+                                format!(
+                                    "{}.tool.result.{}",
+                                    request.execution_id, result.tool_call_id
+                                ),
+                                result.tool_call_id,
+                                mcp_tool_execution.descriptor.tool_id,
+                                result.error.clone().unwrap_or(result.output.clone()),
+                                result.normalized_status,
+                            )
+                            .with_error(failed)
+                            .with_duration_ms(result.duration_ms.unwrap_or(0))
+                        }
+                        Err(error) => {
+                            tool_failed = true;
+                            tool_results
+                                .push((tool_call.tool_call_id.clone(), format!("failed: {error}")));
+                            ToolResultEvent::new(
+                                format!(
+                                    "{}.tool.result.{}",
+                                    request.execution_id,
+                                    error.kind().as_str()
+                                ),
+                                tool_call.tool_call_id,
+                                tool_call.tool_id,
+                                error.to_string(),
+                                crate::ToolCallStatus::Failed,
+                            )
+                            .with_error(true)
+                        }
+                    };
+                sink.push_event(
+                    AgentStreamEvent::ToolResult(result_event.with_stream_id(stream_id.clone()))
+                        .with_session_id_optional(&session_id),
+                )?;
+            }
+
+            // Append this round to the history for the next model round.
+            if !model_response.tool_calls.is_empty() {
+                let mut assistant_parts = Vec::new();
+                if !content.is_empty() {
+                    assistant_parts.push(crate::AgentPart::text(
+                        format!("{message_id}.text"),
+                        content.clone(),
+                    ));
+                }
+                for tool_call in &model_response.tool_calls {
+                    assistant_parts.push(crate::AgentPart::tool_call_ref(
+                        format!("{message_id}.tool.{}", tool_call.tool_call_id),
+                        tool_call.tool_call_id.clone(),
+                    ));
+                }
+                let assistant_message =
+                    AgentMessage::new(message_id.clone(), AgentMessageRole::Agent, assistant_parts)
+                        .with_parent_message(
+                            history
+                                .last()
+                                .map(|m| m.message_id.clone())
+                                .unwrap_or_default(),
+                        );
+                history.push(assistant_message);
+                for (tool_call_id, output) in tool_results {
+                    history.push(
+                        AgentMessage::new(
+                            format!("{message_id}.tool-result.{tool_call_id}"),
+                            AgentMessageRole::Tool,
+                            vec![crate::AgentPart::text(
+                                format!("{message_id}.tool-result.{tool_call_id}.text"),
+                                output,
+                            )],
+                        )
+                        .with_parent_message(message_id.clone()),
+                    );
+                }
+            }
+
+            // A round without tool calls ends the loop; a non-succeeded
+            // model status also terminates.
+            if model_response.tool_calls.is_empty()
+                || model_response.status != crate::ModelStatus::Succeeded
+            {
+                break;
+            }
         }
 
-        let usage = model_response.usage.clone().map(|usage| {
+        // Terminal accounting: aggregated usage, cost, and result.
+        let usage_event = aggregate_usage.clone().map(|usage| {
             UsageEvent::new(
                 format!("{}.usage", request.execution_id),
                 usage.input_tokens,
@@ -1227,7 +1334,7 @@ impl AgentExecutionService {
             .with_reasoning_tokens(usage.reasoning_tokens)
             .with_stream_id(stream_id.clone())
         });
-        if let Some(usage) = &usage {
+        if let Some(usage) = &usage_event {
             sink.push_event(
                 AgentStreamEvent::Usage(usage.clone()).with_session_id_optional(&session_id),
             )?;
@@ -1235,10 +1342,9 @@ impl AgentExecutionService {
 
         // Cost accounting: derive cents from the runtime price table and
         // surface a CostEvent before the terminal result.
-        if let (Some(model_id), Some(model_usage)) = (
-            model_response.model_id.as_deref(),
-            model_response.usage.as_ref(),
-        ) {
+        if let (Some(model_id), Some(model_usage)) =
+            (model_id_used.as_deref(), aggregate_usage.as_ref())
+        {
             if let Some(estimate) = runtime.cost_calculator().estimate(model_id, model_usage) {
                 sink.push_event(
                     AgentStreamEvent::Cost(
@@ -1251,15 +1357,16 @@ impl AgentExecutionService {
             }
         }
 
-        let is_error = model_response.status != crate::ModelStatus::Succeeded || tool_failed;
         let mut result_event = ResultEvent::new(format!("{}.result", request.execution_id))
             .with_run_id(request.run_id.clone().unwrap_or_default())
-            .with_num_turns(1)
-            .with_error(is_error)
-            .with_result(content)
-            .with_stop_reason(model_response.status.as_report_str())
+            // The cap check fires before the next round is invoked, so the
+            // executed turn count is bounded by MAX_TURNS.
+            .with_num_turns(num_turns.min(MAX_TURNS))
+            .with_error(tool_failed)
+            .with_result(final_content)
+            .with_stop_reason(stop_reason)
             .with_stream_id(stream_id.clone());
-        if let Some(usage) = &usage {
+        if let Some(usage) = &usage_event {
             result_event = result_event.with_usage(usage.clone());
         }
         sink.push_event(
@@ -1311,6 +1418,38 @@ impl AgentExecutionService {
             }
         }
         Ok(())
+    }
+
+    /// Invoke the model round with explicit message history (multi-turn
+    /// tool-use loop); the history carries prior assistant and tool-result
+    /// messages so the provider observes the full conversation.
+    fn invoke_model_round_with_history(
+        &self,
+        runtime: &AgentRuntime,
+        request: &AgentExecutionRequest,
+        started_at: Instant,
+        history: Vec<AgentMessage>,
+    ) -> KernelResult<AgentChatResponse> {
+        self.phase_check(request, started_at)?;
+        let mut chat_request = request.to_chat_request();
+        if !history.is_empty() {
+            chat_request = chat_request.with_input_messages(history);
+        }
+        match &request.retry {
+            Some(config) => {
+                let result = execute_with_retry::<AgentChatResponse, KernelError, _>(
+                    config.clone(),
+                    None,
+                    true,
+                    request
+                        .deadline_ms
+                        .map(|ms| started_at + Duration::from_millis(ms)),
+                    || AgentChatService::new().invoke(runtime, chat_request.clone()),
+                )?;
+                Ok(result.value)
+            }
+            None => AgentChatService::new().invoke(runtime, chat_request),
+        }
     }
 
     /// Invoke the model round, optionally wrapping the chat invocation in

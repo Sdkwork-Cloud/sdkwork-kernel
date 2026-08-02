@@ -150,6 +150,16 @@ impl KernelError {
         }
     }
 
+    /// Structured not-found marker for resources that do not exist.
+    ///
+    /// The `sdkwork.not_found` detail lets HTTP adapters map the error to a
+    /// 404 status without parsing message text; the kind stays
+    /// [`KernelErrorKind::ValidationError`] so existing consumers are
+    /// unaffected.
+    pub fn not_found(message: impl Into<String>) -> Self {
+        Self::validation(message).with_detail("sdkwork.not_found", "true")
+    }
+
     pub fn provider_error(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self::structured(KernelErrorKind::ProviderError, code, message)
             .from_source(KernelErrorSource::Provider)

@@ -780,8 +780,208 @@ export function createOpencodeClient(options = {}) {
 `,
   'utf8',
 );
-fs.mkdirSync(codexSdkMirror, { recursive: true });
+const opencodeDurableMirror = path.join(tempRoot, 'opencode-durable-sdk');
+const opencodeDurableCapturePath = path.join(tempRoot, 'opencode-durable-capture.json');
+fs.mkdirSync(opencodeDurableMirror, { recursive: true });
 fs.writeFileSync(
+  path.join(opencodeDurableMirror, 'package.json'),
+  JSON.stringify({
+    type: 'module',
+    name: '@opencode-ai/sdk',
+    version: '0.0.0-test',
+    exports: { '.': './index.js', './v2': './v2.js' },
+  }),
+  'utf8',
+);
+fs.writeFileSync(
+  path.join(opencodeDurableMirror, 'v2.js'),
+  `import fs from 'node:fs';
+
+const capturePath = ${JSON.stringify(opencodeDurableCapturePath)};
+
+function capture(record) {
+  fs.writeFileSync(capturePath, JSON.stringify(record), 'utf8');
+}
+
+export async function createOpencodeServer(options = {}) {
+  return {
+    url: 'http://127.0.0.1:4097',
+    async close() {},
+    signal_present: Boolean(options.signal),
+  };
+}
+
+export function createOpencodeClient(options = {}) {
+  const record = { client_options: { base_url: options.baseUrl, directory: options.directory } };
+  let activeSessionId = null;
+  let submittedPrompt = null;
+  let resolvePrompt;
+  const promptReady = new Promise((resolve) => { resolvePrompt = resolve; });
+  capture(record);
+  return {
+    session: {
+      create: async (parameters = {}, { signal } = {}) => {
+        record.session_create = { parameters, signal_present: Boolean(signal) };
+        activeSessionId = 'opencode-durable-created';
+        capture(record);
+        return { data: { id: activeSessionId } };
+      },
+      get: async (parameters = {}, { signal } = {}) => {
+        record.session_get = { parameters, signal_present: Boolean(signal) };
+        activeSessionId = parameters.sessionID === 'opencode-durable-mismatch-request'
+          ? 'opencode-durable-different'
+          : parameters.sessionID;
+        capture(record);
+        return { data: { id: activeSessionId } };
+      },
+      update: async (parameters = {}, { signal } = {}) => {
+        record.session_update = { parameters, signal_present: Boolean(signal) };
+        capture(record);
+        return { data: { id: parameters.sessionID } };
+      },
+      // The legacy prompt/subscribe routes are intentionally absent so that a
+      // v1 fallback cannot satisfy this mirror: only the durable v2 surface
+      // (session.prompt + event.subscribe under v2) may be used.
+    },
+    v2: {
+      session: {
+        prompt: async (parameters = {}, { signal } = {}) => {
+          record.session_prompt_v2 = { parameters, signal_present: Boolean(signal) };
+          activeSessionId = parameters.sessionID;
+          submittedPrompt = parameters.prompt?.text;
+          resolvePrompt();
+          capture(record);
+          return {
+            data: {
+              admittedSeq: 41,
+              id: parameters.id,
+              sessionID: parameters.sessionID,
+              prompt: { text: submittedPrompt },
+              delivery: parameters.delivery,
+              timeCreated: Date.now(),
+            },
+          };
+        },
+      },
+      event: {
+        subscribe: async (parameters = {}, { signal } = {}) => {
+          record.event_subscribe_v2 = { parameters, signal_present: Boolean(signal) };
+          capture(record);
+          return {
+            stream: (async function* () {
+              await promptReady;
+              const messageID = 'opencode-durable-assistant-1';
+              yield {
+                id: 'evt-1',
+                type: 'session.status',
+                data: { sessionID: activeSessionId, status: { type: 'busy' } },
+              };
+              yield {
+                id: 'evt-2',
+                type: 'message.updated',
+                data: {
+                  sessionID: activeSessionId,
+                  info: {
+                    id: messageID,
+                    sessionID: activeSessionId,
+                    role: 'assistant',
+                    time: { created: Date.now() },
+                  },
+                },
+              };
+              yield {
+                id: 'evt-3',
+                type: 'message.part.updated',
+                data: {
+                  sessionID: activeSessionId,
+                  part: {
+                    id: 'opencode-durable-text-1',
+                    sessionID: activeSessionId,
+                    messageID,
+                    type: 'text',
+                    text: 'opencode durable:',
+                  },
+                  time: Date.now(),
+                },
+              };
+              yield {
+                id: 'evt-4',
+                type: 'message.part.updated',
+                data: {
+                  sessionID: activeSessionId,
+                  part: {
+                    id: 'opencode-durable-text-1',
+                    sessionID: activeSessionId,
+                    messageID,
+                    type: 'text',
+                    text: 'opencode durable:' + submittedPrompt,
+                  },
+                  time: Date.now(),
+                },
+              };
+              yield {
+                id: 'evt-5',
+                type: 'message.part.updated',
+                data: {
+                  sessionID: activeSessionId,
+                  part: {
+                    id: 'opencode-durable-reasoning-1',
+                    sessionID: activeSessionId,
+                    messageID,
+                    type: 'reasoning',
+                    text: 'Inspect durable events',
+                    time: { start: Date.now(), end: Date.now() },
+                  },
+                  time: Date.now(),
+                },
+              };
+              // Sync bridge envelope: the versioned type suffix and the
+              // syncEvent wrapper must be normalized to the plain event.
+              yield {
+                id: 'evt-6',
+                type: 'sync',
+                syncEvent: {
+                  type: 'session.status.1',
+                  id: 'evt-6-inner',
+                  seq: 1,
+                  aggregateID: 'session-agg-1',
+                  data: {
+                    sessionID: activeSessionId,
+                    status: { type: 'busy' },
+                  },
+                },
+              };
+              yield {
+                id: 'evt-7',
+                type: 'session.idle',
+                data: { sessionID: activeSessionId, idleAt: Date.now(), lastSeq: 42 },
+              };
+              yield {
+                id: 'evt-8',
+                type: 'message.part.updated',
+                data: {
+                  sessionID: activeSessionId,
+                  part: {
+                    id: 'post-terminal',
+                    sessionID: activeSessionId,
+                    messageID,
+                    type: 'text',
+                    text: 'must not be emitted',
+                  },
+                  time: Date.now(),
+                },
+              };
+            })(),
+          };
+        },
+      },
+    },
+  };
+}
+`,
+  'utf8',
+);
+fs.mkdirSync(codexSdkMirror, { recursive: true });fs.writeFileSync(
   path.join(codexSdkMirror, 'package.json'),
   JSON.stringify({
     type: 'module',
@@ -1539,6 +1739,125 @@ await assert.rejects(
 );
 assert.deepEqual(mismatchedOpencodeActivity, []);
 
+process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
+  '@opencode-ai/sdk': opencodeDurableMirror,
+});
+const durableOpencodeResult = await invokeModelChatLive('@opencode-ai/sdk', {
+  model_request_id: 'req-opencode-durable',
+  session_id: 'session-canonical-opencode-durable',
+  working_directory: 'C:/sdkwork/opencode-workspace',
+  timeout_ms: 2_000,
+  messages: ['OpenCode durable prompt'],
+});
+assert.equal(durableOpencodeResult.provider_session_id, 'opencode-durable-created');
+assert.equal(durableOpencodeResult[VERIFIED_PROVIDER_SESSION_ID], true);
+assert.deepEqual(
+  durableOpencodeResult.messages,
+  ['opencode durable:OpenCode durable prompt'],
+  'Durable v2 turns must assemble assistant text from the event stream',
+);
+const durableOpencodeCapture = JSON.parse(
+  fs.readFileSync(opencodeDurableCapturePath, 'utf8'),
+);
+assert.deepEqual(durableOpencodeCapture.session_prompt_v2, {
+  parameters: {
+    sessionID: 'opencode-durable-created',
+    id: 'msg_req-opencode-durable',
+    prompt: { text: 'OpenCode durable prompt' },
+    delivery: 'steer',
+    resume: true,
+  },
+  signal_present: true,
+});
+assert.deepEqual(durableOpencodeCapture.event_subscribe_v2, {
+  parameters: {},
+  signal_present: true,
+});
+assert.equal(
+  Object.hasOwn(durableOpencodeCapture, 'session_prompt'),
+  false,
+  'Durable opencode turns must use the v2 prompt route, not the legacy one.',
+);
+assert.equal(
+  Object.hasOwn(durableOpencodeCapture, 'event_subscribe'),
+  false,
+  'Durable opencode turns must use the v2 event route, not the legacy one.',
+);
+
+const durableOpencodeStreamChunks = [];
+const durableOpencodeStreamEvents = [];
+const durableOpencodeStreamResult = await invokeModelChatStreamLive(
+  '@opencode-ai/sdk',
+  {
+    model_request_id: 'req-opencode-durable-stream',
+    session_id: 'session-canonical-opencode-durable-stream',
+    turn_id: 'turn-canonical-opencode-durable-stream',
+    messages: ['OpenCode durable streamed'],
+    timeout_ms: 2_000,
+  },
+  {
+    onChunk: async (chunk) => durableOpencodeStreamChunks.push(chunk),
+    onEvent: async (event) => durableOpencodeStreamEvents.push(event),
+  },
+);
+assert.equal(durableOpencodeStreamResult.provider_session_id, 'opencode-durable-created');
+assert.deepEqual(durableOpencodeStreamResult.chunks, []);
+assert.deepEqual(durableOpencodeStreamChunks, [
+  { sequence: 0, content: 'opencode durable:' },
+  { sequence: 1, content: 'OpenCode durable streamed' },
+]);
+assert.equal(durableOpencodeStreamEvents[0].event_type, 'agent.turn.started');
+assert.equal(durableOpencodeStreamEvents.at(-1).event_type, 'agent.turn.completed');
+assert.ok(
+  durableOpencodeStreamEvents.some((event) => event.event_type === 'agent.reasoning.completed'),
+);
+assert.equal(
+  durableOpencodeStreamEvents.some((event) => (
+    event.payload.rawProviderPayload?.data?.part?.id === 'post-terminal'
+  )),
+  false,
+  'Durable opencode streams must stop consuming events at session.idle',
+);
+assert.ok(
+  durableOpencodeStreamEvents.some((event) => (
+    event.payload.rawProviderPayload?.id === 'evt-6-inner'
+    && event.payload.rawProviderPayload?.type === 'session.status'
+  )),
+  'Durable sync envelopes must be unwrapped to the plain event type',
+);
+
+const durableOpencodeResumeResult = await invokeModelChatLive(
+  '@opencode-ai/sdk',
+  {
+    model_request_id: 'req-opencode-durable-resume',
+    session_id: 'session-canonical-opencode-durable-resume',
+    provider_session_id: 'opencode-durable-existing',
+    messages: ['Resume durable'],
+  },
+);
+assert.equal(durableOpencodeResumeResult.provider_session_id, 'opencode-durable-existing');
+assert.equal(durableOpencodeResumeResult[VERIFIED_PROVIDER_SESSION_ID], true);
+const durableOpencodeResumeCapture = JSON.parse(
+  fs.readFileSync(opencodeDurableCapturePath, 'utf8'),
+);
+assert.equal(
+  Object.hasOwn(durableOpencodeResumeCapture, 'session_create'),
+  false,
+  'Durable opencode resume must not create another provider session.',
+);
+assert.equal(
+  durableOpencodeResumeCapture.session_prompt_v2.parameters.sessionID,
+  'opencode-durable-existing',
+);
+assert.equal(
+  durableOpencodeResumeCapture.session_prompt_v2.parameters.resume,
+  true,
+  'Durable resume turns must wake the session agent loop.',
+);
+
+process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
+  '@opencode-ai/sdk': opencodeSdkMirror,
+});
 process.env.OPENCODE_SERVER_URL = 'http://127.0.0.1:4096';
 const opencodeSessions = await invokeSessionDiscoveryRuntime('@opencode-ai/sdk', {
   operation: 'session_list',

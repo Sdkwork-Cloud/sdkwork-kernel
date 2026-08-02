@@ -3266,7 +3266,9 @@ async function invokeOpencodeClient(
           id: buildOpencodeV2PromptId(operation),
           prompt: { text: buildOpencodeV2PromptText(operation) },
           delivery: 'steer',
-          resume: Boolean(requestedProviderSessionId),
+          // `resume !== false` wakes the session agent loop; without it the
+          // input is only durably admitted and the turn never runs.
+          resume: true,
         },
         { signal },
       )
@@ -4515,6 +4517,7 @@ function cliEventProviderSessionId(packageName, event) {
     event?.session_id ??
     event?.sessionId ??
     event?.part?.sessionID ??
+    event?.data?.sessionID ??
     event?.properties?.sessionID
   );
 }

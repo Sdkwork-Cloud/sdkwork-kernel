@@ -76,6 +76,8 @@ test('binding schema exposes runtime operations as a reusable top-level definiti
 
   assert.deepEqual(schema.$defs.runtimeOperation.enum, [
     'ping',
+    'session_list',
+    'session_history',
     'session_create',
     'session_interrupt',
     'session_compact',
@@ -291,7 +293,7 @@ test('backend candidates must declare executable runtime operations', () => {
   );
 });
 
-test('rust native lifecycle bindings must not claim runtime session creation', () => {
+test('rust native lifecycle bindings must not claim unsupported runtime operations', () => {
   const manifest = {
     schema_version: '0.1.0',
     manifest_type: 'agent_provider_binding',
@@ -312,12 +314,13 @@ test('rust native lifecycle bindings must not claim runtime session creation', (
       {
         capability_id: 'sdk.session.lifecycle',
         required: true,
+        execution_scope: 'transport_runtime',
         backends: [
           {
             kind: 'rust_native',
             driver_id: 'driver.codex.session.lifecycle.rust',
             crate: 'codex-core',
-            runtime_operations: ['session_create']
+            runtime_operations: ['skill_invoke']
           }
         ]
       }
@@ -331,7 +334,7 @@ test('rust native lifecycle bindings must not claim runtime session creation', (
 
   assert.match(
     errors,
-    /rust_native backend driver\.codex\.session\.lifecycle\.rust must not declare unsupported runtime operation session_create/
+    /rust_native backend driver\.codex\.session\.lifecycle\.rust must not declare unsupported runtime operation skill_invoke/
   );
 });
 

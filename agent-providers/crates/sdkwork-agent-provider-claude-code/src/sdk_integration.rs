@@ -12,8 +12,9 @@ use sdkwork_agent_provider_spi::{
     bootstrap_binding, list_all_provider_sessions_from_runtime,
     load_all_provider_messages_from_runtime, AgentSdkBindingManifest, AgentSdkIntegration,
     BindingRegistry, DriverRegistry, ProviderSessionActivityRuntimeSink, SdkNegotiationError,
-    SdkRuntimeBackedModelProvider, SdkRuntimeMessageRecord, SdkRuntimeRequest, SdkRuntimeResponse,
-    SdkRuntimeRouter, SdkRuntimeSessionRecord, CLAUDE_CODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
+    SdkRuntimeBackedModelProvider, SdkRuntimeBackedSessionControlProvider, SdkRuntimeMessageRecord,
+    SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter, SdkRuntimeSessionRecord,
+    CLAUDE_CODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -36,6 +37,7 @@ pub struct ClaudeCodeSdkIntegration {
     pub runtime: Arc<SdkRuntimeRouter>,
     pub lifecycle: ClaudeCodeLifecycleProvider,
     pub model: SdkRuntimeBackedModelProvider,
+    pub session_control: SdkRuntimeBackedSessionControlProvider,
     pub session_adapter: ClaudeCodeAdapter,
     pub message_adapter: ClaudeMessageAdapter,
     activity: Arc<InMemoryProviderSessionActivityProvider>,
@@ -69,6 +71,10 @@ impl ClaudeCodeSdkIntegration {
             SDK_CAPABILITY_MODEL_CHAT,
             "provider.model.claude-code",
         );
+        let session_control = SdkRuntimeBackedSessionControlProvider::new(
+            runtime.clone(),
+            crate::ids::SESSION_CONTROL_PROVIDER_ID,
+        );
 
         Ok(Self {
             sdk: AgentSdkIntegration::new(negotiation),
@@ -76,6 +82,7 @@ impl ClaudeCodeSdkIntegration {
             runtime,
             lifecycle: ClaudeCodeLifecycleProvider::new(),
             model,
+            session_control,
             session_adapter: ClaudeCodeAdapter::new(),
             message_adapter: ClaudeMessageAdapter::new(),
             activity,

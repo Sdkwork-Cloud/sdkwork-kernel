@@ -39,6 +39,10 @@ export const VERIFIED_PROVIDER_SESSION_ID = Symbol('sdkwork.verifiedProviderSess
 
 const pendingSdkInteractions = new Map();
 
+// In-flight Claude turns keyed by model_request_id. The in-process
+// session-control channel aborts the matching query for session_interrupt.
+const claudeActiveTurns = new Map();
+
 function providerInteractionKey(modelRequestId, providerRequestId) {
   const requestType = typeof providerRequestId;
   if (
@@ -1433,6 +1437,10 @@ async function invokeClaudeModelChat(
       ? createProviderStreamEmitter('claude-code', operation, streamOptions)
       : null;
     const sessionState = { providerSessionId: requestedProviderSessionId };
+    // Register the in-flight turn so the in-process session-control channel
+    // (`sdkwork/session.control` -> session_interrupt) can abort the query.
+    const turnHandle = { abortController, providerSessionId: null };
+    claudeActiveTurns.set(operation.model_request_id, turnHandle);
     const options = {
       cwd: resolveProviderWorkingDirectory(operation),
       abortController,
@@ -1463,6 +1471,7 @@ async function invokeClaudeModelChat(
             requestedProviderSessionId,
           );
           sessionState.providerSessionId = providerSessionId;
+          turnHandle.providerSessionId = providerSessionId;
           await activity.establish(providerSessionId);
         }
         if (event?.type === 'assistant' || event?.type === 'tool_use') {
@@ -1519,6 +1528,7 @@ async function invokeClaudeModelChat(
       });
       return stream ? { ...result, chunks: stream.chunks } : result;
     } finally {
+      claudeActiveTurns.delete(operation.model_request_id);
       clearPendingSdkInteractions(
         operation.model_request_id,
         'Claude turn ended before the interaction was resolved',
@@ -2757,6 +2767,9 @@ export async function invokeSessionControlRuntime(packageName, operation) {
   if (isCodexPackage(packageName)) {
     return controlCodexAppServerSession(operation);
   }
+  if (packageName === '@anthropic-ai/claude-agent-sdk') {
+    return controlClaudeSdkSession(operation);
+  }
   if (packageName !== '@opencode-ai/sdk') {
     throw new Error(`no live session control handler for package ${packageName}`);
   }
@@ -2908,6 +2921,82 @@ async function invokeOpencodeV2Control(method, providerSessionId, signal, action
   if (error) {
     throw new Error(`opencode v2 session.${action} failed: ${error}`);
   }
+}
+
+const CLAUDE_SESSION_CONTROL_OPERATIONS = new Set([
+  'session_interrupt',
+  'session_fork',
+]);
+
+async function controlClaudeSdkSession(operation) {
+  const operationName = requiredOperationString(operation?.operation, 'operation');
+  if (!CLAUDE_SESSION_CONTROL_OPERATIONS.has(operationName)) {
+    throw new Error(`unsupported Claude session control operation: ${operationName}`);
+  }
+  const controlRequestId = requiredOperationString(
+    operation.control_request_id,
+    'control_request_id',
+  );
+  const sessionId = requiredOperationString(operation.session_id, 'session_id');
+  const providerSessionId = requiredOperationString(
+    operation.provider_session_id,
+    'provider_session_id',
+  );
+  const policyDecisionId = requiredOperationString(
+    operation.policy_decision_id,
+    'policy_decision_id',
+  );
+  const result = {
+    ok: true,
+    mode: 'sdk_live',
+    package: '@anthropic-ai/claude-agent-sdk',
+    operation: operationName,
+    control_request_id: controlRequestId,
+    session_id: sessionId,
+    provider_session_id: providerSessionId,
+    policy_decision_id: policyDecisionId,
+  };
+
+  if (operationName === 'session_interrupt') {
+    const modelRequestId = optionalOperationString(
+      operation.model_request_id,
+      'model_request_id',
+    );
+    const turn = modelRequestId ? claudeActiveTurns.get(modelRequestId) : null;
+    if (!turn) {
+      // No active turn for this request: the official SDK exposes no idle
+      // session interrupt, so the control is a no-op rather than an error.
+      return { ...result, status: 'no_op' };
+    }
+    if (turn.providerSessionId && turn.providerSessionId !== providerSessionId) {
+      throw new Error('Claude session interrupt targets a different provider session');
+    }
+    turn.abortController.abort();
+    return { ...result, status: 'applied' };
+  }
+
+  // session_fork through the official SDK session mutation API.
+  const moduleNamespace = await loadPackage('@anthropic-ai/claude-agent-sdk');
+  if (typeof moduleNamespace.forkSession !== 'function') {
+    throw new Error('claude agent sdk is missing forkSession()');
+  }
+  const beforeMessageId = optionalOperationString(
+    operation.before_message_id,
+    'before_message_id',
+  );
+  const forked = await moduleNamespace.forkSession(providerSessionId, {
+    cwd: resolveProviderWorkingDirectory(operation),
+    ...(beforeMessageId ? { upToMessageId: beforeMessageId } : {}),
+  });
+  const forkedProviderSessionId = requiredProviderString(
+    'claude agent sdk',
+    forked?.sessionId,
+    'forked session id',
+  );
+  if (forkedProviderSessionId === providerSessionId) {
+    throw new Error('claude agent sdk forkSession returned the source provider session id');
+  }
+  return { ...result, forked_provider_session_id: forkedProviderSessionId, status: 'applied' };
 }
 
 function resolveProviderWorkingDirectory(operation) {

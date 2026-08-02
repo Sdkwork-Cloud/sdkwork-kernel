@@ -56,6 +56,19 @@
           "package": "@anthropic-ai/claude-agent-sdk"
         }
       ]
+    },
+    {
+      "capability_id": "sdk.session.control",
+      "required": false,
+      "execution_scope": "transport_runtime",
+      "backends": [
+        {
+          "kind": "typescript_node",
+          "driver_id": "driver.claude-code.session.control.ts",
+          "runtime_operations": ["ping", "session_interrupt", "session_fork"],
+          "package": "@anthropic-ai/claude-agent-sdk"
+        }
+      ]
     }
   ],
   "integration_sources": [

@@ -1912,7 +1912,14 @@ async function invokeOpencodeModelChat(
   activity,
   streamOptions = null,
 ) {
-  const moduleNamespace = await loadPackageExport(packageName, './v2');
+  // Prefer the official v2 surface (durable `/api/...` routes); fall back to
+  // the package root for SDK versions that do not ship the `./v2` export.
+  let moduleNamespace;
+  try {
+    moduleNamespace = await loadPackageExport(packageName, './v2');
+  } catch {
+    moduleNamespace = await loadPackage(packageName);
+  }
 
   return runProviderOperation(operation, 'opencode_sdk', async (abortController) => {
     const workingDirectory = resolveProviderWorkingDirectory(operation);
@@ -2956,7 +2963,7 @@ function extractClaudeAssistantText(event) {
 }
 
 function opencodeInteractionFromEvent(event, operation, sessionId) {
-  const properties = event?.properties ?? {};
+  const properties = opencodeEventData(event);
   const providerRequestId = requiredProviderString(
     'opencode sdk',
     properties.id,
@@ -3038,7 +3045,7 @@ function compileOpencodeInteractionResolution(interaction, event, resolution) {
   if (!interaction.allowedActions.includes(action)) {
     throw new Error(`unsupported OpenCode interaction action: ${action}`);
   }
-  const properties = event?.properties ?? {};
+  const properties = opencodeEventData(event);
   if (interaction.kind === 'question_set') {
     if (action === 'cancel') {
       return { reject: true };
@@ -3074,7 +3081,7 @@ async function sendOpencodeInteractionResolution(
   interaction,
   response,
 ) {
-  const properties = event?.properties ?? {};
+  const properties = opencodeEventData(event);
   const providerRequestId = interaction.correlation.providerRequestId;
   let result;
   if (interaction.kind === 'question_set') {
@@ -3203,7 +3210,15 @@ async function invokeOpencodeClient(
   activity,
   streamOptions = null,
 ) {
-  if (!client?.session?.prompt || !client?.session?.create || !client?.event?.subscribe) {
+  // Prefer the durable v2 surface (`/api/session/{id}/prompt` + `/api/event`)
+  // when the SDK ships it; fall back to the legacy v1 routes.
+  const v2Durable = Boolean(
+    client?.v2?.session?.prompt && client?.v2?.event?.subscribe,
+  );
+  if (
+    !client?.session?.create
+    || (!v2Durable && (!client?.session?.prompt || !client?.event?.subscribe))
+  ) {
     throw new Error(
       'opencode sdk client is missing session.create/session.prompt/event.subscribe',
     );
@@ -3226,7 +3241,9 @@ async function invokeOpencodeClient(
   const stream = streamOptions
     ? createProviderStreamEmitter('opencode', operation, streamOptions)
     : null;
-  const subscription = await client.event.subscribe({}, { signal });
+  const subscription = v2Durable
+    ? await client.v2.event.subscribe({}, { signal })
+    : await client.event.subscribe({}, { signal });
   if (!subscription?.stream || typeof subscription.stream[Symbol.asyncIterator] !== 'function') {
     throw new Error('opencode event.subscribe() returned an invalid event stream');
   }
@@ -3242,18 +3259,27 @@ async function invokeOpencodeClient(
     subscription.stream,
     eventProjection,
   );
-  let response;
-  try {
-    [response] = await Promise.all([
-      client.session.prompt(
+  const promptRequest = v2Durable
+    ? client.v2.session.prompt(
+        {
+          sessionID: sessionId,
+          id: buildOpencodeV2PromptId(operation),
+          prompt: { text: buildOpencodeV2PromptText(operation) },
+          delivery: 'steer',
+          resume: Boolean(requestedProviderSessionId),
+        },
+        { signal },
+      )
+    : client.session.prompt(
         {
           sessionID: sessionId,
           ...buildOpencodePromptBody(operation),
         },
         { signal },
-      ),
-      eventCompletion,
-    ]);
+      );
+  let response;
+  try {
+    [response] = await Promise.all([promptRequest, eventCompletion]);
   } finally {
     await subscription.stream.return?.();
     clearPendingSdkInteractions(
@@ -3268,9 +3294,10 @@ async function invokeOpencodeClient(
   await eventProjection.includeResponse(response, sessionId);
   await eventProjection.complete(sessionId);
   const text =
-    extractTextParts(response?.data?.parts) ||
-    extractTextParts(response?.parts) ||
-    String(response?.data?.content ?? response?.content ?? '');
+    extractTextParts(response?.data?.parts)
+    || extractTextParts(response?.parts)
+    || String(response?.data?.content ?? response?.content ?? '')
+    || eventProjection.assistantText();
   if (!text.trim()) {
     throw new Error('opencode session.prompt completed without assistant content');
   }
@@ -3280,6 +3307,25 @@ async function invokeOpencodeClient(
     [VERIFIED_PROVIDER_SESSION_ID]: true,
   });
   return stream ? { ...result, chunks: stream.chunks } : result;
+}
+
+function buildOpencodeV2PromptId(operation) {
+  const requestId = optionalOperationString(operation.model_request_id, 'model_request_id');
+  const suffix = requestId
+    ? requestId.replace(/[^A-Za-z0-9_-]/gu, '-')
+    : `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return suffix.startsWith('msg_') ? suffix : `msg_${suffix}`;
+}
+
+function buildOpencodeV2PromptText(operation) {
+  return resolveOpencodePromptParts(operation)
+    .map((part) => {
+      if (part?.type === 'text' && typeof part.text === 'string') {
+        return part.text;
+      }
+      return part?.url ? `[image: ${part.url}]` : '[attachment]';
+    })
+    .join('\n');
 }
 
 async function consumeOpencodeSessionEvents(eventStream, projection) {
@@ -3370,7 +3416,7 @@ function createOpencodeEventProjection(sessionId, stream, activity, client, sign
       return candidate == null || candidate === sessionId;
     },
     async push(event) {
-      const properties = event?.properties ?? {};
+      const properties = opencodeEventData(event);
       if (event?.type === 'message.updated') {
         const info = properties.info;
         const messageId = optionalProviderIdentifier(info?.id);
@@ -3444,6 +3490,14 @@ function createOpencodeEventProjection(sessionId, stream, activity, client, sign
       }
       return false;
     },
+    assistantText() {
+      // Durable v2 responses only admit the input (`SessionInputAdmitted`);
+      // the assistant content arrives exclusively through the event stream.
+      return [...parts.values()]
+        .filter((state) => state.item.type === 'agent_message' && state.item.text)
+        .map((state) => String(state.item.text))
+        .join('\n');
+    },
     async includeResponse(response, providerSessionId) {
       const responseInfo = response?.data?.info ?? response?.info;
       const messageId = optionalProviderIdentifier(responseInfo?.id)
@@ -3492,6 +3546,12 @@ function createOpencodeEventProjection(sessionId, stream, activity, client, sign
 
 function unwrapOpencodeEvent(envelope) {
   if (envelope?.type && typeof envelope.type === 'string') {
+    if (envelope.type === 'sync' && envelope.syncEvent) {
+      // Durable sync bridge events carry their payload under `syncEvent` with
+      // a versioned type suffix ("message.updated.1"); normalize to the plain
+      // event type while keeping the v2 `data` payload shape.
+      return unwrapOpencodeSyncEvent(envelope.syncEvent);
+    }
     return envelope;
   }
   if (envelope?.payload?.type && typeof envelope.payload.type === 'string') {
@@ -3500,20 +3560,37 @@ function unwrapOpencodeEvent(envelope) {
   return null;
 }
 
+function unwrapOpencodeSyncEvent(syncEvent) {
+  if (!syncEvent?.type || !syncEvent?.data) {
+    return null;
+  }
+  return {
+    ...syncEvent,
+    type: String(syncEvent.type).replace(/\.\d+$/u, ''),
+  };
+}
+
+function opencodeEventData(event) {
+  // v2 durable events carry the payload under `data`; v1 legacy events use
+  // `properties`. Field names are identical across both shapes.
+  return event?.data ?? event?.properties ?? {};
+}
+
 function opencodeEventSessionId(event) {
-  const properties = event?.properties;
-  return optionalProviderIdentifier(properties?.sessionID)
-    ?? optionalProviderIdentifier(properties?.part?.sessionID)
-    ?? optionalProviderIdentifier(properties?.info?.sessionID)
-    ?? optionalProviderIdentifier(properties?.info?.id);
+  const payload = opencodeEventData(event);
+  return optionalProviderIdentifier(payload?.sessionID)
+    ?? optionalProviderIdentifier(payload?.part?.sessionID)
+    ?? optionalProviderIdentifier(payload?.info?.sessionID)
+    ?? optionalProviderIdentifier(payload?.info?.id);
 }
 
 function readOpencodeEventError(event) {
-  const error = event?.properties?.error;
+  const payload = opencodeEventData(event);
+  const error = payload?.error;
   return readProviderError(error)
     ?? readProviderError(error?.data)
     ?? readProviderError(error?.data?.message)
-    ?? readProviderError(event?.properties);
+    ?? readProviderError(payload);
 }
 
 function normalizeOpencodeStreamPart(part) {

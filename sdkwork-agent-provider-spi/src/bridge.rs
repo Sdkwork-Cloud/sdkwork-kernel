@@ -235,8 +235,11 @@ impl SdkRuntimeBackedModelProvider {
             &self.provider_id,
             sink,
         )
-        .map_err(|_| sdkwork_agent_kernel::KernelError::ProviderUnavailable {
-            provider_id: self.provider_id.clone(),
+        .map_err(|error| {
+            eprintln!("sdkwork_diag model stream runtime error: {error}");
+            sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                provider_id: self.provider_id.clone(),
+            }
         })
     }
 }
@@ -263,12 +266,16 @@ impl ModelProvider for SdkRuntimeBackedModelProvider {
             &self.provider_id,
         ) {
             Ok(response) => Ok(response),
-            Err(_) if mock_provider_invocation_allowed() && !require_live_provider => {
+            Err(error) if mock_provider_invocation_allowed() && !require_live_provider => {
+                eprintln!("sdkwork_diag model invoke runtime error: {error}");
                 self.fallback.invoke(request)
             }
-            Err(_) => Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
-                provider_id: self.provider_id.clone(),
-            }),
+            Err(error) => {
+                eprintln!("sdkwork_diag model invoke runtime error: {error}");
+                Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
+                    provider_id: self.provider_id.clone(),
+                })
+            }
         }
     }
 

@@ -78,7 +78,7 @@ Legend: **R** = required in manifest, **O** = optional, **—** = not declared (
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `sdk.session.lifecycle` | R | R | R | R | R | R | R | — |
 | `sdk.session.history` | R | — | — | — | — | — | O | — |
-| `sdk.session.control` | R | — | — | O | — | — | O | — |
+| `sdk.session.control` | R | O | — | O | — | — | O | — |
 | `sdk.model.chat` | R | R | R | R | R | R | R | R |
 | `sdk.model.stream` | O | — | O | — | — | — | O | — |
 | `sdk.tool.invoke` | — | — | O | — | O | — | — | — |
@@ -150,7 +150,11 @@ a binding manifest declares `integration_sources`.
 
 ### Claude Code
 
-- **Strengths:** Official `@anthropic-ai/claude-agent-sdk`; stream capability declared.
+- **Strengths:** Official `@anthropic-ai/claude-agent-sdk`; stream capability
+  declared; `sdk.session.control` exposes `session_interrupt` (in-process abort
+  of the active query through the same-worker control channel) and
+  `session_fork` (official `forkSession()`); `session_compact` is not declared
+  because the official SDK exposes no compact trigger.
 - **Gaps:** No `sdk.session.history` in binding — history via session lifecycle + kernel message query.
 - **BirdCoder:** Shipped engine; permission UX must align with `PolicyProvider` decisions.
 

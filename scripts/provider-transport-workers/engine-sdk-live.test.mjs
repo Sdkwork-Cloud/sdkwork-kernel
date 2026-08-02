@@ -86,6 +86,19 @@ export function query({ prompt, options = {} }) {
   const sessionId = prompt === 'mismatched Claude session'
     ? 'claude-sdk-unexpected'
     : options.resume ?? 'claude-sdk-created';
+  if (prompt === 'interrupt claude turn') {
+    // Signals that the in-flight turn is registered so the test can dispatch
+    // the in-process session control while the query is still running.
+    fs.writeFileSync(capturePath, JSON.stringify({ turn_registered: true }), 'utf8');
+    const aborted = new Promise((resolve) => {
+      options.abortController?.signal.addEventListener('abort', () => resolve(true), { once: true });
+    });
+    return (async function* () {
+      yield { type: 'system', subtype: 'init', session_id: sessionId };
+      await aborted;
+      throw new Error('claude sdk turn aborted by session control');
+    })();
+  }
   return (async function* () {
     yield { type: 'system', subtype: 'init', session_id: sessionId };
     yield {
@@ -164,6 +177,15 @@ export function query({ prompt, options = {} }) {
       session_id: sessionId,
     };
   })();
+}
+
+export async function forkSession(sessionId, options = {}) {
+  fs.writeFileSync(
+    capturePath,
+    JSON.stringify({ fork_session: { session_id: sessionId, options } }),
+    'utf8',
+  );
+  return { sessionId: 'claude-sdk-forked' };
 }
 
 export async function listSessions(options = {}) {
@@ -1202,6 +1224,89 @@ await assert.rejects(
     before_message_id: 'message-not-a-turn',
   }),
   /cannot be mapped to a Codex Turn id/,
+);
+
+process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
+  '@anthropic-ai/claude-agent-sdk': claudeSdkMirror,
+});
+const claudeControlBase = {
+  control_request_id: 'control-claude',
+  session_id: 'session-canonical-claude-control',
+  provider_session_id: 'claude-sdk-existing',
+  policy_decision_id: 'policy-decision-claude-control',
+  timeout_ms: 2_000,
+};
+const claudeNoOpInterrupt = await invokeSessionControlRuntime('@anthropic-ai/claude-agent-sdk', {
+  ...claudeControlBase,
+  operation: 'session_interrupt',
+  model_request_id: 'req-claude-nonexistent',
+  reason: 'user_cancelled',
+});
+assert.equal(claudeNoOpInterrupt.status, 'no_op');
+assert.equal(claudeNoOpInterrupt.provider_session_id, 'claude-sdk-existing');
+await assert.rejects(
+  invokeSessionControlRuntime('@anthropic-ai/claude-agent-sdk', {
+    ...claudeControlBase,
+    operation: 'session_compact',
+  }),
+  /unsupported Claude session control operation: session_compact/,
+  'The official Claude agent SDK exposes no session compact trigger',
+);
+const claudeForked = await invokeSessionControlRuntime('@anthropic-ai/claude-agent-sdk', {
+  ...claudeControlBase,
+  operation: 'session_fork',
+  working_directory: 'C:/sdkwork/claude-workspace',
+  before_message_id: 'claude-message-7',
+});
+assert.equal(claudeForked.status, 'applied');
+assert.equal(claudeForked.provider_session_id, 'claude-sdk-existing');
+assert.equal(claudeForked.forked_provider_session_id, 'claude-sdk-forked');
+assert.deepEqual(
+  JSON.parse(fs.readFileSync(claudeCapturePath, 'utf8')).fork_session,
+  {
+    session_id: 'claude-sdk-existing',
+    options: {
+      cwd: 'C:/sdkwork/claude-workspace',
+      upToMessageId: 'claude-message-7',
+    },
+  },
+  'Claude session fork must use the official forkSession() API',
+);
+
+const interruptedClaudeTurn = invokeModelChatLive('@anthropic-ai/claude-agent-sdk', {
+  model_request_id: 'req-claude-interrupt',
+  session_id: 'session-canonical-claude-interrupt',
+  provider_session_id: 'claude-sdk-existing',
+  messages: ['interrupt claude turn'],
+  timeout_ms: 5_000,
+});
+const claudeInterruptDeadline = Date.now() + 2_000;
+for (;;) {
+  try {
+    const registered = JSON.parse(fs.readFileSync(claudeCapturePath, 'utf8'));
+    if (registered.turn_registered === true) {
+      break;
+    }
+  } catch {
+    // capture file not written yet
+  }
+  if (Date.now() > claudeInterruptDeadline) {
+    throw new Error('claude turn did not register for in-process interrupt');
+  }
+  await new Promise((resolve) => setTimeout(resolve, 20));
+}
+const claudeInterrupted = await invokeSessionControlRuntime('@anthropic-ai/claude-agent-sdk', {
+  ...claudeControlBase,
+  operation: 'session_interrupt',
+  model_request_id: 'req-claude-interrupt',
+  reason: 'user_cancelled',
+});
+assert.equal(claudeInterrupted.status, 'applied');
+assert.equal(claudeInterrupted.provider_session_id, 'claude-sdk-existing');
+await assert.rejects(
+  interruptedClaudeTurn,
+  /claude sdk turn aborted by session control/,
+  'The in-process session control must abort the active Claude query',
 );
 
 process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({

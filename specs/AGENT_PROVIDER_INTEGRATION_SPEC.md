@@ -312,8 +312,15 @@ Rules:
   `before_message_id`: neither can be represented by the stable upstream
   methods, and a canonical message id is never guessed to be a Codex Turn id.
   All three operations use their request-scoped timeout and have no mock lane.
-- Claude Code control remains undeclared until its streaming query lifetime is
-  wired and proved by equivalent conformance tests.
+- The Claude Code executable reference lane uses the official
+  `@anthropic-ai/claude-agent-sdk`. `session_interrupt` aborts the active
+  streaming query of the exact canonical Session through the same-worker
+  `sdkwork/session.control` channel (in-process abort registry keyed by
+  `model_request_id`, with provider-session affinity validation); interrupting
+  an idle session returns `no_op`. `session_fork` calls the official
+  `forkSession()` API and returns the new provider session id. `session_compact`
+  stays undeclared: the official SDK exposes no compact trigger, and the
+  adapter must not invent one outside the SDK contract.
 
 #### 6.1.2 Official SDK Session Discovery
 

@@ -5,7 +5,7 @@ use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
 use sdkwork_agent_provider_codex::{
     codex_agent_definition, codex_agent_installer, codex_kernel_plugin_manifest,
     codex_package_manifest, codex_provider_manifests, CodexKernelPlugin, CodexModelProvider,
-    CODEX_SDK_PACKAGE, CODEX_SDK_VERSION,
+    CODEX_CLI_PACKAGE, CODEX_CLI_VERSION,
 };
 use serde_json::Value;
 
@@ -81,11 +81,11 @@ fn provider_manifests_exclude_agent_internal_tools() {
 fn installer_descriptor_uses_the_latest_exact_sdk_version() {
     let installer = codex_agent_installer();
     assert_eq!(installer.provider_id(), "provider.agent.installer.codex");
-    assert_eq!(installer.packages()[0].package_id, CODEX_SDK_PACKAGE);
-    assert_eq!(installer.packages()[0].version, CODEX_SDK_VERSION);
+    assert_eq!(installer.packages()[0].package_id, CODEX_CLI_PACKAGE);
+    assert_eq!(installer.packages()[0].version, CODEX_CLI_VERSION);
     assert_eq!(
         codex_package_manifest().source,
-        AgentPackageSource::registry("npm", CODEX_SDK_PACKAGE, CODEX_SDK_VERSION)
+        AgentPackageSource::registry("npm", CODEX_CLI_PACKAGE, CODEX_CLI_VERSION)
     );
 }
 

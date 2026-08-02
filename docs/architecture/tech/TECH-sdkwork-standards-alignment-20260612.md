@@ -438,7 +438,7 @@ Scope: close audit findings from the SDKWork kernel application system review ag
 
 - Six agent runtime crates received `specs/component.spec.json` (and README where missing):
   `sdkwork-agent-api-bridge`, `sdkwork-agent-client`, `sdkwork-agent-database`,
-  `sdkwork-agent-server`, `sdkwork-agent-session`, `sdkwork-agent-streaming`.
+  `sdkwork-agent-server`, `sdkwork-agent-session`.
 - Eight adapter crates under `sdkwork-kernel-plugins/crates/` have component specs, READMEs, and `AGENTS.md`.
 - `tools/validators/kernel-standards/kernel-contracts.mjs` requires the six runtime crates.
 

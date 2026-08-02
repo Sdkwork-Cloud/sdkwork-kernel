@@ -313,10 +313,20 @@ export async function interruptCodexAppServerTurn(command = {}) {
     });
   }
   const result = await entry.interruptPromise;
+  const completion = await result.completion;
+  const status = String(completion?.params?.turn?.status ?? '').toLowerCase();
+  if (status !== 'interrupted' && status !== 'cancelled') {
+    throw runtimeError(
+      'codex_app_server_turn_interrupt_unconfirmed',
+      `Codex Turn ${entry.providerTurnId} completed with status ${status || 'unknown'} after interrupt`,
+    );
+  }
   return {
     accepted: result.accepted === true,
+    finish_reason: 'cancelled',
     model_request_id: entry.modelRequestId,
     ok: true,
+    provider_status: status,
     provider_session_id: entry.providerSessionId,
     provider_turn_id: entry.providerTurnId,
   };
@@ -373,7 +383,9 @@ export async function controlCodexAppServerSession(operation = {}) {
     );
   }
 
-  if (operationName === 'session_interrupt' && modelRequestId) {
+  if (operationName === 'session_interrupt'
+    && modelRequestId
+    && activeExecutions.has(modelRequestId)) {
     const interrupted = await interruptCodexAppServerTurn({
       model_request_id: modelRequestId,
       provider_session_id: providerSessionId,
@@ -386,18 +398,18 @@ export async function controlCodexAppServerSession(operation = {}) {
   }
 
   let transport;
-  if (modelRequestId) {
+  if (modelRequestId && operationName !== 'session_interrupt') {
     const entry = activeExecution({ model_request_id: modelRequestId });
     assertExecutionAffinity(entry, command);
     transport = entry.transport;
   } else {
     transport = await connectResidentTransport();
   }
-  await transport.readSession({ providerSessionId, sessionId });
 
   if (operationName === 'session_interrupt') {
-    return sessionControlResult(command, { status: 'no_op' });
+    return recoverCodexAppServerSessionInterrupt(transport, command);
   }
+  await transport.readSession({ providerSessionId, sessionId });
   if (operationName === 'session_compact') {
     await transport.compactSession({ providerSessionId, sessionId });
     return sessionControlResult(command, { status: 'applied', modelRequestId });
@@ -446,6 +458,105 @@ function sessionControlResult(operation, {
   };
 }
 
+async function recoverCodexAppServerSessionInterrupt(transport, operation) {
+  let snapshot;
+  try {
+    snapshot = await transport.readSession({
+      includeTurns: true,
+      providerSessionId: operation.provider_session_id,
+      sessionId: operation.session_id,
+    });
+  } catch (error) {
+    if (isUnsupportedInterruptRecoveryHistory(error)) {
+      throw runtimeError(
+        'codex_app_server_interrupt_recovery_unsupported_history',
+        'Codex Session interrupt recovery requires non-paginated, non-ephemeral thread history',
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+
+  const activeTurns = recoverableActiveTurns(snapshot);
+  const modelRequestId = optionalString(operation.model_request_id, 'model_request_id');
+  if (activeTurns.length === 0) {
+    return sessionControlResult(operation, { status: 'no_op', modelRequestId });
+  }
+  if (activeTurns.length !== 1) {
+    throw runtimeError(
+      'codex_app_server_interrupt_recovery_ambiguous',
+      `thread/read returned ${activeTurns.length} in-progress Turns for one provider Session`,
+    );
+  }
+
+  const providerTurnId = activeTurns[0].id;
+  const interrupted = await transport.interruptTurn({
+    providerSessionId: operation.provider_session_id,
+    sessionId: operation.session_id,
+    turnId: providerTurnId,
+  });
+  const completion = await transport.waitForTurnCompletion(interrupted, {
+    timeoutMs: operation.timeout_ms,
+  });
+  const status = String(completion?.params?.turn?.status ?? '').trim().toLowerCase();
+  if (status !== 'interrupted' && status !== 'cancelled') {
+    throw runtimeError(
+      'codex_app_server_turn_interrupt_unconfirmed',
+      `recovered Codex Turn ${providerTurnId} completed with status ${status || 'unknown'} after interrupt`,
+    );
+  }
+  return sessionControlResult(operation, {
+    modelRequestId,
+    status: interrupted.accepted === true ? 'applied' : 'no_op',
+  });
+}
+
+function recoverableActiveTurns(snapshot) {
+  const turns = snapshot?.session?.turns;
+  if (!Array.isArray(turns)) {
+    throw runtimeError(
+      'codex_app_server_interrupt_recovery_invalid_history',
+      'thread/read(includeTurns=true) did not return a Turn array',
+    );
+  }
+
+  const activeTurns = [];
+  const turnIds = new Set();
+  for (const turn of turns) {
+    if (!isRecord(turn)) {
+      throw runtimeError(
+        'codex_app_server_interrupt_recovery_invalid_history',
+        'thread/read(includeTurns=true) returned a non-object Turn',
+      );
+    }
+    const turnId = requiredString(turn.id, 'provider_turn_id');
+    if (turnIds.has(turnId)) {
+      throw runtimeError(
+        'codex_app_server_interrupt_recovery_invalid_history',
+        `thread/read(includeTurns=true) repeated provider Turn ${turnId}`,
+      );
+    }
+    turnIds.add(turnId);
+    const status = String(turn.status ?? '').trim();
+    if (!['completed', 'failed', 'inProgress', 'interrupted'].includes(status)) {
+      throw runtimeError(
+        'codex_app_server_interrupt_recovery_invalid_history',
+        `thread/read(includeTurns=true) returned unsupported Turn status ${status || 'empty'}`,
+      );
+    }
+    if (status === 'inProgress') {
+      activeTurns.push({ id: turnId });
+    }
+  }
+  return activeTurns;
+}
+
+function isUnsupportedInterruptRecoveryHistory(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('paginated threads do not support thread/read(includeTurns=true)')
+    || message.includes('ephemeral threads do not support includeTurns');
+}
+
 export async function closeCodexAppServerRuntime() {
   const transport = residentTransport;
   residentTransport = null;
@@ -489,7 +600,7 @@ export function buildCodexAppServerKernelEvent(providerEvent, operation, sequenc
     severity: appServerKernelEventSeverity(method, params),
     session_id: sessionId,
     run_id: modelRequestId,
-    step_id: turnId ?? itemId ?? providerTurnId,
+    step_id: turnId,
     correlation_id: modelRequestId,
     redaction_classification: 'tenant_sensitive',
     payload_schema: 'sdkwork.agent.provider_stream_event.v1',
@@ -499,6 +610,7 @@ export function buildCodexAppServerKernelEvent(providerEvent, operation, sequenc
       providerEventType: method,
       providerSessionId,
       providerTurnId,
+      providerItemId: itemId,
       providerRequestId: providerEvent?.requestId ?? null,
       sequence: normalizedSequence,
       interaction,

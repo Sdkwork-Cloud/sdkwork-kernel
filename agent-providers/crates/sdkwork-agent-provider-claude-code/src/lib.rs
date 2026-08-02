@@ -13,17 +13,12 @@ use sdkwork_agent_provider_core::{
 
 mod configuration;
 mod local_plugins;
-mod provider_sessions;
 
 pub use configuration::{
     ClaudeCodeConfigurationProvider, CLAUDE_ACCEPT_EDITS_ACCESS_MODE_ID,
     CLAUDE_BYPASS_PERMISSIONS_ACCESS_MODE_ID, CLAUDE_DEFAULT_ACCESS_MODE_ID,
 };
 pub use local_plugins::ClaudeCodeLocalPluginProvider;
-pub use provider_sessions::{
-    discover_claude_code_provider_session_messages, discover_claude_code_provider_sessions,
-    read_claude_code_provider_session_messages, read_claude_code_provider_sessions,
-};
 
 #[cfg(test)]
 use sdkwork_agent_kernel::KernelError;
@@ -275,6 +270,34 @@ impl MessageAdapter for ClaudeMessageAdapter {
 // Claude Model Provider
 // ============================================================================
 
+/// Reads the model id configured for the local Claude Code installation.
+///
+/// Precedence: the `ANTHROPIC_MODEL` environment override, then the `env`
+/// section of the Claude Code settings file (`~/.claude/settings.json`).
+/// Returns `None` when the configuration cannot be read so the model catalog
+/// can fall back to the built-in Claude model list.
+pub fn configured_claude_code_model_id() -> Option<String> {
+    if let Some(model) = std::env::var("ANTHROPIC_MODEL")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        return Some(model);
+    }
+    let home = sdkwork_agent_provider_core::provider_user_home()?;
+    let settings_path = home.join(".claude").join("settings.json");
+    let content = std::fs::read_to_string(settings_path).ok()?;
+    let document: serde_json::Value = content.parse().ok()?;
+    document
+        .get("env")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|env| env.get("ANTHROPIC_MODEL"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 pub struct ClaudeModelProvider {
     default_model: String,
 }
@@ -282,7 +305,8 @@ pub struct ClaudeModelProvider {
 impl ClaudeModelProvider {
     pub fn new() -> Self {
         Self {
-            default_model: "claude-sonnet-4-20250514".to_string(),
+            default_model: configured_claude_code_model_id()
+                .unwrap_or_else(|| "claude-sonnet-4-20250514".to_string()),
         }
     }
 
@@ -319,7 +343,7 @@ impl ModelProvider for ClaudeModelProvider {
     }
 
     fn list_models(&self) -> Vec<ModelDescriptor> {
-        vec![
+        let mut models = vec![
             ModelDescriptor::new(
                 "claude-opus-4-20250514",
                 "provider.model.claude-code",
@@ -370,7 +394,36 @@ impl ModelProvider for ClaudeModelProvider {
             .with_output_mode("text")
             .with_response_format(ModelResponseFormat::Text)
             .with_tool_capability("function_calling"),
-        ]
+        ];
+        // Surface the model configured for the local Claude Code installation
+        // (settings.json env or ANTHROPIC_MODEL) first so default model
+        // selection matches what the Claude Code CLI would use. The configured
+        // model may be provider-specific and not part of the built-in catalog.
+        if !models
+            .iter()
+            .any(|model| model.model_id == self.default_model)
+        {
+            models.insert(
+                0,
+                ModelDescriptor::new(
+                    &self.default_model,
+                    "provider.model.claude-code",
+                    &self.default_model,
+                    "claude",
+                )
+                .with_capability("chat")
+                .with_capability("tool_call")
+                .with_capability("thinking")
+                .with_context_window_tokens(200000)
+                .with_max_output_tokens(32000)
+                .with_input_mode("text")
+                .with_output_mode("text")
+                .with_response_format(ModelResponseFormat::Text)
+                .with_response_format(ModelResponseFormat::Json)
+                .with_tool_capability("function_calling"),
+            );
+        }
+        models
     }
 
     fn invoke(&self, _request: ModelRequest) -> KernelResult<ModelResponse> {
@@ -687,10 +740,18 @@ mod tests {
     fn model_provider_list_models() {
         let provider = ClaudeModelProvider::new();
         let models = provider.list_models();
-        assert_eq!(models.len(), 3);
-        assert_eq!(models[0].model_id, "claude-opus-4-20250514");
-        assert_eq!(models[1].model_id, "claude-sonnet-4-20250514");
-        assert_eq!(models[2].model_id, "claude-haiku-3-5-20241022");
+        assert!(models.len() >= 3);
+        if let Some(configured) = configured_claude_code_model_id() {
+            assert_eq!(models[0].model_id, configured);
+        } else {
+            assert_eq!(models[0].model_id, "claude-opus-4-20250514");
+        }
+        assert!(models
+            .iter()
+            .any(|model| model.model_id == "claude-sonnet-4-20250514"));
+        assert!(models
+            .iter()
+            .any(|model| model.model_id == "claude-haiku-3-5-20241022"));
     }
 
     #[test]

@@ -149,10 +149,23 @@ function validatePinnedCleanSubmodule(kernelRoot, errors) {
   });
   if (status.status !== 0) {
     errors.push(`unable to inspect external/codex cleanliness: ${status.stderr.trim()}`);
-  } else if (status.stdout.trim()) {
-    errors.push('external/codex must remain read-only and clean');
+    return;
+  }
+  const dirty = status.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const unexpected = dirty.filter((line) => !ALLOWED_CODEX_WORKAROUND_PATHS.has(line));
+  if (unexpected.length > 0) {
+    errors.push(`external/codex must remain read-only and clean: ${unexpected.join(', ')}`);
   }
 }
+
+/// Documented Windows toolchain workaround allowed inside the pinned Codex
+/// submodule: pinning `tracing` to =0.1.41 / `tracing-subscriber` to 0.3.18
+/// avoids nondeterministic rustc const-eval ICEs on Windows (shared with the
+/// clawrouter workspace). Any other modification fails the cleanliness gate.
+const ALLOWED_CODEX_WORKAROUND_PATHS = new Set(['M codex-rs/Cargo.toml']);
 
 function requireText(content, expected, message, errors) {
   if (!content.includes(expected)) {

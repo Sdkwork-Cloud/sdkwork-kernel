@@ -42,7 +42,6 @@ This repository defines the SDKWork kernel standard for agent and code-agent sys
 - `sdkwork-agent-client/` - Desktop/mobile bridge
 - `sdkwork-agent-database/` - Runtime transient session/message/task state
 - `sdkwork-agent-session/` - Session management
-- `sdkwork-agent-streaming/` - Streaming support
 - `sdkwork-agent-api-bridge/` - API bridge utilities
 
 ### Plugin Layer

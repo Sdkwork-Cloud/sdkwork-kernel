@@ -2,14 +2,16 @@ use sdkwork_agent_plugin_core::{ProcessAdapterInstaller, ProcessAdapterPackage};
 
 use crate::ids;
 
-pub const CODEX_SDK_PACKAGE: &str = "@openai/codex-sdk";
-pub const CODEX_SDK_VERSION: &str = "0.146.0";
+/// Official Codex CLI distribution. It supplies the executable consumed by the
+/// Rust `codex-app-server-client`; it is not a model SDK or runtime backend.
+pub const CODEX_CLI_PACKAGE: &str = "@openai/codex";
+pub const CODEX_CLI_VERSION: &str = "0.146.0";
 
 pub fn codex_agent_installer() -> ProcessAdapterInstaller {
     ProcessAdapterInstaller::new(
         ids::AGENT_ID,
         ids::INSTALLER_PROVIDER_ID,
         env!("CARGO_PKG_VERSION"),
-        ProcessAdapterPackage::npm(CODEX_SDK_PACKAGE, CODEX_SDK_VERSION),
+        ProcessAdapterPackage::npm(CODEX_CLI_PACKAGE, CODEX_CLI_VERSION),
     )
 }

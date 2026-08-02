@@ -12,7 +12,6 @@ members = [
     "sdkwork-agent-provider-transport-python",
     "sdkwork-code-kernel",
     "sdkwork-agent-api-bridge",
-    "sdkwork-agent-streaming",
     "sdkwork-agent-server",
     "sdkwork-agent-database",
     "sdkwork-agent-session",
@@ -60,7 +59,6 @@ sdkwork-agent-provider-transport-node = { path = "sdkwork-agent-provider-transpo
 sdkwork-agent-provider-transport-python = { path = "sdkwork-agent-provider-transport-python" }
 sdkwork-code-kernel = { path = "sdkwork-code-kernel" }
 sdkwork-agent-api-bridge = { path = "sdkwork-agent-api-bridge" }
-sdkwork-agent-streaming = { path = "sdkwork-agent-streaming" }
 sdkwork-agent-server = { path = "sdkwork-agent-server" }
 sdkwork-agent-database = { path = "sdkwork-agent-database" }
 sdkwork-agent-session = { path = "sdkwork-agent-session" }

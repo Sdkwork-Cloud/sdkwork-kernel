@@ -18,7 +18,7 @@ Binding manifests are authoritative: `bindings/agent-providers/<framework>/provi
 
 | Framework | Class | Binding status | Primary transport | Official SDK integrated |
 | --- | --- | --- | --- | --- |
-| Codex | Code-agent | `standardizing` | `rust_native`, `typescript_node`, `ipc_protocol` | Pinned-source `codex-app-server-client` + `codex-app-server-protocol`; `@openai/codex-sdk` execution worker |
+| Codex | Code-agent | `standardizing` | `rust_native` | Pinned-source `codex-app-server-client` + `codex-app-server-protocol` (in-process app-server runtime) |
 | Claude Code | Code-agent | `standardizing` | `typescript_node`, `ipc_protocol` | `@anthropic-ai/claude-agent-sdk` |
 | Gemini CLI | Code-agent | `standardizing` | `typescript_node`, `ipc_protocol` | Source-tree `@google/gemini-cli-sdk`; CLI npm `@google/gemini-cli` |
 | OpenCode | Code-agent | `experimental` | `typescript_node`, `ipc_protocol` | `@opencode-ai/sdk` |
@@ -38,14 +38,19 @@ invocable, policy-controlled tool API.
 
 Binding manifests also define the executable runtime boundary. Each capability
 declares `execution_scope`, and each backend declares `runtime_operations`.
-`sdk.session.lifecycle` and `sdk.session.history` are provider-local lifecycle
-surfaces: they use `execution_scope: provider_local` and expose only
-`runtime_operations: ["ping"]` through runtime routing. Model and stream
-capabilities use `execution_scope: transport_runtime`; runtime dispatch
-rejects any operation that is not declared in the selected backend
-`runtime_operations` allowlist before invoking a worker.
-`sdk.session.control` is a separate optional transport-runtime extension; it
-does not turn provider-local lifecycle metadata into executable transport RPC.
+`sdk.session.lifecycle` and `sdk.session.history` are session inventory
+surfaces: providers that expose real session discovery through their SDK
+declare them with `execution_scope: transport_runtime` and non-`ping`
+operations (`session_list`, `session_history`, `session_create`), while
+capabilities that are metadata-only or negotiation-only keep
+`execution_scope: provider_local` and expose only `runtime_operations:
+["ping"]` through runtime routing. Model and stream capabilities use
+`execution_scope: transport_runtime`; runtime dispatch rejects any operation
+that is not declared in the selected backend `runtime_operations` allowlist
+before invoking a worker. `sdk.session.control` is a separate optional
+transport-runtime extension (`session_interrupt`, `session_compact`,
+`session_fork`) for SDKs that expose durable session control; it never turns
+provider-local lifecycle metadata into executable transport RPC.
 
 | Provider crate | Plugin id | Agent id | Runtime entrypoint |
 | --- | --- | --- | --- |
@@ -72,10 +77,10 @@ Legend: **R** = required in manifest, **O** = optional, **—** = not declared (
 | Capability id | Codex | Claude Code | Gemini CLI | OpenCode | MiMo Code | OpenClaw | Hermes | Rig |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `sdk.session.lifecycle` | R | R | R | R | R | R | R | — |
-| `sdk.session.history` | R | — | — | — | — | — | — | — |
-| `sdk.session.control` | O | — | — | O | — | — | — | — |
+| `sdk.session.history` | R | — | — | — | — | — | O | — |
+| `sdk.session.control` | R | — | — | O | — | — | O | — |
 | `sdk.model.chat` | R | R | R | R | R | R | R | R |
-| `sdk.model.stream` | O | — | O | — | — | — | — | — |
+| `sdk.model.stream` | O | — | O | — | — | — | O | — |
 | `sdk.tool.invoke` | — | — | O | — | O | — | — | — |
 | `sdk.skill.invoke` | — | — | — | — | — | — | — | — |
 

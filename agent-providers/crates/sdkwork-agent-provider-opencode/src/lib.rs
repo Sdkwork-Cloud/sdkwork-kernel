@@ -13,17 +13,12 @@ use sdkwork_agent_provider_core::{
 
 mod configuration;
 mod local_plugins;
-mod provider_sessions;
 
 pub use configuration::{
     OpenCodeConfigurationProvider, OPENCODE_ALLOW_ALL_ACCESS_MODE_ID,
     OPENCODE_ALLOW_EDITS_ACCESS_MODE_ID, OPENCODE_ASK_ACCESS_MODE_ID,
 };
 pub use local_plugins::OpenCodeLocalPluginProvider;
-pub use provider_sessions::{
-    discover_opencode_provider_session_messages, discover_opencode_provider_sessions,
-    read_opencode_provider_session_messages, read_opencode_provider_sessions,
-};
 
 #[cfg(test)]
 use sdkwork_agent_kernel::KernelError;
@@ -233,6 +228,47 @@ impl MessageAdapter for OpenCodeMessageAdapter {
 // OpenCode Model Provider
 // ============================================================================
 
+/// Reads the model id configured for the local opencode installation.
+///
+/// Precedence: the `OPENCODE_MODEL` environment override, then the top-level
+/// `model` key in the opencode config file (`OPENCODE_CONFIG`, else
+/// `~/.config/opencode/opencode.json`). Returns `None` when the configuration
+/// cannot be read so the model catalog can fall back to the built-in model.
+pub fn configured_opencode_model_id() -> Option<String> {
+    if let Some(model) = std::env::var("OPENCODE_MODEL")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        return Some(model);
+    }
+    let config_path = opencode_config_path()?;
+    let content = std::fs::read_to_string(config_path).ok()?;
+    let document: serde_json::Value = content.parse().ok()?;
+    document
+        .get("model")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn opencode_config_path() -> Option<std::path::PathBuf> {
+    if let Some(config) = std::env::var_os("OPENCODE_CONFIG") {
+        let config = std::path::PathBuf::from(config);
+        if config.is_file() {
+            return Some(config);
+        }
+    }
+    let home = sdkwork_agent_provider_core::provider_user_home()?;
+    let candidates = [
+        home.join(".config").join("opencode").join("opencode.json"),
+        home.join(".config").join("opencode").join("opencode.jsonc"),
+        home.join(".opencode").join("opencode.json"),
+    ];
+    candidates.into_iter().find(|path| path.is_file())
+}
+
 pub struct OpenCodeModelProvider {
     default_model: String,
 }
@@ -240,7 +276,8 @@ pub struct OpenCodeModelProvider {
 impl OpenCodeModelProvider {
     pub fn new() -> Self {
         Self {
-            default_model: "opencode-default".to_string(),
+            default_model: configured_opencode_model_id()
+                .unwrap_or_else(|| "opencode-default".to_string()),
         }
     }
 
@@ -276,7 +313,7 @@ impl ModelProvider for OpenCodeModelProvider {
     }
 
     fn list_models(&self) -> Vec<ModelDescriptor> {
-        vec![ModelDescriptor::new(
+        let mut models = vec![ModelDescriptor::new(
             "opencode-default",
             "provider.model.opencode",
             "OpenCode Default",
@@ -290,7 +327,35 @@ impl ModelProvider for OpenCodeModelProvider {
         .with_input_mode("text")
         .with_output_mode("text")
         .with_response_format(ModelResponseFormat::Text)
-        .with_tool_capability("function_calling")]
+        .with_tool_capability("function_calling")];
+        // Surface the model configured for the local opencode installation
+        // first so default model selection matches what the opencode CLI would
+        // use. The configured model uses the `provider/model` form and may not
+        // be part of the built-in catalog.
+        if self.default_model != "opencode-default"
+            && !models
+                .iter()
+                .any(|model| model.model_id == self.default_model)
+        {
+            models.insert(
+                0,
+                ModelDescriptor::new(
+                    &self.default_model,
+                    "provider.model.opencode",
+                    &self.default_model,
+                    "opencode",
+                )
+                .with_capability("chat")
+                .with_capability("tool_call")
+                .with_context_window_tokens(128000)
+                .with_max_output_tokens(8192)
+                .with_input_mode("text")
+                .with_output_mode("text")
+                .with_response_format(ModelResponseFormat::Text)
+                .with_tool_capability("function_calling"),
+            );
+        }
+        models
     }
 
     fn invoke(&self, _request: ModelRequest) -> KernelResult<ModelResponse> {
@@ -536,8 +601,15 @@ mod tests {
     fn model_provider_list_models() {
         let provider = OpenCodeModelProvider::new();
         let models = provider.list_models();
-        assert_eq!(models.len(), 1);
-        assert_eq!(models[0].model_id, "opencode-default");
+        assert!(models.len() >= 1);
+        if let Some(configured) = configured_opencode_model_id() {
+            assert_eq!(models[0].model_id, configured);
+        } else {
+            assert_eq!(models[0].model_id, "opencode-default");
+        }
+        assert!(models
+            .iter()
+            .any(|model| model.model_id == "opencode-default"));
     }
 
     #[test]

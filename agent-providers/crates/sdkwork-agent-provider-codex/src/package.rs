@@ -3,13 +3,13 @@ use sdkwork_agent_kernel::{
     AgentPackageProviderBinding, AgentPackageSource,
 };
 
-use crate::{ids, CODEX_SDK_PACKAGE, CODEX_SDK_VERSION};
+use crate::{ids, CODEX_CLI_PACKAGE, CODEX_CLI_VERSION};
 
 pub fn codex_package_manifest() -> AgentPackageManifest {
     AgentPackageManifest::new(
         ids::AGENT_ID,
         "0.2.0",
-        AgentPackageSource::registry("npm", CODEX_SDK_PACKAGE, CODEX_SDK_VERSION),
+        AgentPackageSource::registry("npm", CODEX_CLI_PACKAGE, CODEX_CLI_VERSION),
     )
     .with_lifecycle(AgentPackageLifecycle::installable())
     .expect("codex package lifecycle is valid")

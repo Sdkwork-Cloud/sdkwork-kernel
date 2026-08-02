@@ -1950,7 +1950,7 @@ mod tests {
     }
 
     fn open_postgres_or_skip() -> Option<PostgresDatabase> {
-        if !sdkwork_database_config::workspace_database::workspace_database_env_is_configured() {
+        if !sdkwork_database_config::workspace_database::workspace_postgres_env_is_configured() {
             return None;
         }
         let config = sdkwork_database_config::DatabaseConfig::from_env("agent_runtime").ok()?;

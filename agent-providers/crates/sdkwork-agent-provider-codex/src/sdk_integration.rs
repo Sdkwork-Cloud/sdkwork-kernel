@@ -1,10 +1,10 @@
 use crate::{
-    map_item_page, map_thread_page, map_thread_record, normalize_page_limit, CodexAdapter,
+    map_thread_page, map_thread_record, map_turn_page, normalize_page_limit, CodexAdapter,
     CodexInProcessThreadClient, CodexLifecycleProvider, CodexMessageAdapter, CodexMessagePage,
-    CodexModelProvider, CodexSessionPage, CodexSessionRecord, CodexThreadActivityObservation,
-    CodexThreadClient, ThreadItemsListParams, ThreadItemsListResponse, ThreadListParams,
-    ThreadListResponse, ThreadReadParams, ThreadReadResponse, ThreadTurnsListParams,
-    ThreadTurnsListResponse,
+    CodexModelProvider, CodexSessionPage, CodexSessionRecord, CodexSortDirection,
+    CodexThreadActivityObservation, CodexThreadClient, ThreadItemsListParams,
+    ThreadItemsListResponse, ThreadListParams, ThreadListResponse, ThreadReadParams,
+    ThreadReadResponse, ThreadTurnsListParams, ThreadTurnsListResponse, TurnItemsView,
 };
 use sdkwork_agent_kernel::{
     KernelResult, ProviderSessionActivityProvider, SessionActivitySnapshot,
@@ -14,17 +14,14 @@ use sdkwork_agent_provider_core::{
 };
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
-    DriverRegistry, ProviderSessionActivityRuntimeSink, SdkNegotiationError,
+    DriverRegistry, SdkNegotiationError,
     SdkRuntimeBackedModelProvider, SdkRuntimeBackedSessionControlProvider,
     SdkRuntimeInteractionResolution, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
     CODEX_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
-    IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
-    RustNativeTransportHost, TypeScriptNodeTransportHost,
+    ProviderTransportBootstrap, ProviderTransportRegistry, RustNativeTransportHost,
 };
-use sdkwork_agent_provider_transport_node::NodeSdkBackendRuntime;
-use sdkwork_agent_provider_transport_rust::{InProcessRustSdkRuntime, ProviderBackedRustHandler};
 use std::sync::Arc;
 
 const CODEX_BINDING_MANIFEST_JSON: &str =
@@ -74,24 +71,12 @@ impl CodexSdkIntegration {
         let negotiation = bootstrap_binding(manifest, &mut drivers, &mut bindings)?;
 
         let inner_model = Arc::new(CodexModelProvider::new());
-        let rust_handler = Arc::new(ProviderBackedRustHandler::model_only(
-            inner_model.clone(),
-            "codex-1",
-        ));
-
-        let runtime_activity_sink =
-            Arc::new(ProviderSessionActivityRuntimeSink::new(activity.clone()));
+        let app_server_runtime = Arc::new(CodexInProcessThreadClient::new(activity.clone()));
         let mut bootstrap = ProviderTransportBootstrap::new();
-        bootstrap.register_host(Arc::new(RustNativeTransportHost::new("codex-core")));
-        bootstrap.register_host(Arc::new(TypeScriptNodeTransportHost::new(
-            "@openai/codex-sdk",
+        bootstrap.register_host(Arc::new(RustNativeTransportHost::new(
+            "codex-app-server-client",
         )));
-        bootstrap.register_host(Arc::new(IpcProtocolTransportHost::new("jsonrpc_stdio")));
-        bootstrap.with_typescript_runtime(Arc::new(
-            NodeSdkBackendRuntime::bootstrap("@openai/codex-sdk")
-                .with_activity_sink(runtime_activity_sink),
-        ));
-        bootstrap.with_rust_runtime(Arc::new(InProcessRustSdkRuntime::new(rust_handler)));
+        bootstrap.with_rust_runtime(app_server_runtime);
         let (transports, runtime) = bootstrap.finalize_pair(negotiation.clone())?;
 
         let model = SdkRuntimeBackedModelProvider::new(
@@ -170,10 +155,13 @@ impl CodexSdkIntegration {
 
     pub async fn get_provider_session_history(
         &self,
-        params: ThreadItemsListParams,
+        mut params: ThreadTurnsListParams,
     ) -> KernelResult<CodexMessagePage> {
         let thread_id = params.thread_id.clone();
-        map_item_page(&thread_id, self.list_codex_thread_items(params).await?)
+        normalize_page_limit(&mut params.limit)?;
+        params.sort_direction = Some(params.sort_direction.unwrap_or(CodexSortDirection::Asc));
+        params.items_view = Some(TurnItemsView::Full);
+        map_turn_page(&thread_id, self.thread_client.list_turns(params).await?)
     }
 
     pub fn codex_thread_client(&self) -> Arc<dyn CodexThreadClient> {
@@ -299,7 +287,7 @@ mod tests {
         assert_eq!(integration.binding_id(), CODEX_BINDING_ID);
         assert_eq!(
             integration.sdk.selected_backend_kind("sdk.model.chat"),
-            Some(SdkBackendKind::TypeScriptNode)
+            Some(SdkBackendKind::RustNative)
         );
         assert_eq!(
             integration.sdk.selected_driver_id("sdk.session.lifecycle"),
@@ -314,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_model_chat_uses_typescript_backend() {
+    fn runtime_model_chat_uses_rust_app_server_backend() {
         let integration = CodexSdkIntegration::bootstrap().expect("bootstrap should succeed");
         let response = integration
             .invoke_runtime(&SdkRuntimeRequest::model_chat(
@@ -324,7 +312,7 @@ mod tests {
             ))
             .expect("runtime invoke should succeed");
         assert!(response.success);
-        assert_eq!(response.backend_kind, SdkBackendKind::TypeScriptNode);
+        assert_eq!(response.backend_kind, SdkBackendKind::RustNative);
     }
 
     #[test]
@@ -408,7 +396,7 @@ mod tests {
             .await
             .expect("turn list");
         let item_page = integration
-            .get_provider_session_history(ThreadItemsListParams {
+            .list_codex_thread_items(ThreadItemsListParams {
                 thread_id: "thread-1".to_string(),
                 turn_id: Some("turn-1".to_string()),
                 cursor: Some("item-input".to_string()),
@@ -417,6 +405,16 @@ mod tests {
             })
             .await
             .expect("item list");
+        let history_page = integration
+            .get_provider_session_history(ThreadTurnsListParams {
+                thread_id: "thread-1".to_string(),
+                cursor: Some("history-input".to_string()),
+                limit: None,
+                sort_direction: None,
+                items_view: None,
+            })
+            .await
+            .expect("history list");
 
         assert_eq!(thread_page.next_cursor.as_deref(), Some("thread-next"));
         assert_eq!(
@@ -433,10 +431,8 @@ mod tests {
             item_page.backwards_cursor.as_deref(),
             Some("item-backwards")
         );
-        assert_eq!(
-            item_page.data[0].message.session_id.as_deref(),
-            Some("thread-1")
-        );
+        assert_eq!(item_page.data[0].item.id(), "item-1");
+        assert_eq!(history_page.next_cursor.as_deref(), Some("turn-next"));
 
         let thread_params = client
             .thread_list_params
@@ -453,6 +449,16 @@ mod tests {
             turn_params[0].limit,
             Some(sdkwork_utils_rust::MAX_LIST_PAGE_SIZE as u32)
         );
+        assert_eq!(turn_params[1].cursor.as_deref(), Some("history-input"));
+        assert_eq!(
+            turn_params[1].limit,
+            Some(sdkwork_utils_rust::DEFAULT_LIST_PAGE_SIZE as u32)
+        );
+        assert_eq!(
+            turn_params[1].sort_direction,
+            Some(crate::CodexSortDirection::Asc)
+        );
+        assert_eq!(turn_params[1].items_view, Some(crate::TurnItemsView::Full));
         let item_params = client.item_list_params.lock().expect("item params lock");
         assert_eq!(item_params[0].cursor.as_deref(), Some("item-input"));
         assert_eq!(

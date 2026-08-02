@@ -1,20 +1,19 @@
 use crate::{
-    discover_claude_code_provider_session_messages, discover_claude_code_provider_sessions,
     ClaudeCodeActivityObservation, ClaudeCodeAdapter, ClaudeCodeLifecycleProvider,
     ClaudeMessageAdapter, ClaudeModelProvider,
 };
 use sdkwork_agent_kernel::{
-    AgentMessage, AgentSession, KernelResult, ProviderSessionActivityProvider,
-    SessionActivitySnapshot,
+    KernelResult, ProviderSessionActivityProvider, SessionActivitySnapshot,
 };
 use sdkwork_agent_provider_core::{
     InMemoryProviderSessionActivityProvider, ProviderSessionActivityAdapter,
 };
 use sdkwork_agent_provider_spi::{
-    bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
-    DriverRegistry, ProviderSessionActivityRuntimeSink, SdkNegotiationError,
-    SdkRuntimeBackedModelProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
-    CLAUDE_CODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
+    bootstrap_binding, list_all_provider_sessions_from_runtime,
+    load_all_provider_messages_from_runtime, AgentSdkBindingManifest, AgentSdkIntegration,
+    BindingRegistry, DriverRegistry, ProviderSessionActivityRuntimeSink, SdkNegotiationError,
+    SdkRuntimeBackedModelProvider, SdkRuntimeMessageRecord, SdkRuntimeRequest, SdkRuntimeResponse,
+    SdkRuntimeRouter, SdkRuntimeSessionRecord, CLAUDE_CODE_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -87,15 +86,35 @@ impl ClaudeCodeSdkIntegration {
         CLAUDE_CODE_BINDING_ID
     }
 
-    pub fn list_provider_sessions(&self) -> KernelResult<Vec<AgentSession>> {
-        discover_claude_code_provider_sessions()
+    pub fn list_provider_sessions(&self) -> KernelResult<Vec<SdkRuntimeSessionRecord>> {
+        self.list_provider_sessions_for_directory(None)
+    }
+
+    pub fn list_provider_sessions_for_directory(
+        &self,
+        working_directory: Option<&str>,
+    ) -> KernelResult<Vec<SdkRuntimeSessionRecord>> {
+        list_all_provider_sessions_from_runtime(&self.runtime, "claude-code", working_directory)
     }
 
     pub fn get_provider_session_history(
         &self,
         provider_session_id: &str,
-    ) -> KernelResult<Vec<AgentMessage>> {
-        discover_claude_code_provider_session_messages(provider_session_id)
+    ) -> KernelResult<Vec<SdkRuntimeMessageRecord>> {
+        self.get_provider_session_history_for_directory(provider_session_id, None)
+    }
+
+    pub fn get_provider_session_history_for_directory(
+        &self,
+        provider_session_id: &str,
+        working_directory: Option<&str>,
+    ) -> KernelResult<Vec<SdkRuntimeMessageRecord>> {
+        load_all_provider_messages_from_runtime(
+            &self.runtime,
+            "claude-code",
+            provider_session_id,
+            working_directory,
+        )
     }
 
     pub fn invoke_runtime(

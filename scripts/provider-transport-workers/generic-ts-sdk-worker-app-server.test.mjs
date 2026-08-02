@@ -180,6 +180,8 @@ test('routes Codex app-server approvals, resume, and interrupt through canonical
   });
   const interruptResponse = await worker.waitFor((frame) => frame.id === 6);
   assert.equal(interruptResponse.result?.accepted, true);
+  assert.equal(interruptResponse.result?.finish_reason, 'cancelled');
+  assert.equal(interruptResponse.result?.provider_status, 'interrupted');
   const interruptedDone = await worker.waitFor((frame) =>
     frame.id === 5 && frame.result?.event === 'stream.done',
   );
@@ -227,6 +229,141 @@ test('routes Codex app-server approvals, resume, and interrupt through canonical
   assert.deepEqual(new Set(capture.map((entry) => entry.pid)).size, 1);
 });
 
+test('recovers an unregistered active Codex Turn through public thread history', async (t) => {
+  const fixture = createFixture(t, 'recovery-active');
+  const worker = createWorker(t, fixture);
+
+  worker.send(1, 'sdkwork/capability.invoke', {
+    operation: sessionInterruptOperation('recovery', {
+      model_request_id: 'model-request-before-registry-loss',
+    }),
+  });
+  const response = await worker.waitFor((frame) => frame.id === 1);
+  assert.equal(response.result?.ok, true);
+  assert.equal(response.result?.status, 'applied');
+  assert.equal(response.result?.control_request_id, 'control-recovery');
+  assert.equal(response.result?.model_request_id, 'model-request-before-registry-loss');
+  assert.equal(response.result?.provider_session_id, 'provider-session-1');
+
+  await worker.close();
+  const capture = readCapture(fixture.capturePath);
+  assert.deepEqual(
+    capture.find((entry) => entry.message.method === 'thread/read')?.message.params,
+    { threadId: 'provider-session-1', includeTurns: true },
+  );
+  assert.deepEqual(
+    capture.find((entry) => entry.message.method === 'turn/interrupt')?.message.params,
+    { threadId: 'provider-session-1', turnId: 'turn-recovered' },
+  );
+});
+
+test('returns no_op when recovered Codex history has no active Turn', async (t) => {
+  const fixture = createFixture(t, 'recovery-idle');
+  const worker = createWorker(t, fixture);
+
+  worker.send(1, 'sdkwork/capability.invoke', {
+    operation: sessionInterruptOperation('idle'),
+  });
+  const response = await worker.waitFor((frame) => frame.id === 1);
+  assert.equal(response.result?.ok, true);
+  assert.equal(response.result?.status, 'no_op');
+
+  await worker.close();
+  const capture = readCapture(fixture.capturePath);
+  assert.equal(
+    capture.some((entry) => entry.message.method === 'turn/interrupt'),
+    false,
+  );
+});
+
+test('fails closed when recovered Codex history has multiple active Turns', async (t) => {
+  const fixture = createFixture(t, 'recovery-ambiguous');
+  const worker = createWorker(t, fixture);
+
+  worker.send(1, 'sdkwork/capability.invoke', {
+    operation: sessionInterruptOperation('ambiguous'),
+  });
+  const response = await worker.waitFor((frame) => frame.id === 1);
+  assert.equal(response.result?.ok, false);
+  assert.match(response.result?.error ?? '', /interrupt_recovery_ambiguous/u);
+
+  await worker.close();
+  const capture = readCapture(fixture.capturePath);
+  assert.equal(
+    capture.some((entry) => entry.message.method === 'turn/interrupt'),
+    false,
+  );
+});
+
+test('fails closed when public thread history rejects paginated recovery', async (t) => {
+  const fixture = createFixture(t, 'recovery-paginated');
+  const worker = createWorker(t, fixture);
+
+  worker.send(1, 'sdkwork/capability.invoke', {
+    operation: sessionInterruptOperation('paginated'),
+  });
+  const response = await worker.waitFor((frame) => frame.id === 1);
+  assert.equal(response.result?.ok, false);
+  assert.match(response.result?.error ?? '', /interrupt_recovery_unsupported_history/u);
+
+  await worker.close();
+  const capture = readCapture(fixture.capturePath);
+  assert.equal(
+    capture.some((entry) => entry.message.method === 'turn/interrupt'),
+    false,
+  );
+});
+
+test('does not acknowledge cancellation when the active Turn completes first', async (t) => {
+  const fixture = createFixture(t, 'interrupt-completed-race');
+  const worker = createWorker(t, fixture);
+
+  worker.send(1, 'sdkwork/capability.invoke', {
+    operation: {
+      operation: 'model_chat_stream',
+      model_request_id: 'model-request-race',
+      session_id: 'session-canonical-1',
+      turn_id: 'canonical-turn-race',
+      provider_session_id: 'provider-session-1',
+      messages: ['finish while cancellation races'],
+      timeout_ms: 5_000,
+      execution_options: { require_live_provider: true },
+    },
+  });
+  await worker.waitFor((frame) =>
+    frame.id === 1
+      && frame.result?.event === 'stream.event'
+      && frame.result.kernel_event?.event_type === 'agent.turn.started',
+  );
+  worker.send(2, 'sdkwork/turn.interrupt', {
+    model_request_id: 'model-request-race',
+    session_id: 'session-canonical-1',
+    turn_id: 'canonical-turn-race',
+    provider_session_id: 'provider-session-1',
+    provider_turn_id: 'turn-1',
+  });
+  const interruptResponse = await worker.waitFor((frame) => frame.id === 2);
+  assert.match(interruptResponse.error?.message ?? '', /turn_interrupt_unconfirmed/u);
+  const completed = await worker.waitFor((frame) =>
+    frame.id === 1 && frame.result?.event === 'stream.done',
+  );
+  assert.equal(completed.result.finish_reason, 'stop');
+
+  await worker.close();
+});
+
+function sessionInterruptOperation(suffix, extra = {}) {
+  return {
+    operation: 'session_interrupt',
+    control_request_id: `control-${suffix}`,
+    session_id: 'session-canonical-1',
+    provider_session_id: 'provider-session-1',
+    policy_decision_id: `policy-${suffix}`,
+    timeout_ms: 5_000,
+    ...extra,
+  };
+}
+
 function createWorker(t, fixture) {
   const child = spawn(
     process.execPath,
@@ -238,6 +375,7 @@ function createWorker(t, fixture) {
         SDKWORK_AGENT_SDK_PACKAGE_PATHS: '{}',
         SDKWORK_CODEX_CLI_BIN: fixture.executablePath,
         SDKWORK_FAKE_APP_SERVER_CAPTURE: fixture.capturePath,
+        SDKWORK_FAKE_APP_SERVER_MODE: fixture.mode,
         SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS: '',
         SDKWORK_KERNEL_ENVIRONMENT: 'production',
         SDKWORK_KERNEL_PROFILE_ID: 'cloud.production',
@@ -296,14 +434,14 @@ function createWorker(t, fixture) {
   };
 }
 
-function createFixture(t) {
+function createFixture(t, mode = 'normal') {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sdkwork-worker-app-server-'));
   const serverPath = path.join(directory, 'fake-app-server.mjs');
   const capturePath = path.join(directory, 'capture.jsonl');
   fs.writeFileSync(serverPath, fakeAppServerSource(), 'utf8');
   const executablePath = createExecutable(directory, serverPath);
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-  return { capturePath, executablePath };
+  return { capturePath, executablePath, mode };
 }
 
 function createExecutable(directory, serverPath) {
@@ -330,6 +468,7 @@ function fakeAppServerSource() {
 import readline from 'node:readline';
 
 const capturePath = process.env.SDKWORK_FAKE_APP_SERVER_CAPTURE;
+const mode = process.env.SDKWORK_FAKE_APP_SERVER_MODE;
 const providerSessionId = 'provider-session-1';
 let turnSequence = 0;
 const capture = (message) => fs.appendFileSync(
@@ -354,6 +493,31 @@ input.on('line', (line) => {
   }
   if (message.method === 'thread/resume') {
     send({ id: message.id, result: { thread: { id: message.params.threadId, turns: [] } } });
+    return;
+  }
+  if (message.method === 'thread/read') {
+    if (mode === 'recovery-paginated') {
+      send({
+        id: message.id,
+        error: {
+          code: -32602,
+          message: 'paginated threads do not support thread/read(includeTurns=true)',
+        },
+      });
+      return;
+    }
+    const turns = mode === 'recovery-active'
+      ? [{ id: 'turn-recovered', status: 'inProgress', items: [], error: null }]
+      : mode === 'recovery-ambiguous'
+        ? [
+            { id: 'turn-recovered-1', status: 'inProgress', items: [], error: null },
+            { id: 'turn-recovered-2', status: 'inProgress', items: [], error: null },
+          ]
+        : [{ id: 'turn-completed', status: 'completed', items: [], error: null }];
+    send({
+      id: message.id,
+      result: { thread: { id: message.params.threadId, turns } },
+    });
     return;
   }
   if (message.method === 'turn/start') {
@@ -389,6 +553,9 @@ input.on('line', (line) => {
       method: 'item/agentMessage/delta',
       params: { threadId: providerSessionId, turnId, itemId: 'message-' + turnSequence, delta: 'hello ' },
     });
+    if (mode === 'interrupt-completed-race') {
+      return;
+    }
     if (turnSequence === 1) {
       send({
         id: 72,
@@ -483,11 +650,12 @@ input.on('line', (line) => {
   }
   if (message.method === 'turn/interrupt') {
     send({ id: message.id, result: {} });
+    const status = mode === 'interrupt-completed-race' ? 'completed' : 'interrupted';
     send({
       method: 'turn/completed',
       params: {
         threadId: providerSessionId,
-        turn: { id: message.params.turnId, status: 'interrupted' },
+        turn: { id: message.params.turnId, status },
       },
     });
   }

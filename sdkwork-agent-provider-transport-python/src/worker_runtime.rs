@@ -1,7 +1,7 @@
 use sdkwork_agent_provider_core::mock_provider_invocation_allowed;
 use sdkwork_agent_provider_spi::{
-    SdkBackendKind, SdkBackendRuntime, SdkDriverHealth, SdkRuntimeError, SdkRuntimeOperation,
-    SdkRuntimeRequest, SdkRuntimeResponse,
+    SdkBackendKind, SdkBackendRuntime, SdkDriverHealth, SdkRuntimeError, SdkRuntimeInteractionResolution,
+    SdkRuntimeOperation, SdkRuntimeRequest, SdkRuntimeResponse,
 };
 use sdkwork_agent_provider_transport_ipc::{
     provider_worker_concurrency_limit, FailClosedJsonRpcTransport, JsonRpcTransport,
@@ -398,7 +398,32 @@ impl SdkBackendRuntime for PythonSdkBackendRuntime {
             PythonRuntimeBackend::Stub(_) | PythonRuntimeBackend::FailClosed(_) => Ok(false),
         }
     }
+
+    fn resolve_interaction(
+        &self,
+        resolution: &SdkRuntimeInteractionResolution,
+    ) -> Result<Value, SdkRuntimeError> {
+        resolution.validate()?;
+        match &self.backend {
+            PythonRuntimeBackend::Managed { pool } => pool
+                .control(
+                    &resolution.model_request_id,
+                    "sdkwork/serverRequest.respond",
+                    Some(json!(resolution)),
+                    INTERACTION_CONTROL_TIMEOUT,
+                )
+                .map_err(map_transport_error),
+            PythonRuntimeBackend::Stub(_) | PythonRuntimeBackend::FailClosed(_) => {
+                Err(SdkRuntimeError::new(
+                    "interaction_resolution_unavailable",
+                    "active provider interaction control requires a managed Python worker",
+                ))
+            }
+        }
+    }
 }
+
+const INTERACTION_CONTROL_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn worker_operation_timeout(request: &SdkRuntimeRequest) -> Duration {
     let timeout_ms = match &request.operation {

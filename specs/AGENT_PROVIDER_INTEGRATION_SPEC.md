@@ -315,6 +315,77 @@ Rules:
 - Claude Code control remains undeclared until its streaming query lifetime is
   wired and proved by equivalent conformance tests.
 
+#### 6.1.2 Official SDK Session Discovery
+
+Provider Session inventory and transcript discovery are read-only transport
+operations under `sdk.session.lifecycle`. `session_list` enumerates provider
+Sessions and `session_history` reads messages for one exact opaque provider
+Session. They do not create canonical SDKWork identities.
+
+Rules:
+
+- A binding may declare `session_list` or `session_history` only when the
+  selected runtime uses the provider's official public SDK. Private provider
+  databases, transcript files, caches, logs, and source-tree storage layouts
+  are forbidden discovery authorities.
+- A discovery request carries optional `working_directory`, optional opaque
+  `cursor`, and a positive bounded `limit`. `session_history` additionally
+  carries the exact `provider_session_id`; it never accepts canonical
+  `session_id` as an alias.
+- The normalized Session page projection contains `items`, optional
+  `next_cursor`, and optional `previous_cursor`. The normalized history page
+  contains the same fields plus the exact `provider_session_id` whose messages
+  were requested.
+- Session items use `provider_session_id` and optional
+  `parent_provider_session_id`. Message items use `provider_message_id`,
+  `provider_session_id`, and optional `parent_provider_message_id`. Discovery
+  items `MUST NOT` claim canonical `session_id`, `message_id`, or parent ids.
+  Canonical identity is assigned only by an explicit runtime adoption mapping
+  before shared persistence or event publication.
+- Every history page and every message item must match the requested
+  `provider_session_id`. Empty identities, self-parent lineage, unsupported
+  roles, empty message part sets, duplicate part ids, and cross-Session records
+  fail closed.
+- Message parts use the provider-neutral `AgentPartKind` vocabulary. Text,
+  JSON, content reference, artifact, tool call, policy decision, and error
+  kinds must carry their required typed field. File and media references must
+  carry a non-empty MIME type; adapters use `application/octet-stream` only
+  when the official SDK omits a more precise file MIME type.
+- The L1 drain treats every cursor as opaque. It requests at most 200 records
+  per page, rejects a repeated cursor, rejects provider Session or message ids
+  repeated across pages, and fails once a single drain exceeds 10,000 unique
+  records. It never silently truncates, deduplicates, or interprets a
+  provider-native cursor.
+- Claude Code discovery uses
+  `@anthropic-ai/claude-agent-sdk` `listSessions()` and
+  `getSessionMessages()` with `includeSystemMessages: true`. Because that SDK
+  exposes offset pagination, its adapter-owned Base64URL cursor is bound to the
+  package, operation, provider Session, working directory, and limit; changing
+  any bound value invalidates the cursor.
+- OpenCode discovery uses the official `@opencode-ai/sdk/v2` client
+  `client.v2.session.list()` and `client.v2.session.messages()` methods. Its
+  SDK-native cursor is forwarded and returned unchanged; the adapter does not
+  decode or replace it.
+- Codex discovery uses the public `codex-app-server-client` and
+  `codex-app-server-protocol` crates with `thread/list`, `thread/read`, and
+  `thread/turns/list`. History requests force chronological `sortDirection:
+  "asc"` and `itemsView: "full"`; the lower-level `thread/items/list` method
+  remains a typed provider helper, not the discovery authority. The Rust
+  adapter preserves both opaque app-server cursors, projects every returned
+  thread and item into provider-owned records, and retains each complete typed
+  `ThreadItem` as a tenant-sensitive JSON part whose metadata identifies the
+  upstream schema. Its compatibility
+  `SessionAdapter` and `MessageAdapter` mappings are not discovery identities
+  and must not leak canonical `session_id` or `message_id` fields into these
+  pages.
+- Runtime absence, malformed pages, cursor cycles, identity mismatches, and SDK
+  errors are provider failures. Production and development paths have no mock,
+  private-storage, or synthetic discovery fallback.
+- Conformance tests must cover multi-page draining, cursor advancement and
+  cycles, page and item Session affinity, duplicate identities, the 10,000-item
+  bound, invalid part shapes, working-directory propagation, and deterministic
+  loading of the declared official package.
+
 ### 6.2 User-Mediated Server Requests
 
 A long-lived provider transport may receive a request that pauses the active

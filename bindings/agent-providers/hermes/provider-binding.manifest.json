@@ -26,18 +26,26 @@
     {
       "capability_id": "sdk.session.lifecycle",
       "required": true,
-      "execution_scope": "provider_local",
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "python_process",
           "driver_id": "driver.hermes.session.lifecycle.python",
-          "runtime_operations": ["ping"],
+          "runtime_operations": [
+            "ping",
+            "session_create",
+            "session_list"
+          ],
           "python_module": "hermes_state"
         },
         {
           "kind": "ipc_protocol",
           "driver_id": "driver.hermes.session.lifecycle.ipc",
-          "runtime_operations": ["ping"],
+          "runtime_operations": [
+            "ping",
+            "session_create",
+            "session_list"
+          ],
           "transport": "jsonrpc_stdio"
         }
       ]
@@ -50,14 +58,51 @@
         {
           "kind": "python_process",
           "driver_id": "driver.hermes.model.chat.python",
-          "runtime_operations": ["ping", "model_chat"],
+          "runtime_operations": [
+            "ping",
+            "model_chat"
+          ],
           "python_module": "run_agent"
         },
         {
           "kind": "ipc_protocol",
           "driver_id": "driver.hermes.model.chat.ipc",
-          "runtime_operations": ["ping", "model_chat"],
+          "runtime_operations": [
+            "ping",
+            "model_chat",
+            "model_chat_stream"
+          ],
           "transport": "jsonrpc_stdio"
+        }
+      ]
+    },
+    {
+      "capability_id": "sdk.session.history",
+      "required": false,
+      "execution_scope": "transport_runtime",
+      "backends": [
+        {
+          "kind": "ipc_protocol",
+          "driver_id": "driver.hermes.session.history.ipc",
+          "runtime_operations": [
+            "ping",
+            "session_history"
+          ]
+        }
+      ]
+    },
+    {
+      "capability_id": "sdk.session.control",
+      "required": false,
+      "execution_scope": "transport_runtime",
+      "backends": [
+        {
+          "kind": "ipc_protocol",
+          "driver_id": "driver.hermes.session.control.ipc",
+          "runtime_operations": [
+            "ping",
+            "session_interrupt"
+          ]
         }
       ]
     }

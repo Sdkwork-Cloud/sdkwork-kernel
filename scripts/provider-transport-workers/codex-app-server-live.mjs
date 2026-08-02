@@ -134,6 +134,7 @@ export class CodexAppServerLiveTransport extends EventEmitter {
   #requestLedger = new Map();
   #pendingRequests = new Map();
   #serverRequestLedger = new Map();
+  #serverRequestWaiters = new Set();
   #turnLedger = new Map();
   #stdoutDecoder = new TextDecoder();
   #stdoutBuffer = '';
@@ -266,10 +267,17 @@ export class CodexAppServerLiveTransport extends EventEmitter {
       options,
       'readSession',
     );
+    const includeTurns = command.includeTurns ?? false;
+    if (typeof includeTurns !== 'boolean') {
+      throw transportError(
+        'codex_app_server_invalid_command',
+        'readSession includeTurns must be a boolean',
+      );
+    }
     await this.connect();
     const response = await this.#sendRequest(WIRE_SESSION_READ_METHOD, {
       threadId: command.providerSessionId,
-      includeTurns: false,
+      includeTurns,
     });
     return this.#normalizeSessionResult(
       response,
@@ -395,6 +403,15 @@ export class CodexAppServerLiveTransport extends EventEmitter {
 
   async waitForServerRequest(criteria = {}) {
     const normalized = normalizeServerRequestCriteria(criteria);
+    if (this.#state === 'failed') {
+      throw this.#terminalError ?? transportError(
+        'codex_app_server_failed',
+        'transport is in a failed state',
+      );
+    }
+    if (this.#state === 'closing' || this.#state === 'closed') {
+      throw transportError('codex_app_server_closed', 'transport is closed');
+    }
     const existing = [...this.#serverRequestLedger.values()].find((record) =>
       record.status === 'pending' && serverRequestMatches(record.event, normalized),
     );
@@ -403,23 +420,37 @@ export class CodexAppServerLiveTransport extends EventEmitter {
     }
 
     return new Promise((resolve, reject) => {
-      const onRequest = (event) => {
+      const waiter = {
+        onRequest: null,
+        reject: null,
+        timer: null,
+      };
+      const cleanup = () => {
+        clearTimeout(waiter.timer);
+        this.off('serverRequest', waiter.onRequest);
+        this.#serverRequestWaiters.delete(waiter);
+      };
+      waiter.onRequest = (event) => {
         if (!serverRequestMatches(event, normalized)) {
           return;
         }
-        clearTimeout(timer);
-        this.off('serverRequest', onRequest);
+        cleanup();
         resolve(event);
       };
-      const timer = setTimeout(() => {
-        this.off('serverRequest', onRequest);
+      waiter.reject = (error) => {
+        cleanup();
+        reject(error);
+      };
+      waiter.timer = setTimeout(() => {
+        cleanup();
         reject(transportError(
           'codex_app_server_server_request_timeout',
           'no matching server request arrived before the timeout',
         ));
       }, normalized.timeoutMs ?? this.#options.requestTimeoutMs);
-      timer.unref?.();
-      this.on('serverRequest', onRequest);
+      waiter.timer.unref?.();
+      this.#serverRequestWaiters.add(waiter);
+      this.on('serverRequest', waiter.onRequest);
     });
   }
 
@@ -445,13 +476,19 @@ export class CodexAppServerLiveTransport extends EventEmitter {
     const outbound = command.error
       ? { id: record.id, error: normalizeRpcError(command.error) }
       : { id: record.id, result: command.result };
-    record.status = 'responded';
-    record.respondedAt = new Date().toISOString();
+    record.status = 'responding';
+    record.respondingAt = new Date().toISOString();
     record.responseKind = command.error ? 'error' : 'result';
     try {
       await this.#writeWire(outbound);
+      record.respondedAt = new Date().toISOString();
+      if (record.status === 'responding') {
+        record.status = 'responded';
+      }
     } catch (error) {
-      record.status = 'writeFailed';
+      if (record.status === 'responding') {
+        record.status = 'writeFailed';
+      }
       throw error;
     }
     return Object.freeze({
@@ -486,13 +523,17 @@ export class CodexAppServerLiveTransport extends EventEmitter {
 
   getServerRequestLedgerSnapshot() {
     return [...this.#serverRequestLedger.values()].map((record) => Object.freeze({
+      cancelledAt: record.cancelledAt ?? null,
       connectionId: record.connectionId,
       method: record.method,
       providerSessionId: record.event.providerSessionId,
       receivedAt: record.receivedAt,
       requestId: record.id,
+      providerClearedAt: record.providerClearedAt ?? null,
       resolvedAt: record.resolvedAt ?? null,
+      resolutionUnknownAt: record.resolutionUnknownAt ?? null,
       respondedAt: record.respondedAt ?? null,
+      respondingAt: record.respondingAt ?? null,
       status: record.status,
       turnId: record.event.turnId,
     }));
@@ -502,16 +543,16 @@ export class CodexAppServerLiveTransport extends EventEmitter {
     if (this.#state === 'closed') {
       return;
     }
-    if (!this.#child) {
-      this.#state = 'closed';
-      return;
-    }
-
     const closeError = transportError(
       'codex_app_server_closed',
       'app-server transport was closed',
     );
     this.#rejectInFlight(closeError, 'closed');
+    if (!this.#child) {
+      this.#state = 'closed';
+      return;
+    }
+
     this.#state = 'closing';
     const child = this.#child;
     try {
@@ -867,11 +908,17 @@ export class CodexAppServerLiveTransport extends EventEmitter {
       ));
       return;
     }
-    if (record.status === 'resolved') {
+    if (record.status === 'resolved' || record.status === 'providerCleared') {
       return;
     }
-    record.status = 'resolved';
-    record.resolvedAt = new Date().toISOString();
+    const providerClearedAt = new Date().toISOString();
+    if (record.status === 'responded' || record.status === 'resolutionUnknown') {
+      record.status = 'resolved';
+      record.resolvedAt = providerClearedAt;
+    } else {
+      record.status = 'providerCleared';
+      record.providerClearedAt = providerClearedAt;
+    }
     this.emit('serverRequestResolved', Object.freeze({
       known: true,
       providerSessionId: record.event.providerSessionId,
@@ -1082,6 +1129,10 @@ export class CodexAppServerLiveTransport extends EventEmitter {
   }
 
   #rejectInFlight(error, requestStatus) {
+    for (const waiter of this.#serverRequestWaiters) {
+      waiter.reject(error);
+    }
+    this.#serverRequestWaiters.clear();
     for (const pending of this.#pendingRequests.values()) {
       clearTimeout(pending.timer);
       pending.record.completedAt = new Date().toISOString();
@@ -1089,6 +1140,17 @@ export class CodexAppServerLiveTransport extends EventEmitter {
       pending.reject(error);
     }
     this.#pendingRequests.clear();
+    const settledAt = new Date().toISOString();
+    for (const record of this.#serverRequestLedger.values()) {
+      if (record.status === 'pending') {
+        record.status = 'cancelled';
+        record.cancelledAt = settledAt;
+      } else if (record.status === 'responding' || record.status === 'responded') {
+        record.status = 'resolutionUnknown';
+        record.resolutionUnknownAt = settledAt;
+      }
+    }
+    trimServerRequestLedger(this.#serverRequestLedger);
     for (const tracker of this.#turnLedger.values()) {
       if (tracker.status === 'active') {
         tracker.status = 'failed';
@@ -1563,7 +1625,7 @@ function trimServerRequestLedger(ledger) {
     return;
   }
   for (const [key, record] of ledger) {
-    if (record.status === 'resolved' || record.status === 'writeFailed') {
+    if (!['pending', 'responding', 'responded'].includes(record.status)) {
       ledger.delete(key);
     }
     if (ledger.size <= MAX_LEDGER_ENTRIES) {

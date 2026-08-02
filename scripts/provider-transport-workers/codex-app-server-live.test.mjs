@@ -12,9 +12,9 @@ import {
 const REQUEST_TIMEOUT_MS = 3_000;
 
 test('keeps one app-server process for Session turns and preserves interactive request affinity', async (t) => {
-  const fixture = createFakeAppServer(t, 'normal');
+  const fixture = createFakeAppServer('normal');
   const transport = createTransport(fixture);
-  t.after(() => transport.close());
+  registerFixtureCleanup(t, transport, fixture);
 
   const notifications = [];
   const resolved = [];
@@ -173,9 +173,9 @@ test('keeps one app-server process for Session turns and preserves interactive r
 });
 
 test('fails closed when the app-server response id does not match the request ledger', async (t) => {
-  const fixture = createFakeAppServer(t, 'mismatched-response-id');
+  const fixture = createFakeAppServer('mismatched-response-id');
   const transport = createTransport(fixture);
-  t.after(() => transport.close());
+  registerFixtureCleanup(t, transport, fixture);
 
   const protocolErrors = [];
   transport.on('protocolError', (error) => protocolErrors.push(error));
@@ -189,9 +189,9 @@ test('fails closed when the app-server response id does not match the request le
 });
 
 test('rejects pending work when the resident app-server closes unexpectedly', async (t) => {
-  const fixture = createFakeAppServer(t, 'unexpected-close');
+  const fixture = createFakeAppServer('unexpected-close');
   const transport = createTransport(fixture);
-  t.after(() => transport.close());
+  registerFixtureCleanup(t, transport, fixture);
 
   await transport.connect();
   await assert.rejects(
@@ -211,6 +211,127 @@ test('rejects pending work when the resident app-server closes unexpectedly', as
   );
 });
 
+test('rejects server-request waiters immediately when the transport closes', async (t) => {
+  const fixture = createFakeAppServer('normal');
+  const transport = createTransport(fixture);
+  registerFixtureCleanup(t, transport, fixture);
+
+  await transport.connect();
+  const waiting = assert.rejects(
+    transport.waitForServerRequest({
+      method: 'item/fileChange/requestApproval',
+      timeoutMs: 10_000,
+    }),
+    hasErrorCode('codex_app_server_closed'),
+  );
+  await transport.close();
+  await waiting;
+  assert.equal(transport.state, 'closed');
+});
+
+test('cancels unanswered server requests when the app-server connection is lost', async (t) => {
+  const fixture = createFakeAppServer('pending-server-request-close');
+  const transport = createTransport(fixture);
+  registerFixtureCleanup(t, transport, fixture);
+
+  await transport.connect();
+  const turn = await transport.startTurn({
+    providerSessionId: 'provider-session-1',
+    message: 'wait for approval',
+  });
+  const completionFailure = assert.rejects(
+    turn.completion,
+    hasErrorCode('codex_app_server_process_exited'),
+  );
+  const request = await transport.waitForServerRequest({
+    method: 'item/commandExecution/requestApproval',
+    providerSessionId: 'provider-session-1',
+    turnId: turn.turnId,
+  });
+  assert.equal(request.requestId, 'approval-1');
+  await assert.rejects(
+    transport.waitForServerRequest({
+      method: 'item/fileChange/requestApproval',
+      timeoutMs: 10_000,
+    }),
+    hasErrorCode('codex_app_server_process_exited'),
+  );
+  await completionFailure;
+
+  const [record] = transport.getServerRequestLedgerSnapshot();
+  assert.equal(record.status, 'cancelled');
+  assert.ok(record.cancelledAt);
+  assert.equal(record.respondedAt, null);
+  assert.equal(record.resolutionUnknownAt, null);
+});
+
+test('marks a sent response resolution unknown when provider cleanup is not observed', async (t) => {
+  const fixture = createFakeAppServer('response-close-before-resolved');
+  const transport = createTransport(fixture);
+  registerFixtureCleanup(t, transport, fixture);
+
+  await transport.connect();
+  const turn = await transport.startTurn({
+    providerSessionId: 'provider-session-1',
+    message: 'approve before disconnect',
+  });
+  const completionFailure = assert.rejects(
+    turn.completion,
+    hasErrorCode('codex_app_server_process_exited'),
+  );
+  const request = await transport.waitForServerRequest({
+    method: 'item/commandExecution/requestApproval',
+    providerSessionId: 'provider-session-1',
+    turnId: turn.turnId,
+  });
+  const response = await transport.respondToServerRequest(request, { decision: 'accept' });
+  assert.equal(response.status, 'responded');
+  await completionFailure;
+
+  const [record] = transport.getServerRequestLedgerSnapshot();
+  assert.equal(record.status, 'resolutionUnknown');
+  assert.ok(record.respondedAt);
+  assert.ok(record.resolutionUnknownAt);
+  assert.equal(record.resolvedAt, null);
+});
+
+test('keeps provider cleanup distinct when no response was sent on this connection', async (t) => {
+  const fixture = createFakeAppServer('provider-clears-without-response');
+  const transport = createTransport(fixture);
+  registerFixtureCleanup(t, transport, fixture);
+
+  const resolved = new Promise((resolve) => {
+    transport.once('serverRequestResolved', resolve);
+  });
+  await transport.connect();
+  const turn = await transport.startTurn({
+    providerSessionId: 'provider-session-1',
+    message: 'provider clears independently',
+  });
+  const completionFailure = assert.rejects(
+    turn.completion,
+    hasErrorCode('codex_app_server_closed'),
+  );
+  const request = await transport.waitForServerRequest({
+    method: 'item/commandExecution/requestApproval',
+    providerSessionId: 'provider-session-1',
+    turnId: turn.turnId,
+  });
+  assert.equal(request.requestId, 'approval-1');
+  await resolved;
+
+  const [record] = transport.getServerRequestLedgerSnapshot();
+  assert.equal(record.status, 'providerCleared');
+  assert.ok(record.providerClearedAt);
+  assert.equal(record.resolvedAt, null);
+  await assert.rejects(
+    transport.respondToServerRequest(request, { decision: 'accept' }),
+    hasErrorCode('codex_app_server_server_request_already_settled'),
+  );
+  await transport.close();
+  await completionFailure;
+});
+
 function createTransport(fixture) {
   return new CodexAppServerLiveTransport({
     args: [fixture.fixturePath],
@@ -226,13 +347,27 @@ function createTransport(fixture) {
   });
 }
 
-function createFakeAppServer(t, mode) {
+function createFakeAppServer(mode) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sdkwork-codex-app-server-'));
   const fixturePath = path.join(directory, 'fake-app-server.mjs');
   const capturePath = path.join(directory, 'capture.jsonl');
   fs.writeFileSync(fixturePath, fakeAppServerSource(), 'utf8');
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   return { capturePath, directory, fixturePath, mode };
+}
+
+function registerFixtureCleanup(t, transport, fixture) {
+  t.after(async () => {
+    try {
+      await transport.close();
+    } finally {
+      fs.rmSync(fixture.directory, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 50,
+      });
+    }
+  });
 }
 
 function fakeAppServerSource() {
@@ -356,10 +491,27 @@ input.on('line', (line) => {
           turnId,
         },
       });
+      if (mode === 'pending-server-request-close') {
+        process.stderr.write('fixture closed with a pending server request');
+        setTimeout(() => process.exit(18), 100);
+      }
+      if (mode === 'provider-clears-without-response') {
+        setTimeout(() => {
+          send({
+            method: 'serverRequest/resolved',
+            params: { requestId: 'approval-1', threadId: providerSessionId },
+          });
+        }, 20);
+      }
     }
     return;
   }
   if (message.id === 'approval-1' && !message.method) {
+    if (mode === 'response-close-before-resolved') {
+      process.stderr.write('fixture closed before provider resolution');
+      setTimeout(() => process.exit(19), 20);
+      return;
+    }
     send({
       method: 'serverRequest/resolved',
       params: { requestId: message.id, threadId: providerSessionId },

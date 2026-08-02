@@ -93,8 +93,13 @@ impl ProviderBackedRustHandler {
                 format!(
                     "SessionCreate is not supported on rust_native transport; \
                      create sessions through the kernel runtime HTTP API \
-                     (agent_id={agent_id}, user_ref={user_ref:?})"
+                    (agent_id={agent_id}, user_ref={user_ref:?})"
                 ),
+            )),
+            SdkRuntimeOperation::SessionList { .. }
+            | SdkRuntimeOperation::SessionHistory { .. } => Err(SdkRuntimeError::new(
+                "unsupported_operation",
+                "provider Session discovery is not configured for this Rust provider runtime",
             )),
             SdkRuntimeOperation::SessionInterrupt { .. }
             | SdkRuntimeOperation::SessionCompact { .. }
@@ -358,6 +363,40 @@ mod tests {
             })
             .expect_err("session create must fail closed on rust_native");
         assert_eq!(error.code, "unsupported_operation");
+    }
+
+    #[test]
+    fn session_discovery_is_unsupported_on_generic_rust_native_transport() {
+        let handler = Arc::new(ProviderBackedRustHandler::new(
+            Arc::new(StubModelProvider) as Arc<dyn ModelProvider + Send + Sync>,
+            Arc::new(StubToolProvider) as Arc<dyn ToolProvider + Send + Sync>,
+            "stub-model",
+        ));
+        let runtime = InProcessRustSdkRuntime::new(handler);
+        let operations = [
+            SdkRuntimeOperation::SessionList {
+                working_directory: None,
+                cursor: None,
+                limit: 20,
+            },
+            SdkRuntimeOperation::SessionHistory {
+                provider_session_id: "provider-session.1".to_string(),
+                working_directory: None,
+                cursor: None,
+                limit: 20,
+            },
+        ];
+
+        for operation in operations {
+            let error = runtime
+                .invoke(&SdkRuntimeRequest {
+                    capability_id: "sdk.session.lifecycle".to_string(),
+                    operation,
+                    payload: None,
+                })
+                .expect_err("Session discovery must fail closed on generic rust_native");
+            assert_eq!(error.code, "unsupported_operation");
+        }
     }
 
     #[test]

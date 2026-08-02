@@ -118,6 +118,21 @@ impl SdkRuntimeInteractionResolution {
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum SdkRuntimeOperation {
     Ping,
+    SessionList {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        working_directory: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+        limit: u32,
+    },
+    SessionHistory {
+        provider_session_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        working_directory: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cursor: Option<String>,
+        limit: u32,
+    },
     SessionCreate {
         agent_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -215,6 +230,8 @@ pub enum SdkRuntimeOperation {
 #[serde(rename_all = "snake_case")]
 pub enum SdkRuntimeOperationKind {
     Ping,
+    SessionList,
+    SessionHistory,
     SessionCreate,
     SessionInterrupt,
     SessionCompact,
@@ -229,6 +246,8 @@ impl SdkRuntimeOperation {
     pub fn kind(&self) -> SdkRuntimeOperationKind {
         match self {
             Self::Ping => SdkRuntimeOperationKind::Ping,
+            Self::SessionList { .. } => SdkRuntimeOperationKind::SessionList,
+            Self::SessionHistory { .. } => SdkRuntimeOperationKind::SessionHistory,
             Self::SessionCreate { .. } => SdkRuntimeOperationKind::SessionCreate,
             Self::SessionInterrupt { .. } => SdkRuntimeOperationKind::SessionInterrupt,
             Self::SessionCompact { .. } => SdkRuntimeOperationKind::SessionCompact,
@@ -259,7 +278,11 @@ impl SdkRuntimeOperation {
             | Self::SessionFork {
                 control_request_id, ..
             } => Some(control_request_id),
-            Self::Ping | Self::SessionCreate { .. } | Self::SkillInvoke { .. } => None,
+            Self::Ping
+            | Self::SessionList { .. }
+            | Self::SessionHistory { .. }
+            | Self::SessionCreate { .. }
+            | Self::SkillInvoke { .. } => None,
         }
     }
 }
@@ -268,6 +291,8 @@ impl SdkRuntimeOperationKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Ping => "ping",
+            Self::SessionList => "session_list",
+            Self::SessionHistory => "session_history",
             Self::SessionCreate => "session_create",
             Self::SessionInterrupt => "session_interrupt",
             Self::SessionCompact => "session_compact",

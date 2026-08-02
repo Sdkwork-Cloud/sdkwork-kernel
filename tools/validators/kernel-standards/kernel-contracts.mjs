@@ -65,8 +65,7 @@ const requiredWorkspaceRustCrates = [
   'sdkwork-agent-client',
   'sdkwork-agent-database',
   'sdkwork-agent-server',
-  'sdkwork-agent-session',
-  'sdkwork-agent-streaming'
+  'sdkwork-agent-session'
 ];
 
 const requiredRouteRustCrates = [

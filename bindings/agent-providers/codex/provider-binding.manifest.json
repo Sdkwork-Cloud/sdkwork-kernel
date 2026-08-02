@@ -16,49 +16,44 @@
       "crate": "codex-app-server-client",
       "version": "0.0.0",
       "optional": false
-    },
-    "typescript": {
-      "package": "@openai/codex-sdk",
-      "version": "0.146.0",
-      "optional": false
     }
   },
   "selection_policy": {
     "default_backend_priority": [
-      "typescript_node",
-      "rust_native",
-      "ipc_protocol"
+      "rust_native"
     ]
   },
   "capabilities": [
     {
       "capability_id": "sdk.session.lifecycle",
       "required": true,
-      "execution_scope": "provider_local",
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "rust_native",
           "driver_id": "driver.codex.session.lifecycle.rust",
-          "runtime_operations": ["ping"],
+          "runtime_operations": [
+            "ping",
+            "session_list",
+            "session_history",
+            "session_create"
+          ],
           "crate": "codex-app-server-client"
-        },
-        {
-          "kind": "ipc_protocol",
-          "driver_id": "driver.codex.session.lifecycle.ipc",
-          "runtime_operations": ["ping"],
-          "transport": "jsonrpc_stdio"
         }
       ]
     },
     {
       "capability_id": "sdk.session.history",
       "required": true,
-      "execution_scope": "provider_local",
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "rust_native",
           "driver_id": "driver.codex.session.history.rust",
-          "runtime_operations": ["ping"],
+          "runtime_operations": [
+            "ping",
+            "session_history"
+          ],
           "crate": "codex-app-server-client"
         }
       ]
@@ -69,40 +64,31 @@
       "execution_scope": "transport_runtime",
       "backends": [
         {
-          "kind": "typescript_node",
-          "driver_id": "driver.codex.model.chat.ts",
-          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
-          "package": "@openai/codex-sdk"
-        },
-        {
           "kind": "rust_native",
           "driver_id": "driver.codex.model.chat.rust",
-          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
-          "crate": "codex-core"
-        },
-        {
-          "kind": "ipc_protocol",
-          "driver_id": "driver.codex.model.chat.ipc",
-          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
-          "transport": "jsonrpc_stdio"
+          "runtime_operations": [
+            "ping",
+            "model_chat",
+            "model_chat_stream"
+          ],
+          "crate": "codex-app-server-client"
         }
       ]
     },
     {
       "capability_id": "sdk.session.control",
-      "required": false,
+      "required": true,
       "execution_scope": "transport_runtime",
       "backends": [
         {
-          "kind": "typescript_node",
-          "driver_id": "driver.codex.session.control.ts",
+          "kind": "rust_native",
+          "driver_id": "driver.codex.session.control.rust",
           "runtime_operations": [
             "ping",
             "session_interrupt",
             "session_compact",
             "session_fork"
-          ],
-          "package": "@openai/codex-sdk"
+          ]
         }
       ]
     },
@@ -114,17 +100,16 @@
         {
           "kind": "rust_native",
           "driver_id": "driver.codex.model.stream.rust",
-          "runtime_operations": ["ping", "model_chat_stream"],
-          "crate": "codex-core"
+          "runtime_operations": [
+            "ping",
+            "model_chat_stream"
+          ],
+          "crate": "codex-app-server-client"
         }
       ]
     }
   ],
   "integration_sources": [
-    {
-      "mode": "official_sdk",
-      "package": "@openai/codex-sdk"
-    },
     {
       "mode": "rust_crate",
       "crate": "codex-app-server-client"
@@ -134,20 +119,12 @@
       "crate": "codex-app-server-protocol"
     },
     {
-      "mode": "rust_crate",
-      "crate": "codex-core"
-    },
-    {
       "mode": "source_tree",
       "path": "external/codex/codex-rs/app-server-client"
     },
     {
       "mode": "source_tree",
       "path": "external/codex/codex-rs/app-server-protocol"
-    },
-    {
-      "mode": "ipc_protocol",
-      "transport": "jsonrpc_stdio"
     }
   ]
 }

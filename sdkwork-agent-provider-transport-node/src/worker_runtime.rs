@@ -5,10 +5,10 @@ use sdkwork_agent_provider_spi::{
     SdkRuntimeOperation, SdkRuntimeRequest, SdkRuntimeResponse,
 };
 use sdkwork_agent_provider_transport_ipc::{
-    is_invoke_terminal_frame, is_session_activity_frame, provider_worker_concurrency_limit,
-    FailClosedJsonRpcTransport, JsonRpcTransport, PackageStubJsonRpcTransport, SpawnedWorker,
-    SpawnedWorkerLease, SpawnedWorkerPool, TransportError, SDKWORK_CAPABILITY_INVOKE_METHOD,
-    SDKWORK_PING_METHOD,
+    is_invoke_terminal_frame, is_session_activity_frame, is_stream_kernel_event_frame,
+    provider_worker_concurrency_limit, FailClosedJsonRpcTransport, JsonRpcTransport,
+    PackageStubJsonRpcTransport, SpawnedWorker, SpawnedWorkerLease, SpawnedWorkerPool,
+    TransportError, SDKWORK_CAPABILITY_INVOKE_METHOD, SDKWORK_PING_METHOD,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -23,8 +23,11 @@ const HEALTH_WORKER_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(2);
 const DEFAULT_WORKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_WORKER_OPERATION_TIMEOUT: Duration = Duration::from_secs(3600);
 const INTERACTION_CONTROL_TIMEOUT: Duration = Duration::from_secs(30);
+const TURN_INTERRUPT_CONTROL_TIMEOUT: Duration = Duration::from_secs(30);
 const SDKWORK_SERVER_REQUEST_RESPOND_METHOD: &str = "sdkwork/serverRequest.respond";
 const SDKWORK_SESSION_CONTROL_METHOD: &str = "sdkwork/session.control";
+const SDKWORK_TURN_INTERRUPT_METHOD: &str = "sdkwork/turn.interrupt";
+const CODEX_SDK_PACKAGE_NAME: &str = "@openai/codex-sdk";
 
 const NODE_BINARY_ENV: &str = "SDKWORK_AGENT_NODE_BINARY";
 const WORKER_SCRIPT_ENV: &str = "SDKWORK_AGENT_TYPESCRIPT_WORKER_SCRIPT";
@@ -398,6 +401,11 @@ impl NodeSdkBackendRuntime {
                             {
                                 return Ok(true);
                             }
+                            // Non-stream model calls have no event sink, but official SDKs may
+                            // still emit provider lifecycle events before their terminal payload.
+                            if is_stream_kernel_event_frame(&frame) {
+                                return Ok(true);
+                            }
                             if is_invoke_terminal_frame(&frame) {
                                 terminal_payload = frame.get("payload").cloned();
                                 return Ok(true);
@@ -709,7 +717,28 @@ impl SdkBackendRuntime for NodeSdkBackendRuntime {
     fn cancel_inflight(&self, request_id: &str) -> Result<bool, SdkRuntimeError> {
         match &self.backend {
             NodeRuntimeBackend::Managed { pool } => {
-                pool.cancel(request_id).map_err(map_transport_error)
+                if self.package_name != CODEX_SDK_PACKAGE_NAME {
+                    return pool.cancel(request_id).map_err(map_transport_error);
+                }
+                let result = pool
+                    .control(
+                        request_id,
+                        SDKWORK_TURN_INTERRUPT_METHOD,
+                        Some(json!({ "model_request_id": request_id })),
+                        TURN_INTERRUPT_CONTROL_TIMEOUT,
+                    )
+                    .map_err(map_transport_error)?;
+                if result.get("ok").and_then(Value::as_bool) != Some(true)
+                    || result.get("accepted").and_then(Value::as_bool) != Some(true)
+                    || result.get("model_request_id").and_then(Value::as_str) != Some(request_id)
+                    || result.get("finish_reason").and_then(Value::as_str) != Some("cancelled")
+                {
+                    return Err(SdkRuntimeError::new(
+                        "turn_interrupt_unconfirmed",
+                        "Codex Turn interrupt did not return a correlated cancelled terminal acknowledgement",
+                    ));
+                }
+                Ok(true)
             }
             NodeRuntimeBackend::Stub(_) | NodeRuntimeBackend::FailClosed(_) => Ok(false),
         }
@@ -1087,6 +1116,72 @@ mod tests {
     }
 
     #[test]
+    fn managed_activity_invoke_drains_known_provider_events_before_terminal_payload() {
+        if !Command::new("node")
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+        {
+            return;
+        }
+        let root = std::env::temp_dir().join(format!(
+            "sdkwork-node-activity-provider-events-{}",
+            std::process::id()
+        ));
+        let worker_script = root.join("worker.mjs");
+        std::fs::create_dir_all(&root).expect("activity worker test directory");
+        std::fs::write(
+            &worker_script,
+            r#"import readline from 'node:readline';
+const input = readline.createInterface({ input: process.stdin });
+input.on('line', (line) => {
+  const request = JSON.parse(line);
+  if (request.method === 'sdkwork/ping') {
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { ok: true } })}\n`);
+    return;
+  }
+  if (request.method === 'sdkwork/capability.invoke') {
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { event: 'session.activity', provider_session_id: 'provider-session-1', phase: 'working', observed_at: '2026-01-01T00:00:00Z' } })}\n`);
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { event: 'stream.event', model_request_id: 'model-request-1', kernel_event: { event_id: 'provider-event-1' } } })}\n`);
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { event: 'invoke.done', payload: { ok: true, model_request_id: 'model-request-1', messages: ['done'] } } })}\n`);
+  }
+});
+"#,
+        )
+        .expect("activity worker test script");
+        let sink = Arc::new(RecordingActivitySink::default());
+        let runtime = NodeSdkBackendRuntime::spawn(&NodeWorkerLaunchOptions {
+            node_binary: "node".to_string(),
+            worker_script,
+            package_name: "@openai/codex-sdk".to_string(),
+        })
+        .expect("managed runtime")
+        .with_activity_sink(sink.clone());
+
+        let response = runtime
+            .invoke(&SdkRuntimeRequest::model_chat(
+                "sdk.model.chat",
+                "model-request-1",
+                vec!["hello".to_string()],
+            ))
+            .expect("activity invoke");
+
+        assert!(response.success);
+        assert_eq!(
+            response
+                .payload
+                .as_ref()
+                .and_then(|payload| payload.get("model_request_id"))
+                .and_then(Value::as_str),
+            Some("model-request-1")
+        );
+        assert_eq!(sink.events.lock().expect("activity events").len(), 1);
+        drop(runtime);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn managed_runtime_resolves_interaction_on_the_active_stream_worker() {
         if !Command::new("node")
             .arg("--version")
@@ -1175,6 +1270,96 @@ input.on('line', (line) => {
             .join()
             .expect("stream thread should not panic")
             .expect("same stream should continue to completion");
+        drop(runtime);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn managed_codex_runtime_interrupts_on_the_active_worker_without_terminating_it() {
+        if !Command::new("node")
+            .arg("--version")
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false)
+        {
+            return;
+        }
+        let root = std::env::temp_dir().join(format!(
+            "sdkwork-node-turn-interrupt-{}",
+            std::process::id()
+        ));
+        let worker_script = root.join("worker.mjs");
+        std::fs::create_dir_all(&root).expect("turn interrupt worker test directory");
+        std::fs::write(
+            &worker_script,
+            r#"import readline from 'node:readline';
+const input = readline.createInterface({ input: process.stdin });
+let activeStream = null;
+input.on('line', (line) => {
+  const request = JSON.parse(line);
+  if (request.method === 'sdkwork/ping') {
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { ok: true } })}\n`);
+    return;
+  }
+  if (request.method === 'sdkwork/capability.invoke') {
+    activeStream = request;
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { event: 'stream.event', kernel_event: { event_id: 'active' } } })}\n`);
+    return;
+  }
+  if (request.method === 'sdkwork/turn.interrupt') {
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: activeStream.id, result: { event: 'stream.done', finish_reason: 'cancelled', model_request_id: request.params.model_request_id } })}\n`);
+    process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {
+      accepted: true,
+      finish_reason: 'cancelled',
+      model_request_id: request.params.model_request_id,
+      ok: true,
+    } })}\n`);
+  }
+});
+"#,
+        )
+        .expect("turn interrupt worker test script");
+        let runtime = Arc::new(
+            NodeSdkBackendRuntime::spawn(&NodeWorkerLaunchOptions {
+                node_binary: "node".to_string(),
+                worker_script,
+                package_name: CODEX_SDK_PACKAGE_NAME.to_string(),
+            })
+            .expect("managed Codex runtime"),
+        );
+        let request = SdkRuntimeRequest::model_chat_stream_with_execution_identities(
+            "sdk.model.chat",
+            "model-request-cancel-1",
+            vec!["keep running".to_string()],
+            None,
+            None,
+            Some("session-cancel-1".to_string()),
+            Some("provider-session-cancel-1".to_string()),
+            Some("turn-cancel-1".to_string()),
+            None,
+            Some(5_000),
+            None,
+        );
+        let stream_runtime = runtime.clone();
+        let (frame_tx, frame_rx) = mpsc::channel();
+        let stream = thread::spawn(move || {
+            stream_runtime.invoke_streaming(&request, &mut |frame| {
+                frame_tx.send(frame).expect("send stream frame");
+                Ok(true)
+            })
+        });
+        frame_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("active stream frame");
+
+        assert!(runtime
+            .cancel_inflight("model-request-cancel-1")
+            .expect("correlated Codex Turn interrupt"));
+        stream
+            .join()
+            .expect("stream thread should not panic")
+            .expect("stream should finish with its cancelled terminal frame");
+        assert!(runtime.ping_worker().is_ok(), "worker must remain reusable");
         drop(runtime);
         let _ = std::fs::remove_dir_all(root);
     }

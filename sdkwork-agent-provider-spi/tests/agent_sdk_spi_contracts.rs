@@ -104,6 +104,11 @@ fn negotiation_selects_registered_drivers_manually() {
         backend: SdkBackendKind::RustNative,
     }));
     drivers.register(Arc::new(FakeDriver {
+        id: "driver.codex.session.control.rust".to_string(),
+        capability: "sdk.session.control".to_string(),
+        backend: SdkBackendKind::RustNative,
+    }));
+    drivers.register(Arc::new(FakeDriver {
         id: "driver.codex.model.chat.rust".to_string(),
         capability: "sdk.model.chat".to_string(),
         backend: SdkBackendKind::RustNative,
@@ -180,6 +185,11 @@ fn runtime_router_routes_to_registered_backend() {
     drivers.register(Arc::new(FakeDriver {
         id: "driver.codex.session.history.rust".to_string(),
         capability: "sdk.session.history".to_string(),
+        backend: SdkBackendKind::RustNative,
+    }));
+    drivers.register(Arc::new(FakeDriver {
+        id: "driver.codex.session.control.rust".to_string(),
+        capability: "sdk.session.control".to_string(),
         backend: SdkBackendKind::RustNative,
     }));
     drivers.register(Arc::new(FakeDriver {
@@ -299,11 +309,19 @@ fn binding_manifest_preserves_integration_source_locators() {
         .integration_sources
         .as_ref()
         .expect("codex integration sources");
-    let codex_ipc = codex_sources
+    let codex_rust_crate = codex_sources
         .iter()
-        .find(|source| source.mode == "ipc_protocol")
-        .expect("codex ipc source");
-    assert_eq!(codex_ipc.transport.as_deref(), Some("jsonrpc_stdio"));
+        .find(|source| source.mode == "rust_crate" && source.rust_crate == Some("codex-app-server-client".to_string()))
+        .expect("codex app-server-client rust crate source");
+    assert!(!codex_rust_crate.optional);
+    let codex_source_tree = codex_sources
+        .iter()
+        .find(|source| source.mode == "source_tree")
+        .expect("codex source_tree source");
+    assert_eq!(
+        codex_source_tree.path.as_deref(),
+        Some("external/codex/codex-rs/app-server-client")
+    );
 
     let rig_manifest = AgentSdkBindingManifest::from_json(rig).expect("rig manifest");
     let rig_sources = rig_manifest

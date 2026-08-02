@@ -337,7 +337,7 @@ fn secure_compare_bytes(left: &[u8], right: &[u8]) -> bool {
 }
 
 fn canonical_workspace_postgres_configured() -> bool {
-    if !sdkwork_database_config::workspace_database::workspace_database_env_is_configured() {
+    if !sdkwork_database_config::workspace_database::workspace_postgres_env_is_configured() {
         return false;
     }
     sdkwork_database_config::DatabaseConfig::from_env("agent_runtime")

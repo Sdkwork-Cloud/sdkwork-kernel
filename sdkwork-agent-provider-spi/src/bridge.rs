@@ -609,8 +609,13 @@ pub fn model_response_from_runtime(
     validate_runtime_model_payload(&payload)
         .map_err(|message| SdkRuntimeError::new("mock_provider_disabled", message))?;
 
+    let finish_reason = payload
+        .get("finish_reason")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let cancelled = finish_reason.as_deref() == Some("cancelled");
     let messages = extract_messages(&payload);
-    if messages.is_empty() {
+    if messages.is_empty() && !cancelled {
         return Err(SdkRuntimeError::new(
             "empty_messages",
             "runtime response did not include model messages",
@@ -625,14 +630,15 @@ pub fn model_response_from_runtime(
             .get("model")
             .and_then(Value::as_str)
             .map(str::to_string),
-        status: ModelStatus::Succeeded,
+        status: if cancelled {
+            ModelStatus::Cancelled
+        } else {
+            ModelStatus::Succeeded
+        },
         messages,
         tool_calls,
         usage: None,
-        finish_reason: payload
-            .get("finish_reason")
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        finish_reason,
         trace_context: None,
         redaction_classification: sdkwork_agent_kernel::KernelEventRedaction::Unknown,
         diagnostics: Vec::new(),
@@ -1589,6 +1595,27 @@ mod tests {
             .expect_err("model response payload must not cross-correlate turns");
 
         assert_eq!(error.code, "stream_request_mismatch");
+    }
+
+    #[test]
+    fn model_response_accepts_correlated_cancelled_terminal_without_messages() {
+        let response = SdkRuntimeResponse::success(
+            SdkBackendKind::TypeScriptNode,
+            SDK_CAPABILITY_MODEL_CHAT,
+            serde_json::json!({
+                "ok": true,
+                "finish_reason": "cancelled",
+                "messages": [],
+                "model_request_id": "req-cancelled"
+            }),
+        );
+
+        let mapped = model_response_from_runtime(response, "req-cancelled", "provider.codex")
+            .expect("cancelled terminal should map without assistant text");
+
+        assert_eq!(mapped.status, ModelStatus::Cancelled);
+        assert_eq!(mapped.finish_reason.as_deref(), Some("cancelled"));
+        assert!(mapped.messages.is_empty());
     }
 
     #[test]

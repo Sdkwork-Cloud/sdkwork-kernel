@@ -10,10 +10,12 @@ import {
   invokeModelChatLive,
   invokeModelChatStreamLive,
   invokeSessionControlRuntime,
+  invokeSessionDiscoveryRuntime,
   mockProviderInvocationAllowed,
   probePackage,
   probeModelChatRuntime,
   resolveModelChatPrompt,
+  resolvePackageExportSpecifier,
   resolvePackageSpecifier,
   VERIFIED_PROVIDER_SESSION_ID,
 } from './engine-sdk-live.mjs';
@@ -29,6 +31,7 @@ const invalidSdkMirror = path.join(tempRoot, 'invalid-sdk');
 const codexSdkMirror = path.join(tempRoot, 'codex-sdk');
 const openaiSdkMirror = path.join(tempRoot, 'openai-sdk');
 const claudeCapturePath = path.join(tempRoot, 'claude-sdk-capture.json');
+const claudeDiscoveryCapturePath = path.join(tempRoot, 'claude-sdk-discovery-capture.json');
 const codexCapturePath = path.join(tempRoot, 'codex-sdk-capture.json');
 const geminiCapturePath = path.join(tempRoot, 'gemini-sdk-capture.json');
 const openaiCapturePath = path.join(tempRoot, 'openai-sdk-capture.json');
@@ -60,6 +63,7 @@ fs.writeFileSync(
   `import fs from 'node:fs';
 
 const capturePath = ${JSON.stringify(claudeCapturePath)};
+const discoveryCapturePath = ${JSON.stringify(claudeDiscoveryCapturePath)};
 
 function capture(prompt, options) {
   fs.writeFileSync(capturePath, JSON.stringify({
@@ -70,6 +74,7 @@ function capture(prompt, options) {
       model: options.model,
       permission_mode: options.permissionMode,
       allow_dangerously_skip_permissions: options.allowDangerouslySkipPermissions,
+      include_partial_messages: options.includePartialMessages,
       resume: options.resume,
       sandbox: options.sandbox,
     },
@@ -83,11 +88,62 @@ export function query({ prompt, options = {} }) {
     : options.resume ?? 'claude-sdk-created';
   return (async function* () {
     yield { type: 'system', subtype: 'init', session_id: sessionId };
+    yield {
+      type: 'system',
+      subtype: 'session_state_changed',
+      state: 'running',
+      session_id: sessionId,
+    };
     yield { type: 'permission_request', session_id: sessionId };
+    if (options.includePartialMessages) {
+      yield {
+        type: 'stream_event',
+        uuid: 'claude-assistant-1',
+        session_id: sessionId,
+        event: { type: 'message_start', message: { id: 'claude-assistant-1' } },
+      };
+      yield {
+        type: 'stream_event',
+        uuid: 'claude-assistant-1',
+        session_id: sessionId,
+        event: {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'text', text: '' },
+        },
+      };
+      yield {
+        type: 'stream_event',
+        uuid: 'claude-assistant-1',
+        session_id: sessionId,
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'claude sdk:' },
+        },
+      };
+      yield {
+        type: 'stream_event',
+        uuid: 'claude-assistant-1',
+        session_id: sessionId,
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: prompt },
+        },
+      };
+      yield {
+        type: 'stream_event',
+        uuid: 'claude-assistant-1',
+        session_id: sessionId,
+        event: { type: 'content_block_stop', index: 0 },
+      };
+    }
     yield {
       type: 'assistant',
+      uuid: 'claude-assistant-1',
       session_id: sessionId,
-      message: { content: [{ type: 'text', text: 'assistant:' + prompt }] },
+      message: { content: [{ type: 'text', text: 'claude sdk:' + prompt }] },
     };
     yield {
       type: 'result',
@@ -96,7 +152,87 @@ export function query({ prompt, options = {} }) {
       result: 'claude sdk:' + prompt,
       session_id: sessionId,
     };
+    yield {
+      type: 'system',
+      subtype: 'session_state_changed',
+      state: 'idle',
+      session_id: sessionId,
+    };
+    yield {
+      type: 'prompt_suggestion',
+      suggestion: 'This event must not appear after terminal completion',
+      session_id: sessionId,
+    };
   })();
+}
+
+export async function listSessions(options = {}) {
+  fs.writeFileSync(
+    discoveryCapturePath,
+    JSON.stringify({ method: 'listSessions', options }),
+    'utf8',
+  );
+  const sessions = [{
+    sessionId: 'claude-history-1',
+    summary: 'Claude history summary',
+    customTitle: 'Claude history',
+    firstPrompt: 'Review the kernel',
+    lastModified: Date.parse('2026-01-03T03:04:05.000Z'),
+    createdAt: Date.parse('2026-01-01T01:02:03.000Z'),
+    cwd: 'C:/sdkwork/claude-workspace',
+    gitBranch: 'main',
+    tag: 'commercial',
+  }, {
+    sessionId: 'claude-history-2',
+    summary: 'Claude second page boundary',
+    lastModified: Date.parse('2026-01-02T03:04:05.000Z'),
+  }, {
+    sessionId: 'claude-history-3',
+    summary: 'Claude final session',
+    lastModified: Date.parse('2026-01-01T03:04:05.000Z'),
+    cwd: 'C:/sdkwork/claude-workspace',
+  }];
+  const offset = options.offset ?? 0;
+  return sessions.slice(offset, offset + (options.limit ?? sessions.length));
+}
+
+export async function getSessionMessages(sessionId, options = {}) {
+  fs.writeFileSync(
+    discoveryCapturePath,
+    JSON.stringify({ method: 'getSessionMessages', session_id: sessionId, options }),
+    'utf8',
+  );
+  const messages = [{
+    type: 'user',
+    uuid: 'claude-message-1',
+    session_id: sessionId,
+    message: { role: 'user', content: [{ type: 'text', text: 'Review the kernel' }] },
+    parent_tool_use_id: null,
+    parent_agent_id: null,
+    timestamp: '2026-01-01T01:02:04.000Z',
+  }, {
+    type: 'assistant',
+    uuid: 'claude-message-2',
+    session_id: sessionId,
+    message: { role: 'assistant', content: [
+      { type: 'text', text: 'Kernel reviewed' },
+      { type: 'thinking', thinking: 'Inspect the runtime boundary' },
+      { type: 'tool_use', id: 'claude-tool-1', name: 'Read', input: { file_path: 'src/lib.rs' } },
+    ] },
+    parent_tool_use_id: 'claude-parent-tool-1',
+    parent_agent_id: 'claude-agent-1',
+    timestamp: '2026-01-01T01:02:05.000Z',
+  }, {
+    type: 'system',
+    uuid: 'claude-message-3',
+    session_id: sessionId,
+    message: { role: 'system', content: 'Compacted context' },
+    parent_tool_use_id: null,
+    parent_agent_id: null,
+    timestamp: '2026-01-01T01:02:06.000Z',
+  }];
+  const offset = options.offset ?? 0;
+  return messages.slice(offset, offset + (options.limit ?? messages.length));
 }
 `,
   'utf8',
@@ -208,16 +344,61 @@ export function createOpencodeClient(options = {}) {
       directory: options.directory,
     },
   };
+  let activeSessionId = null;
+  let submittedPrompt = null;
+  let resolvePrompt;
+  const promptReady = new Promise((resolve) => { resolvePrompt = resolve; });
   capture(record);
   return {
     session: {
+      list: async ({ query, signal } = {}) => {
+        record.session_list = { query, signal_present: Boolean(signal) };
+        capture(record);
+        return {
+          data: [{
+            id: 'opencode-history-1',
+            projectID: 'project-1',
+            directory: 'C:/sdkwork/opencode-workspace',
+            title: 'OpenCode history',
+            version: '1.18.11',
+            time: {
+              created: Date.parse('2026-02-01T01:02:03.000Z'),
+              updated: Date.parse('2026-02-02T03:04:05.000Z'),
+            },
+          }],
+        };
+      },
+      messages: async ({ path, query, signal } = {}) => {
+        record.session_messages = { path, query, signal_present: Boolean(signal) };
+        capture(record);
+        return {
+          data: [{
+            info: {
+              id: 'opencode-message-1',
+              sessionID: path.id,
+              role: 'assistant',
+              parentID: 'opencode-message-parent',
+              time: { created: Date.parse('2026-02-02T03:04:06.000Z') },
+            },
+            parts: [{
+              id: 'opencode-part-1',
+              sessionID: path.id,
+              messageID: 'opencode-message-1',
+              type: 'text',
+              text: 'Kernel reviewed',
+            }],
+          }],
+        };
+      },
       create: async ({ body, signal } = {}) => {
         record.session_create = { body, signal_present: Boolean(signal) };
+        activeSessionId = 'opencode-sdk-created';
         capture(record);
         return { data: { id: 'opencode-sdk-created' } };
       },
       get: async ({ path, signal } = {}) => {
         record.session_get = { path, signal_present: Boolean(signal) };
+        activeSessionId = path.id;
         capture(record);
         return {
           data: {
@@ -239,11 +420,127 @@ export function createOpencodeClient(options = {}) {
       },
       prompt: async ({ path, body, signal } = {}) => {
         record.session_prompt = { path, body, signal_present: Boolean(signal) };
+        activeSessionId = path.id;
+        submittedPrompt = body.parts[0].text;
+        resolvePrompt();
         capture(record);
         return {
           data: {
             parts: [{ type: 'text', text: 'opencode sdk:' + body.parts[0].text }],
           },
+        };
+      },
+    },
+    event: {
+      subscribe: async ({ signal } = {}) => {
+        record.event_subscribe = { signal_present: Boolean(signal) };
+        capture(record);
+        return {
+          stream: (async function* () {
+            for (const sessionID of ['opencode-sdk-created', 'opencode-sdk-existing']) {
+              yield {
+                type: 'session.status',
+                properties: { sessionID, status: { type: 'busy' } },
+              };
+              yield { type: 'session.idle', properties: { sessionID } };
+            }
+          })(),
+        };
+      },
+    },
+    event: {
+      subscribe: async ({ signal } = {}) => {
+        record.event_subscribe = { signal_present: Boolean(signal) };
+        capture(record);
+        return {
+          stream: (async function* () {
+            await promptReady;
+            const messageID = 'opencode-assistant-1';
+            yield {
+              type: 'session.idle',
+              properties: { sessionID: 'another-session' },
+            };
+            yield {
+              type: 'message.updated',
+              properties: {
+                info: {
+                  id: messageID,
+                  sessionID: activeSessionId,
+                  role: 'assistant',
+                  time: { created: Date.now() },
+                },
+              },
+            };
+            yield {
+              type: 'session.status',
+              properties: { sessionID: activeSessionId, status: { type: 'busy' } },
+            };
+            yield {
+              type: 'message.part.updated',
+              properties: {
+                part: {
+                  id: 'opencode-text-1',
+                  sessionID: activeSessionId,
+                  messageID,
+                  type: 'text',
+                  text: 'opencode sdk:',
+                },
+                delta: 'opencode sdk:',
+              },
+            };
+            yield {
+              type: 'message.part.updated',
+              properties: {
+                part: {
+                  id: 'opencode-text-1',
+                  sessionID: activeSessionId,
+                  messageID,
+                  type: 'text',
+                  text: 'opencode sdk:' + submittedPrompt,
+                },
+                delta: submittedPrompt,
+              },
+            };
+            yield {
+              type: 'message.part.updated',
+              properties: {
+                part: {
+                  id: 'opencode-reasoning-1',
+                  sessionID: activeSessionId,
+                  messageID,
+                  type: 'reasoning',
+                  text: 'Inspect provider events',
+                  time: { start: Date.now(), end: Date.now() },
+                },
+              },
+            };
+            yield {
+              type: 'permission.updated',
+              properties: {
+                id: 'permission-1',
+                sessionID: activeSessionId,
+                title: 'Allow read',
+                metadata: {},
+                time: { created: Date.now() },
+              },
+            };
+            yield {
+              type: 'session.idle',
+              properties: { sessionID: activeSessionId },
+            };
+            yield {
+              type: 'message.part.updated',
+              properties: {
+                part: {
+                  id: 'post-terminal',
+                  sessionID: activeSessionId,
+                  messageID,
+                  type: 'text',
+                  text: 'must not be emitted',
+                },
+              },
+            };
+          })(),
         };
       },
     },
@@ -262,12 +559,205 @@ function capture(record) {
   fs.writeFileSync(capturePath, JSON.stringify(record), 'utf8');
 }
 
+export async function createOpencodeServer(options = {}) {
+  return {
+    url: 'http://127.0.0.1:4096',
+    async close() {},
+    signal_present: Boolean(options.signal),
+  };
+}
+
 export function createOpencodeClient(options = {}) {
   const record = { client_options: { base_url: options.baseUrl, directory: options.directory } };
+  let activeSessionId = null;
+  let submittedPrompt = null;
+  let resolvePrompt;
+  const promptReady = new Promise((resolve) => { resolvePrompt = resolve; });
   capture(record);
   return {
+    session: {
+      create: async (parameters = {}, { signal } = {}) => {
+        record.session_create = { parameters, signal_present: Boolean(signal) };
+        activeSessionId = 'opencode-sdk-created';
+        capture(record);
+        return { data: { id: activeSessionId } };
+      },
+      get: async (parameters = {}, { signal } = {}) => {
+        record.session_get = { parameters, signal_present: Boolean(signal) };
+        activeSessionId = parameters.sessionID === 'opencode-sdk-mismatch-request'
+          ? 'opencode-sdk-different'
+          : parameters.sessionID;
+        capture(record);
+        return { data: { id: activeSessionId } };
+      },
+      update: async (parameters = {}, { signal } = {}) => {
+        record.session_update = { parameters, signal_present: Boolean(signal) };
+        capture(record);
+        return { data: { id: parameters.sessionID } };
+      },
+      fork: async (parameters = {}, { signal } = {}) => {
+        record.session_fork = { parameters, signal_present: Boolean(signal) };
+        capture(record);
+        return { data: { id: 'opencode-sdk-forked' } };
+      },
+      prompt: async (parameters = {}, { signal } = {}) => {
+        record.session_prompt = { parameters, signal_present: Boolean(signal) };
+        activeSessionId = parameters.sessionID;
+        submittedPrompt = parameters.parts?.[0]?.text;
+        resolvePrompt();
+        capture(record);
+        return { data: { parts: [{ type: 'text', text: 'opencode sdk:' + submittedPrompt }] } };
+      },
+    },
+    event: {
+      subscribe: async (parameters = {}, { signal } = {}) => {
+        record.event_subscribe = { parameters, signal_present: Boolean(signal) };
+        capture(record);
+        return {
+          stream: (async function* () {
+            await promptReady;
+            const messageID = 'opencode-assistant-1';
+            yield {
+              type: 'message.updated',
+              properties: { info: { id: messageID, sessionID: activeSessionId, role: 'assistant' } },
+            };
+            yield {
+              type: 'session.status',
+              properties: { sessionID: activeSessionId, status: { type: 'busy' } },
+            };
+            yield {
+              type: 'message.part.updated',
+              properties: {
+                part: { id: 'opencode-text-1', sessionID: activeSessionId, messageID, type: 'text', text: 'opencode sdk:' },
+                delta: 'opencode sdk:',
+              },
+            };
+            yield {
+              type: 'message.part.updated',
+              properties: {
+                part: { id: 'opencode-text-1', sessionID: activeSessionId, messageID, type: 'text', text: 'opencode sdk:' + submittedPrompt },
+                delta: submittedPrompt,
+              },
+            };
+            yield {
+              type: 'message.part.updated',
+              properties: {
+                part: { id: 'opencode-reasoning-1', sessionID: activeSessionId, messageID, type: 'reasoning', text: 'Inspect provider events' },
+              },
+            };
+            yield { type: 'session.idle', properties: { sessionID: activeSessionId } };
+          })(),
+        };
+      },
+    },
+    permission: {
+      reply: async (parameters = {}, { signal } = {}) => {
+        record.permission_reply = { parameters, signal_present: Boolean(signal) };
+        capture(record);
+        return { data: true };
+      },
+      respond: async (parameters = {}, { signal } = {}) => {
+        record.permission_respond = { parameters, signal_present: Boolean(signal) };
+        capture(record);
+        return { data: true };
+      },
+    },
+    question: {
+      reply: async (parameters = {}, { signal } = {}) => {
+        record.question_reply = { parameters, signal_present: Boolean(signal) };
+        capture(record);
+        return { data: true };
+      },
+      reject: async (parameters = {}, { signal } = {}) => {
+        record.question_reject = { parameters, signal_present: Boolean(signal) };
+        capture(record);
+        return { data: true };
+      },
+    },
     v2: {
       session: {
+        list: async (parameters = {}, { signal } = {}) => {
+          record.session_list_v2 = { parameters, signal_present: Boolean(signal) };
+          capture(record);
+          return {
+            data: {
+              data: [{
+                id: 'opencode-history-1',
+                parentID: 'opencode-history-parent',
+                projectID: 'project-1',
+                agent: 'build',
+                model: { providerID: 'anthropic', id: 'claude-sonnet-4-6' },
+                cost: 25,
+                tokens: {
+                  input: 10,
+                  output: 20,
+                  reasoning: 3,
+                  cache: { read: 4, write: 5 },
+                },
+                summary: { additions: 6, deletions: 2, files: 3 },
+                time: {
+                  created: Date.parse('2026-02-01T01:02:03.000Z'),
+                  updated: Date.parse('2026-02-02T03:04:05.000Z'),
+                },
+                title: 'OpenCode history',
+                location: {
+                  directory: 'C:/sdkwork/opencode-workspace',
+                  workspaceID: 'workspace-1',
+                },
+              }],
+              cursor: { previous: 'opencode-session-previous', next: 'opencode-session-next' },
+            },
+          };
+        },
+        messages: async (parameters = {}, { signal } = {}) => {
+          record.session_messages_v2 = { parameters, signal_present: Boolean(signal) };
+          capture(record);
+          return {
+            data: {
+              data: [{
+                id: 'opencode-message-1',
+                sessionID: parameters.sessionID === 'opencode-history-mismatch'
+                  ? 'opencode-history-other'
+                  : parameters.sessionID,
+                type: 'assistant',
+                agent: 'build',
+                model: { providerID: 'anthropic', id: 'claude-sonnet-4-6' },
+                content: [{
+                  id: 'opencode-part-1',
+                  sessionID: parameters.sessionID,
+                  messageID: 'opencode-message-1',
+                  type: 'text',
+                  text: 'Kernel reviewed',
+                }, {
+                  id: 'opencode-part-2',
+                  sessionID: parameters.sessionID,
+                  messageID: 'opencode-message-1',
+                  type: 'reasoning',
+                  text: 'Inspect the SDK adapter',
+                }, {
+                  id: 'opencode-part-3',
+                  sessionID: parameters.sessionID,
+                  messageID: 'opencode-message-1',
+                  type: 'tool',
+                  callID: 'opencode-call-1',
+                  tool: 'read',
+                  state: {
+                    status: 'completed',
+                    input: { filePath: 'src/lib.rs' },
+                    content: [{ type: 'text', text: 'source' }],
+                    structured: {},
+                    result: 'source',
+                  },
+                }],
+                time: {
+                  created: Date.parse('2026-02-02T03:04:06.000Z'),
+                  completed: Date.parse('2026-02-02T03:04:07.000Z'),
+                },
+              }],
+              cursor: { next: 'opencode-message-next' },
+            },
+          };
+        },
         get: async ({ sessionID } = {}, { signal } = {}) => {
           record.session_get_v2 = { session_id: sessionID, signal_present: Boolean(signal) };
           capture(record);
@@ -417,6 +907,16 @@ assert.ok(
 );
 await import(appTopologyPath);
 
+const installedOpencodeV2Path = resolvePackageExportSpecifier('@opencode-ai/sdk', './v2');
+assert.match(
+  installedOpencodeV2Path ?? '',
+  /@opencode-ai\+sdk@[^/]+\/node_modules\/@opencode-ai\/sdk\/dist\/v2\/index\.js$/u,
+  'ESM-only OpenCode v2 exports must resolve to the installed official package',
+);
+
+process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
+  '@openai/codex-sdk': path.join(kernelRoot, 'external/codex/sdk/typescript'),
+});
 const codexPath = resolvePackageSpecifier('@openai/codex-sdk');
 assert.equal(
   codexPath,
@@ -472,8 +972,10 @@ const forked = await invokeSessionControlRuntime('@opencode-ai/sdk', {
 assert.equal(forked.provider_session_id, 'opencode-sdk-existing');
 assert.equal(forked.forked_provider_session_id, 'opencode-sdk-forked');
 assert.deepEqual(JSON.parse(fs.readFileSync(opencodeCapturePath, 'utf8')).session_fork, {
-  path: { id: 'opencode-sdk-existing' },
-  body: { messageID: 'message-7' },
+  parameters: {
+    sessionID: 'opencode-sdk-existing',
+    messageID: 'message-7',
+  },
   signal_present: true,
 });
 delete process.env.OPENCODE_SERVER_URL;
@@ -512,7 +1014,14 @@ assert.equal(
 );
 
 process.env.SDKWORK_AGENT_SDK_WORKSPACE_ROOT = kernelRoot;
-delete process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS;
+process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
+  '@openai/codex-sdk': path.join(kernelRoot, 'external/codex/sdk/typescript'),
+  '@anthropic-ai/claude-agent-sdk': path.join(kernelRoot, 'external/claude-code'),
+  '@google/gemini-cli-sdk': [
+    path.join(kernelRoot, 'external/gemini/packages/sdk'),
+    path.join(kernelRoot, 'external/gemini-cli/packages/sdk'),
+  ],
+});
 const geminiPath = resolvePackageSpecifier('@google/gemini-cli-sdk');
 assert.equal(
   resolvePackageSpecifier('@anthropic-ai/claude-agent-sdk'),
@@ -567,9 +1076,8 @@ assert.equal(claudeResult[VERIFIED_PROVIDER_SESSION_ID], true);
 assert.deepEqual(claudeResult.messages, ['claude sdk:Claude prompt']);
 assert.deepEqual(
   claudeActivity.map((event) => event.phase),
-  ['started', 'working', 'waiting', 'working', 'idle', 'terminal'],
+  ['started', 'working', 'working', 'idle', 'terminal'],
 );
-assert.equal(claudeActivity[2].interaction_hint, 'approval_required');
 const claudeCapture = JSON.parse(fs.readFileSync(claudeCapturePath, 'utf8'));
 assert.deepEqual(claudeCapture, {
   prompt: 'Claude prompt',
@@ -584,6 +1092,55 @@ assert.equal(
   Object.hasOwn(claudeCapture.options, 'resume'),
   false,
   'canonical session_id must not resume a Claude provider Session.',
+);
+const claudeStreamChunks = [];
+const claudeStreamEvents = [];
+const claudeStreamResult = await invokeModelChatStreamLive(
+  '@anthropic-ai/claude-agent-sdk',
+  {
+    model_request_id: 'req-claude-sdk-stream',
+    session_id: 'session-canonical-claude-stream',
+    turn_id: 'turn-canonical-claude-stream',
+    messages: ['Claude streamed prompt'],
+    timeout_ms: 2_000,
+  },
+  {
+    onChunk: async (chunk) => claudeStreamChunks.push(chunk),
+    onEvent: async (event) => claudeStreamEvents.push(event),
+  },
+);
+assert.equal(claudeStreamResult.provider_session_id, 'claude-sdk-created');
+assert.deepEqual(claudeStreamResult.chunks, []);
+assert.deepEqual(claudeStreamChunks, [
+  { sequence: 0, content: 'claude sdk:' },
+  { sequence: 1, content: 'Claude streamed prompt' },
+]);
+assert.deepEqual(
+  claudeStreamEvents.map((event) => event.event_type),
+  [
+    'agent.turn.started',
+    'agent.message.started',
+    'agent.message.updated',
+    'agent.message.updated',
+    'agent.message.completed',
+    'agent.turn.completed',
+  ],
+);
+assert.equal(claudeStreamEvents.at(-1).event_type, 'agent.turn.completed');
+assert.equal(claudeStreamEvents.at(-1).step_id, 'turn-canonical-claude-stream');
+assert.equal(claudeStreamEvents[1].payload.providerId, 'claude-code');
+assert.equal(claudeStreamEvents[1].payload.providerSessionId, 'claude-sdk-created');
+assert.equal(
+  claudeStreamEvents.some((event) => (
+    event.payload.rawProviderPayload?.type === 'prompt_suggestion'
+  )),
+  false,
+  'Claude must not forward SDK events after the provider terminal acknowledgement',
+);
+assert.equal(
+  JSON.parse(fs.readFileSync(claudeCapturePath, 'utf8')).options.include_partial_messages,
+  true,
+  'Claude streaming must use includePartialMessages from the official SDK',
 );
 const resumedClaudeResult = await invokeModelChatLive('@anthropic-ai/claude-agent-sdk', {
   model_request_id: 'req-claude-sdk-resume',
@@ -636,6 +1193,166 @@ assert.deepEqual(
   mismatchedClaudeActivity,
   [],
   'an unverified request session id must not be published as provider activity',
+);
+
+const claudeSessions = await invokeSessionDiscoveryRuntime(
+  '@anthropic-ai/claude-agent-sdk',
+  {
+    operation: 'session_list',
+    working_directory: 'C:/sdkwork/claude-workspace',
+    limit: 2,
+  },
+);
+assert.deepEqual(claudeSessions.items, [{
+  provider_session_id: 'claude-history-1',
+  title: 'Claude history',
+  preview: 'Review the kernel',
+  summary: 'Claude history summary',
+  created_at: '2026-01-01T01:02:03.000Z',
+  updated_at: '2026-01-03T03:04:05.000Z',
+  cwd: 'C:/sdkwork/claude-workspace',
+  metadata: { git_branch: 'main', tag: 'commercial' },
+}, {
+  provider_session_id: 'claude-history-2',
+  title: 'Claude second page boundary',
+  summary: 'Claude second page boundary',
+  updated_at: '2026-01-02T03:04:05.000Z',
+  cwd: 'C:/sdkwork/claude-workspace',
+}]);
+assert.equal(typeof claudeSessions.next_cursor, 'string');
+assert.equal(claudeSessions.previous_cursor, undefined);
+assert.notEqual(claudeSessions.next_cursor, '2', 'Claude offsets must remain opaque');
+assert.deepEqual(
+  JSON.parse(fs.readFileSync(claudeDiscoveryCapturePath, 'utf8')),
+  {
+    method: 'listSessions',
+    options: { dir: 'C:/sdkwork/claude-workspace', limit: 2 },
+  },
+);
+const claudeSessionsLastPage = await invokeSessionDiscoveryRuntime(
+  '@anthropic-ai/claude-agent-sdk',
+  {
+    operation: 'session_list',
+    working_directory: 'C:/sdkwork/claude-workspace',
+    limit: 2,
+    cursor: claudeSessions.next_cursor,
+  },
+);
+assert.deepEqual(
+  claudeSessionsLastPage.items.map((session) => session.provider_session_id),
+  ['claude-history-3'],
+);
+assert.equal(claudeSessionsLastPage.next_cursor, undefined);
+assert.equal(typeof claudeSessionsLastPage.previous_cursor, 'string');
+assert.deepEqual(
+  JSON.parse(fs.readFileSync(claudeDiscoveryCapturePath, 'utf8')),
+  {
+    method: 'listSessions',
+    options: { dir: 'C:/sdkwork/claude-workspace', limit: 2, offset: 2 },
+  },
+);
+const claudeHistory = await invokeSessionDiscoveryRuntime(
+  '@anthropic-ai/claude-agent-sdk',
+  {
+    operation: 'session_history',
+    provider_session_id: 'claude-history-1',
+    working_directory: 'C:/sdkwork/claude-workspace',
+    limit: 2,
+  },
+);
+assert.deepEqual(
+  claudeHistory.items.map((message) => ({
+    id: message.provider_message_id,
+    role: message.role,
+    text: message.parts[0]?.text,
+    created_at: message.created_at,
+  })),
+  [{
+    id: 'claude-message-1',
+    role: 'user',
+    text: 'Review the kernel',
+    created_at: '2026-01-01T01:02:04.000Z',
+  }, {
+    id: 'claude-message-2',
+    role: 'agent',
+    text: 'Kernel reviewed',
+    created_at: '2026-01-01T01:02:05.000Z',
+  }],
+);
+assert.deepEqual(claudeHistory.items[1].parts.slice(1), [{
+  part_id: 'claude-message-2:1',
+  kind: 'text',
+  text: 'Inspect the runtime boundary',
+  metadata: { 'sdkwork.provider.content_type': 'thinking' },
+}, {
+  part_id: 'claude-tool-1',
+  kind: 'tool_call_ref',
+  tool_call_id: 'claude-tool-1',
+  name: 'Read',
+  json: { file_path: 'src/lib.rs' },
+  metadata: { 'sdkwork.provider.content_type': 'tool' },
+}]);
+assert.deepEqual(claudeHistory.items[1].metadata, {
+  parent_tool_use_id: 'claude-parent-tool-1',
+  parent_agent_id: 'claude-agent-1',
+});
+assert.equal(
+  Object.hasOwn(claudeHistory.items[1], 'parent_provider_message_id'),
+  false,
+  'Claude parent_tool_use_id is tool lineage, not parent message lineage',
+);
+assert.equal(typeof claudeHistory.next_cursor, 'string');
+assert.equal(claudeHistory.previous_cursor, undefined);
+assert.deepEqual(
+  JSON.parse(fs.readFileSync(claudeDiscoveryCapturePath, 'utf8')),
+  {
+    method: 'getSessionMessages',
+    session_id: 'claude-history-1',
+    options: {
+      dir: 'C:/sdkwork/claude-workspace',
+      limit: 2,
+      includeSystemMessages: true,
+    },
+  },
+);
+const claudeHistoryLastPage = await invokeSessionDiscoveryRuntime(
+  '@anthropic-ai/claude-agent-sdk',
+  {
+    operation: 'session_history',
+    provider_session_id: 'claude-history-1',
+    working_directory: 'C:/sdkwork/claude-workspace',
+    limit: 2,
+    cursor: claudeHistory.next_cursor,
+  },
+);
+assert.deepEqual(
+  claudeHistoryLastPage.items.map((message) => ({
+    id: message.provider_message_id,
+    role: message.role,
+    text: message.parts[0]?.text,
+  })),
+  [{ id: 'claude-message-3', role: 'system', text: 'Compacted context' }],
+);
+assert.equal(claudeHistoryLastPage.next_cursor, undefined);
+assert.equal(typeof claudeHistoryLastPage.previous_cursor, 'string');
+await assert.rejects(
+  invokeSessionDiscoveryRuntime('@anthropic-ai/claude-agent-sdk', {
+    operation: 'session_history',
+    provider_session_id: 'claude-history-1',
+    working_directory: 'C:/sdkwork/claude-workspace',
+    limit: 2,
+    cursor: claudeSessions.next_cursor,
+  }),
+  /cursor.*session_history|session_history.*cursor/,
+  'Claude cursors must be bound to their operation and provider session',
+);
+await assert.rejects(
+  invokeSessionDiscoveryRuntime('@anthropic-ai/claude-agent-sdk', {
+    operation: 'session_list',
+    limit: 201,
+  }),
+  /between 1 and 200/,
+  'provider SDK discovery must not request more than the L1 page bound',
 );
 
 process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
@@ -707,7 +1424,7 @@ assert.deepEqual(opencodeCapture.client_options, {
   directory: 'C:/sdkwork/opencode-workspace',
 });
 assert.deepEqual(opencodeCapture.session_create, {
-  body: {
+  parameters: {
     permission: [
       { permission: '*', pattern: '*', action: 'ask' },
       { permission: 'read', pattern: '*', action: 'allow' },
@@ -720,13 +1437,52 @@ assert.deepEqual(opencodeCapture.session_create, {
   signal_present: true,
 });
 assert.deepEqual(opencodeCapture.session_prompt, {
-  path: { id: 'opencode-sdk-created' },
-  body: {
+  parameters: {
+    sessionID: 'opencode-sdk-created',
     parts: [{ type: 'text', text: 'OpenCode prompt' }],
     model: { providerID: 'opencode', modelID: 'big-pickle' },
   },
   signal_present: true,
 });
+assert.deepEqual(opencodeCapture.event_subscribe, {
+  parameters: {},
+  signal_present: true,
+});
+const opencodeStreamChunks = [];
+const opencodeStreamEvents = [];
+const opencodeStreamResult = await invokeModelChatStreamLive(
+  '@opencode-ai/sdk',
+  {
+    model_request_id: 'req-opencode-sdk-stream',
+    session_id: 'session-canonical-opencode-stream',
+    turn_id: 'turn-canonical-opencode-stream',
+    messages: ['OpenCode streamed prompt'],
+    timeout_ms: 2_000,
+  },
+  {
+    onChunk: async (chunk) => opencodeStreamChunks.push(chunk),
+    onEvent: async (event) => opencodeStreamEvents.push(event),
+  },
+);
+assert.equal(opencodeStreamResult.provider_session_id, 'opencode-sdk-created');
+assert.deepEqual(opencodeStreamResult.chunks, []);
+assert.deepEqual(opencodeStreamChunks, [
+  { sequence: 0, content: 'opencode sdk:' },
+  { sequence: 1, content: 'OpenCode streamed prompt' },
+]);
+assert.equal(opencodeStreamEvents[0].event_type, 'agent.turn.started');
+assert.equal(opencodeStreamEvents.at(-1).event_type, 'agent.turn.completed');
+assert.equal(opencodeStreamEvents.at(-1).step_id, 'turn-canonical-opencode-stream');
+assert.equal(
+  opencodeStreamEvents.some((event) => (
+    event.payload.rawProviderPayload?.properties?.part?.id === 'post-terminal'
+  )),
+  false,
+  'OpenCode must stop consuming the matching Session stream at session.idle',
+);
+assert.ok(
+  opencodeStreamEvents.some((event) => event.event_type === 'agent.reasoning.completed'),
+);
 const resumedOpencodeActivity = [];
 const resumedOpencodeResult = await invokeModelChatLive(
   '@opencode-ai/sdk',
@@ -743,7 +1499,7 @@ assert.equal(resumedOpencodeResult.provider_session_id, 'opencode-sdk-existing')
 assert.equal(resumedOpencodeResult[VERIFIED_PROVIDER_SESSION_ID], true);
 assert.deepEqual(
   resumedOpencodeActivity.map((event) => event.phase),
-  ['started', 'working', 'idle', 'terminal'],
+  ['started', 'working', 'working', 'working', 'idle', 'terminal'],
 );
 const resumedOpencodeCapture = JSON.parse(fs.readFileSync(opencodeCapturePath, 'utf8'));
 assert.equal(
@@ -752,15 +1508,20 @@ assert.equal(
   'OpenCode resume must not create another provider session.',
 );
 assert.deepEqual(resumedOpencodeCapture.session_get, {
-  path: { id: 'opencode-sdk-existing' },
+  parameters: { sessionID: 'opencode-sdk-existing' },
   signal_present: true,
 });
 assert.deepEqual(resumedOpencodeCapture.session_update, {
-  path: { id: 'opencode-sdk-existing' },
-  body: { permission: [{ permission: '*', pattern: '*', action: 'allow' }] },
+  parameters: {
+    sessionID: 'opencode-sdk-existing',
+    permission: [{ permission: '*', pattern: '*', action: 'allow' }],
+  },
   signal_present: true,
 });
-assert.equal(resumedOpencodeCapture.session_prompt.path.id, 'opencode-sdk-existing');
+assert.equal(
+  resumedOpencodeCapture.session_prompt.parameters.sessionID,
+  'opencode-sdk-existing',
+);
 
 const mismatchedOpencodeActivity = [];
 await assert.rejects(
@@ -777,6 +1538,131 @@ await assert.rejects(
   /resumed a different provider session/,
 );
 assert.deepEqual(mismatchedOpencodeActivity, []);
+
+process.env.OPENCODE_SERVER_URL = 'http://127.0.0.1:4096';
+const opencodeSessions = await invokeSessionDiscoveryRuntime('@opencode-ai/sdk', {
+  operation: 'session_list',
+  working_directory: 'C:/sdkwork/opencode-workspace',
+  limit: 3,
+});
+assert.deepEqual(opencodeSessions.items, [{
+  provider_session_id: 'opencode-history-1',
+  parent_provider_session_id: 'opencode-history-parent',
+  title: 'OpenCode history',
+  created_at: '2026-02-01T01:02:03.000Z',
+  updated_at: '2026-02-02T03:04:05.000Z',
+  cwd: 'C:/sdkwork/opencode-workspace',
+  model: 'claude-sonnet-4-6',
+  model_provider: 'anthropic',
+  input_tokens: 10,
+  output_tokens: 20,
+  cached_tokens: 4,
+  reasoning_tokens: 3,
+  cost_cents: 2500,
+  additions: 6,
+  deletions: 2,
+  files_changed: 3,
+  metadata: {
+    project_id: 'project-1',
+    workspace_id: 'workspace-1',
+    agent: 'build',
+    cache_write_tokens: 5,
+  },
+}]);
+assert.equal(opencodeSessions.previous_cursor, 'opencode-session-previous');
+assert.equal(opencodeSessions.next_cursor, 'opencode-session-next');
+assert.deepEqual(
+  JSON.parse(fs.readFileSync(opencodeCapturePath, 'utf8')).session_list_v2,
+  {
+    parameters: {
+      directory: 'C:/sdkwork/opencode-workspace',
+      limit: 3,
+      order: 'desc',
+    },
+    signal_present: true,
+  },
+);
+await invokeSessionDiscoveryRuntime('@opencode-ai/sdk', {
+  operation: 'session_list',
+  working_directory: 'C:/sdkwork/opencode-workspace',
+  limit: 3,
+  cursor: opencodeSessions.next_cursor,
+});
+assert.deepEqual(
+  JSON.parse(fs.readFileSync(opencodeCapturePath, 'utf8')).session_list_v2.parameters,
+  {
+    directory: 'C:/sdkwork/opencode-workspace',
+    limit: 3,
+    cursor: 'opencode-session-next',
+  },
+  'OpenCode cursors must be passed back to the official SDK without interpretation',
+);
+const opencodeHistory = await invokeSessionDiscoveryRuntime('@opencode-ai/sdk', {
+  operation: 'session_history',
+  provider_session_id: 'opencode-history-1',
+  working_directory: 'C:/sdkwork/opencode-workspace',
+  limit: 7,
+});
+assert.deepEqual(opencodeHistory.items, [{
+  provider_message_id: 'opencode-message-1',
+  provider_session_id: 'opencode-history-1',
+  role: 'agent',
+  parts: [{
+    part_id: 'opencode-part-1',
+    kind: 'text',
+    text: 'Kernel reviewed',
+  }, {
+    part_id: 'opencode-part-2',
+    kind: 'text',
+    text: 'Inspect the SDK adapter',
+    metadata: { 'sdkwork.provider.content_type': 'reasoning' },
+  }, {
+    part_id: 'opencode-part-3',
+    kind: 'tool_call_ref',
+    tool_call_id: 'opencode-call-1',
+    name: 'read',
+    json: {
+      id: 'opencode-part-3',
+      sessionID: 'opencode-history-1',
+      messageID: 'opencode-message-1',
+      type: 'tool',
+      callID: 'opencode-call-1',
+      tool: 'read',
+      state: {
+        status: 'completed',
+        input: { filePath: 'src/lib.rs' },
+        content: [{ type: 'text', text: 'source' }],
+        structured: {},
+        result: 'source',
+      },
+    },
+    metadata: {
+      'sdkwork.provider.content_type': 'tool',
+      'sdkwork.provider.status': 'completed',
+      'sdkwork.provider.has_result': true,
+    },
+  }],
+  created_at: '2026-02-02T03:04:06.000Z',
+}]);
+assert.equal(opencodeHistory.previous_cursor, undefined);
+assert.equal(opencodeHistory.next_cursor, 'opencode-message-next');
+assert.deepEqual(
+  JSON.parse(fs.readFileSync(opencodeCapturePath, 'utf8')).session_messages_v2,
+  {
+    parameters: { sessionID: 'opencode-history-1', limit: 7, order: 'asc' },
+    signal_present: true,
+  },
+);
+await assert.rejects(
+  invokeSessionDiscoveryRuntime('@opencode-ai/sdk', {
+    operation: 'session_history',
+    provider_session_id: 'opencode-history-mismatch',
+    limit: 7,
+  }),
+  /resumed a different provider session than requested/,
+  'OpenCode history items must retain the requested provider Session affinity',
+);
+delete process.env.OPENCODE_SERVER_URL;
 
 process.env.SDKWORK_AGENT_SDK_PACKAGE_PATHS = JSON.stringify({
   '@openai/codex-sdk': codexSdkMirror,
@@ -837,6 +1723,7 @@ const callbackCodexStreamResult = await invokeModelChatStreamLive(
   {
     model_request_id: 'req-codex-sdk-stream-callback',
     session_id: 'session-canonical-stream',
+    turn_id: 'turn-canonical-stream',
     messages: ['stream callback prompt'],
     timeout_ms: 2_000,
   },
@@ -876,7 +1763,8 @@ assert.equal(
   'thread-sdk-streamed',
 );
 assert.equal(Object.hasOwn(deliveredCodexEvents[0].payload, 'threadId'), false);
-assert.equal(deliveredCodexEvents[1].step_id, 'message-1');
+assert.equal(deliveredCodexEvents[1].step_id, 'turn-canonical-stream');
+assert.equal(deliveredCodexEvents[1].payload.providerItemId, 'message-1');
 assert.equal(deliveredCodexEvents[1].correlation_id, 'req-codex-sdk-stream-callback');
 assert.equal(deliveredCodexEvents[1].payload.providerEventType, 'item.updated');
 assert.equal(deliveredCodexEvents[1].payload.item.text, 'official');
@@ -892,13 +1780,18 @@ const commandKernelEvent = buildCodexKernelStreamEvent(
       status: 'completed',
     },
   },
-  { model_request_id: 'req-command', session_id: 'session-canonical-command' },
+  {
+    model_request_id: 'req-command',
+    session_id: 'session-canonical-command',
+    turn_id: 'turn-canonical-command',
+  },
   'thread-command',
   3,
 );
 assert.equal(commandKernelEvent.event_type, 'agent.tool.completed');
 assert.equal(commandKernelEvent.source, 'tool');
-assert.equal(commandKernelEvent.step_id, 'command-1');
+assert.equal(commandKernelEvent.step_id, 'turn-canonical-command');
+assert.equal(commandKernelEvent.payload.providerItemId, 'command-1');
 assert.equal(commandKernelEvent.payload.sequence, 3);
 assert.equal(commandKernelEvent.session_id, 'session-canonical-command');
 assert.equal(commandKernelEvent.payload.providerSessionId, 'thread-command');

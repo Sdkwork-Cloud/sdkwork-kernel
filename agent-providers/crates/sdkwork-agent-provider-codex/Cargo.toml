@@ -12,18 +12,16 @@ path = "src/lib.rs"
 async-trait.workspace = true
 codex-app-server-client.workspace = true
 codex-app-server-protocol.workspace = true
-codex-core.workspace = true
 sdkwork-agent-kernel.workspace = true
 sdkwork-agent-plugin-core.workspace = true
 sdkwork-agent-provider-core.workspace = true
 sdkwork-agent-provider-spi.workspace = true
 sdkwork-agent-provider-transport-core.workspace = true
-sdkwork-agent-provider-transport-node.workspace = true
-sdkwork-agent-provider-transport-rust.workspace = true
 sdkwork-utils-rust.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio.workspace = true
+toml = "0.8"
 
 [target.'cfg(windows)'.dependencies]
 # Codex's Windows PTY facade and portable-pty exchange Win32 HANDLE values

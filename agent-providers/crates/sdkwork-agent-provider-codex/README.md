@@ -14,8 +14,8 @@ source tree through its public Rust facades.
 - `codex-app-server-client`: official in-process runtime and typed request facade
 - `codex-app-server-protocol`: authoritative Thread, Turn, ThreadItem, status,
   request, response, and cursor models
-- `codex-core`: official startup configuration and state handle initialization
-  required by the in-process client; never used for private table queries
+- app-server client compatibility configuration facade: startup configuration is
+  consumed only through the public app-server client surface
 
 Only this L3 provider owns those upstream dependencies. Kernel core and provider
 SPI remain Codex-neutral, and `external/codex` must remain clean.
@@ -63,10 +63,9 @@ explicitly. The unstable upstream thread path is not copied into persistent
 SDKWork metadata.
 
 The provider never resolves or opens a Codex state SQLite file by path, queries
-private Codex tables/PRAGMAs, or reads rollout JSONL. Runtime startup obtains
-the state handle through the official `codex_core::init_state_db` bootstrap API;
-persistence remains an upstream implementation detail behind the app-server
-contract.
+private Codex tables/PRAGMAs, or reads rollout JSONL. Runtime startup delegates
+provider state ownership to the official app-server client; persistence remains
+an upstream implementation detail behind the app-server contract.
 
 ## Provider Session Activity
 

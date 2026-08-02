@@ -21,7 +21,6 @@ observability-otel = [
 sdkwork-agent-kernel.workspace = true
 sdkwork-code-kernel.workspace = true
 sdkwork-agent-api-bridge.workspace = true
-sdkwork-agent-streaming.workspace = true
 sdkwork-agent-database = { workspace = true, features = ["sqlite", "postgres-sync"] }
 sdkwork-database-config.workspace = true
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }

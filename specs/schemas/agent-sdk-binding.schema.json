@@ -165,6 +165,8 @@
     "runtimeOperation": {
       "enum": [
         "ping",
+        "session_list",
+        "session_history",
         "session_create",
         "session_interrupt",
         "session_compact",

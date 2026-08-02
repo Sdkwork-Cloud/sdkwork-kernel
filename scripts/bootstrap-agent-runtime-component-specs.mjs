@@ -80,20 +80,6 @@ const crates = [
     publicExports: ['UnifiedSessionManager', 'ConversationManager', 'SessionConfig'],
     events: []
   },
-  {
-    name: 'sdkwork-agent-streaming',
-    capability: 'agent-streaming',
-    displayName: 'SDKWork Agent Streaming',
-    description:
-      'SSE and WebSocket protocol adapters plus stream lifecycle management for agent events.',
-    publicExports: [
-      'SseProtocolAdapter',
-      'WsProtocolAdapter',
-      'StreamManager',
-      'EventMapper'
-    ],
-    events: ['agent.stream.connected', 'agent.stream.disconnected']
-  }
 ];
 
 function canonicalSpecs() {

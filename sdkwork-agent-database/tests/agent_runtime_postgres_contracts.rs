@@ -10,7 +10,7 @@ use sdkwork_agent_database::{
 
 fn runtime_postgres_uri() -> String {
     assert!(
-        sdkwork_database_config::workspace_database::workspace_database_env_is_configured(),
+        sdkwork_database_config::workspace_database::workspace_postgres_env_is_configured(),
         "set SDKWORK_DATABASE_* to a disposable sdkwork_ai_test or sdkwork_ai_test_<run_id> PostgreSQL database"
     );
     let config = sdkwork_database_config::DatabaseConfig::from_env("agent_runtime")

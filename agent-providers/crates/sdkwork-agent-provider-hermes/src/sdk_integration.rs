@@ -2,8 +2,9 @@ use crate::{HermesAdapter, HermesLifecycleProvider, HermesMessageAdapter, Hermes
 use sdkwork_agent_provider_spi::{
     register_manifest_drivers, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
     DriverRegistry, SdkBackendKind, SdkDriverHealth, SdkNegotiationError,
-    SdkRuntimeBackedModelProvider, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
-    StaticCapabilityDriver, HERMES_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
+    SdkRuntimeBackedModelProvider, SdkRuntimeBackedSessionControlProvider, SdkRuntimeMessageRecord,
+    SdkRuntimeOperation, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
+    SdkRuntimeSessionRecord, StaticCapabilityDriver, HERMES_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     IpcProtocolTransportHost, ProviderTransportBootstrap, ProviderTransportRegistry,
@@ -30,6 +31,17 @@ const HERMES_IPC_PREFERRED_PYTHON_DRIVERS: &[(&str, &str)] = &[
     ("driver.hermes.model.chat.python", "sdk.model.chat"),
 ];
 
+/// IPC (TUI gateway) drivers. Their health is tied to
+/// `SDKWORK_HERMES_USE_TUI_GATEWAY`: the IPC runtime is only registered when
+/// the environment flag is enabled, so the drivers must be unhealthy (and the
+/// optional capabilities degraded) otherwise.
+const HERMES_IPC_DRIVERS: &[(&str, &str)] = &[
+    ("driver.hermes.session.lifecycle.ipc", "sdk.session.lifecycle"),
+    ("driver.hermes.model.chat.ipc", "sdk.model.chat"),
+    ("driver.hermes.session.history.ipc", "sdk.session.history"),
+    ("driver.hermes.session.control.ipc", "sdk.session.control"),
+];
+
 pub fn hermes_binding_manifest() -> AgentSdkBindingManifest {
     AgentSdkBindingManifest::from_json(HERMES_BINDING_MANIFEST_JSON)
         .expect("hermes provider binding manifest must parse")
@@ -52,6 +64,7 @@ pub struct HermesSdkIntegration {
     pub runtime: Arc<SdkRuntimeRouter>,
     pub lifecycle: HermesLifecycleProvider,
     pub model: SdkRuntimeBackedModelProvider,
+    pub session_control: SdkRuntimeBackedSessionControlProvider,
     pub session_adapter: HermesAdapter,
     pub message_adapter: HermesMessageAdapter,
 }
@@ -59,10 +72,9 @@ pub struct HermesSdkIntegration {
 impl HermesSdkIntegration {
     pub fn bootstrap() -> Result<Self, SdkNegotiationError> {
         let manifest = hermes_binding_manifest();
+        let prefer_tui_gateway = hermes_prefer_tui_gateway_ipc();
         let mut drivers = DriverRegistry::new();
-        if hermes_prefer_tui_gateway_ipc() {
-            register_ipc_preferred_python_driver_overrides(&mut drivers);
-        }
+        register_hermes_driver_overrides(&mut drivers, prefer_tui_gateway);
         let mut bindings = BindingRegistry::new();
         register_manifest_drivers(&manifest, &mut drivers);
         bindings.register(manifest);
@@ -76,7 +88,7 @@ impl HermesSdkIntegration {
         bootstrap.with_python_runtime(Arc::new(PythonSdkBackendRuntime::bootstrap(
             HERMES_PYTHON_PROBE_MODULE,
         )));
-        if hermes_prefer_tui_gateway_ipc() {
+        if prefer_tui_gateway {
             bootstrap.with_ipc_runtime(Arc::new(PythonSdkBackendRuntime::bootstrap(
                 HERMES_TUI_GATEWAY_MODULE,
             )));
@@ -88,6 +100,10 @@ impl HermesSdkIntegration {
             SDK_CAPABILITY_MODEL_CHAT,
             "provider.model.hermes",
         );
+        let session_control = SdkRuntimeBackedSessionControlProvider::new(
+            runtime.clone(),
+            crate::ids::SESSION_CONTROL_PROVIDER_ID,
+        );
 
         Ok(Self {
             sdk: AgentSdkIntegration::new(negotiation),
@@ -95,6 +111,7 @@ impl HermesSdkIntegration {
             runtime,
             lifecycle: HermesLifecycleProvider::new(),
             model,
+            session_control,
             session_adapter: HermesAdapter::new(),
             message_adapter: HermesMessageAdapter::new(),
         })
@@ -110,15 +127,124 @@ impl HermesSdkIntegration {
     ) -> Result<SdkRuntimeResponse, sdkwork_agent_provider_spi::SdkRuntimeError> {
         self.runtime.invoke(request)
     }
+
+    /// Lists provider sessions through the TUI gateway (`session.list`),
+    /// mirroring the Hermes desktop app's session inventory.
+    pub fn list_provider_sessions(
+        &self,
+        working_directory: Option<String>,
+    ) -> Result<Vec<SdkRuntimeSessionRecord>, sdkwork_agent_provider_spi::SdkRuntimeError> {
+        let request = SdkRuntimeRequest {
+            capability_id: "sdk.session.lifecycle".to_string(),
+            operation: SdkRuntimeOperation::SessionList {
+                working_directory,
+                cursor: None,
+                limit: 500,
+            },
+            payload: None,
+        };
+        let response = self.runtime.invoke(&request)?;
+        if !response.success {
+            return Err(sdkwork_agent_provider_spi::SdkRuntimeError::new(
+                "hermes_session_list_failed",
+                response
+                    .message
+                    .unwrap_or_else(|| "hermes session.list failed".to_string()),
+            ));
+        }
+        let payload = response.payload.unwrap_or(serde_json::Value::Null);
+        let items = payload
+            .get("items")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        items
+            .into_iter()
+            .map(|item| {
+                serde_json::from_value(item).map_err(|error| {
+                    sdkwork_agent_provider_spi::SdkRuntimeError::new(
+                        "hermes_session_record_invalid",
+                        format!("hermes session record is invalid: {error}"),
+                    )
+                })
+            })
+            .collect()
+    }
+
+    /// Loads one provider session transcript through the TUI gateway
+    /// (`session.resume`), mirroring the Hermes desktop app's history view.
+    pub fn get_provider_session_history(
+        &self,
+        provider_session_id: &str,
+    ) -> Result<Vec<SdkRuntimeMessageRecord>, sdkwork_agent_provider_spi::SdkRuntimeError> {
+        let request = SdkRuntimeRequest {
+            capability_id: "sdk.session.history".to_string(),
+            operation: SdkRuntimeOperation::SessionHistory {
+                provider_session_id: provider_session_id.to_string(),
+                working_directory: None,
+                cursor: None,
+                limit: 500,
+            },
+            payload: None,
+        };
+        let response = self.runtime.invoke(&request)?;
+        if !response.success {
+            return Err(sdkwork_agent_provider_spi::SdkRuntimeError::new(
+                "hermes_session_history_failed",
+                response
+                    .message
+                    .unwrap_or_else(|| "hermes session.resume failed".to_string()),
+            ));
+        }
+        let payload = response.payload.unwrap_or(serde_json::Value::Null);
+        let items = payload
+            .get("items")
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        items
+            .into_iter()
+            .map(|item| {
+                serde_json::from_value(item).map_err(|error| {
+                    sdkwork_agent_provider_spi::SdkRuntimeError::new(
+                        "hermes_message_record_invalid",
+                        format!("hermes message record is invalid: {error}"),
+                    )
+                })
+            })
+            .collect()
+    }
 }
 
-fn register_ipc_preferred_python_driver_overrides(drivers: &mut DriverRegistry) {
+fn register_hermes_driver_overrides(drivers: &mut DriverRegistry, prefer_tui_gateway: bool) {
+    let ipc_health = || {
+        if prefer_tui_gateway {
+            SdkDriverHealth::healthy()
+        } else {
+            SdkDriverHealth::unhealthy(
+                "SDKWORK_HERMES_USE_TUI_GATEWAY is not enabled; TUI gateway IPC runtime is unavailable",
+            )
+        }
+    };
+    let python_health = || {
+        if prefer_tui_gateway {
+            SdkDriverHealth::unhealthy(
+                "SDKWORK_HERMES_USE_TUI_GATEWAY prefers jsonrpc_stdio IPC",
+            )
+        } else {
+            SdkDriverHealth::healthy()
+        }
+    };
     for (driver_id, capability_id) in HERMES_IPC_PREFERRED_PYTHON_DRIVERS {
         drivers.register(Arc::new(
             StaticCapabilityDriver::new(*driver_id, *capability_id, SdkBackendKind::PythonProcess)
-                .with_health(SdkDriverHealth::unhealthy(
-                    "SDKWORK_HERMES_USE_TUI_GATEWAY prefers jsonrpc_stdio IPC",
-                )),
+                .with_health(python_health()),
+        ));
+    }
+    for (driver_id, capability_id) in HERMES_IPC_DRIVERS {
+        drivers.register(Arc::new(
+            StaticCapabilityDriver::new(*driver_id, *capability_id, SdkBackendKind::IpcProtocol)
+                .with_health(ipc_health()),
         ));
     }
 }

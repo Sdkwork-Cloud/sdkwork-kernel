@@ -22,7 +22,6 @@ Dense module reference for implementers. Normative behavior remains in `specs/`.
 | `sdkwork-agent-client` | Client | Bridge plugins, local SQLite, remote SSE |
 | `sdkwork-agent-database` | Runtime | SQLx pool bootstrap for sessions |
 | `sdkwork-agent-session` | Runtime | Session persistence adapters |
-| `sdkwork-agent-streaming` | Runtime | Stream/SSE helpers |
 | `sdkwork-agent-api-bridge` | Runtime | Internal API wiring helpers |
 | `sdkwork-code-kernel` | Code | Workspace/VCS/patch/terminal SPI |
 | `sdkwork-routes-agent-internal-*` | API | Internal route manifests + axum handlers |

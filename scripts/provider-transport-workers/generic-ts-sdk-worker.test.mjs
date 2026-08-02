@@ -29,7 +29,11 @@ function invokeWorker(operation, env = {}) {
 
     const rl = readline.createInterface({ input: child.stdout });
     rl.once('line', (line) => {
-      terminateProcessTree(child);
+      rl.close();
+      child.stdin.end();
+      if (!child.kill()) {
+        terminateProcessTree(child);
+      }
       try {
         resolve(JSON.parse(line));
       } catch (error) {
@@ -56,7 +60,20 @@ function invokeWorker(operation, env = {}) {
 }
 
 for (const operation of [
+  { operation: 'session_list', working_directory: 'C:/sdkwork/project', limit: 20 },
+  {
+    operation: 'session_history',
+    provider_session_id: 'provider-session-1',
+    working_directory: 'C:/sdkwork/project',
+    limit: 20,
+  },
   { operation: 'session_create', agent_id: 'agent-1' },
+  { operation: 'session_list', limit: 20 },
+  {
+    operation: 'session_history',
+    provider_session_id: 'provider-session-1',
+    limit: 20,
+  },
   {
     operation: 'session_interrupt',
     control_request_id: 'control-1',
@@ -93,7 +110,7 @@ for (const operation of [
       response.result.error,
       operation.operation === 'session_create'
         ? /mock fallback is disabled/
-        : /live session control handler|package not resolved|official sdk package is not resolved/,
+        : /live session control handler|live provider Session discovery handler|package not resolved|official sdk package is not resolved/,
     );
   } else {
     assert.equal(response.result.mode, 'unsupported_operation');
@@ -113,9 +130,117 @@ assert.equal(devResponse.result.mode, 'unsupported_operation');
 
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'sdkwork-generic-ts-stream-'));
 const codexSdkMirror = path.join(tempRoot, 'codex-sdk');
+const claudeSdkMirror = path.join(tempRoot, 'claude-sdk');
 const completionMarkerPath = path.join(tempRoot, 'codex-stream-completed');
 const streamReleasePath = path.join(tempRoot, 'codex-stream-release');
 fs.mkdirSync(codexSdkMirror, { recursive: true });
+fs.mkdirSync(claudeSdkMirror, { recursive: true });
+fs.writeFileSync(
+  path.join(claudeSdkMirror, 'package.json'),
+  JSON.stringify({
+    type: 'module',
+    name: '@anthropic-ai/claude-agent-sdk',
+    version: '0.0.0-test',
+    exports: { '.': './index.js' },
+  }),
+  'utf8',
+);
+fs.writeFileSync(
+  path.join(claudeSdkMirror, 'index.js'),
+  `export function query({ prompt, options = {} }) {
+  return (async function* () {
+    const sessionId = options.resume ?? 'claude-worker-stream-session';
+    yield {
+      type: 'system',
+      subtype: 'session_state_changed',
+      state: 'running',
+      session_id: sessionId,
+    };
+    yield {
+      type: 'stream_event',
+      uuid: 'claude-worker-assistant',
+      session_id: sessionId,
+      event: { type: 'message_start', message: { id: 'claude-worker-assistant' } },
+    };
+    yield {
+      type: 'stream_event',
+      uuid: 'claude-worker-assistant',
+      session_id: sessionId,
+      event: {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'text', text: '' },
+      },
+    };
+    yield {
+      type: 'stream_event',
+      uuid: 'claude-worker-assistant',
+      session_id: sessionId,
+      event: {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'claude worker:' },
+      },
+    };
+    yield {
+      type: 'stream_event',
+      uuid: 'claude-worker-assistant',
+      session_id: sessionId,
+      event: {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: prompt },
+      },
+    };
+    yield {
+      type: 'stream_event',
+      uuid: 'claude-worker-assistant',
+      session_id: sessionId,
+      event: { type: 'content_block_stop', index: 0 },
+    };
+    yield {
+      type: 'assistant',
+      uuid: 'claude-worker-assistant',
+      session_id: sessionId,
+      message: { content: [{ type: 'text', text: 'claude worker:' + prompt }] },
+    };
+    yield {
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: 'claude worker:' + prompt,
+      session_id: sessionId,
+    };
+    yield {
+      type: 'system',
+      subtype: 'session_state_changed',
+      state: 'idle',
+      session_id: sessionId,
+    };
+  })();
+}
+
+export async function listSessions() {
+  return [{
+    sessionId: 'claude-worker-session-1',
+    summary: 'Worker session',
+    lastModified: Date.parse('2026-03-02T03:04:05.000Z'),
+  }];
+}
+
+export async function getSessionMessages(sessionId) {
+  return [{
+    type: 'assistant',
+    uuid: 'claude-worker-message-1',
+    session_id: sessionId,
+    message: { content: [{ type: 'text', text: 'Worker history' }] },
+    parent_tool_use_id: null,
+    parent_agent_id: null,
+  }];
+}
+`,
+  'utf8',
+);
 fs.writeFileSync(
   path.join(codexSdkMirror, 'package.json'),
   JSON.stringify({
@@ -191,6 +316,90 @@ export class Codex {
 );
 
 try {
+  const claudeSessionFrames = await invokeWorkerFrames(
+    '@anthropic-ai/claude-agent-sdk',
+    { operation: 'session_list', limit: 10 },
+    {
+      SDKWORK_AGENT_SDK_PACKAGE_PATHS: JSON.stringify({
+        '@anthropic-ai/claude-agent-sdk': claudeSdkMirror,
+      }),
+    },
+  );
+  assert.deepEqual(claudeSessionFrames.at(-1)?.response.result?.items, [{
+    provider_session_id: 'claude-worker-session-1',
+    title: 'Worker session',
+    summary: 'Worker session',
+    updated_at: '2026-03-02T03:04:05.000Z',
+  }]);
+
+  const claudeHistoryFrames = await invokeWorkerFrames(
+    '@anthropic-ai/claude-agent-sdk',
+    {
+      operation: 'session_history',
+      provider_session_id: 'claude-worker-session-1',
+      limit: 10,
+    },
+    {
+      SDKWORK_AGENT_SDK_PACKAGE_PATHS: JSON.stringify({
+        '@anthropic-ai/claude-agent-sdk': claudeSdkMirror,
+      }),
+    },
+  );
+  assert.deepEqual(claudeHistoryFrames.at(-1)?.response.result?.items, [{
+    provider_message_id: 'claude-worker-message-1',
+    provider_session_id: 'claude-worker-session-1',
+    role: 'agent',
+    parts: [{
+      part_id: 'claude-worker-message-1:0',
+      kind: 'text',
+      text: 'Worker history',
+    }],
+  }]);
+
+  const claudeStreamFrames = await invokeWorkerFrames(
+    '@anthropic-ai/claude-agent-sdk',
+    {
+      operation: 'model_chat_stream',
+      model_request_id: 'req-claude-live-stream',
+      session_id: 'session-canonical-claude-stream',
+      turn_id: 'turn-canonical-claude-stream',
+      messages: ['stream now'],
+      timeout_ms: 5_000,
+      execution_options: { require_live_provider: true },
+    },
+    {
+      SDKWORK_AGENT_SDK_PACKAGE_PATHS: JSON.stringify({
+        '@anthropic-ai/claude-agent-sdk': claudeSdkMirror,
+      }),
+    },
+  );
+  assert.deepEqual(
+    claudeStreamFrames
+      .filter((frame) => frame.response.result?.event === 'stream.chunk')
+      .map((frame) => frame.response.result.content),
+    ['claude worker:', 'stream now'],
+  );
+  assert.deepEqual(
+    claudeStreamFrames
+      .filter((frame) => frame.response.result?.event === 'stream.event')
+      .map((frame) => frame.response.result.kernel_event.event_type),
+    [
+      'agent.turn.started',
+      'agent.message.started',
+      'agent.message.updated',
+      'agent.message.updated',
+      'agent.message.completed',
+      'agent.turn.completed',
+    ],
+  );
+  const claudeDone = claudeStreamFrames.find(
+    (frame) => frame.response.result?.event === 'stream.done',
+  );
+  assert.equal(
+    claudeDone?.response.result.provider_session_id,
+    'claude-worker-stream-session',
+  );
+
   const codexActivityFrames = await invokeWorkerFrames(
     '@openai/codex-sdk',
     {
@@ -218,6 +427,35 @@ try {
   const invokeDone = codexActivityFrames.at(-1)?.response.result;
   assert.equal(invokeDone?.event, 'invoke.done');
   assert.equal(invokeDone?.payload?.provider_session_id, 'thread-sdk-existing');
+
+  const developmentLiveFrames = await invokeWorkerFrames(
+    '@openai/codex-sdk',
+    {
+      operation: 'model_chat',
+      model_request_id: 'req-codex-development-live-first',
+      messages: ['prefer the installed SDK'],
+      timeout_ms: 5_000,
+      execution_options: { prefer_app_server: false },
+    },
+    {
+      SDKWORK_KERNEL_PROFILE_ID: 'standalone.development',
+      SDKWORK_KERNEL_ENVIRONMENT: 'development',
+      SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS: '1',
+      SDKWORK_AGENT_SDK_PACKAGE_PATHS: JSON.stringify({
+        '@openai/codex-sdk': codexSdkMirror,
+      }),
+      SDKWORK_CODEX_CLI_BIN: path.join(tempRoot, 'missing-codex'),
+    },
+  );
+  assert.equal(
+    developmentLiveFrames.at(-1)?.response.result?.mode,
+    'sdk_live',
+    'development mock allowance must not bypass an available official SDK runtime',
+  );
+  assert.deepEqual(
+    developmentLiveFrames.at(-1)?.response.result?.messages,
+    ['invoke:prefer the installed SDK'],
+  );
 
   let completionMarkerExistedAtFirstChunk = null;
   const codexStreamFrames = await invokeWorkerFrames(
@@ -388,7 +626,10 @@ function invokeWorkerFrames(packageName, operation, env = {}, onFrame, activityS
       settled = true;
       clearTimeout(timeout);
       rl.close();
-      terminateProcessTree(child);
+      child.stdin.end();
+      if (!child.kill()) {
+        terminateProcessTree(child);
+      }
       callback(value);
     };
     child.stderr.on('data', (chunk) => stderr.push(String(chunk)));
@@ -412,6 +653,7 @@ function invokeWorkerFrames(packageName, operation, env = {}, onFrame, activityS
       if (
         response.result?.event === 'stream.done' ||
         response.result?.event === 'invoke.done' ||
+        response.result?.ok === true ||
         response.result?.ok === false ||
         response.error
       ) {

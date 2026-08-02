@@ -9,6 +9,7 @@ import {
   invokeModelChatStreamRuntime,
   invokeModelChatRuntime,
   invokeSessionControlRuntime,
+  invokeSessionDiscoveryRuntime,
   mockProviderInvocationAllowed,
   probePackage,
   probeModelChatRuntime,
@@ -175,6 +176,21 @@ async function handleCapabilityInvoke(params, streamOptions = {}) {
     };
   }
 
+  if (op === 'session_list' || op === 'session_history') {
+    try {
+      return await invokeSessionDiscoveryRuntime(packageName, operation);
+    } catch (error) {
+      return {
+        ok: false,
+        mode: 'sdk_live_failed',
+        package: packageName,
+        package_resolved: packageProbe.resolved,
+        operation: op,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   if (
     op === 'session_interrupt' ||
     op === 'session_compact' ||
@@ -198,50 +214,24 @@ async function handleCapabilityInvoke(params, streamOptions = {}) {
   if (op === 'model_chat' || op === 'model_chat_stream') {
     const fallbackAllowed =
       mockProviderInvocationAllowed() && !operationRequiresLiveProvider(operation);
+    let liveError = null;
 
-    if (
-      op === 'model_chat_stream' &&
-      !fallbackAllowed &&
-      runtimeProbe.runtime_available &&
-      packageName.startsWith('@openai/codex')
-    ) {
+    if (op === 'model_chat_stream' && runtimeProbe.runtime_available) {
       try {
         return await invokeModelChatStreamRuntime(packageName, operation, streamOptions);
       } catch (error) {
-        if (!fallbackAllowed) {
-          return {
-            ok: false,
-            mode: 'sdk_live_failed',
-            package: packageName,
-            package_resolved: packageProbe.resolved,
-            cli_available: runtimeProbe.cli_available,
-            runtime_available: runtimeProbe.runtime_available,
-            runtime_mode: runtimeProbe.runtime_mode,
-            error: error instanceof Error ? error.message : String(error),
-            model_request_id: operation.model_request_id ?? null,
-          };
-        }
+        liveError = error;
       }
     }
 
     const handleResult = (result) =>
       op === 'model_chat_stream' ? buildModelChatStreamResult(result) : result;
 
-    if (!fallbackAllowed) {
+    if (op === 'model_chat' && runtimeProbe.runtime_available) {
       try {
-        return handleResult(await invokeModelChatRuntime(packageName, operation, streamOptions));
+        return await invokeModelChatRuntime(packageName, operation, streamOptions);
       } catch (error) {
-        return {
-          ok: false,
-          mode: 'sdk_live_failed',
-          package: packageName,
-          package_resolved: packageProbe.resolved,
-          cli_available: runtimeProbe.cli_available,
-          runtime_available: runtimeProbe.runtime_available,
-          runtime_mode: runtimeProbe.runtime_mode,
-          error: error instanceof Error ? error.message : String(error),
-          model_request_id: operation.model_request_id ?? null,
-        };
+        liveError = error;
       }
     }
 
@@ -250,9 +240,15 @@ async function handleCapabilityInvoke(params, streamOptions = {}) {
         ok: false,
         mode: 'sdk_live_failed',
         package: packageName,
-        error: packageProbe.resolved
-          ? 'official sdk live invoke failed and mock fallback is disabled'
-          : `official sdk package is not resolved: ${packageName}`,
+        package_resolved: packageProbe.resolved,
+        cli_available: runtimeProbe.cli_available,
+        runtime_available: runtimeProbe.runtime_available,
+        runtime_mode: runtimeProbe.runtime_mode,
+        error: liveError
+          ? (liveError instanceof Error ? liveError.message : String(liveError))
+          : packageProbe.resolved
+            ? 'official sdk live invoke failed and mock fallback is disabled'
+            : `official sdk package is not resolved: ${packageName}`,
         model_request_id: operation.model_request_id ?? null,
       };
     }

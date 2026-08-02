@@ -1,6 +1,8 @@
+use std::collections::BTreeMap;
+
 use codex_app_server_protocol::{
     SessionSource as CodexSessionSource, Thread, ThreadActiveFlag, ThreadItem, ThreadItemEntry,
-    ThreadStatus, UserInput,
+    ThreadStatus, ThreadTurnsListResponse, UserInput,
 };
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelEventRedaction,
@@ -8,18 +10,22 @@ use sdkwork_agent_kernel::{
     SessionActivitySnapshot, SessionActivityState, SessionKind, SessionSource,
 };
 use sdkwork_agent_provider_core::{
-    finalize_provider_session_snapshot, now_iso, session_activity_from_provider_observation,
-    MessageAdapter, ProviderSessionActivityAdapter, SessionAdapter,
-    DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL,
+    finalize_provider_session_snapshot, normalize_provider_session_path, now_iso,
+    session_activity_from_provider_observation, MessageAdapter, ProviderSessionActivityAdapter,
+    SessionAdapter, DEFAULT_PROVIDER_SESSION_ACTIVITY_TTL,
+};
+use sdkwork_agent_provider_spi::{
+    SdkRuntimeMessagePart, SdkRuntimeMessageRecord, SdkRuntimeSessionRecord,
 };
 use serde::Serialize;
+use serde_json::Value;
 
 const CODEX_PROVIDER_ID: &str = "codex";
 const RAW_ITEM_SCHEMA: &str = "codex.app-server.v2.ThreadItem";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodexSessionRecord {
-    pub session: AgentSession,
+    pub session: SdkRuntimeSessionRecord,
     pub provider_thread: Thread,
 }
 
@@ -32,7 +38,7 @@ pub struct CodexSessionPage {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CodexMessageRecord {
-    pub message: AgentMessage,
+    pub message: SdkRuntimeMessageRecord,
     pub provider_item: ThreadItemEntry,
 }
 
@@ -69,7 +75,8 @@ impl CodexAdapter {
     }
 
     fn convert_thread(thread: &Thread) -> KernelResult<AgentSession> {
-        let mut session = AgentSession::new(&thread.id);
+        let record = provider_session_record(thread)?;
+        let mut session = AgentSession::new(&record.provider_session_id);
         session.source = map_session_source(&thread.source);
         session.kind = if thread.parent_thread_id.is_some()
             || matches!(thread.source, CodexSessionSource::SubAgent(_))
@@ -80,35 +87,24 @@ impl CodexAdapter {
         } else {
             SessionKind::Main
         };
-        session.parent_session_id = thread.parent_thread_id.clone();
+        session.parent_session_id = record.parent_provider_session_id.clone();
         session.forked_from_id = thread.forked_from_id.clone();
-        session.title = thread
-            .name
-            .clone()
-            .or_else(|| non_empty(&thread.preview).map(str::to_string));
-        session.preview = non_empty(&thread.preview).map(str::to_string);
-        session.model_provider = non_empty(&thread.model_provider).map(str::to_string);
-        session.cwd = Some(thread.cwd.display().to_string());
-        session
-            .workspace_roots
-            .push(thread.cwd.display().to_string());
-        session.created_at = epoch_seconds_to_rfc3339(thread.created_at);
-        session.updated_at = epoch_seconds_to_rfc3339(thread.updated_at);
+        session.title = record.title.clone();
+        session.summary = record.summary.clone();
+        session.preview = record.preview.clone();
+        session.model = record.model.clone();
+        session.model_provider = record.model_provider.clone();
+        session.cwd = record.cwd.clone();
+        if let Some(cwd) = record.cwd.clone() {
+            session.workspace_roots.push(cwd);
+        }
+        session.created_at = record.created_at.clone();
+        session.updated_at = record.updated_at.clone();
+        session.archived_at = record.archived_at.clone();
         session.agent_nickname = thread.agent_nickname.clone();
         session.agent_role = thread.agent_role.clone();
-        session.message_count = thread
-            .turns
-            .iter()
-            .map(|turn| turn.items.len() as u32)
-            .fold(0, u32::saturating_add);
-        session.tool_call_count = thread
-            .turns
-            .iter()
-            .flat_map(|turn| &turn.items)
-            .filter(|item| is_tool_item(item))
-            .count()
-            .try_into()
-            .unwrap_or(u32::MAX);
+        session.message_count = record.message_count;
+        session.tool_call_count = record.tool_call_count;
         session.compression_count = thread
             .turns
             .iter()
@@ -117,57 +113,142 @@ impl CodexAdapter {
             .count()
             .try_into()
             .unwrap_or(u32::MAX);
-        record_file_changes(&mut session, thread);
-
-        session = session
-            .with_metadata("codex.thread_id", &thread.id)
-            .with_metadata("codex.session_id", &thread.session_id)
-            .with_metadata("codex.ephemeral", thread.ephemeral.to_string())
-            .with_metadata("codex.history_mode", provider_scalar(&thread.history_mode))
-            .with_metadata("codex.cli_version", &thread.cli_version)
-            .with_metadata("codex.source", provider_scalar(&thread.source))
-            .with_metadata("codex.status", provider_scalar(&thread.status))
-            .with_metadata("codex.turn_count", thread.turns.len().to_string());
-
-        if let Some(recency_at) = thread.recency_at.and_then(epoch_seconds_to_rfc3339) {
-            session = session.with_metadata("codex.recency_at", recency_at);
-        }
-        if let Some(section) = &thread.section {
-            session = session
-                .with_metadata("codex.section.id", &section.id)
-                .with_metadata("codex.section.name", &section.name);
-        }
-        if let Some(section_entered_at) =
-            thread.section_entered_at.and_then(epoch_seconds_to_rfc3339)
-        {
-            session = session.with_metadata("codex.section_entered_at", section_entered_at);
-        }
-        if let Some(can_accept_direct_input) = thread.can_accept_direct_input {
-            session = session.with_metadata(
-                "codex.can_accept_direct_input",
-                can_accept_direct_input.to_string(),
-            );
-        }
-        if let Some(thread_source) = &thread.thread_source {
-            session = session.with_metadata("codex.thread_source", provider_scalar(thread_source));
-        }
-        if let Some(git_info) = &thread.git_info {
-            if let Some(sha) = &git_info.sha {
-                session = session.with_metadata("codex.git.sha", sha);
-            }
-            if let Some(branch) = &git_info.branch {
-                session = session.with_metadata("codex.git.branch", branch);
-            }
-            if let Some(origin_url) = &git_info.origin_url {
-                session = session.with_metadata("codex.git.origin_url", origin_url);
-            }
-        }
+        session.change_summary.additions = record.additions;
+        session.change_summary.deletions = record.deletions;
+        session.change_summary.files_changed = record.files_changed;
+        session.metadata.extend(
+            record
+                .metadata
+                .into_iter()
+                .map(|(key, value)| (key, provider_value_string(value))),
+        );
 
         let observation =
             CodexThreadActivityObservation::from_protocol(thread.id.clone(), thread.status.clone());
         session.apply_activity(CodexAdapter::new().to_session_activity(&observation)?)?;
         finalize_provider_session_snapshot(CODEX_PROVIDER_ID, session)
     }
+}
+
+fn provider_session_record(thread: &Thread) -> KernelResult<SdkRuntimeSessionRecord> {
+    let message_count = thread
+        .turns
+        .iter()
+        .flat_map(|turn| &turn.items)
+        .count()
+        .try_into()
+        .unwrap_or(u32::MAX);
+    let tool_call_count = thread
+        .turns
+        .iter()
+        .flat_map(|turn| &turn.items)
+        .filter(|item| is_tool_item(item))
+        .count()
+        .try_into()
+        .unwrap_or(u32::MAX);
+    let (additions, deletions, files_changed) = thread_change_summary(thread);
+    let mut metadata = BTreeMap::from([
+        (
+            "codex.thread_id".to_string(),
+            Value::String(thread.id.clone()),
+        ),
+        (
+            "codex.session_id".to_string(),
+            Value::String(thread.session_id.clone()),
+        ),
+        ("codex.ephemeral".to_string(), Value::Bool(thread.ephemeral)),
+        (
+            "codex.history_mode".to_string(),
+            Value::String(provider_scalar(&thread.history_mode)),
+        ),
+        (
+            "codex.cli_version".to_string(),
+            Value::String(thread.cli_version.clone()),
+        ),
+        (
+            "codex.source".to_string(),
+            Value::String(provider_scalar(&thread.source)),
+        ),
+        (
+            "codex.status".to_string(),
+            Value::String(provider_scalar(&thread.status)),
+        ),
+        (
+            "codex.turn_count".to_string(),
+            serde_json::json!(thread.turns.len()),
+        ),
+    ]);
+    insert_metadata_string(
+        &mut metadata,
+        "codex.recency_at",
+        thread.recency_at.and_then(epoch_seconds_to_rfc3339),
+    );
+    if let Some(section) = &thread.section {
+        insert_metadata_string(&mut metadata, "codex.section.id", Some(section.id.clone()));
+        insert_metadata_string(
+            &mut metadata,
+            "codex.section.name",
+            Some(section.name.clone()),
+        );
+    }
+    insert_metadata_string(
+        &mut metadata,
+        "codex.section_entered_at",
+        thread.section_entered_at.and_then(epoch_seconds_to_rfc3339),
+    );
+    if let Some(can_accept_direct_input) = thread.can_accept_direct_input {
+        metadata.insert(
+            "codex.can_accept_direct_input".to_string(),
+            Value::Bool(can_accept_direct_input),
+        );
+    }
+    if let Some(thread_source) = &thread.thread_source {
+        metadata.insert(
+            "codex.thread_source".to_string(),
+            Value::String(provider_scalar(thread_source)),
+        );
+    }
+    if let Some(git_info) = &thread.git_info {
+        insert_metadata_string(&mut metadata, "codex.git.sha", git_info.sha.clone());
+        insert_metadata_string(&mut metadata, "codex.git.branch", git_info.branch.clone());
+        insert_metadata_string(
+            &mut metadata,
+            "codex.git.origin_url",
+            git_info.origin_url.clone(),
+        );
+    }
+
+    SdkRuntimeSessionRecord {
+        provider_session_id: thread.id.clone(),
+        parent_provider_session_id: thread.parent_thread_id.clone(),
+        title: thread
+            .name
+            .clone()
+            .or_else(|| non_empty(&thread.preview).map(str::to_string)),
+        summary: None,
+        preview: non_empty(&thread.preview).map(str::to_string),
+        // Normalize to the SDKWork provider session path form (forward slashes,
+        // lowercase drive letter) so project cwd selectors match regardless of
+        // the native path separator the app-server stored.
+        cwd: Some(normalize_provider_session_path(&thread.cwd.display().to_string())),
+        created_at: epoch_seconds_to_rfc3339(thread.created_at),
+        updated_at: epoch_seconds_to_rfc3339(thread.updated_at),
+        archived_at: None,
+        model: None,
+        model_provider: non_empty(&thread.model_provider).map(str::to_string),
+        message_count,
+        tool_call_count,
+        input_tokens: 0,
+        output_tokens: 0,
+        cached_tokens: 0,
+        reasoning_tokens: 0,
+        cost_cents: None,
+        additions,
+        deletions,
+        files_changed,
+        metadata,
+    }
+    .validated(CODEX_PROVIDER_ID)
 }
 
 impl SessionAdapter for CodexAdapter {
@@ -235,8 +316,7 @@ impl CodexMessageAdapter {
         let item = &entry.item;
         let item_id = item.id();
         let item_type = item_type(item);
-        let mut parts = render_parts(item);
-        parts.push(raw_item_part(item)?);
+        let parts = message_parts(item)?;
 
         let mut message = AgentMessage::new(item_id, item_role(item), parts)
             .with_metadata("codex.turn_id", &entry.turn_id)
@@ -264,7 +344,7 @@ pub fn map_thread_page(
         .data
         .into_iter()
         .map(|provider_thread| {
-            let session = CodexAdapter::new().to_agent_session(&provider_thread)?;
+            let session = provider_session_record(&provider_thread)?;
             Ok(CodexSessionRecord {
                 session,
                 provider_thread,
@@ -279,7 +359,7 @@ pub fn map_thread_page(
 }
 
 pub fn map_thread_record(thread: Thread) -> KernelResult<CodexSessionRecord> {
-    let session = CodexAdapter::new().to_agent_session(&thread)?;
+    let session = provider_session_record(&thread)?;
     Ok(CodexSessionRecord {
         session,
         provider_thread: thread,
@@ -294,9 +374,36 @@ pub fn map_item_page(
         .data
         .into_iter()
         .map(|provider_item| {
-            let message = CodexMessageAdapter::new()
-                .to_agent_message(&provider_item)?
-                .for_session(thread_id);
+            let message = provider_message_record(thread_id, &provider_item)?;
+            Ok(CodexMessageRecord {
+                message,
+                provider_item,
+            })
+        })
+        .collect::<KernelResult<Vec<_>>>()?;
+    Ok(CodexMessagePage {
+        data,
+        next_cursor: response.next_cursor,
+        backwards_cursor: response.backwards_cursor,
+    })
+}
+
+pub fn map_turn_page(
+    thread_id: &str,
+    response: ThreadTurnsListResponse,
+) -> KernelResult<CodexMessagePage> {
+    let data = response
+        .data
+        .into_iter()
+        .flat_map(|turn| {
+            let turn_id = turn.id;
+            turn.items.into_iter().map(move |item| ThreadItemEntry {
+                turn_id: turn_id.clone(),
+                item,
+            })
+        })
+        .map(|provider_item| {
+            let message = provider_message_record(thread_id, &provider_item)?;
             Ok(CodexMessageRecord {
                 message,
                 provider_item,
@@ -332,7 +439,10 @@ fn map_session_source(source: &CodexSessionSource) -> SessionSource {
     }
 }
 
-fn record_file_changes(session: &mut AgentSession, thread: &Thread) {
+fn thread_change_summary(thread: &Thread) -> (u32, u32, u32) {
+    let mut total_additions = 0_u32;
+    let mut total_deletions = 0_u32;
+    let mut files_changed = 0_u32;
     for item in thread.turns.iter().flat_map(|turn| &turn.items) {
         if let ThreadItem::FileChange { changes, .. } = item {
             for change in changes {
@@ -349,9 +459,29 @@ fn record_file_changes(session: &mut AgentSession, thread: &Thread) {
                                 (additions, deletions)
                             }
                         });
-                session.change_summary.record_change(additions, deletions);
+                total_additions = total_additions.saturating_add(additions);
+                total_deletions = total_deletions.saturating_add(deletions);
+                files_changed = files_changed.saturating_add(1);
             }
         }
+    }
+    (total_additions, total_deletions, files_changed)
+}
+
+fn insert_metadata_string(
+    metadata: &mut BTreeMap<String, Value>,
+    key: impl Into<String>,
+    value: Option<String>,
+) {
+    if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
+        metadata.insert(key.into(), Value::String(value));
+    }
+}
+
+fn provider_value_string(value: Value) -> String {
+    match value {
+        Value::String(value) => value,
+        value => value.to_string(),
     }
 }
 
@@ -455,6 +585,111 @@ fn item_is_untrusted(item: &ThreadItem) -> bool {
             | ThreadItem::ImageView { .. }
             | ThreadItem::ImageGeneration(_)
     )
+}
+
+fn provider_message_record(
+    provider_session_id: &str,
+    entry: &ThreadItemEntry,
+) -> KernelResult<SdkRuntimeMessageRecord> {
+    let item = &entry.item;
+    let item_id = item.id();
+    let mut metadata = BTreeMap::from([
+        (
+            "codex.turn_id".to_string(),
+            Value::String(entry.turn_id.clone()),
+        ),
+        (
+            "codex.item_type".to_string(),
+            Value::String(item_type(item).to_string()),
+        ),
+        (
+            "codex.item_id".to_string(),
+            Value::String(item_id.to_string()),
+        ),
+    ]);
+    if item_is_untrusted(item) {
+        metadata.insert("sdkwork.provider.untrusted".to_string(), Value::Bool(true));
+    }
+    let parts = message_parts(item)?
+        .into_iter()
+        .map(provider_message_part)
+        .collect::<KernelResult<Vec<_>>>()?;
+
+    SdkRuntimeMessageRecord {
+        provider_message_id: item_id.to_string(),
+        provider_session_id: provider_session_id.to_string(),
+        parent_provider_message_id: None,
+        role: item_role(item).as_str().to_string(),
+        parts,
+        created_at: None,
+        metadata,
+    }
+    .validated(provider_session_id)
+}
+
+fn message_parts(item: &ThreadItem) -> KernelResult<Vec<AgentPart>> {
+    let mut parts = render_parts(item);
+    parts.push(raw_item_part(item)?);
+    Ok(parts)
+}
+
+fn provider_message_part(part: AgentPart) -> KernelResult<SdkRuntimeMessagePart> {
+    let json = part
+        .json
+        .map(|json| {
+            serde_json::from_str(&json).map_err(|error| {
+                KernelError::provider_error(
+                    "codex_thread_item_json_invalid",
+                    format!("failed to project typed Codex message part JSON: {error}"),
+                )
+                .with_provider(CODEX_PROVIDER_ID)
+            })
+        })
+        .transpose()?;
+    let mut metadata = part
+        .metadata
+        .into_iter()
+        .map(|(key, value)| (key, Value::String(value)))
+        .collect::<BTreeMap<_, _>>();
+    insert_metadata_string(&mut metadata, "sdkwork.provider.schema", part.schema);
+    insert_metadata_string(
+        &mut metadata,
+        "sdkwork.provider.provenance",
+        part.provenance,
+    );
+    if !matches!(part.redaction_classification, KernelEventRedaction::Unknown) {
+        metadata.insert(
+            "sdkwork.provider.redaction".to_string(),
+            Value::String(redaction_name(&part.redaction_classification).to_string()),
+        );
+    }
+
+    Ok(SdkRuntimeMessagePart {
+        part_id: part.part_id,
+        kind: part.kind.as_str().to_string(),
+        text: part.text,
+        json,
+        content_ref: part.content_ref,
+        artifact_id: part.artifact_id,
+        tool_call_id: part.tool_call_id,
+        policy_decision_id: part.policy_decision_id,
+        error_code: part.error_code,
+        mime_type: part.mime_type,
+        name: part.name,
+        metadata,
+    })
+}
+
+fn redaction_name(redaction: &KernelEventRedaction) -> &'static str {
+    match redaction {
+        KernelEventRedaction::Public => "public",
+        KernelEventRedaction::Internal => "internal",
+        KernelEventRedaction::TenantSensitive => "tenant_sensitive",
+        KernelEventRedaction::PersonalData => "personal_data",
+        KernelEventRedaction::Secret => "secret",
+        KernelEventRedaction::Regulated => "regulated",
+        KernelEventRedaction::Unknown => "unknown",
+    }
 }
 
 fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
@@ -707,47 +942,75 @@ mod tests {
     #[test]
     fn maps_every_stable_thread_field_and_preserves_typed_thread() {
         let provider_thread = sample_thread();
-        let expected_cwd = provider_thread.cwd.display().to_string();
+        let expected_cwd = normalize_provider_session_path(
+            &provider_thread.cwd.display().to_string(),
+        );
         let record = map_thread_record(provider_thread.clone()).expect("thread mapping");
         let session = record.session;
 
         assert_eq!(record.provider_thread, provider_thread);
-        assert_eq!(session.session_id, "0198-thread");
-        assert_eq!(session.parent_session_id.as_deref(), Some("0196-thread"));
-        assert_eq!(session.forked_from_id.as_deref(), Some("0197-thread"));
+        assert_eq!(session.provider_session_id, "0198-thread");
+        assert_eq!(
+            session.parent_provider_session_id.as_deref(),
+            Some("0196-thread")
+        );
         assert_eq!(session.title.as_deref(), Some("Provider review"));
         assert_eq!(session.preview.as_deref(), Some("Review the provider"));
-        assert_eq!(session.source, SessionSource::Ide);
-        assert_eq!(session.kind, SessionKind::Subagent);
         assert_eq!(session.model_provider.as_deref(), Some("openai"));
         assert_eq!(session.cwd.as_deref(), Some(expected_cwd.as_str()));
-        assert_eq!(session.agent_nickname.as_deref(), Some("reviewer"));
-        assert_eq!(session.agent_role.as_deref(), Some("code-review"));
         assert_eq!(
-            session.metadata_value("codex.session_id"),
+            session
+                .metadata
+                .get("codex.session_id")
+                .and_then(Value::as_str),
             Some("0198-session")
         );
-        assert_eq!(session.metadata_value("codex.section.name"), Some("Pinned"));
         assert_eq!(
-            session.metadata_value("codex.history_mode"),
+            session
+                .metadata
+                .get("codex.section.name")
+                .and_then(Value::as_str),
+            Some("Pinned")
+        );
+        assert_eq!(
+            session
+                .metadata
+                .get("codex.history_mode")
+                .and_then(Value::as_str),
             Some("paginated")
         );
-        assert_eq!(session.metadata_value("codex.cli_version"), Some("0.99.0"));
         assert_eq!(
-            session.metadata_value("codex.can_accept_direct_input"),
-            Some("true")
+            session
+                .metadata
+                .get("codex.cli_version")
+                .and_then(Value::as_str),
+            Some("0.99.0")
         );
         assert_eq!(
-            session.metadata_value("codex.thread_source"),
+            session
+                .metadata
+                .get("codex.can_accept_direct_input")
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            session
+                .metadata
+                .get("codex.thread_source")
+                .and_then(Value::as_str),
             Some("subagent")
         );
-        assert_eq!(session.metadata_value("codex.git.sha"), Some("abc123"));
-        assert_eq!(session.activity.state, Some(SessionActivityState::Waiting));
         assert_eq!(
-            session.activity.interaction_hint,
-            Some(SessionActivityInteractionHint::ApprovalRequired)
+            session
+                .metadata
+                .get("codex.git.sha")
+                .and_then(Value::as_str),
+            Some("abc123")
         );
-        assert!(session.metadata.iter().all(|(key, _)| key != "codex.path"));
+        assert!(!session.metadata.contains_key("codex.path"));
+        let serialized = serde_json::to_value(&session).expect("serialize provider record");
+        assert!(serialized.get("session_id").is_none());
+        assert!(serialized.get("parent_session_id").is_none());
     }
 
     #[test]
@@ -778,24 +1041,49 @@ mod tests {
         let record = &page.data[0];
 
         assert_eq!(page.next_cursor.as_deref(), Some("next-1"));
-        assert_eq!(record.message.message_id, "item-1");
-        assert_eq!(record.message.session_id.as_deref(), Some("thread-1"));
+        assert_eq!(record.message.provider_message_id, "item-1");
+        assert_eq!(record.message.provider_session_id, "thread-1");
+        assert_eq!(record.message.role, "tool");
         assert_eq!(
-            record.message.metadata_value("codex.turn_id"),
+            record
+                .message
+                .metadata
+                .get("codex.turn_id")
+                .and_then(Value::as_str),
             Some("turn-1")
         );
         assert_eq!(
-            record.message.parts[0].metadata_value("codex.mcp.read_only_hint"),
+            record.message.parts[0]
+                .metadata
+                .get("codex.mcp.read_only_hint")
+                .and_then(Value::as_str),
             Some("true")
         );
         let raw = record
             .message
             .parts
             .iter()
-            .find(|part| part.schema.as_deref() == Some(RAW_ITEM_SCHEMA))
-            .and_then(|part| part.json.as_deref())
+            .find(|part| {
+                part.name.as_deref() == Some("codex.thread_item")
+                    && part
+                        .metadata
+                        .get("sdkwork.provider.schema")
+                        .and_then(Value::as_str)
+                        == Some(RAW_ITEM_SCHEMA)
+            })
+            .and_then(|part| part.json.as_ref())
             .expect("raw typed item");
-        assert!(raw.contains("\"readOnlyHint\":true"));
+        assert_eq!(raw.get("readOnlyHint").and_then(Value::as_bool), Some(true));
+        assert_eq!(
+            record
+                .message
+                .parts
+                .iter()
+                .find(|part| part.name.as_deref() == Some("codex.thread_item"))
+                .and_then(|part| part.metadata.get("sdkwork.provider.redaction"))
+                .and_then(Value::as_str),
+            Some("tenant_sensitive")
+        );
         assert_eq!(record.provider_item.item.id(), "item-1");
     }
 

@@ -14,6 +14,7 @@ mod negotiation;
 mod registry;
 mod runtime;
 mod selector;
+mod session_data;
 
 pub use activity::{
     ProviderSessionActivityRuntimeSink, SdkRuntimeActivityEvent, SdkRuntimeActivityEventSink,
@@ -57,3 +58,8 @@ pub use runtime::{
     SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
 };
 pub use selector::{select_backend, BackendSelection};
+pub use session_data::{
+    list_all_provider_sessions_from_runtime, load_all_provider_messages_from_runtime,
+    SdkRuntimeMessagePage, SdkRuntimeMessagePart, SdkRuntimeMessageRecord, SdkRuntimeSessionPage,
+    SdkRuntimeSessionRecord,
+};

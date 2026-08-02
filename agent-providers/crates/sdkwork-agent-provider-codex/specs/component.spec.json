@@ -85,7 +85,10 @@
     "dependencyApiSurfaces": [],
     "sdkClients": [],
     "events": [],
-    "configKeys": ["SDKWORK_KERNEL_AGENT_PLUGIN"]
+    "configKeys": [
+      "SDKWORK_KERNEL_AGENT_PLUGIN",
+      "SDKWORK_KERNEL_CODEX_EXECUTABLE"
+    ]
   },
   "verification": {
     "commands": [

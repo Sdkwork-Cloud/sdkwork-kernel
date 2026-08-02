@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 mod mock_policy;
 mod model_wire;
+mod provider_local_config;
 mod provider_session_activity;
 mod provider_session_history;
 mod provider_session_path;
@@ -23,6 +24,7 @@ pub use model_wire::{
     wire_messages_summary, wire_messages_to_anthropic_json, wire_messages_to_openai_json,
     wire_system_text, ModelWireMessage,
 };
+pub use provider_local_config::provider_user_home;
 pub use provider_session_activity::{
     refresh_provider_session_activity, refresh_provider_session_activity_at,
     session_activity_from_provider_observation, session_activity_from_provider_observation_at,

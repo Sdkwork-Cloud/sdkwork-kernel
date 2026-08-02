@@ -1,51 +1,51 @@
 {
-    "name":  "sdkwork-kernel-workspace",
-    "private":  true,
+    "name": "sdkwork-kernel-workspace",
+    "private": true,
     "license": "AGPL-3.0-or-later",
-    "type":  "module",
-    "packageManager":  "pnpm@10.33.0",
-    "dependencies":  {
-                         "@anthropic-ai/claude-agent-sdk":  "0.3.220",
-                         "@opencode-ai/sdk":  "1.18.11",
-                         "@sdkwork/app-topology":  "workspace:*",
-                         "openai":  "7.1.0"
-                     },
-    "scripts":  {
-                    "stop":  "pnpm exec sdkwork-app stop",
-                    "dev":  "node scripts/sdkwork-command.mjs dev",
-                    "dev:server:postgres:standalone":  "pnpm exec sdkwork-app dev --runtime-target server --deployment-profile standalone",
-                    "build":  "pnpm exec sdkwork-app build",
-                    "test":  "pnpm exec sdkwork-app test",
-                    "check":  "pnpm exec sdkwork-app check",
-                    "verify":  "pnpm exec sdkwork-app verify",
-                    "verify:commercial":  "node scripts/verify-kernel-audit-remediation.mjs --commercial-release \u0026\u0026 pnpm run check:app-composition",
-                    "clean":  "pnpm exec sdkwork-app clean",
-                    "check:pnpm-script-standard":  "node scripts/check-pnpm-script-standard.mjs",
-                    "topology:validate":  "node ../sdkwork-app-topology/scripts/sdkwork-topology.mjs validate --root . --spec specs/topology.spec.json",
-                    "topology:plan":  "node ../sdkwork-app-topology/scripts/sdkwork-topology.mjs plan --root . --spec specs/topology.spec.json",
-                    "api:check":  "node scripts/check-agent-sdk-workspace.mjs",
-                    "sdk:check":  "node scripts/check-agent-sdk-workspace.mjs",
-                    "test:topology":  "node --test --experimental-test-isolation=none tests/kernel_topology_alignment.test.mjs",
-                    "test:topology-baggage":  "node --test --experimental-test-isolation=none scripts/dev/sdkwork-kernel-topology-baggage.test.mjs",
-                    "test:topology-smoke":  "node scripts/dev/sdkwork-kernel-topology-smoke.mjs",
-                    "test:utils-standard":  "node scripts/dev/sdkwork-kernel-utils-standard.test.mjs",
-                    "check:app-composition":  "node ../sdkwork-specs/tools/verify-repo.mjs --root .",
-                    "dev:standalone":  "pnpm exec sdkwork-app dev --deployment-profile standalone",
-                    "dev:cloud":  "pnpm exec sdkwork-app dev --deployment-profile cloud",
-                    "_sdkwork:build":  "node scripts/sdkwork-command.mjs build",
-                    "_sdkwork:test":  "node scripts/sdkwork-command.mjs test",
-                    "_sdkwork:check":  "pnpm run check:app-composition \u0026\u0026 node scripts/sdkwork-command.mjs check",
-                    "_sdkwork:verify":  "node scripts/sdkwork-command.mjs verify \u0026\u0026 pnpm run check:app-composition",
-                    "_sdkwork:clean":  "node scripts/sdkwork-command.mjs clean",
-                    "dev:server:cloud":  "pnpm exec sdkwork-app dev --runtime-target server --deployment-profile cloud",
-                    "api:assembly:materialize":  "node ../sdkwork-specs/tools/materialize-api-assembly.mjs --root .",
-                    "api:assembly:validate":  "node ../sdkwork-specs/tools/validate-api-assembly.mjs --root ."
-                },
-    "exports":  {
-                    ".":  {
-                              "types":  "./src/index.ts",
-                              "import":  "./src/index.ts",
-                              "default":  "./src/index.ts"
-                          }
-                }
+    "type": "module",
+    "packageManager": "pnpm@10.33.0",
+    "dependencies": {
+        "@anthropic-ai/claude-agent-sdk": "0.3.220",
+        "@opencode-ai/sdk": "1.18.11",
+        "@sdkwork/app-topology": "workspace:*",
+        "openai": "7.3.0"
+    },
+    "scripts": {
+        "stop": "pnpm exec sdkwork-app stop",
+        "dev": "node scripts/sdkwork-command.mjs dev",
+        "dev:server:postgres:standalone": "pnpm exec sdkwork-app dev --runtime-target server --deployment-profile standalone",
+        "build": "pnpm exec sdkwork-app build",
+        "test": "pnpm exec sdkwork-app test",
+        "check": "pnpm exec sdkwork-app check",
+        "verify": "pnpm exec sdkwork-app verify",
+        "verify:commercial": "node scripts/verify-kernel-audit-remediation.mjs --commercial-release && pnpm run check:app-composition",
+        "clean": "pnpm exec sdkwork-app clean",
+        "check:pnpm-script-standard": "node scripts/check-pnpm-script-standard.mjs",
+        "topology:validate": "node ../sdkwork-app-topology/scripts/sdkwork-topology.mjs validate --root . --spec specs/topology.spec.json",
+        "topology:plan": "node ../sdkwork-app-topology/scripts/sdkwork-topology.mjs plan --root . --spec specs/topology.spec.json",
+        "api:check": "node scripts/check-agent-sdk-workspace.mjs",
+        "sdk:check": "node scripts/check-agent-sdk-workspace.mjs",
+        "test:topology": "node --test --experimental-test-isolation=none tests/kernel_topology_alignment.test.mjs",
+        "test:topology-baggage": "node --test --experimental-test-isolation=none scripts/dev/sdkwork-kernel-topology-baggage.test.mjs",
+        "test:topology-smoke": "node scripts/dev/sdkwork-kernel-topology-smoke.mjs",
+        "test:utils-standard": "node scripts/dev/sdkwork-kernel-utils-standard.test.mjs",
+        "check:app-composition": "node ../sdkwork-specs/tools/verify-repo.mjs --root .",
+        "dev:standalone": "pnpm exec sdkwork-app dev --deployment-profile standalone",
+        "dev:cloud": "pnpm exec sdkwork-app dev --deployment-profile cloud",
+        "_sdkwork:build": "node scripts/sdkwork-command.mjs build",
+        "_sdkwork:test": "node scripts/sdkwork-command.mjs test",
+        "_sdkwork:check": "pnpm run check:app-composition && node scripts/sdkwork-command.mjs check",
+        "_sdkwork:verify": "node scripts/sdkwork-command.mjs verify && pnpm run check:app-composition",
+        "_sdkwork:clean": "node scripts/sdkwork-command.mjs clean",
+        "dev:server:cloud": "pnpm exec sdkwork-app dev --runtime-target server --deployment-profile cloud",
+        "api:assembly:materialize": "node ../sdkwork-specs/tools/materialize-api-assembly.mjs --root .",
+        "api:assembly:validate": "node ../sdkwork-specs/tools/validate-api-assembly.mjs --root ."
+    },
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "import": "./src/index.ts",
+            "default": "./src/index.ts"
+        }
+    }
 }

@@ -28,12 +28,12 @@
     {
       "capability_id": "sdk.session.lifecycle",
       "required": true,
-      "execution_scope": "provider_local",
+      "execution_scope": "transport_runtime",
       "backends": [
         {
           "kind": "typescript_node",
           "driver_id": "driver.claude-code.session.lifecycle.ts",
-          "runtime_operations": ["ping"],
+          "runtime_operations": ["ping", "session_list", "session_history"],
           "package": "@anthropic-ai/claude-agent-sdk"
         },
         {

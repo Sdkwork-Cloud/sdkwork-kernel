@@ -215,10 +215,49 @@ pub struct HermesModelProvider {
     default_model: String,
 }
 
+/// Reads the model id configured for the local Hermes Agent installation.
+///
+/// Reads the top-level `model.default` key from the Hermes config file
+/// (`HERMES_HOME/config.yaml`, default `~/.hermes` / AppData/Local/hermes).
+/// Returns `None` when the configuration cannot be read so the model catalog
+/// can fall back to the built-in default.
+pub fn configured_hermes_model_id() -> Option<String> {
+    let config_path = hermes_config_path()?;
+    let content = std::fs::read_to_string(config_path).ok()?;
+    let document: serde_yaml::Value = serde_yaml::from_str(&content).ok()?;
+    let model = document.get("model")?;
+    model
+        .get("default")
+        .or_else(|| model.get("model"))
+        .and_then(serde_yaml::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn hermes_config_path() -> Option<std::path::PathBuf> {
+    if let Some(home) = std::env::var_os("HERMES_HOME") {
+        let home = std::path::PathBuf::from(home);
+        if home.is_dir() {
+            return Some(home.join("config.yaml"));
+        }
+    }
+    let home = sdkwork_agent_provider_core::provider_user_home()?;
+    #[cfg(windows)]
+    let candidates = [
+        home.join("AppData").join("Local").join("hermes").join("config.yaml"),
+        home.join(".hermes").join("config.yaml"),
+    ];
+    #[cfg(not(windows))]
+    let candidates = [home.join(".hermes").join("config.yaml")];
+    candidates.into_iter().find(|path| path.is_file())
+}
+
 impl HermesModelProvider {
     pub fn new() -> Self {
         Self {
-            default_model: "hermes-runtime-default".to_string(),
+            default_model: configured_hermes_model_id()
+                .unwrap_or_else(|| "hermes-runtime-default".to_string()),
         }
     }
 
@@ -254,7 +293,7 @@ impl ModelProvider for HermesModelProvider {
     }
 
     fn list_models(&self) -> Vec<ModelDescriptor> {
-        vec![ModelDescriptor::new(
+        let mut models = vec![ModelDescriptor::new(
             "hermes-runtime-default",
             "provider.model.hermes",
             "Hermes Agent Runtime (configured model)",
@@ -268,7 +307,34 @@ impl ModelProvider for HermesModelProvider {
         .with_input_mode("text")
         .with_output_mode("text")
         .with_response_format(ModelResponseFormat::Text)
-        .with_tool_capability("function_calling")]
+        .with_tool_capability("function_calling")];
+        // Surface the model configured for the local Hermes Agent installation
+        // first so default model selection matches what the Hermes CLI would
+        // use. The configured model may be provider-specific.
+        if self.default_model != "hermes-runtime-default"
+            && !models
+                .iter()
+                .any(|model| model.model_id == self.default_model)
+        {
+            models.insert(
+                0,
+                ModelDescriptor::new(
+                    &self.default_model,
+                    "provider.model.hermes",
+                    &self.default_model,
+                    "hermes",
+                )
+                .with_capability("chat")
+                .with_capability("tool_call")
+                .with_context_window_tokens(200000)
+                .with_max_output_tokens(16384)
+                .with_input_mode("text")
+                .with_output_mode("text")
+                .with_response_format(ModelResponseFormat::Text)
+                .with_tool_capability("function_calling"),
+            );
+        }
+        models
     }
 
     fn invoke(&self, _request: ModelRequest) -> KernelResult<ModelResponse> {
@@ -564,8 +630,15 @@ mod tests {
     fn model_provider_list_models() {
         let provider = HermesModelProvider::new();
         let models = provider.list_models();
-        assert_eq!(models.len(), 1);
-        assert_eq!(models[0].model_id, "hermes-runtime-default");
+        assert!(models.len() >= 1);
+        if let Some(configured) = configured_hermes_model_id() {
+            assert_eq!(models[0].model_id, configured);
+        } else {
+            assert_eq!(models[0].model_id, "hermes-runtime-default");
+        }
+        assert!(models
+            .iter()
+            .any(|model| model.model_id == "hermes-runtime-default"));
     }
 
     #[test]

@@ -128,6 +128,8 @@ and before provider runtime dispatch. Supported operations:
 | --- | --- |
 | `ping` | Health/probe operation for a selected backend. |
 | `session_create` | Runtime session creation for transports that support it. |
+| `session_list` | Read a bounded page of provider Session inventory through an official SDK. |
+| `session_history` | Read a bounded page of messages for one opaque provider Session through an official SDK. |
 | `session_interrupt` | Idempotently interrupt active work in an existing provider session. |
 | `session_compact` | Compact an existing provider session without replacing its canonical SDKWork identity. |
 | `session_fork` | Fork an existing provider session and return a distinct opaque provider session id. |
@@ -155,8 +157,9 @@ Rules:
 - `provider_local` capabilities `MUST` declare only `ping` as a runtime
   operation.
 - `rust_native` backend candidates `MUST NOT` declare `session_create`,
-  `session_interrupt`, `session_compact`, `session_fork`, or `skill_invoke`
-  until the selected Rust runtime bridge implements those operations.
+  `session_list`, `session_history`, `session_interrupt`, `session_compact`,
+  `session_fork`, or `skill_invoke` until the selected Rust runtime bridge
+  implements those operations.
 - Session-control operations `MUST` use `execution_scope: transport_runtime`.
   The backend allowlist is the exact action set; declaring `ping` alone is not
   evidence that a provider can control live sessions.

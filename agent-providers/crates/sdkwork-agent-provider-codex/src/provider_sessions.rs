@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use codex_app_server_protocol::{
     SessionSource as CodexSessionSource, Thread, ThreadActiveFlag, ThreadItem, ThreadItemEntry,
-    ThreadStatus, ThreadTurnsListResponse, UserInput,
+    ThreadStatus, ThreadTurnsListResponse, Turn, TurnError, TurnItemsView, TurnStatus, UserInput,
 };
 use sdkwork_agent_kernel::{
     AgentMessage, AgentMessageRole, AgentPart, AgentSession, KernelError, KernelEventRedaction,
@@ -183,6 +183,19 @@ fn provider_session_record(thread: &Thread) -> KernelResult<SdkRuntimeSessionRec
         "codex.recency_at",
         thread.recency_at.and_then(epoch_seconds_to_rfc3339),
     );
+    // Fork lineage and subagent identity are part of the persisted protocol
+    // tree structure; they are preserved as metadata because the session
+    // record has no dedicated fork/nickname/role fields.
+    insert_metadata_string(&mut metadata, "codex.forked_from_id", thread.forked_from_id.clone());
+    insert_metadata_string(&mut metadata, "codex.agent_nickname", thread.agent_nickname.clone());
+    insert_metadata_string(&mut metadata, "codex.agent_role", thread.agent_role.clone());
+    // The durable thread path on disk is provider metadata, not a canonical
+    // identity; it is preserved for diagnostics and directory reconciliation.
+    insert_metadata_string(
+        &mut metadata,
+        "codex.path",
+        thread.path.as_ref().map(|path| path.display().to_string()),
+    );
     if let Some(section) = &thread.section {
         insert_metadata_string(&mut metadata, "codex.section.id", Some(section.id.clone()));
         insert_metadata_string(
@@ -230,7 +243,9 @@ fn provider_session_record(thread: &Thread) -> KernelResult<SdkRuntimeSessionRec
         // Normalize to the SDKWork provider session path form (forward slashes,
         // lowercase drive letter) so project cwd selectors match regardless of
         // the native path separator the app-server stored.
-        cwd: Some(normalize_provider_session_path(&thread.cwd.display().to_string())),
+        cwd: Some(normalize_provider_session_path(
+            &thread.cwd.display().to_string(),
+        )),
         created_at: epoch_seconds_to_rfc3339(thread.created_at),
         updated_at: epoch_seconds_to_rfc3339(thread.updated_at),
         archived_at: None,
@@ -374,7 +389,7 @@ pub fn map_item_page(
         .data
         .into_iter()
         .map(|provider_item| {
-            let message = provider_message_record(thread_id, &provider_item)?;
+            let message = provider_message_record(thread_id, &provider_item, None)?;
             Ok(CodexMessageRecord {
                 message,
                 provider_item,
@@ -388,6 +403,31 @@ pub fn map_item_page(
     })
 }
 
+/// Turn-level metadata preserved on every message of that turn so the turn
+/// status, error, and timeline survive the canonical message projection.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProviderTurnMeta {
+    pub status: TurnStatus,
+    pub error: Option<TurnError>,
+    pub started_at: Option<i64>,
+    pub completed_at: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub items_view: TurnItemsView,
+}
+
+impl From<&Turn> for ProviderTurnMeta {
+    fn from(turn: &Turn) -> Self {
+        Self {
+            status: turn.status.clone(),
+            error: turn.error.clone(),
+            started_at: turn.started_at,
+            completed_at: turn.completed_at,
+            duration_ms: turn.duration_ms,
+            items_view: turn.items_view,
+        }
+    }
+}
+
 pub fn map_turn_page(
     thread_id: &str,
     response: ThreadTurnsListResponse,
@@ -396,14 +436,20 @@ pub fn map_turn_page(
         .data
         .into_iter()
         .flat_map(|turn| {
+            let turn_meta = ProviderTurnMeta::from(&turn);
             let turn_id = turn.id;
-            turn.items.into_iter().map(move |item| ThreadItemEntry {
-                turn_id: turn_id.clone(),
-                item,
+            turn.items.into_iter().map(move |item| {
+                (
+                    ThreadItemEntry {
+                        turn_id: turn_id.clone(),
+                        item,
+                    },
+                    turn_meta.clone(),
+                )
             })
         })
-        .map(|provider_item| {
-            let message = provider_message_record(thread_id, &provider_item)?;
+        .map(|(provider_item, turn_meta)| {
+            let message = provider_message_record(thread_id, &provider_item, Some(&turn_meta))?;
             Ok(CodexMessageRecord {
                 message,
                 provider_item,
@@ -590,6 +636,7 @@ fn item_is_untrusted(item: &ThreadItem) -> bool {
 fn provider_message_record(
     provider_session_id: &str,
     entry: &ThreadItemEntry,
+    turn_meta: Option<&ProviderTurnMeta>,
 ) -> KernelResult<SdkRuntimeMessageRecord> {
     let item = &entry.item;
     let item_id = item.id();
@@ -607,6 +654,44 @@ fn provider_message_record(
             Value::String(item_id.to_string()),
         ),
     ]);
+    if let Some(turn_meta) = turn_meta {
+        metadata.insert(
+            "codex.turn.status".to_string(),
+            Value::String(provider_scalar(&turn_meta.status)),
+        );
+        metadata.insert(
+            "codex.turn.items_view".to_string(),
+            Value::String(provider_scalar(&turn_meta.items_view)),
+        );
+        if let Some(error) = &turn_meta.error {
+            metadata.insert(
+                "codex.turn.error".to_string(),
+                serde_json::to_value(error).unwrap_or(Value::Null),
+            );
+        }
+        if let Some(started_at) = turn_meta.started_at {
+            if let Some(started_at) = epoch_seconds_to_rfc3339(started_at) {
+                metadata.insert(
+                    "codex.turn.started_at".to_string(),
+                    Value::String(started_at),
+                );
+            }
+        }
+        if let Some(completed_at) = turn_meta.completed_at {
+            if let Some(completed_at) = epoch_seconds_to_rfc3339(completed_at) {
+                metadata.insert(
+                    "codex.turn.completed_at".to_string(),
+                    Value::String(completed_at),
+                );
+            }
+        }
+        if let Some(duration_ms) = turn_meta.duration_ms {
+            metadata.insert(
+                "codex.turn.duration_ms".to_string(),
+                Value::from(duration_ms),
+            );
+        }
+    }
     if item_is_untrusted(item) {
         metadata.insert("sdkwork.provider.untrusted".to_string(), Value::Bool(true));
     }
@@ -614,6 +699,9 @@ fn provider_message_record(
         .into_iter()
         .map(provider_message_part)
         .collect::<KernelResult<Vec<_>>>()?;
+    let created_at = turn_meta
+        .and_then(|turn_meta| turn_meta.started_at)
+        .and_then(epoch_seconds_to_rfc3339);
 
     SdkRuntimeMessageRecord {
         provider_message_id: item_id.to_string(),
@@ -621,7 +709,7 @@ fn provider_message_record(
         parent_provider_message_id: None,
         role: item_role(item).as_str().to_string(),
         parts,
-        created_at: None,
+        created_at,
         metadata,
     }
     .validated(provider_session_id)
@@ -695,11 +783,28 @@ fn redaction_name(redaction: &KernelEventRedaction) -> &'static str {
 fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
     let item_id = item.id();
     match item {
-        ThreadItem::UserMessage { content, .. } => content
-            .iter()
-            .enumerate()
-            .map(|(index, input)| user_input_part(item_id, index, input))
-            .collect(),
+        ThreadItem::UserMessage {
+            content,
+            client_id,
+            ..
+        } => {
+            let mut parts = content
+                .iter()
+                .enumerate()
+                .map(|(index, input)| user_input_part(item_id, index, input))
+                .collect::<Vec<_>>();
+            // The client-supplied message id (used for turn correlation) is
+            // retained on the first part so the message keeps its upstream
+            // correlation identity.
+            if let Some(client_id) = client_id {
+                if let Some(first) = parts.first_mut() {
+                    *first = first
+                        .clone()
+                        .with_metadata("codex.client_message_id", client_id.as_str());
+                }
+            }
+            parts
+        }
         ThreadItem::HookPrompt { fragments, .. } => fragments
             .iter()
             .enumerate()
@@ -709,8 +814,23 @@ fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
                     .with_metadata("codex.hook_run_id", &fragment.hook_run_id)
             })
             .collect(),
-        ThreadItem::AgentMessage { text, .. } => {
-            vec![provider_text(item_id, "agent_message", text)]
+        ThreadItem::AgentMessage {
+            text,
+            phase,
+            memory_citation,
+            ..
+        } => {
+            let mut part = provider_text(item_id, "agent_message", text);
+            if let Some(phase) = phase {
+                part = part.with_metadata("codex.message.phase", &provider_scalar(phase));
+            }
+            if let Some(citation) = memory_citation {
+                part = part.with_metadata(
+                    "codex.message.memory_citation",
+                    serde_json::to_string(citation).unwrap_or_default(),
+                );
+            }
+            vec![part]
         }
         ThreadItem::Plan { text, .. } => vec![provider_text(item_id, "plan", text)],
         ThreadItem::Reasoning {
@@ -726,8 +846,14 @@ fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
             .collect(),
         ThreadItem::CommandExecution {
             command,
+            cwd,
+            process_id,
+            source,
             status,
             aggregated_output,
+            exit_code,
+            duration_ms,
+            plugin_id,
             ..
         } => {
             let mut parts = vec![provider_tool_call(
@@ -735,14 +861,37 @@ fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
                 "shell_command",
                 "command_execution",
                 provider_scalar(status),
-            )];
+            )
+            .with_metadata("codex.command", command)
+            .with_metadata("codex.command.cwd", cwd.as_str())
+            .with_metadata("codex.command.source", &provider_scalar(source))];
+            if let Some(plugin_id) = plugin_id {
+                parts[0] = parts[0]
+                    .clone()
+                    .with_metadata("codex.command.plugin_id", plugin_id.as_str());
+            }
+            if let Some(process_id) = process_id {
+                parts[0] = parts[0]
+                    .clone()
+                    .with_metadata("codex.command.process_id", process_id.as_str());
+            }
+            if let Some(exit_code) = exit_code {
+                parts[0] = parts[0]
+                    .clone()
+                    .with_metadata("codex.command.exit_code", exit_code.to_string().as_str());
+            }
+            if let Some(duration_ms) = duration_ms {
+                parts[0] = parts[0]
+                    .clone()
+                    .with_metadata("codex.command.duration_ms", duration_ms.to_string().as_str());
+            }
             if let Some(output) = aggregated_output {
                 parts.push(
                     provider_text(&format!("{item_id}.output"), "tool_output", output)
+                        .with_metadata("codex.tool_call_id", item_id)
                         .with_redaction(KernelEventRedaction::TenantSensitive),
                 );
             }
-            parts[0] = parts[0].clone().with_metadata("codex.command", command);
             parts
         }
         ThreadItem::FileChange { status, .. } => vec![provider_tool_call(
@@ -756,28 +905,122 @@ fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
             tool,
             status,
             read_only_hint,
+            result,
+            error,
+            duration_ms,
             ..
         } => {
-            let mut part =
-                provider_tool_call(item_id, tool, "mcp_tool_call", provider_scalar(status))
-                    .with_metadata("codex.mcp.server", server);
+            let mut parts =
+                vec![
+                    provider_tool_call(item_id, tool, "mcp_tool_call", provider_scalar(status))
+                        .with_metadata("codex.mcp.server", server),
+                ];
             if let Some(read_only_hint) = read_only_hint {
-                part = part.with_metadata("codex.mcp.read_only_hint", read_only_hint.to_string());
+                parts[0] = parts[0]
+                    .clone()
+                    .with_metadata("codex.mcp.read_only_hint", read_only_hint.to_string());
             }
-            vec![part]
+            if let Some(duration_ms) = duration_ms {
+                parts[0] = parts[0].clone().with_metadata(
+                    "codex.mcp.duration_ms",
+                    duration_ms.to_string().as_str(),
+                );
+            }
+            match (result.as_ref(), error.as_ref()) {
+                (Some(result), _) => parts.push(provider_tool_result_part(
+                    item_id,
+                    "mcp_tool_result",
+                    "completed",
+                    serde_json::json!({ "result": result }),
+                )),
+                (None, Some(error)) => parts.push(provider_tool_result_part(
+                    item_id,
+                    "mcp_tool_result",
+                    "failed",
+                    serde_json::json!({ "error": error }),
+                )),
+                (None, None) => {}
+            }
+            parts
         }
-        ThreadItem::DynamicToolCall { tool, status, .. } => vec![provider_tool_call(
-            item_id,
+        ThreadItem::DynamicToolCall {
             tool,
-            "dynamic_tool_call",
-            provider_scalar(status),
-        )],
-        ThreadItem::CollabAgentToolCall { tool, status, .. } => vec![provider_tool_call(
-            item_id,
-            &provider_scalar(tool),
-            "collab_agent_tool_call",
-            provider_scalar(status),
-        )],
+            status,
+            content_items,
+            success,
+            namespace,
+            duration_ms,
+            ..
+        } => {
+            let mut parts = vec![provider_tool_call(
+                item_id,
+                tool,
+                "dynamic_tool_call",
+                provider_scalar(status),
+            )];
+            if let Some(namespace) = namespace {
+                parts[0] = parts[0]
+                    .clone()
+                    .with_metadata("codex.tool.namespace", namespace.as_str());
+            }
+            if let Some(duration_ms) = duration_ms {
+                parts[0] = parts[0].clone().with_metadata(
+                    "codex.tool.duration_ms",
+                    duration_ms.to_string().as_str(),
+                );
+            }
+            if content_items.is_some() || success.is_some() {
+                parts.push(provider_tool_result_part(
+                    item_id,
+                    "tool_result",
+                    &provider_scalar(status),
+                    serde_json::json!({
+                        "contentItems": content_items,
+                        "success": success,
+                    }),
+                ));
+            }
+            parts
+        }
+        ThreadItem::CollabAgentToolCall {
+            tool,
+            status,
+            sender_thread_id,
+            receiver_thread_ids,
+            prompt,
+            model,
+            reasoning_effort,
+            agents_states,
+            ..
+        } => {
+            let mut parts = vec![provider_tool_call(
+                item_id,
+                &provider_scalar(tool),
+                "collab_agent_tool_call",
+                provider_scalar(status),
+            )
+            .with_metadata("codex.collab.sender_thread_id", sender_thread_id)];
+            // The sub-agent collaboration payload (receiver threads, prompt,
+            // model, reasoning effort, and each agent's live state including
+            // its final message) is preserved as a structured result part so
+            // the sub-agent execution context survives the canonical
+            // projection.
+            parts.push(provider_tool_result_part(
+                item_id,
+                "collab_agent_tool_result",
+                &provider_scalar(status),
+                serde_json::json!({
+                    "tool": provider_scalar(tool),
+                    "senderThreadId": sender_thread_id,
+                    "receiverThreadIds": receiver_thread_ids,
+                    "prompt": prompt,
+                    "model": model,
+                    "reasoningEffort": reasoning_effort,
+                    "agentsStates": agents_states,
+                }),
+            ));
+            parts
+        }
         ThreadItem::SubAgentActivity {
             kind,
             agent_thread_id,
@@ -792,14 +1035,43 @@ fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
                 agent_thread_id,
                 agent_path
             ),
-        )],
-        ThreadItem::WebSearch(item) => vec![provider_tool_call(
-            &item.id,
-            "web_search",
-            "web_search",
-            "completed".to_string(),
         )
-        .with_metadata("codex.web_search.query", &item.query)],
+        .with_metadata("codex.sub_agent.kind", &provider_scalar(kind))
+        .with_metadata("codex.sub_agent.thread_id", agent_thread_id)
+        .with_metadata("codex.sub_agent.path", agent_path)],
+        ThreadItem::WebSearch(item) => {
+            let mut parts = vec![provider_tool_call(
+                &item.id,
+                "web_search",
+                "web_search",
+                "completed".to_string(),
+            )
+            .with_metadata("codex.web_search.query", &item.query)];
+            // `WebSearchAction` is an internally tagged enum; the type tag is
+            // projected as a scalar so consumers get the action kind without
+            // re-parsing the raw payload.
+            if let Some(action_type) = serde_json::to_value(&item.action)
+                .ok()
+                .and_then(|value| value.get("type").cloned())
+                .and_then(|value| value.as_str().map(str::to_string))
+            {
+                parts[0] = parts[0]
+                    .clone()
+                    .with_metadata("codex.web_search.action", action_type);
+            }
+            if item.results.is_some() {
+                parts.push(provider_tool_result_part(
+                    &item.id,
+                    "web_search_tool_result",
+                    "completed",
+                    serde_json::json!({
+                        "query": item.query,
+                        "results": item.results,
+                    }),
+                ));
+            }
+            parts
+        }
         ThreadItem::ImageView { path, .. } => {
             vec![
                 AgentPart::image_ref(format!("{item_id}.image"), path.to_string(), "image/*")
@@ -819,6 +1091,20 @@ fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
                 "image_generation",
                 item.status.clone(),
             )];
+            if let Some(revised_prompt) = item.revised_prompt.as_deref() {
+                parts[0] = parts[0]
+                    .clone()
+                    .with_metadata("codex.image_generation.revised_prompt", revised_prompt);
+            }
+            if let Some(saved_path) = item
+                .saved_path
+                .as_ref()
+                .map(|path| path.display().to_string())
+            {
+                parts[0] = parts[0]
+                    .clone()
+                    .with_metadata("codex.image_generation.saved_path", saved_path);
+            }
             if !item.result.is_empty() {
                 parts.push(
                     AgentPart::image_ref(format!("{}.image", item.id), &item.result, "image/*")
@@ -886,6 +1172,23 @@ fn provider_tool_call(item_id: &str, name: &str, content_type: &str, status: Str
         .with_metadata("codex.status", status)
 }
 
+/// Structured tool result part carrying the originating tool call id so the
+/// downstream session history reconciler can pair it with its `ToolCall` item
+/// (`tool_call_id` match) and persist the call → result parent chain.
+fn provider_tool_result_part(
+    item_id: &str,
+    content_type: &str,
+    status: &str,
+    payload: serde_json::Value,
+) -> AgentPart {
+    AgentPart::json(format!("{item_id}.result"), payload.to_string())
+        .from_provider(CODEX_PROVIDER_ID)
+        .with_metadata("codex.content_type", content_type)
+        .with_metadata("codex.status", status)
+        .with_metadata("codex.tool_call_id", item_id)
+        .with_redaction(KernelEventRedaction::TenantSensitive)
+}
+
 fn raw_item_part(item: &ThreadItem) -> KernelResult<AgentPart> {
     let raw = serde_json::to_string(item).map_err(|error| {
         KernelError::provider_error(
@@ -942,9 +1245,8 @@ mod tests {
     #[test]
     fn maps_every_stable_thread_field_and_preserves_typed_thread() {
         let provider_thread = sample_thread();
-        let expected_cwd = normalize_provider_session_path(
-            &provider_thread.cwd.display().to_string(),
-        );
+        let expected_cwd =
+            normalize_provider_session_path(&provider_thread.cwd.display().to_string());
         let record = map_thread_record(provider_thread.clone()).expect("thread mapping");
         let session = record.session;
 
@@ -1007,7 +1309,31 @@ mod tests {
                 .and_then(Value::as_str),
             Some("abc123")
         );
-        assert!(!session.metadata.contains_key("codex.path"));
+        assert_eq!(
+            session
+                .metadata
+                .get("codex.forked_from_id")
+                .and_then(Value::as_str),
+            Some("0197-thread")
+        );
+        assert_eq!(
+            session
+                .metadata
+                .get("codex.agent_nickname")
+                .and_then(Value::as_str),
+            Some("reviewer")
+        );
+        assert_eq!(
+            session
+                .metadata
+                .get("codex.agent_role")
+                .and_then(Value::as_str),
+            Some("code-review")
+        );
+        assert_eq!(
+            session.metadata.get("codex.path").and_then(Value::as_str),
+            Some("C:/Users/test/.codex/sessions/thread.jsonl")
+        );
         let serialized = serde_json::to_value(&session).expect("serialize provider record");
         assert!(serialized.get("session_id").is_none());
         assert!(serialized.get("parent_session_id").is_none());
@@ -1088,6 +1414,116 @@ mod tests {
     }
 
     #[test]
+    fn maps_turn_page_preserving_turn_status_timeline_and_message_time() {
+        let response: ThreadTurnsListResponse = serde_json::from_value(serde_json::json!({
+            "data": [{
+                "id": "turn-1",
+                "items": [
+                    {"type": "agentMessage", "id": "agent-1", "text": "answer", "phase": null, "memoryCitation": null}
+                ],
+                "itemsView": "full",
+                "status": "completed",
+                "error": null,
+                "startedAt": 1_752_000_000,
+                "completedAt": 1_752_000_120,
+                "durationMs": 120_000
+            }],
+            "nextCursor": null,
+            "backwardsCursor": null
+        }))
+        .expect("turns page fixture");
+        let page = map_turn_page("thread-1", response).expect("turn page mapping");
+        let record = &page.data[0].message;
+
+        assert_eq!(
+            record.metadata.get("codex.turn_id").and_then(Value::as_str),
+            Some("turn-1")
+        );
+        assert_eq!(
+            record
+                .metadata
+                .get("codex.turn.status")
+                .and_then(Value::as_str),
+            Some("completed")
+        );
+        assert_eq!(
+            record
+                .metadata
+                .get("codex.turn.items_view")
+                .and_then(Value::as_str),
+            Some("full")
+        );
+        assert_eq!(
+            record
+                .metadata
+                .get("codex.turn.started_at")
+                .and_then(Value::as_str),
+            Some("2025-07-08T18:40:00.000Z")
+        );
+        assert_eq!(
+            record
+                .metadata
+                .get("codex.turn.completed_at")
+                .and_then(Value::as_str),
+            Some("2025-07-08T18:42:00.000Z")
+        );
+        assert_eq!(
+            record
+                .metadata
+                .get("codex.turn.duration_ms")
+                .and_then(Value::as_i64),
+            Some(120_000)
+        );
+        // The turn start time becomes the message timestamp so the canonical
+        // message carries a real created_at instead of None.
+        // The turn start time becomes the message timestamp so the canonical
+        // message carries a real created_at instead of None. SPI validation
+        // normalizes the message timestamp to nanosecond precision.
+        assert_eq!(
+            record.created_at.as_deref(),
+            Some("2025-07-08T18:40:00.000000000Z")
+        );
+    }
+
+    #[test]
+    fn maps_turn_error_onto_messages_of_the_failed_turn() {
+        let response: ThreadTurnsListResponse = serde_json::from_value(serde_json::json!({
+            "data": [{
+                "id": "turn-failed",
+                "items": [
+                    {"type": "agentMessage", "id": "agent-1", "text": "partial", "phase": null, "memoryCitation": null}
+                ],
+                "itemsView": "full",
+                "status": "failed",
+                "error": {"message": "model timeout", "codexErrorInfo": null, "additionalDetails": null},
+                "startedAt": 1_752_000_000,
+                "completedAt": null,
+                "durationMs": null
+            }],
+            "nextCursor": null,
+            "backwardsCursor": null
+        }))
+        .expect("failed turns page fixture");
+        let page = map_turn_page("thread-1", response).expect("turn page mapping");
+        let record = &page.data[0].message;
+        assert_eq!(
+            record
+                .metadata
+                .get("codex.turn.status")
+                .and_then(Value::as_str),
+            Some("failed")
+        );
+        assert_eq!(
+            record
+                .metadata
+                .get("codex.turn.error")
+                .and_then(|error| error.get("message"))
+                .and_then(Value::as_str),
+            Some("model timeout")
+        );
+    }
+
+    #[test]
     fn maps_every_upstream_thread_item_variant() {
         let fixtures = serde_json::json!([
             {"type":"userMessage","id":"user","clientId":null,"content":[]},
@@ -1151,6 +1587,497 @@ mod tests {
                 .iter()
                 .any(|part| part.schema.as_deref() == Some(RAW_ITEM_SCHEMA)));
         }
+    }
+
+    #[test]
+    fn preserves_every_new_protocol_field_on_structured_parts() {
+        let items: Vec<ThreadItem> = serde_json::from_value(serde_json::json!([
+            {
+                "type": "agentMessage",
+                "id": "agent-1",
+                "text": "answer",
+                "phase": "final_answer",
+                "memoryCitation": {"entries": [{"path": "docs/note.md", "lineStart": 1, "lineEnd": 3, "note": "key note"}], "threadIds": ["thread-9"]}
+            },
+            {
+                "type": "userMessage",
+                "id": "user-1",
+                "clientId": "client-message-1",
+                "content": [{"type": "text", "text": "hello"}]
+            },
+            {
+                "type": "commandExecution",
+                "id": "command-1",
+                "command": "cargo test",
+                "cwd": "E:/workspace",
+                "processId": "pty-9",
+                "source": "agent",
+                "pluginId": "plugin.test",
+                "status": "completed",
+                "commandActions": [],
+                "aggregatedOutput": null,
+                "exitCode": 7,
+                "durationMs": 42
+            },
+            {
+                "type": "mcpToolCall",
+                "id": "mcp-1",
+                "server": "docs",
+                "tool": "search",
+                "status": "completed",
+                "arguments": {},
+                "appContext": null,
+                "mcpAppResourceUri": null,
+                "pluginId": null,
+                "readOnlyHint": null,
+                "result": null,
+                "error": null,
+                "durationMs": 123
+            },
+            {
+                "type": "dynamicToolCall",
+                "id": "dynamic-1",
+                "namespace": "connector.alpha",
+                "tool": "lookup",
+                "arguments": {},
+                "status": "completed",
+                "contentItems": null,
+                "success": true,
+                "durationMs": 9
+            },
+            {
+                "type": "collabAgentToolCall",
+                "id": "collab-1",
+                "tool": "wait",
+                "status": "completed",
+                "senderThreadId": "sender-1",
+                "receiverThreadIds": ["child-1"],
+                "prompt": "review this",
+                "model": "gpt-5",
+                "reasoningEffort": "high",
+                "agentsStates": {}
+            },
+            {
+                "type": "webSearch",
+                "id": "web-1",
+                "query": "Codex",
+                "action": {"type": "search"},
+                "results": null
+            },
+            {
+                "type": "imageGeneration",
+                "id": "image-1",
+                "status": "completed",
+                "revisedPrompt": "revised",
+                "result": "https://example.invalid/image.png",
+                "savedPath": "E:/workspace/generated.png"
+            }
+        ]))
+        .expect("fixtures must match upstream protocol");
+        let mut parts_by_type = std::collections::HashMap::new();
+        for item in &items {
+            let parts = render_parts(item);
+            parts_by_type.insert(item_type(item).to_string(), parts);
+        }
+
+        let agent = &parts_by_type["agent_message"][0];
+        assert_eq!(
+            agent.metadata_value("codex.message.phase"),
+            Some("final_answer")
+        );
+        let citation = agent
+            .metadata_value("codex.message.memory_citation")
+            .expect("memory citation");
+        assert!(citation.contains("docs/note.md"));
+
+        let user = &parts_by_type["user_message"][0];
+        assert_eq!(
+            user.metadata_value("codex.client_message_id"),
+            Some("client-message-1")
+        );
+
+        let command = &parts_by_type["command_execution"][0];
+        assert_eq!(command.metadata_value("codex.command"), Some("cargo test"));
+        assert_eq!(
+            command.metadata_value("codex.command.cwd"),
+            Some("E:/workspace")
+        );
+        assert_eq!(
+            command.metadata_value("codex.command.process_id"),
+            Some("pty-9")
+        );
+        assert_eq!(
+            command.metadata_value("codex.command.source"),
+            Some("agent")
+        );
+        assert_eq!(
+            command.metadata_value("codex.command.plugin_id"),
+            Some("plugin.test")
+        );
+        assert_eq!(
+            command.metadata_value("codex.command.exit_code"),
+            Some("7")
+        );
+        assert_eq!(
+            command.metadata_value("codex.command.duration_ms"),
+            Some("42")
+        );
+
+        let mcp = &parts_by_type["mcp_tool_call"][0];
+        assert_eq!(mcp.metadata_value("codex.mcp.duration_ms"), Some("123"));
+
+        let dynamic = &parts_by_type["dynamic_tool_call"][0];
+        assert_eq!(
+            dynamic.metadata_value("codex.tool.namespace"),
+            Some("connector.alpha")
+        );
+        assert_eq!(
+            dynamic.metadata_value("codex.tool.duration_ms"),
+            Some("9")
+        );
+
+        let collab_result = parts_by_type["collab_agent_tool_call"]
+            .iter()
+            .find(|part| part.metadata_value("codex.content_type") == Some("collab_agent_tool_result"))
+            .expect("collab result part");
+        let collab_payload = collab_result.json.as_deref().expect("collab payload");
+        assert!(collab_payload.contains("\"reasoningEffort\":\"high\""));
+        assert!(collab_payload.contains("\"receiverThreadIds\":[\"child-1\"]"));
+
+        let web = &parts_by_type["web_search"][0];
+        assert_eq!(
+            web.metadata_value("codex.web_search.action"),
+            Some("search")
+        );
+
+        let image = &parts_by_type["image_generation"][0];
+        assert_eq!(
+            image.metadata_value("codex.image_generation.revised_prompt"),
+            Some("revised")
+        );
+        // `saved_path` is displayed exactly as the provider's absolute path
+        // type renders it (platform native separators), so the expectation is
+        // derived from the parsed item rather than hard-coded.
+        let ThreadItem::ImageGeneration(image_item) = &items[7] else {
+            unreachable!("image generation fixture");
+        };
+        let expected_saved_path = image_item
+            .saved_path
+            .as_ref()
+            .map(|path| path.display().to_string());
+        assert_eq!(
+            image.metadata_value("codex.image_generation.saved_path"),
+            expected_saved_path.as_deref()
+        );
+    }
+
+    #[test]
+    fn command_execution_output_part_carries_tool_call_id_for_pairing() {
+        let item: ThreadItem = serde_json::from_value(serde_json::json!({
+            "type": "commandExecution",
+            "id": "command-1",
+            "command": "cargo test",
+            "cwd": "E:/workspace",
+            "processId": null,
+            "status": "completed",
+            "commandActions": [],
+            "aggregatedOutput": "All tests passed",
+            "exitCode": 0,
+            "durationMs": 42
+        }))
+        .expect("commandExecution fixture");
+        let parts = render_parts(&item);
+
+        let call_part = parts
+            .iter()
+            .find(|part| part.part_id == "command-1.tool")
+            .expect("tool call part");
+        assert_eq!(call_part.tool_call_id.as_deref(), Some("command-1"));
+
+        let output_part = parts
+            .iter()
+            .find(|part| part.part_id == "command-1.output")
+            .expect("tool output part");
+        assert_eq!(
+            output_part.metadata_value("codex.tool_call_id"),
+            Some("command-1")
+        );
+        assert_eq!(
+            output_part.metadata_value("codex.content_type"),
+            Some("tool_output")
+        );
+        assert_eq!(output_part.text.as_deref(), Some("All tests passed"));
+    }
+
+    #[test]
+    fn command_execution_without_output_has_no_result_part() {
+        let item: ThreadItem = serde_json::from_value(serde_json::json!({
+            "type": "commandExecution",
+            "id": "command-2",
+            "command": "pwd",
+            "cwd": "E:/workspace",
+            "processId": null,
+            "status": "inProgress",
+            "commandActions": [],
+            "aggregatedOutput": null,
+            "exitCode": null,
+            "durationMs": null
+        }))
+        .expect("commandExecution fixture");
+        let parts = render_parts(&item);
+
+        assert_eq!(parts.len(), 1);
+        assert!(!parts.iter().any(|part| part.part_id == "command-2.output"));
+    }
+
+    #[test]
+    fn mcp_tool_call_result_produces_paired_result_part() {
+        let item: ThreadItem = serde_json::from_value(serde_json::json!({
+            "type": "mcpToolCall",
+            "id": "mcp-1",
+            "server": "docs",
+            "tool": "search",
+            "status": "completed",
+            "arguments": {"query": "Codex"},
+            "appContext": null,
+            "pluginId": null,
+            "readOnlyHint": true,
+            "result": {"content": [{"type": "text", "text": "Found 3 docs"}], "structuredContent": null, "_meta": null},
+            "error": null,
+            "durationMs": 1
+        }))
+        .expect("mcpToolCall fixture");
+        let parts = render_parts(&item);
+
+        let call_part = parts
+            .iter()
+            .find(|part| part.part_id == "mcp-1.tool")
+            .expect("tool call part");
+        assert_eq!(call_part.tool_call_id.as_deref(), Some("mcp-1"));
+
+        let result_part = parts
+            .iter()
+            .find(|part| part.part_id == "mcp-1.result")
+            .expect("mcp tool result part");
+        assert_eq!(
+            result_part.metadata_value("codex.content_type"),
+            Some("mcp_tool_result")
+        );
+        assert_eq!(
+            result_part.metadata_value("codex.tool_call_id"),
+            Some("mcp-1")
+        );
+        assert_eq!(
+            result_part.metadata_value("codex.status"),
+            Some("completed")
+        );
+        let result_json = result_part
+            .json
+            .as_ref()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .expect("result part JSON");
+        assert_eq!(
+            result_json
+                .get("result")
+                .and_then(|r| r.get("content"))
+                .is_some(),
+            true
+        );
+    }
+
+    #[test]
+    fn mcp_tool_call_error_produces_failed_result_part() {
+        let item: ThreadItem = serde_json::from_value(serde_json::json!({
+            "type": "mcpToolCall",
+            "id": "mcp-2",
+            "server": "docs",
+            "tool": "search",
+            "status": "failed",
+            "arguments": {},
+            "appContext": null,
+            "pluginId": null,
+            "readOnlyHint": null,
+            "result": null,
+            "error": {"message": "server unreachable"},
+            "durationMs": 5
+        }))
+        .expect("mcpToolCall fixture");
+        let parts = render_parts(&item);
+
+        let result_part = parts
+            .iter()
+            .find(|part| part.part_id == "mcp-2.result")
+            .expect("mcp tool error part");
+        assert_eq!(result_part.metadata_value("codex.status"), Some("failed"));
+        let result_json = result_part
+            .json
+            .as_ref()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .expect("result part JSON");
+        assert_eq!(
+            result_json
+                .get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(serde_json::Value::as_str),
+            Some("server unreachable")
+        );
+    }
+
+    #[test]
+    fn mcp_tool_call_without_result_has_no_result_part() {
+        let item: ThreadItem = serde_json::from_value(serde_json::json!({
+            "type": "mcpToolCall",
+            "id": "mcp-3",
+            "server": "docs",
+            "tool": "search",
+            "status": "inProgress",
+            "arguments": {},
+            "appContext": null,
+            "pluginId": null,
+            "readOnlyHint": null,
+            "result": null,
+            "error": null,
+            "durationMs": null
+        }))
+        .expect("mcpToolCall fixture");
+        let parts = render_parts(&item);
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0].tool_call_id.as_deref(), Some("mcp-3"));
+    }
+
+    #[test]
+    fn collab_agent_tool_call_preserves_sub_agent_state_result_part() {
+        let item: ThreadItem = serde_json::from_value(serde_json::json!({
+            "type": "collabAgentToolCall",
+            "id": "collab-1",
+            "tool": "spawnAgent",
+            "status": "completed",
+            "senderThreadId": "sender-1",
+            "receiverThreadIds": ["child-1"],
+            "prompt": "review the diff",
+            "model": "gpt-5",
+            "reasoningEffort": null,
+            "agentsStates": {
+                "child-1": {"status": "completed", "message": "review done"}
+            }
+        }))
+        .expect("collabAgentToolCall fixture");
+        let parts = render_parts(&item);
+
+        let call_part = parts
+            .iter()
+            .find(|part| part.part_id == "collab-1.tool")
+            .expect("collab tool call part");
+        assert_eq!(call_part.tool_call_id.as_deref(), Some("collab-1"));
+        assert_eq!(
+            call_part.metadata_value("codex.collab.sender_thread_id"),
+            Some("sender-1")
+        );
+
+        let result_part = parts
+            .iter()
+            .find(|part| part.part_id == "collab-1.result")
+            .expect("collab tool result part");
+        assert_eq!(
+            result_part.metadata_value("codex.content_type"),
+            Some("collab_agent_tool_result")
+        );
+        assert_eq!(
+            result_part.metadata_value("codex.tool_call_id"),
+            Some("collab-1")
+        );
+        let result_json = result_part
+            .json
+            .as_ref()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .expect("result part JSON");
+        assert_eq!(
+            result_json
+                .get("receiverThreadIds")
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(
+            result_json
+                .get("agentsStates")
+                .and_then(|states| states.get("child-1"))
+                .and_then(|state| state.get("message"))
+                .and_then(serde_json::Value::as_str),
+            Some("review done")
+        );
+    }
+
+    #[test]
+    fn sub_agent_activity_preserves_structured_metadata() {
+        let item: ThreadItem = serde_json::from_value(serde_json::json!({
+            "type": "subAgentActivity",
+            "id": "sub-1",
+            "kind": "started",
+            "agentThreadId": "child-1",
+            "agentPath": "0.0"
+        }))
+        .expect("subAgentActivity fixture");
+        let parts = render_parts(&item);
+        assert_eq!(parts.len(), 1);
+        assert_eq!(
+            parts[0].metadata_value("codex.sub_agent.kind"),
+            Some("started")
+        );
+        assert_eq!(
+            parts[0].metadata_value("codex.sub_agent.thread_id"),
+            Some("child-1")
+        );
+        assert_eq!(parts[0].metadata_value("codex.sub_agent.path"), Some("0.0"));
+        assert_eq!(parts[0].text.as_deref(), Some("started: child-1 (0.0)"));
+    }
+
+    #[test]
+    fn web_search_results_produce_paired_result_part() {
+        let item: ThreadItem = serde_json::from_value(serde_json::json!({
+            "type": "webSearch",
+            "id": "web-1",
+            "query": "codex protocol",
+            "action": {"type": "search", "query": "codex protocol"},
+            "results": [{"title": "Codex"}]
+        }))
+        .expect("webSearch fixture");
+        let parts = render_parts(&item);
+
+        let call_part = parts
+            .iter()
+            .find(|part| part.part_id == "web-1.tool")
+            .expect("tool call part");
+        assert_eq!(call_part.tool_call_id.as_deref(), Some("web-1"));
+
+        let result_part = parts
+            .iter()
+            .find(|part| part.part_id == "web-1.result")
+            .expect("web search result part");
+        assert_eq!(
+            result_part.metadata_value("codex.content_type"),
+            Some("web_search_tool_result")
+        );
+        assert_eq!(
+            result_part.metadata_value("codex.tool_call_id"),
+            Some("web-1")
+        );
+        let result_json = result_part
+            .json
+            .as_ref()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .expect("result part JSON");
+        assert_eq!(
+            result_json.get("query").and_then(serde_json::Value::as_str),
+            Some("codex protocol")
+        );
+        assert_eq!(
+            result_json
+                .get("results")
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
     }
 
     #[test]

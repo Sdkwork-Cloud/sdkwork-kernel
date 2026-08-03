@@ -110,10 +110,10 @@ impl SessionAdapter for HermesAdapter {
         }
 
         for skill in &external.skills {
-            config = config.with_metadata("skill", skill);
+            config = config.with_metadata("hermes.skill", skill);
         }
         for tool in &external.tools {
-            config = config.with_metadata("tool", tool);
+            config = config.with_metadata("hermes.tool", tool);
         }
 
         let mut session = create_session_from_config(
@@ -245,7 +245,10 @@ fn hermes_config_path() -> Option<std::path::PathBuf> {
     let home = sdkwork_agent_provider_core::provider_user_home()?;
     #[cfg(windows)]
     let candidates = [
-        home.join("AppData").join("Local").join("hermes").join("config.yaml"),
+        home.join("AppData")
+            .join("Local")
+            .join("hermes")
+            .join("config.yaml"),
         home.join(".hermes").join("config.yaml"),
     ];
     #[cfg(not(windows))]
@@ -450,15 +453,15 @@ mod tests {
         assert!(session
             .metadata
             .iter()
-            .any(|(k, v)| k == "skill" && v == "coding"));
+            .any(|(k, v)| k == "hermes.skill" && v == "coding"));
         assert!(session
             .metadata
             .iter()
-            .any(|(k, v)| k == "tool" && v == "bash"));
+            .any(|(k, v)| k == "hermes.tool" && v == "bash"));
         assert!(session
             .metadata
             .iter()
-            .any(|(k, v)| k == "tool" && v == "read"));
+            .any(|(k, v)| k == "hermes.tool" && v == "read"));
     }
 
     // --- Message Adapter Tests ---
@@ -793,3 +796,4 @@ mod tests {
     }
 }
 mod configuration;
+mod materializer;

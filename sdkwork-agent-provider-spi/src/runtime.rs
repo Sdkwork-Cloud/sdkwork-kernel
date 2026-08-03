@@ -124,6 +124,36 @@ pub enum SdkRuntimeOperation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         cursor: Option<String>,
         limit: u32,
+        /// Optional session source-kind filters. Values are provider specific
+        /// (for example Codex `ThreadSourceKind` names like `"new"`,
+        /// `"continue"`, `"reference"`, `"subagent"`). Providers that do not
+        /// support source-kind filtering ignore this field.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source_kinds: Option<Vec<String>>,
+        /// Optional section filter (Codex thread sections). Ignored by
+        /// providers without sections.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        section_id: Option<String>,
+        /// Optional archived flag filter: `Some(true)` lists only archived
+        /// sessions, `Some(false)` only non-archived ones.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        archived: Option<bool>,
+        /// Optional full-text search term over session titles, previews, and
+        /// stored content where the provider supports it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        search_term: Option<String>,
+        /// Optional sort key. Values are provider specific (Codex
+        /// `ThreadSortKey` names such as `"updated_at"`, `"created_at"`,
+        /// `"recency_at"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sort_key: Option<String>,
+        /// Optional sort direction: `"asc"` or `"desc"`. Only meaningful
+        /// together with `sort_key`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sort_direction: Option<String>,
+        /// Optional model-provider filter (for example `"openai"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model_providers: Option<Vec<String>>,
     },
     SessionHistory {
         provider_session_id: String,

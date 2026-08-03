@@ -2305,8 +2305,8 @@ function normalizeClaudeProviderSession(session, requestedWorkingDirectory) {
   const firstPrompt = optionalProviderString(session?.firstPrompt);
   const title = optionalProviderString(session?.customTitle) ?? summary ?? firstPrompt;
   const metadata = providerMetadata({
-    git_branch: optionalProviderString(session?.gitBranch),
-    tag: optionalProviderString(session?.tag),
+    'claude.git_branch': optionalProviderString(session?.gitBranch),
+    'claude.tag': optionalProviderString(session?.tag),
   });
   const createdAt = providerTimestamp(session?.createdAt, 'claude session createdAt');
   const cwd = optionalProviderString(session?.cwd)

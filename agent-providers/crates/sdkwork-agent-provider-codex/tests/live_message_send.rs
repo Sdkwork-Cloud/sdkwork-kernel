@@ -139,11 +139,14 @@ async fn live_send_message_and_stream_reply() {
         resumed_response.success
     );
     assert!(resumed_response.success, "live resume must succeed");
-    eprintln!("codex_live_send_phase=resume_payload payload={}", resumed_response
-        .payload
-        .as_ref()
-        .map(serde_json::Value::to_string)
-        .unwrap_or_else(|| "null".to_string()));
+    eprintln!(
+        "codex_live_send_phase=resume_payload payload={}",
+        resumed_response
+            .payload
+            .as_ref()
+            .map(serde_json::Value::to_string)
+            .unwrap_or_else(|| "null".to_string())
+    );
 
     // Streaming path: verify incremental chunks arrive for the same thread.
     let stream_request_id = format!("live-stream-{}", sdkwork_utils_rust::uuid());

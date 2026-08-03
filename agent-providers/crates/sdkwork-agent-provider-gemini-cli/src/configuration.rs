@@ -1,4 +1,10 @@
-use crate::ids;
+use crate::{
+    ids,
+    materializer::{
+        dematerialize_gemini_cli_model_configuration,
+        materialize_gemini_cli_model_configuration,
+    },
+};
 use sdkwork_agent_kernel::{
     AgentConfiguration, AgentConfigurationProvider, AgentConfigurationSpec,
     AgentConfigurationValidation, AgentExecutionAccessModeDescriptor,
@@ -71,6 +77,24 @@ impl AgentConfigurationProvider for GeminiCliConfigurationProvider {
         request: &AgentModelSelectionRequest,
     ) -> KernelResult<AgentModelConfigurationApplication> {
         self.base.apply_model_selection(request)
+    }
+
+    fn materialize_model_configuration(
+        &self,
+        request: &AgentModelConfigurationRequest,
+        application: &AgentModelConfigurationApplication,
+    ) -> KernelResult<()> {
+        // The Gemini CLI receives the model id per turn, so only the
+        // configuration (relay base URL + API key) is materialized.
+        materialize_gemini_cli_model_configuration(request, application)
+    }
+
+    fn dematerialize_model_configuration(
+        &self,
+        agent_id: &str,
+        profile_id: &str,
+    ) -> KernelResult<()> {
+        dematerialize_gemini_cli_model_configuration(agent_id, profile_id)
     }
 
     fn execution_settings_spec(&self, agent_id: &str) -> KernelResult<AgentExecutionSettingsSpec> {

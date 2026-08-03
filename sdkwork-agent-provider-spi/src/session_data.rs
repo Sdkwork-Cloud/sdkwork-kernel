@@ -8,7 +8,7 @@ use crate::runtime::{
     SdkRuntimeOperation, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
 };
 
-const SDK_SESSION_PAGE_SIZE: u32 = 200;
+pub const SDK_SESSION_PAGE_SIZE: u32 = 200;
 const MAX_SDK_SESSION_ITEMS: usize = 10_000;
 const SDK_SESSION_LIFECYCLE_CAPABILITY: &str = "sdk.session.lifecycle";
 
@@ -35,6 +35,13 @@ pub fn list_all_provider_sessions_from_runtime(
                     working_directory: working_directory.clone(),
                     cursor: cursor.clone(),
                     limit: SDK_SESSION_PAGE_SIZE,
+                    source_kinds: None,
+                    section_id: None,
+                    archived: None,
+                    search_term: None,
+                    sort_key: None,
+                    sort_direction: None,
+                    model_providers: None,
                 },
                 payload: None,
             })
@@ -974,6 +981,7 @@ mod tests {
                     working_directory,
                     cursor,
                     limit,
+                    ..
                 } => {
                     assert_eq!(working_directory.as_deref(), Some("E:/workspace"));
                     assert_eq!(*limit, SDK_SESSION_PAGE_SIZE);

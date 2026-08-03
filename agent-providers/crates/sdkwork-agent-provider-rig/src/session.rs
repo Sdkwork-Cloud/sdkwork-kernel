@@ -12,12 +12,22 @@ pub struct RigSessionSnapshot {
     pub user_ref: Option<String>,
     pub tenant_id: Option<String>,
     pub title: Option<String>,
+    pub preview: Option<String>,
+    pub summary: Option<String>,
     pub model: Option<String>,
     pub model_provider: Option<String>,
     pub cwd: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
     pub state: SessionState,
+    /// Execution configuration preserved verbatim so downstream turn
+    /// execution can re-apply the same policies without data loss.
+    pub instructions: Option<String>,
+    pub personality: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub approval_policy: Option<String>,
+    pub permission_profile: Option<String>,
+    pub timeout_ms: Option<u64>,
 }
 
 pub struct RigSessionAdapter;
@@ -46,7 +56,7 @@ impl SessionAdapter for RigSessionAdapter {
         let mut config = SessionConfig::new()
             .with_source(SessionSource::Api)
             .with_kind(kind)
-            .with_metadata("provider_session_kind", "rig_execution");
+            .with_metadata("rig.session_kind", "rig_execution");
         if let Some(title) = external.title.as_deref() {
             config = config.with_title(title);
         }
@@ -59,6 +69,24 @@ impl SessionAdapter for RigSessionAdapter {
         if let Some(cwd) = external.cwd.as_deref() {
             config = config.with_cwd(cwd);
         }
+        if let Some(instructions) = external.instructions.as_deref() {
+            config = config.with_instructions(instructions);
+        }
+        if let Some(personality) = external.personality.as_deref() {
+            config = config.with_personality(personality);
+        }
+        if let Some(reasoning_effort) = external.reasoning_effort.as_deref() {
+            config = config.with_reasoning_effort(reasoning_effort);
+        }
+        if let Some(approval_policy) = external.approval_policy.as_deref() {
+            config = config.with_approval_policy(approval_policy);
+        }
+        if let Some(permission_profile) = external.permission_profile.as_deref() {
+            config = config.with_permission_profile(permission_profile);
+        }
+        if let Some(timeout_ms) = external.timeout_ms {
+            config = config.with_timeout_ms(timeout_ms);
+        }
 
         let mut session = create_session_from_config(
             &external.execution_id,
@@ -69,6 +97,8 @@ impl SessionAdapter for RigSessionAdapter {
             external.created_at.as_deref().unwrap_or(""),
         );
         session.parent_session_id = external.parent_execution_id.clone();
+        session.preview = external.preview.clone();
+        session.summary = external.summary.clone();
         session.updated_at = external.updated_at.clone();
         session.state = external.state;
         finalize_provider_session_snapshot("rig", session)
@@ -91,12 +121,20 @@ mod tests {
             user_ref: Some("user.1".to_string()),
             tenant_id: Some("tenant.1".to_string()),
             title: Some("Rig task".to_string()),
+            preview: Some("executing the task".to_string()),
+            summary: Some("task summary".to_string()),
             model: Some("gpt-5".to_string()),
             model_provider: Some("openai".to_string()),
             cwd: Some("/workspace".to_string()),
             created_at: Some("2026-07-15T00:00:00Z".to_string()),
             updated_at: Some("2026-07-15T00:01:00Z".to_string()),
             state: SessionState::Working,
+            instructions: Some("follow the runbook".to_string()),
+            personality: Some("concise".to_string()),
+            reasoning_effort: Some("medium".to_string()),
+            approval_policy: Some("never".to_string()),
+            permission_profile: Some("readonly".to_string()),
+            timeout_ms: Some(120_000),
         };
 
         let session = RigSessionAdapter::new()
@@ -109,6 +147,21 @@ mod tests {
             session.parent_session_id.as_deref(),
             Some("rig.execution.parent")
         );
+        assert_eq!(session.preview.as_deref(), Some("executing the task"));
+        assert_eq!(session.summary.as_deref(), Some("task summary"));
+        assert_eq!(
+            session.instructions.as_deref(),
+            Some("follow the runbook")
+        );
+        assert_eq!(session.personality.as_deref(), Some("concise"));
+        assert_eq!(session.reasoning_effort.as_deref(), Some("medium"));
+        assert_eq!(session.approval_policy.as_deref(), Some("never"));
+        assert_eq!(session.permission_profile.as_deref(), Some("readonly"));
+        assert_eq!(session.timeout_ms, Some(120_000));
+        assert!(session
+            .metadata
+            .iter()
+            .any(|(key, value)| key == "rig.session_kind" && value == "rig_execution"));
     }
 
     #[test]

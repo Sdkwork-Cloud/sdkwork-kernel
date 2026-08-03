@@ -40,6 +40,42 @@ pub trait AgentConfigurationProvider {
         })
     }
 
+    /// Materializes an applied model configuration into the provider's native
+    /// configuration surface (config file, env file, or settings store) so
+    /// the external CLI actually uses the applied base URL, credential, and
+    /// model at request time. The kernel contract keeps credentials as secret
+    /// references; providers resolve the plaintext through the host secret
+    /// surface or the transient `api_key_materialization` request field and
+    /// must never store raw secrets inside kernel profiles.
+    fn materialize_model_configuration(
+        &self,
+        _request: &AgentModelConfigurationRequest,
+        _application: &AgentModelConfigurationApplication,
+    ) -> KernelResult<()> {
+        Ok(())
+    }
+
+    /// Materializes an applied model selection (model id change) into the
+    /// provider's native configuration surface. Defaults to a no-op for
+    /// providers that receive the model per turn.
+    fn materialize_model_selection(
+        &self,
+        _request: &AgentModelSelectionRequest,
+        _application: &AgentModelConfigurationApplication,
+    ) -> KernelResult<()> {
+        Ok(())
+    }
+
+    /// Reverts the materialized provider configuration (restoring the
+    /// pre-apply backup) when a profile is deprecated, archived, or removed.
+    fn dematerialize_model_configuration(
+        &self,
+        _agent_id: &str,
+        _profile_id: &str,
+    ) -> KernelResult<()> {
+        Ok(())
+    }
+
     fn plan_configuration_upgrade(
         &self,
         _request: &AgentConfigurationUpgradeRequest,
@@ -67,7 +103,7 @@ pub trait AgentConfigurationProvider {
     fn health(&self) -> ProviderHealth;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AgentModelConfigurationRequest {
     pub request_id: String,
     pub agent_id: String,
@@ -75,12 +111,38 @@ pub struct AgentModelConfigurationRequest {
     pub vendor_code: String,
     pub base_url: String,
     pub api_key_secret_ref: String,
+    /// Transient plaintext API key used ONLY to materialize the provider's
+    /// native config file. It is never persisted into an agent profile and
+    /// its `Debug` output is redacted; providers must prefer resolving the
+    /// secret reference through the host secret surface when available.
+    pub api_key_materialization: Option<String>,
     pub default_model_id: String,
     pub supported_model_ids: Vec<String>,
     pub input_context_tokens: Option<i64>,
     pub output_context_tokens: Option<i64>,
     pub tool_call_rounds: Option<i64>,
     pub supports_multimodal: bool,
+}
+
+impl std::fmt::Debug for AgentModelConfigurationRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AgentModelConfigurationRequest")
+            .field("request_id", &self.request_id)
+            .field("agent_id", &self.agent_id)
+            .field("profile_id", &self.profile_id)
+            .field("vendor_code", &self.vendor_code)
+            .field("base_url", &self.base_url)
+            .field("api_key_secret_ref", &self.api_key_secret_ref)
+            .field("api_key_materialization", &"[REDACTED]")
+            .field("default_model_id", &self.default_model_id)
+            .field("supported_model_ids", &self.supported_model_ids)
+            .field("input_context_tokens", &self.input_context_tokens)
+            .field("output_context_tokens", &self.output_context_tokens)
+            .field("tool_call_rounds", &self.tool_call_rounds)
+            .field("supports_multimodal", &self.supports_multimodal)
+            .finish()
+    }
 }
 
 impl AgentModelConfigurationRequest {
@@ -101,6 +163,7 @@ impl AgentModelConfigurationRequest {
             vendor_code: vendor_code.into(),
             base_url: base_url.into(),
             api_key_secret_ref: api_key_secret_ref.into(),
+            api_key_materialization: None,
             supported_model_ids: vec![default_model_id.clone()],
             default_model_id,
             input_context_tokens: None,
@@ -112,6 +175,15 @@ impl AgentModelConfigurationRequest {
 
     pub fn with_supported_models(mut self, supported_model_ids: Vec<String>) -> Self {
         self.supported_model_ids = supported_model_ids;
+        self
+    }
+
+    /// Supplies the transient plaintext API key used only for config-file
+    /// materialization. Never persisted into profiles; prefer resolving the
+    /// secret reference through the host secret surface when available.
+    pub fn with_api_key_materialization(mut self, api_key: impl Into<String>) -> Self {
+        let api_key = api_key.into();
+        self.api_key_materialization = (!api_key.trim().is_empty()).then_some(api_key);
         self
     }
 

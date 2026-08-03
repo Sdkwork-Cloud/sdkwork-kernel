@@ -14,6 +14,7 @@ use sdkwork_agent_provider_core::{
 
 mod agent_definition;
 mod configuration;
+mod materializer;
 mod conformance;
 pub mod ids;
 mod installer;
@@ -143,7 +144,7 @@ impl SessionAdapter for GeminiCliAdapter {
             config = config.with_workspace_root(workspace_root);
         }
         if let Some(ref scratchpad) = external.memory_scratchpad {
-            config = config.with_metadata("memory_scratchpad", scratchpad);
+            config = config.with_metadata("gemini.memory_scratchpad", scratchpad);
         }
 
         let mut session = create_session_from_config(
@@ -567,7 +568,7 @@ mod tests {
         assert!(session
             .metadata
             .iter()
-            .any(|(k, v)| { k == "memory_scratchpad" && v == "remember: use traits" }));
+            .any(|(k, v)| { k == "gemini.memory_scratchpad" && v == "remember: use traits" }));
     }
 
     #[test]

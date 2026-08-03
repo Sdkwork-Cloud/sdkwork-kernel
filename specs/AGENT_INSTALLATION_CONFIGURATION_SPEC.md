@@ -199,6 +199,35 @@ Required operations:
 - `plan_configuration_upgrade(request)`
 - `health()`
 
+Model configuration materialization operations (required for external-CLI
+providers whose request-time behavior is driven by their own config files):
+
+- `materialize_model_configuration(request, application)` writes the applied
+  model configuration (base URL, credential, default model) into the provider's
+  native configuration surface (`~/.codex/config.toml`,
+  `~/.claude/settings.json`, `~/.gemini/.env`, opencode config,
+  `~/.hermes/config.yaml`, `~/.openclaw/openclaw.json`) so the external CLI
+  actually uses the applied endpoint and credential at request time.
+- `materialize_model_selection(request, application)` applies a model
+  selection change to the same surface (no-op for providers that receive the
+  model id per turn).
+- `dematerialize_model_configuration(agent_id, profile_id)` restores the
+  pre-materialization state (backup restore or file removal) when a profile is
+  deprecated, archived, or removed.
+
+Rules:
+
+- Materialization `MUST` back up the existing provider config file before any
+  mutation, write atomically, verify the read-back content, and restore the
+  backup on failure or when the profile is dematerialized.
+- Materialization `MUST` merge into the existing provider config (user-defined
+  relay entries, permissions, and unrelated settings survive) and `MUST` fail
+  closed when the existing config cannot be parsed.
+- Raw credential values `MUST NOT` be stored inside kernel profiles; providers
+  resolve secrets through the host secret surface (or the transient
+  `api_key_materialization` request field, which `MUST` be redacted from
+  `Debug` output and never persisted).
+
 Profile store operations:
 
 - `save_profile(profile)`

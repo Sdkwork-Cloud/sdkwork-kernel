@@ -235,11 +235,7 @@ impl SdkRuntimeBackedModelProvider {
             &self.provider_id,
             sink,
         )
-        .map_err(|_error| {
-            sdkwork_agent_kernel::KernelError::ProviderUnavailable {
-                provider_id: self.provider_id.clone(),
-            }
-        })
+        .map_err(|error| runtime_provider_error(&self.provider_id, "model_chat_stream", error))
     }
 }
 
@@ -268,9 +264,11 @@ impl ModelProvider for SdkRuntimeBackedModelProvider {
             Err(_) if mock_provider_invocation_allowed() && !require_live_provider => {
                 self.fallback.invoke(request)
             }
-            Err(_) => Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
-                provider_id: self.provider_id.clone(),
-            }),
+            Err(error) => Err(runtime_provider_error(
+                &self.provider_id,
+                "model_chat",
+                error,
+            )),
         }
     }
 
@@ -289,9 +287,11 @@ impl ModelProvider for SdkRuntimeBackedModelProvider {
             Err(_) if mock_provider_invocation_allowed() && !require_live_provider => {
                 self.fallback.stream(request)
             }
-            Err(_) => Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
-                provider_id: self.provider_id.clone(),
-            }),
+            Err(error) => Err(runtime_provider_error(
+                &self.provider_id,
+                "model_chat_stream",
+                error,
+            )),
         }
     }
 
@@ -312,9 +312,11 @@ impl ModelProvider for SdkRuntimeBackedModelProvider {
             Err(_) if mock_provider_invocation_allowed() && !require_live_provider => {
                 self.fallback.stream_into(request, sink)
             }
-            Err(_) => Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
-                provider_id: self.provider_id.clone(),
-            }),
+            Err(error) => Err(runtime_provider_error(
+                &self.provider_id,
+                "model_chat_stream",
+                error,
+            )),
         }
     }
 
@@ -327,9 +329,11 @@ impl ModelProvider for SdkRuntimeBackedModelProvider {
         ) {
             Ok(response) => Ok(response),
             Err(_) if mock_provider_invocation_allowed() => self.fallback.cancel(model_request_id),
-            Err(_) => Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
-                provider_id: self.provider_id.clone(),
-            }),
+            Err(error) => Err(runtime_provider_error(
+                &self.provider_id,
+                "model_cancel",
+                error,
+            )),
         }
     }
 }
@@ -516,11 +520,20 @@ fn runtime_session_control_error(
     provider_id: &str,
     error: SdkRuntimeError,
 ) -> sdkwork_agent_kernel::KernelError {
+    runtime_provider_error(provider_id, "session_control", error)
+}
+
+fn runtime_provider_error(
+    provider_id: &str,
+    operation: &str,
+    error: SdkRuntimeError,
+) -> sdkwork_agent_kernel::KernelError {
     sdkwork_agent_kernel::KernelError::provider_error(
         error.code,
-        format!("{provider_id}: {}", error.message),
+        format!("{provider_id} {operation}: {}", error.message),
     )
     .with_provider(provider_id)
+    .with_detail("sdkwork.provider.operation", operation)
 }
 
 /// Kernel `ToolProvider` that routes `invoke_tool` through `SdkRuntimeRouter` with fallback.
@@ -558,6 +571,7 @@ impl ToolProvider for SdkRuntimeBackedToolProvider {
     }
 
     fn invoke_tool(&self, call: ToolCall) -> KernelResult<ToolResult> {
+        let provider_id = self.fallback.provider_manifest().provider_id;
         let runtime_request = SdkRuntimeRequest {
             capability_id: self.capability_id.clone(),
             operation: SdkRuntimeOperation::ToolInvoke {
@@ -570,11 +584,9 @@ impl ToolProvider for SdkRuntimeBackedToolProvider {
 
         match self.runtime.invoke(&runtime_request) {
             Ok(response) => tool_result_from_runtime(response, &call.tool_call_id)
-                .map_err(|error| sdkwork_agent_kernel::KernelError::validation(error.message)),
+                .map_err(|error| runtime_provider_error(&provider_id, "tool_invoke", error)),
             Err(_) if mock_provider_invocation_allowed() => self.fallback.invoke_tool(call),
-            Err(_) => Err(sdkwork_agent_kernel::KernelError::ProviderUnavailable {
-                provider_id: self.fallback.provider_manifest().provider_id.clone(),
-            }),
+            Err(error) => Err(runtime_provider_error(&provider_id, "tool_invoke", error)),
         }
     }
 }

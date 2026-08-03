@@ -1,6 +1,10 @@
 use std::mem::size_of;
 use std::sync::Arc;
 
+pub(crate) const PROVIDER_SESSION_ID_METADATA: &str = "providerSessionId";
+const SDK_RUNTIME_PROVIDER_SESSION_DIAGNOSTIC_PREFIX: &str =
+    "sdk_runtime_provider_session_id=";
+
 use crate::types::{generate_id, BridgeEvent, BridgeEventSeverity, BridgeModelResult};
 use sdkwork_agent_kernel::{
     agent_messages_to_text_lines, AgentInputContract, AgentMessage, AgentRuntime, AgentSession,
@@ -161,11 +165,19 @@ impl ModelBridge {
         let messages = agent_messages_to_text_lines(&input_messages);
         let input_contract =
             input_contract_override.unwrap_or_else(|| session.resolved_input_contract());
-        ModelRequest::new(format!("req.{}", generate_id()), messages)
+        let mut request = ModelRequest::new(format!("req.{}", generate_id()), messages)
             .with_model_id(model_id)
             .for_session(session_id)
             .with_input_messages(input_messages)
-            .with_input_contract(input_contract)
+            .with_input_contract(input_contract);
+        if let Some(provider_session_id) = session
+            .metadata_value(PROVIDER_SESSION_ID_METADATA)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            request = request.for_provider_session(provider_session_id.to_string());
+        }
+        request
     }
 
     /// Invoke the typed provider when registered, otherwise use the mock bridge path.
@@ -452,8 +464,11 @@ impl ModelBridge {
             severity: BridgeEventSeverity::Info,
         }];
 
+        let provider_session_id =
+            provider_session_id_from_response(&response.model_response)?;
         Ok(BridgeModelResult {
             response: response.model_response,
+            provider_session_id,
             tool_calls: Vec::new(),
             events,
         })
@@ -484,6 +499,7 @@ impl ModelBridge {
 
         Ok(BridgeModelResult {
             response,
+            provider_session_id: None,
             tool_calls: Vec::new(),
             events,
         })
@@ -641,6 +657,29 @@ fn resolve_default_model_id(runtime: &AgentRuntime) -> String {
         }
     }
     "gpt-4".to_string()
+}
+
+fn provider_session_id_from_response(response: &ModelResponse) -> KernelResult<Option<String>> {
+    let mut provider_session_id = None;
+    for diagnostic in &response.diagnostics {
+        let Some(value) = diagnostic
+            .strip_prefix(SDK_RUNTIME_PROVIDER_SESSION_DIAGNOSTIC_PREFIX)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        if provider_session_id
+            .as_deref()
+            .is_some_and(|current| current != value)
+        {
+            return Err(KernelError::conflict(
+                "model response contains conflicting provider session identities",
+            ));
+        }
+        provider_session_id = Some(value.to_string());
+    }
+    Ok(provider_session_id)
 }
 
 fn validate_chunk_identity(
@@ -826,6 +865,37 @@ mod tests {
 
         let request = bridge.build_request("session.1", &session, &history, &[], None);
         assert_eq!(request.model_id, Some("gpt-4".to_string()));
+    }
+
+    #[test]
+    fn build_request_preserves_independent_provider_session_identity() {
+        let bridge = ModelBridge::new();
+        let session = AgentSession::new("session.canonical").with_metadata(
+            PROVIDER_SESSION_ID_METADATA,
+            "codex.thread.provider",
+        );
+
+        let request = bridge.build_request("session.canonical", &session, &[], &[], None);
+
+        assert_eq!(request.session_id.as_deref(), Some("session.canonical"));
+        assert_eq!(
+            request.provider_session_id.as_deref(),
+            Some("codex.thread.provider")
+        );
+        assert_ne!(request.session_id, request.provider_session_id);
+    }
+
+    #[test]
+    fn provider_session_diagnostics_reject_conflicting_identities() {
+        let mut response = ModelResponse::text("req.1", "provider.codex", "done");
+        response.diagnostics = vec![
+            "sdk_runtime_provider_session_id=thread.1".to_string(),
+            "sdk_runtime_provider_session_id=thread.2".to_string(),
+        ];
+
+        let error = provider_session_id_from_response(&response)
+            .expect_err("conflicting provider session ids must fail closed");
+        assert_eq!(error.kind(), KernelErrorKind::Conflict);
     }
 
     #[test]

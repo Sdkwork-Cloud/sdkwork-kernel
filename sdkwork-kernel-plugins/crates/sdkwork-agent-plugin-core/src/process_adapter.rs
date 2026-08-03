@@ -2180,11 +2180,17 @@ impl AgentConfigurationProvider for ProcessAdapterConfigurationProvider {
             ));
         }
 
-        Ok(AgentModelConfigurationApplication::new(
+        let application = AgentModelConfigurationApplication::new(
             &request.request_id,
             &mapping.provider_scope,
             profile,
-        ))
+        );
+        // Per-provider wrappers materialize the applied configuration into the
+        // external CLI's native config surface (config file, env file, settings
+        // store) so the CLI actually uses the applied base URL, credential, and
+        // model at request time. The base implementation is a no-op.
+        self.materialize_model_configuration(request, &application)?;
+        Ok(application)
     }
 
     fn apply_model_selection(
@@ -2283,11 +2289,16 @@ impl AgentConfigurationProvider for ProcessAdapterConfigurationProvider {
             ));
         }
 
-        Ok(AgentModelConfigurationApplication::new(
+        let application = AgentModelConfigurationApplication::new(
             &request.request_id,
             &mapping.provider_scope,
             profile,
-        ))
+        );
+        // Per-provider wrappers materialize the selected model into the
+        // external CLI's native config surface. The base implementation is a
+        // no-op (most providers receive the model id per turn).
+        self.materialize_model_selection(request, &application)?;
+        Ok(application)
     }
 
     fn health(&self) -> ProviderHealth {

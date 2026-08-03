@@ -22,16 +22,17 @@ fn live_sdk_model_chat() {
         vec!["Reply with exactly one word: OK".to_string()],
     )
     .with_model_id(model_id.clone())
-    .with_metadata("sdkwork.code_engine.working_directory", "E:/sdkwork-space/sdkwork-birdcoder");
+    .with_metadata(
+        "sdkwork.code_engine.working_directory",
+        "E:/sdkwork-space/sdkwork-birdcoder",
+    );
     let response = integration
         .model
         .invoke(request)
         .expect("live hermes invoke succeeds");
     eprintln!(
         "hermes_live_phase=invoke_complete status={:?} finish={:?} provider={}",
-        response.status,
-        response.finish_reason,
-        response.provider_id,
+        response.status, response.finish_reason, response.provider_id,
     );
     eprintln!("hermes_live_phase=reply messages={:?}", response.messages);
     assert_eq!(
@@ -54,13 +55,10 @@ fn live_sdk_model_chat() {
             (key.trim() == "sdk_runtime_provider_session_id").then(|| value.trim().to_string())
         })
         .or_else(|| {
-            response
-                .diagnostics
-                .iter()
-                .find_map(|diagnostic| {
-                    let (key, value) = diagnostic.split_once('=')?;
-                    (key.trim() == "sdk_runtime_session_id").then(|| value.trim().to_string())
-                })
+            response.diagnostics.iter().find_map(|diagnostic| {
+                let (key, value) = diagnostic.split_once('=')?;
+                (key.trim() == "sdk_runtime_session_id").then(|| value.trim().to_string())
+            })
         });
     eprintln!(
         "hermes_live_phase=parity_ok provider_session_id={provider_session_id:?} messages={:?}",

@@ -14,10 +14,9 @@ use sdkwork_agent_provider_core::{
 };
 use sdkwork_agent_provider_spi::{
     bootstrap_binding, AgentSdkBindingManifest, AgentSdkIntegration, BindingRegistry,
-    DriverRegistry, SdkNegotiationError,
-    SdkRuntimeBackedModelProvider, SdkRuntimeBackedSessionControlProvider,
-    SdkRuntimeInteractionResolution, SdkRuntimeRequest, SdkRuntimeResponse, SdkRuntimeRouter,
-    CODEX_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
+    DriverRegistry, SdkNegotiationError, SdkRuntimeBackedModelProvider,
+    SdkRuntimeBackedSessionControlProvider, SdkRuntimeInteractionResolution, SdkRuntimeRequest,
+    SdkRuntimeResponse, SdkRuntimeRouter, CODEX_BINDING_ID, SDK_CAPABILITY_MODEL_CHAT,
 };
 use sdkwork_agent_provider_transport_core::{
     ProviderTransportBootstrap, ProviderTransportRegistry, RustNativeTransportHost,

@@ -13,6 +13,7 @@ use sdkwork_agent_provider_core::{
 
 mod configuration;
 mod local_plugins;
+mod materializer;
 
 pub use configuration::{
     ClaudeCodeConfigurationProvider, CLAUDE_ACCEPT_EDITS_ACCESS_MODE_ID,

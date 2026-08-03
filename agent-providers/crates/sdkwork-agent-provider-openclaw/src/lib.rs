@@ -687,3 +687,4 @@ mod tests {
     }
 }
 mod configuration;
+mod materializer;

@@ -7,6 +7,7 @@ use std::collections::HashMap;
 
 mod mock_policy;
 mod model_wire;
+mod provider_config_file;
 mod provider_local_config;
 mod provider_session_activity;
 mod provider_session_history;
@@ -23,6 +24,11 @@ pub use model_wire::{
     build_model_chat_operation, model_request_has_structured_input, resolve_model_wire_messages,
     wire_messages_summary, wire_messages_to_anthropic_json, wire_messages_to_openai_json,
     wire_system_text, ModelWireMessage,
+};
+pub use provider_config_file::{
+    dematerialize_provider_config, merge_json_path, provider_config_backup_path,
+    read_provider_config, restore_provider_config_backup, update_provider_config_file,
+    update_provider_json_config, PROVIDER_CONFIG_BACKUP_SUFFIX,
 };
 pub use provider_local_config::provider_user_home;
 pub use provider_session_activity::{
@@ -420,6 +426,26 @@ impl SessionConfig {
 
     pub fn with_instructions(mut self, instructions: impl Into<String>) -> Self {
         self.instructions = Some(instructions.into());
+        self
+    }
+
+    pub fn with_personality(mut self, personality: impl Into<String>) -> Self {
+        self.personality = Some(personality.into());
+        self
+    }
+
+    pub fn with_reasoning_effort(mut self, reasoning_effort: impl Into<String>) -> Self {
+        self.reasoning_effort = Some(reasoning_effort.into());
+        self
+    }
+
+    pub fn with_approval_policy(mut self, approval_policy: impl Into<String>) -> Self {
+        self.approval_policy = Some(approval_policy.into());
+        self
+    }
+
+    pub fn with_permission_profile(mut self, permission_profile: impl Into<String>) -> Self {
+        self.permission_profile = Some(permission_profile.into());
         self
     }
 

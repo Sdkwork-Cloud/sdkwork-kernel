@@ -1521,7 +1521,7 @@ assert.deepEqual(claudeSessions.items, [{
   created_at: '2026-01-01T01:02:03.000Z',
   updated_at: '2026-01-03T03:04:05.000Z',
   cwd: 'C:/sdkwork/claude-workspace',
-  metadata: { git_branch: 'main', tag: 'commercial' },
+  metadata: { 'claude.git_branch': 'main', 'claude.tag': 'commercial' },
 }, {
   provider_session_id: 'claude-history-2',
   title: 'Claude second page boundary',

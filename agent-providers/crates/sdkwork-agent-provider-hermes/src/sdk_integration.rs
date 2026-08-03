@@ -36,7 +36,10 @@ const HERMES_IPC_PREFERRED_PYTHON_DRIVERS: &[(&str, &str)] = &[
 /// the environment flag is enabled, so the drivers must be unhealthy (and the
 /// optional capabilities degraded) otherwise.
 const HERMES_IPC_DRIVERS: &[(&str, &str)] = &[
-    ("driver.hermes.session.lifecycle.ipc", "sdk.session.lifecycle"),
+    (
+        "driver.hermes.session.lifecycle.ipc",
+        "sdk.session.lifecycle",
+    ),
     ("driver.hermes.model.chat.ipc", "sdk.model.chat"),
     ("driver.hermes.session.history.ipc", "sdk.session.history"),
     ("driver.hermes.session.control.ipc", "sdk.session.control"),
@@ -139,7 +142,14 @@ impl HermesSdkIntegration {
             operation: SdkRuntimeOperation::SessionList {
                 working_directory,
                 cursor: None,
-                limit: 500,
+                limit: sdkwork_agent_provider_spi::SDK_SESSION_PAGE_SIZE,
+                source_kinds: None,
+                section_id: None,
+                archived: None,
+                search_term: None,
+                sort_key: None,
+                sort_direction: None,
+                model_providers: None,
             },
             payload: None,
         };
@@ -161,12 +171,28 @@ impl HermesSdkIntegration {
         items
             .into_iter()
             .map(|item| {
-                serde_json::from_value(item).map_err(|error| {
+                serde_json::from_value::<SdkRuntimeSessionRecord>(item).map_err(|error| {
                     sdkwork_agent_provider_spi::SdkRuntimeError::new(
                         "hermes_session_record_invalid",
                         format!("hermes session record is invalid: {error}"),
                     )
                 })
+            })
+            .map(|record| {
+                record
+                    .map_err(|error| {
+                        sdkwork_agent_provider_spi::SdkRuntimeError::new(
+                            "hermes_session_record_invalid",
+                            error.to_string(),
+                        )
+                    })?
+                    .validated("hermes")
+                    .map_err(|error| {
+                        sdkwork_agent_provider_spi::SdkRuntimeError::new(
+                            "hermes_session_record_invalid",
+                            error.to_string(),
+                        )
+                    })
             })
             .collect()
     }
@@ -183,7 +209,7 @@ impl HermesSdkIntegration {
                 provider_session_id: provider_session_id.to_string(),
                 working_directory: None,
                 cursor: None,
-                limit: 500,
+                limit: sdkwork_agent_provider_spi::SDK_SESSION_PAGE_SIZE,
             },
             payload: None,
         };
@@ -205,12 +231,28 @@ impl HermesSdkIntegration {
         items
             .into_iter()
             .map(|item| {
-                serde_json::from_value(item).map_err(|error| {
+                serde_json::from_value::<SdkRuntimeMessageRecord>(item).map_err(|error| {
                     sdkwork_agent_provider_spi::SdkRuntimeError::new(
                         "hermes_message_record_invalid",
                         format!("hermes message record is invalid: {error}"),
                     )
                 })
+            })
+            .map(|record| {
+                record
+                    .map_err(|error| {
+                        sdkwork_agent_provider_spi::SdkRuntimeError::new(
+                            "hermes_message_record_invalid",
+                            error.to_string(),
+                        )
+                    })?
+                    .validated(provider_session_id)
+                    .map_err(|error| {
+                        sdkwork_agent_provider_spi::SdkRuntimeError::new(
+                            "hermes_message_record_invalid",
+                            error.to_string(),
+                        )
+                    })
             })
             .collect()
     }
@@ -228,9 +270,7 @@ fn register_hermes_driver_overrides(drivers: &mut DriverRegistry, prefer_tui_gat
     };
     let python_health = || {
         if prefer_tui_gateway {
-            SdkDriverHealth::unhealthy(
-                "SDKWORK_HERMES_USE_TUI_GATEWAY prefers jsonrpc_stdio IPC",
-            )
+            SdkDriverHealth::unhealthy("SDKWORK_HERMES_USE_TUI_GATEWAY prefers jsonrpc_stdio IPC")
         } else {
             SdkDriverHealth::healthy()
         }

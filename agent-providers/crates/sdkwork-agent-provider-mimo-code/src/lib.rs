@@ -160,7 +160,7 @@ impl MessageAdapter for MiMoCodeMessageAdapter {
             for (i, ctx) in chain.iter().enumerate() {
                 parts.push(
                     AgentPart::text(format!("mimo.context.{}", i), ctx)
-                        .with_metadata("mimo.content_type", "context"),
+                        .with_metadata("mimo-code.content_type", "context"),
                 );
             }
         }
@@ -186,10 +186,10 @@ impl MessageAdapter for MiMoCodeMessageAdapter {
         let mut message = AgentMessage::new(format!("mimo.msg.{}", uuid_simple()), role, parts);
 
         if external.context_chain.is_some() {
-            message = message.with_metadata("mimo.has_context_chain", "true");
+            message = message.with_metadata("mimo-code.has_context_chain", "true");
         }
         if let Some(tool_call_id) = &external.tool_call_id {
-            message = message.with_metadata("mimo.tool_call_id", tool_call_id);
+            message = message.with_metadata("mimo-code.tool_call_id", tool_call_id);
         }
 
         Ok(message)
@@ -550,16 +550,16 @@ mod tests {
         assert_eq!(result.role, AgentMessageRole::Agent);
         assert_eq!(result.parts.len(), 3);
         assert_eq!(
-            result.parts[0].metadata_value("mimo.content_type"),
+            result.parts[0].metadata_value("mimo-code.content_type"),
             Some("context")
         );
         assert_eq!(
-            result.parts[1].metadata_value("mimo.content_type"),
+            result.parts[1].metadata_value("mimo-code.content_type"),
             Some("context")
         );
         assert_eq!(result.parts[2].text, Some("Here is the fix".to_string()));
         assert_eq!(
-            result.metadata_value("mimo.has_context_chain"),
+            result.metadata_value("mimo-code.has_context_chain"),
             Some("true")
         );
     }
@@ -807,3 +807,4 @@ mod tests {
     }
 }
 mod configuration;
+mod materializer;

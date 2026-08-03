@@ -311,7 +311,10 @@ fn binding_manifest_preserves_integration_source_locators() {
         .expect("codex integration sources");
     let codex_rust_crate = codex_sources
         .iter()
-        .find(|source| source.mode == "rust_crate" && source.rust_crate == Some("codex-app-server-client".to_string()))
+        .find(|source| {
+            source.mode == "rust_crate"
+                && source.rust_crate == Some("codex-app-server-client".to_string())
+        })
         .expect("codex app-server-client rust crate source");
     assert!(!codex_rust_crate.optional);
     let codex_source_tree = codex_sources

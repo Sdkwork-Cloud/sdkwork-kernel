@@ -12,6 +12,7 @@ use sdkwork_agent_provider_core::{
 };
 
 mod configuration;
+mod materializer;
 mod local_plugins;
 
 pub use configuration::{
@@ -261,6 +262,16 @@ fn opencode_config_path() -> Option<std::path::PathBuf> {
         }
     }
     let home = sdkwork_agent_provider_core::provider_user_home()?;
+    #[cfg(windows)]
+    let candidates = [
+        // xdg-basedir maps XDG_CONFIG_HOME to %APPDATA% on Windows.
+        home.join("AppData").join("Roaming").join("opencode").join("opencode.json"),
+        home.join("AppData").join("Roaming").join("opencode").join("opencode.jsonc"),
+        home.join(".config").join("opencode").join("opencode.json"),
+        home.join(".config").join("opencode").join("opencode.jsonc"),
+        home.join(".opencode").join("opencode.json"),
+    ];
+    #[cfg(not(windows))]
     let candidates = [
         home.join(".config").join("opencode").join("opencode.json"),
         home.join(".config").join("opencode").join("opencode.jsonc"),

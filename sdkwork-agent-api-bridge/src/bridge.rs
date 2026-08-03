@@ -9,6 +9,7 @@ use sdkwork_agent_kernel::{
 };
 
 const PREPARED_MODEL_REQUEST_ID_METADATA: &str = "sdkwork.model_request_id";
+const PREPARED_PROVIDER_SESSION_ID_METADATA: &str = "sdkwork.provider_session_id";
 
 /// Main bridge connecting kernel runtime to business API layer
 pub struct AgentRuntimeBridge {
@@ -226,10 +227,16 @@ impl AgentRuntimeBridge {
         let model_request = self
             .model_bridge
             .build_request(session_id, &session, &history, &context, None);
-        let user_message = user_message.with_metadata(
+        let mut user_message = user_message.with_metadata(
             PREPARED_MODEL_REQUEST_ID_METADATA,
             model_request.model_request_id.clone(),
         );
+        if let Some(provider_session_id) = model_request.provider_session_id.as_deref() {
+            user_message = user_message.with_metadata(
+                PREPARED_PROVIDER_SESSION_ID_METADATA,
+                provider_session_id,
+            );
+        }
 
         let provider_id = session
             .metadata_value("modelProvider")
@@ -258,6 +265,10 @@ impl AgentRuntimeBridge {
             })?;
         self.model_bridge
             .validate_model_response_for_request(expected_request_id, &model_result.response)?;
+        validate_provider_session_completion(
+            user_message.metadata_value(PREPARED_PROVIDER_SESSION_ID_METADATA),
+            model_result.provider_session_id.as_deref(),
+        )?;
         let user_payload_len = sdkwork_agent_kernel::flatten_message_to_text(&user_message).len();
         let assistant_text = model_result.response.messages.join("");
         let assistant_message = AgentMessage::new(
@@ -270,8 +281,11 @@ impl AgentRuntimeBridge {
         )
         .for_session(session_id);
 
-        self.session_bridge
-            .append_messages(session_id, vec![user_message, assistant_message.clone()])?;
+        self.session_bridge.append_completed_turn(
+            session_id,
+            vec![user_message, assistant_message.clone()],
+            model_result.provider_session_id.as_deref(),
+        )?;
 
         let mut events = model_result.events.clone();
         events.push(BridgeEvent {
@@ -301,6 +315,7 @@ impl AgentRuntimeBridge {
 
         Ok(BridgeMessageResponse {
             session_id: session_id.to_string(),
+            provider_session_id: model_result.provider_session_id,
             message: assistant_message,
             model_response: Some(model_result.response),
             tool_results: Vec::new(),
@@ -353,10 +368,16 @@ impl AgentRuntimeBridge {
         let model_request = self
             .model_bridge
             .build_request(session_id, &session, &history, &context, None);
-        let user_message = user_message.with_metadata(
+        let mut user_message = user_message.with_metadata(
             PREPARED_MODEL_REQUEST_ID_METADATA,
             model_request.model_request_id.clone(),
         );
+        if let Some(provider_session_id) = model_request.provider_session_id.as_deref() {
+            user_message = user_message.with_metadata(
+                PREPARED_PROVIDER_SESSION_ID_METADATA,
+                provider_session_id,
+            );
+        }
 
         let provider_id = session
             .metadata_value("modelProvider")
@@ -669,6 +690,28 @@ impl Default for AgentRuntimeBridge {
     }
 }
 
+fn validate_provider_session_completion(
+    requested_provider_session_id: Option<&str>,
+    completed_provider_session_id: Option<&str>,
+) -> KernelResult<()> {
+    let requested = requested_provider_session_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let completed = completed_provider_session_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    match (requested, completed) {
+        (Some(requested), Some(completed)) if requested == completed => Ok(()),
+        (Some(_), Some(_)) => Err(sdkwork_agent_kernel::KernelError::conflict(
+            "provider session id changed during a resumed turn",
+        )),
+        (Some(_), None) => Err(sdkwork_agent_kernel::KernelError::conflict(
+            "resumed turn completed without its provider session id",
+        )),
+        (None, _) => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -890,6 +933,7 @@ mod tests {
                 "not persisted",
             )
             .with_status(sdkwork_agent_kernel::ModelStatus::Failed),
+            provider_session_id: None,
             tool_calls: Vec::new(),
             events: Vec::new(),
         };

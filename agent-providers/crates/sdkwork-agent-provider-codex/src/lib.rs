@@ -48,7 +48,7 @@ pub fn configured_codex_model_id() -> Option<String> {
         .map(str::to_string)
 }
 
-fn codex_config_path() -> Option<PathBuf> {
+pub(crate) fn codex_config_path() -> Option<PathBuf> {
     if let Some(codex_home) = std::env::var_os("CODEX_HOME") {
         let codex_home = PathBuf::from(codex_home);
         if !codex_home.is_dir() {
@@ -196,6 +196,7 @@ mod conformance;
 pub mod ids;
 mod installer;
 mod manifest;
+mod materializer;
 mod package;
 pub mod sdk_integration;
 
@@ -257,8 +258,6 @@ mod tests {
         let provider = CodexModelProvider::new().with_default_model("gpt-5.6-sol");
         let models = provider.list_models();
         assert_eq!(models[0].model_id, "gpt-5.6-sol");
-        assert!(models
-            .iter()
-            .any(|model| model.model_id == "codex-1"));
+        assert!(models.iter().any(|model| model.model_id == "codex-1"));
     }
 }

@@ -96,9 +96,7 @@ async fn live_app_server_lists_project_threads_and_correlated_history() {
         let mut cursor = None;
         let mut history_page_index = 0_usize;
         loop {
-            eprintln!(
-                "codex_live_phase=history_request page={history_page_index}"
-            );
+            eprintln!("codex_live_phase=history_request page={history_page_index}");
             let page = integration
                 .get_provider_session_history(ThreadTurnsListParams {
                     thread_id: session.provider_session_id.clone(),

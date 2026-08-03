@@ -16,6 +16,8 @@ pub struct BridgeSessionConfig {
 #[derive(Debug, Clone)]
 pub struct BridgeMessageResponse {
     pub session_id: String,
+    /// Opaque provider continuation identity established for this turn.
+    pub provider_session_id: Option<String>,
     pub message: AgentMessage,
     pub model_response: Option<ModelResponse>,
     pub tool_results: Vec<ToolResult>,
@@ -44,6 +46,8 @@ pub enum BridgeEventSeverity {
 #[derive(Debug, Clone)]
 pub struct BridgeModelResult {
     pub response: ModelResponse,
+    /// Opaque provider continuation identity correlated to `response`.
+    pub provider_session_id: Option<String>,
     pub tool_calls: Vec<BridgeToolCall>,
     pub events: Vec<BridgeEvent>,
 }

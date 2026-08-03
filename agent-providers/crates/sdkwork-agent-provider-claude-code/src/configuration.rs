@@ -1,4 +1,11 @@
-use crate::ids;
+use crate::{
+    ids,
+    materializer::{
+        dematerialize_claude_code_model_configuration,
+        materialize_claude_code_model_configuration,
+        materialize_claude_code_model_selection,
+    },
+};
 use sdkwork_agent_kernel::{
     AgentConfiguration, AgentConfigurationProvider, AgentConfigurationSpec,
     AgentConfigurationValidation, AgentExecutionAccessModeDescriptor,
@@ -93,6 +100,30 @@ impl AgentConfigurationProvider for ClaudeCodeConfigurationProvider {
         request: &AgentModelSelectionRequest,
     ) -> KernelResult<AgentModelConfigurationApplication> {
         self.base.apply_model_selection(request)
+    }
+
+    fn materialize_model_configuration(
+        &self,
+        request: &AgentModelConfigurationRequest,
+        application: &AgentModelConfigurationApplication,
+    ) -> KernelResult<()> {
+        materialize_claude_code_model_configuration(request, application)
+    }
+
+    fn materialize_model_selection(
+        &self,
+        request: &AgentModelSelectionRequest,
+        application: &AgentModelConfigurationApplication,
+    ) -> KernelResult<()> {
+        materialize_claude_code_model_selection(request, application)
+    }
+
+    fn dematerialize_model_configuration(
+        &self,
+        agent_id: &str,
+        profile_id: &str,
+    ) -> KernelResult<()> {
+        dematerialize_claude_code_model_configuration(agent_id, profile_id)
     }
 
     fn execution_settings_spec(&self, agent_id: &str) -> KernelResult<AgentExecutionSettingsSpec> {

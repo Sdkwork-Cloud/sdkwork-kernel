@@ -6,6 +6,8 @@ use sdkwork_agent_kernel::{
 use std::collections::HashMap;
 use std::mem::size_of;
 
+use crate::model_bridge::PROVIDER_SESSION_ID_METADATA;
+
 /// Maximum in-bridge message history entries retained per session.
 const MAX_SESSION_BRIDGE_HISTORY: usize = 512;
 /// Maximum flattened message bytes retained per session.
@@ -190,6 +192,61 @@ impl SessionBridge {
         self.session_bytes.insert(session_id, retained_bytes);
         self.total_session_bytes = projected_total;
         Ok(())
+    }
+
+    /// Atomically bind a provider continuation identity and append a completed turn.
+    pub(crate) fn append_completed_turn(
+        &mut self,
+        session_id: &str,
+        messages: Vec<AgentMessage>,
+        provider_session_id: Option<&str>,
+    ) -> KernelResult<()> {
+        let previous_session = self.get_session(session_id)?;
+        if let Some(provider_session_id) = provider_session_id {
+            self.bind_provider_session_id(session_id, provider_session_id)?;
+        }
+        if let Err(error) = self.append_messages(session_id, messages) {
+            self.restore_session(previous_session)?;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    fn bind_provider_session_id(
+        &mut self,
+        session_id: &str,
+        provider_session_id: &str,
+    ) -> KernelResult<()> {
+        let provider_session_id = provider_session_id.trim();
+        if provider_session_id.is_empty() {
+            return Err(KernelError::validation(
+                "provider session id must not be empty",
+            ));
+        }
+        let mut session = self.get_session(session_id)?;
+        let existing_ids = session
+            .metadata
+            .iter()
+            .filter(|(key, _)| key == PROVIDER_SESSION_ID_METADATA)
+            .map(|(_, value)| value.trim())
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>();
+        if existing_ids
+            .iter()
+            .any(|existing| *existing != provider_session_id)
+        {
+            return Err(KernelError::conflict(
+                "provider session id does not match the canonical session binding",
+            ));
+        }
+        session
+            .metadata
+            .retain(|(key, _)| key != PROVIDER_SESSION_ID_METADATA);
+        session.metadata.push((
+            PROVIDER_SESSION_ID_METADATA.to_string(),
+            provider_session_id.to_string(),
+        ));
+        self.restore_session(session)
     }
 
     /// List all sessions

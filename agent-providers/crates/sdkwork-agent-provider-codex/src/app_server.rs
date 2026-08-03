@@ -5,6 +5,7 @@ use std::sync::{mpsc as std_mpsc, Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use codex_app_server_client::legacy_core::config::{Config, ConfigOverrides};
 use codex_app_server_client::{
     EnvironmentManager, ExecServerRuntimePaths, InProcessAppServerClient,
     InProcessAppServerRequestHandle, InProcessClientStartArgs, InProcessServerEvent,
@@ -12,14 +13,14 @@ use codex_app_server_client::{
 };
 use codex_app_server_protocol::{
     ClientRequest, ConfigWarningNotification, JSONRPCErrorError, RequestId, ServerNotification,
-    ServerRequest, SessionSource, ThreadCompactStartParams, ThreadCompactStartResponse,
-    ThreadForkParams, ThreadForkResponse, ThreadItemsListParams, ThreadItemsListResponse,
-    ThreadListParams, ThreadListResponse, ThreadReadParams, ThreadReadResponse,
-    ThreadResumeParams, ThreadResumeResponse, ThreadStartParams, ThreadStartResponse, ThreadStatus,
-    ThreadTurnsListParams, ThreadTurnsListResponse, TurnInterruptParams, TurnInterruptResponse,
-    TurnStartParams, TurnStartResponse, UserInput,
+    ServerRequest, SessionSource, SortDirection, ThreadCompactStartParams,
+    ThreadCompactStartResponse, ThreadForkParams, ThreadForkResponse, ThreadItemsListParams,
+    ThreadItemsListResponse, ThreadListParams, ThreadListResponse, ThreadReadParams,
+    ThreadReadResponse, ThreadResumeParams, ThreadResumeResponse, ThreadSortKey, ThreadSourceKind,
+    ThreadStartParams, ThreadStartResponse, ThreadStatus, ThreadTurnsListParams,
+    ThreadTurnsListResponse, TurnInterruptParams, TurnInterruptResponse, TurnStartParams,
+    TurnStartResponse, UserInput,
 };
-use codex_app_server_client::legacy_core::config::{Config, ConfigOverrides};
 use sdkwork_agent_kernel::{KernelError, KernelResult};
 use sdkwork_agent_provider_core::{
     now_iso, InMemoryProviderSessionActivityProvider, ProviderSessionActivityAdapter,
@@ -148,12 +149,14 @@ impl CodexInProcessThreadClient {
                         let _ = cancel_inflight_worker(&request, &command_tx);
                         return Err(runtime_timeout_error(&request));
                     }
-                    frame_rx.recv_timeout(remaining).map_err(|error| match error {
-                        std_mpsc::RecvTimeoutError::Timeout => runtime_timeout_error(&request),
-                        std_mpsc::RecvTimeoutError::Disconnected => runtime_worker_unavailable(
-                            "stream channel closed before a terminal frame",
-                        ),
-                    })?
+                    frame_rx
+                        .recv_timeout(remaining)
+                        .map_err(|error| match error {
+                            std_mpsc::RecvTimeoutError::Timeout => runtime_timeout_error(&request),
+                            std_mpsc::RecvTimeoutError::Disconnected => runtime_worker_unavailable(
+                                "stream channel closed before a terminal frame",
+                            ),
+                        })?
                 }
                 None => frame_rx.recv().map_err(|_| {
                     runtime_worker_unavailable("stream channel closed before a terminal frame")
@@ -236,7 +239,10 @@ impl SdkBackendRuntime for CodexInProcessThreadClient {
         request: &SdkRuntimeRequest,
         sink: &mut dyn FnMut(Value) -> Result<bool, SdkRuntimeError>,
     ) -> Result<(), SdkRuntimeError> {
-        if !matches!(request.operation, SdkRuntimeOperation::ModelChatStream { .. }) {
+        if !matches!(
+            request.operation,
+            SdkRuntimeOperation::ModelChatStream { .. }
+        ) {
             let response = self.dispatch_runtime(request)?;
             let payload = response.payload.unwrap_or(Value::Null);
             sink(payload)?;
@@ -249,7 +255,9 @@ impl SdkBackendRuntime for CodexInProcessThreadClient {
         let Some(worker) = self.worker.get() else {
             return Ok(false);
         };
-        let worker = worker.as_ref().map_err(|error| kernel_to_runtime_error(error.clone()))?;
+        let worker = worker
+            .as_ref()
+            .map_err(|error| kernel_to_runtime_error(error.clone()))?;
         let command_tx = worker.command_tx.clone();
         let model_request_id = request_id.to_string();
         run_worker_exchange(move || {
@@ -260,9 +268,9 @@ impl SdkBackendRuntime for CodexInProcessThreadClient {
                     response_tx,
                 })
                 .map_err(|_| runtime_worker_unavailable("request channel is closed"))?;
-            response_rx
-                .recv()
-                .map_err(|_| runtime_worker_unavailable("cancellation response channel is closed"))?
+            response_rx.recv().map_err(|_| {
+                runtime_worker_unavailable("cancellation response channel is closed")
+            })?
         })
     }
 
@@ -277,7 +285,9 @@ impl SdkBackendRuntime for CodexInProcessThreadClient {
                 "Codex app-server runtime has no active execution",
             ));
         };
-        let worker = worker.as_ref().map_err(|error| kernel_to_runtime_error(error.clone()))?;
+        let worker = worker
+            .as_ref()
+            .map_err(|error| kernel_to_runtime_error(error.clone()))?;
         let command_tx = worker.command_tx.clone();
         run_worker_exchange(move || {
             let (response_tx, response_rx) = std_mpsc::sync_channel(1);
@@ -287,9 +297,9 @@ impl SdkBackendRuntime for CodexInProcessThreadClient {
                     response_tx,
                 })
                 .map_err(|_| runtime_worker_unavailable("request channel is closed"))?;
-            response_rx.recv().map_err(|_| {
-                runtime_worker_unavailable("interaction response channel is closed")
-            })?
+            response_rx
+                .recv()
+                .map_err(|_| runtime_worker_unavailable("interaction response channel is closed"))?
         })
     }
 }
@@ -406,7 +416,8 @@ impl CodexWorkerCommand {
                 params,
                 response_tx,
             } => {
-                let result = runtime.requests
+                let result = runtime
+                    .requests
                     .request_typed(ClientRequest::ThreadList { request_id, params })
                     .await
                     .map_err(app_server_request_error);
@@ -416,7 +427,8 @@ impl CodexWorkerCommand {
                 params,
                 response_tx,
             } => {
-                let result = runtime.requests
+                let result = runtime
+                    .requests
                     .request_typed(ClientRequest::ThreadRead { request_id, params })
                     .await
                     .map_err(app_server_request_error);
@@ -426,7 +438,8 @@ impl CodexWorkerCommand {
                 params,
                 response_tx,
             } => {
-                let result = runtime.requests
+                let result = runtime
+                    .requests
                     .request_typed(ClientRequest::ThreadTurnsList { request_id, params })
                     .await
                     .map_err(app_server_request_error);
@@ -436,7 +449,8 @@ impl CodexWorkerCommand {
                 params,
                 response_tx,
             } => {
-                let result = runtime.requests
+                let result = runtime
+                    .requests
                     .request_typed(ClientRequest::ThreadItemsList { request_id, params })
                     .await
                     .map_err(app_server_request_error);
@@ -473,7 +487,8 @@ impl CodexWorkerCommand {
                 model_request_id,
                 response_tx,
             } => {
-                let result = interrupt_active_execution(runtime, request_id, &model_request_id).await;
+                let result =
+                    interrupt_active_execution(runtime, request_id, &model_request_id).await;
                 let _ = response_tx.send(result);
             }
             Self::ResolveInteraction {
@@ -869,12 +884,34 @@ async fn start_runtime_invocation(
             working_directory,
             cursor,
             limit,
+            source_kinds,
+            section_id,
+            archived,
+            search_term,
+            sort_key,
+            sort_direction,
+            model_providers,
         } => {
             let mut params: ThreadListParams = decode_protocol(json!({
                 "cursor": cursor,
                 "limit": limit,
                 "cwd": working_directory,
             }))?;
+            if let Some(source_kinds) = source_kinds {
+                params.source_kinds = Some(normalized_thread_source_kinds(&source_kinds)?);
+            }
+            if let Some(section_id) = section_id {
+                params.section_id = Some(Some(section_id));
+            }
+            params.archived = archived;
+            params.search_term = search_term;
+            if let Some(sort_key) = sort_key {
+                params.sort_key = Some(normalized_thread_sort_key(&sort_key)?);
+            }
+            if let Some(sort_direction) = sort_direction {
+                params.sort_direction = Some(normalized_sort_direction(&sort_direction)?);
+            }
+            params.model_providers = model_providers;
             crate::normalize_page_limit(&mut params.limit).map_err(kernel_to_runtime_error)?;
             let response: ThreadListResponse = runtime
                 .requests
@@ -962,13 +999,9 @@ async fn start_runtime_invocation(
         operation @ (SdkRuntimeOperation::SessionInterrupt { .. }
         | SdkRuntimeOperation::SessionCompact { .. }
         | SdkRuntimeOperation::SessionFork { .. }) => {
-            let response = invoke_session_control(
-                runtime,
-                request_id,
-                &request.capability_id,
-                operation,
-            )
-            .await?;
+            let response =
+                invoke_session_control(runtime, request_id, &request.capability_id, operation)
+                    .await?;
             respond_immediate(responder, response)
         }
         operation @ (SdkRuntimeOperation::ModelChat { .. }
@@ -1164,7 +1197,10 @@ impl ModelExecution {
             }),
             other => Err(SdkRuntimeError::new(
                 "invalid_model_operation",
-                format!("expected model operation, received {}", other.kind().as_str()),
+                format!(
+                    "expected model operation, received {}",
+                    other.kind().as_str()
+                ),
             )),
         }
     }
@@ -1188,13 +1224,6 @@ async fn start_or_resume_thread(
         normalized_approvals_reviewer(model)?,
     );
     insert_optional(&mut params, "sandbox", normalized_sandbox_mode(model)?);
-    if let Some(ephemeral) = model
-        .execution_options
-        .as_ref()
-        .and_then(|options| options.ephemeral)
-    {
-        params.insert("ephemeral".to_string(), Value::Bool(ephemeral));
-    }
 
     if let Some(provider_session_id) = model.provider_session_id.as_deref() {
         params.insert(
@@ -1223,6 +1252,16 @@ async fn start_or_resume_thread(
         return Ok(response.thread.id);
     }
 
+    // `ephemeral` is a start-only thread property; the Codex resume params
+    // carry no such field, so it is scoped to thread/start instead of being
+    // sent (and silently ignored) on thread/resume.
+    if let Some(ephemeral) = model
+        .execution_options
+        .as_ref()
+        .and_then(|options| options.ephemeral)
+    {
+        params.insert("ephemeral".to_string(), Value::Bool(ephemeral));
+    }
     let params: ThreadStartParams = decode_protocol(Value::Object(params))?;
     let response: ThreadStartResponse = runtime
         .requests
@@ -1276,7 +1315,10 @@ async fn invoke_session_control(
             focus,
             ..
         } => {
-            if focus.as_deref().is_some_and(|focus| !focus.trim().is_empty()) {
+            if focus
+                .as_deref()
+                .is_some_and(|focus| !focus.trim().is_empty())
+            {
                 return Err(SdkRuntimeError::new(
                     "codex_compact_focus_unsupported",
                     "Codex thread/compact/start does not accept a focus selector",
@@ -1425,11 +1467,16 @@ fn active_identity_for_provider_session(
     provider_session_id: &str,
 ) -> Result<Option<ActiveIdentity>, SdkRuntimeError> {
     let coordinator = lock_coordinator(&runtime.coordinator)?;
-    let Some(model_request_id) = coordinator.active_provider_sessions.get(provider_session_id)
+    let Some(model_request_id) = coordinator
+        .active_provider_sessions
+        .get(provider_session_id)
     else {
         return Ok(None);
     };
-    Ok(coordinator.active.get(model_request_id).map(active_identity))
+    Ok(coordinator
+        .active
+        .get(model_request_id)
+        .map(active_identity))
 }
 
 fn active_identity(execution: &ActiveExecution) -> ActiveIdentity {
@@ -1449,7 +1496,10 @@ async fn interrupt_active_execution(
 ) -> Result<bool, SdkRuntimeError> {
     let identity = {
         let coordinator = lock_coordinator(&runtime.coordinator)?;
-        coordinator.active.get(model_request_id).map(active_identity)
+        coordinator
+            .active
+            .get(model_request_id)
+            .map(active_identity)
     };
     let Some(identity) = identity else {
         return Ok(false);
@@ -1524,11 +1574,7 @@ async fn handle_server_notification(
     activity: &InMemoryProviderSessionActivityProvider,
 ) {
     if let ServerNotification::ThreadStatusChanged(status) = &notification {
-        record_activity(
-            activity,
-            status.thread_id.clone(),
-            status.status.clone(),
-        );
+        record_activity(activity, status.thread_id.clone(), status.status.clone());
     }
 
     let raw = match serde_json::to_value(&notification) {
@@ -1602,7 +1648,10 @@ fn dispatch_notification_to_execution(
         if method == "item/agentMessage/delta" {
             let item_id = value_string(&params, "itemId").unwrap_or_else(|| "agent-message".into());
             if let Some(delta) = value_string(&params, "delta").filter(|delta| !delta.is_empty()) {
-                let entry = execution.assistant_items.entry(item_id.clone()).or_default();
+                let entry = execution
+                    .assistant_items
+                    .entry(item_id.clone())
+                    .or_default();
                 entry.push_str(&delta);
                 if !execution.assistant_order.contains(&item_id) {
                     execution.assistant_order.push(item_id);
@@ -1619,7 +1668,9 @@ fn dispatch_notification_to_execution(
                             .assistant_items
                             .get(&item_id)
                             .is_none_or(String::is_empty);
-                        execution.assistant_items.insert(item_id.clone(), text.clone());
+                        execution
+                            .assistant_items
+                            .insert(item_id.clone(), text.clone());
                         if !execution.assistant_order.contains(&item_id) {
                             execution.assistant_order.push(item_id);
                         }
@@ -1639,9 +1690,9 @@ fn dispatch_notification_to_execution(
                 state
                     .active_provider_sessions
                     .remove(&execution.provider_session_id);
-                state.pending_interactions.retain(|_, pending| {
-                    pending.model_request_id != execution.model_request_id
-                });
+                state
+                    .pending_interactions
+                    .retain(|_, pending| pending.model_request_id != execution.model_request_id);
             }
             execution.map(|execution| (execution, params.clone()))
         } else {
@@ -1746,8 +1797,12 @@ async fn handle_server_request(
     let raw = match serde_json::to_value(&request) {
         Ok(raw) => raw,
         Err(error) => {
-            reject_server_request(client, request.id().clone(), format!("invalid request: {error}"))
-                .await;
+            reject_server_request(
+                client,
+                request.id().clone(),
+                format!("invalid request: {error}"),
+            )
+            .await;
             return;
         }
     };
@@ -1763,7 +1818,10 @@ async fn handle_server_request(
             .and_then(|duration| i64::try_from(duration.as_secs()).ok())
             .unwrap_or_default();
         let _ = client
-            .resolve_server_request(request.id().clone(), json!({ "currentTimeAt": current_time_at }))
+            .resolve_server_request(
+                request.id().clone(),
+                json!({ "currentTimeAt": current_time_at }),
+            )
             .await;
         return;
     }
@@ -1945,22 +2003,36 @@ fn codex_interaction_result(
             let action = required_resolution_action(action)?;
             let decision = match action.as_str() {
                 "accept_for_session" => Value::String("acceptForSession".to_string()),
-                "accept_with_exec_policy_amendment" => json!({
-                    "acceptWithExecpolicyAmendment": {
-                        "execpolicy_amendment": required_resolution_value(
+                // Codex `CommandExecutionApprovalDecision` applies camelCase to
+                // variant names only; struct-variant fields keep their snake_case
+                // names. The amendment values are normalized from the generic
+                // host resolution shape onto the Codex wire shape.
+                "accept_with_exec_policy_amendment" => {
+                    let command =
+                        amendment_command_tokens(&required_resolution_value(
                             resolution,
                             "execPolicyAmendment",
-                        )?,
-                    }
-                }),
-                "apply_network_policy_amendment" => json!({
-                    "applyNetworkPolicyAmendment": {
-                        "network_policy_amendment": required_resolution_value(
-                            resolution,
-                            "networkPolicyAmendment",
-                        )?,
-                    }
-                }),
+                        )?)?;
+                    json!({
+                        "acceptWithExecpolicyAmendment": {
+                            "execpolicy_amendment": Value::Array(command),
+                        }
+                    })
+                }
+                "apply_network_policy_amendment" => {
+                    let host = amendment_network_host(&required_resolution_value(
+                        resolution,
+                        "networkPolicyAmendment",
+                    )?)?;
+                    json!({
+                        "applyNetworkPolicyAmendment": {
+                            "network_policy_amendment": {
+                                "host": host,
+                                "action": "allow",
+                            },
+                        }
+                    })
+                }
                 "accept" | "decline" | "cancel" => Value::String(action),
                 _ => return Err(unsupported_resolution_action(&pending.method, &action)),
             };
@@ -2064,14 +2136,65 @@ fn required_resolution_action(action: Option<String>) -> Result<String, SdkRunti
     action.ok_or_else(|| invalid_resolution("resolution.action is required"))
 }
 
-fn required_resolution_value(
-    resolution: &Value,
-    field: &str,
-) -> Result<Value, SdkRuntimeError> {
+fn required_resolution_value(resolution: &Value, field: &str) -> Result<Value, SdkRuntimeError> {
     resolution
         .get(field)
         .cloned()
         .ok_or_else(|| invalid_resolution(format!("resolution.{field} is required")))
+}
+
+/// Normalizes the generic host `execPolicyAmendment` resolution onto the Codex
+/// wire shape: Codex `ExecPolicyAmendment` is a transparent `Vec<String>` of
+/// command tokens, so both an already-wire-shaped array and the host object
+/// forms (`{"command": [...]}`, `{"commandPrefix": [...]}`, `{"prefix": [...]}`)
+/// are accepted and reduced to the token array.
+fn amendment_command_tokens(value: &Value) -> Result<Vec<Value>, SdkRuntimeError> {
+    match value {
+        Value::Array(tokens) if tokens.iter().all(Value::is_string) => Ok(tokens.clone()),
+        Value::Object(map) => ["command", "commandPrefix", "prefix"]
+            .iter()
+            .find_map(|key| map.get(*key).and_then(Value::as_array))
+            .filter(|tokens| tokens.iter().all(Value::is_string))
+            .cloned()
+            .ok_or_else(|| {
+                invalid_resolution(
+                    "execPolicyAmendment must carry a string token array under command/commandPrefix/prefix",
+                )
+            }),
+        _ => Err(invalid_resolution(
+            "execPolicyAmendment must be a command token array or object",
+        )),
+    }
+}
+
+/// Normalizes the generic host `networkPolicyAmendment` resolution onto the
+/// Codex wire shape: Codex `NetworkPolicyAmendment` is a single `{host,
+/// action}` pair, so the host object forms (`{"host": ...}` or the multi-host
+/// `{"hosts": [...]}`) reduce to the first host with the allow action.
+fn amendment_network_host(value: &Value) -> Result<String, SdkRuntimeError> {
+    match value {
+        Value::String(host) if !host.trim().is_empty() => Ok(host.clone()),
+        Value::Object(map) => map
+            .get("host")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| {
+                map.get("hosts")
+                    .and_then(Value::as_array)
+                    .and_then(|hosts| hosts.first())
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .filter(|host| !host.trim().is_empty())
+            .ok_or_else(|| {
+                invalid_resolution(
+                    "networkPolicyAmendment must carry a host string or a hosts array",
+                )
+            }),
+        _ => Err(invalid_resolution(
+            "networkPolicyAmendment must be an object or host string",
+        )),
+    }
 }
 
 fn unsupported_resolution_action(method: &str, action: &str) -> SdkRuntimeError {
@@ -2267,13 +2390,79 @@ fn normalized_approvals_reviewer(
     else {
         return Ok(None);
     };
-    let compact = value.replace('-', "_").replace(' ', "_").to_ascii_lowercase();
+    let compact = value
+        .replace('-', "_")
+        .replace(' ', "_")
+        .to_ascii_lowercase();
     match compact.as_str() {
         "user" => Ok(Some("user".to_string())),
         "auto_review" | "guardian_subagent" => Ok(Some("auto_review".to_string())),
         _ => Err(SdkRuntimeError::new(
             "codex_approvals_reviewer_unsupported",
             format!("unsupported Codex approvals reviewer {value}"),
+        )),
+    }
+}
+
+/// Maps generic SPI source-kind filter values onto Codex `ThreadSourceKind`
+/// variants. Accepts the protocol names and common normalized spellings so
+/// callers can pass either the canonical enum name or a snake/kebab form.
+fn normalized_thread_source_kinds(values: &[String]) -> Result<Vec<ThreadSourceKind>, SdkRuntimeError> {
+    values
+        .iter()
+        .map(|value| {
+            let compact = value
+                .chars()
+                .filter(|character| !matches!(character, '-' | '_' | ' '))
+                .collect::<String>()
+                .to_ascii_lowercase();
+            match compact.as_str() {
+                "cli" => Ok(ThreadSourceKind::Cli),
+                "vscode" => Ok(ThreadSourceKind::VsCode),
+                "exec" => Ok(ThreadSourceKind::Exec),
+                "appserver" => Ok(ThreadSourceKind::AppServer),
+                "subagent" => Ok(ThreadSourceKind::SubAgent),
+                "subagentreview" => Ok(ThreadSourceKind::SubAgentReview),
+                "subagentcompact" => Ok(ThreadSourceKind::SubAgentCompact),
+                "subagentthreadspawn" => Ok(ThreadSourceKind::SubAgentThreadSpawn),
+                "subagentother" => Ok(ThreadSourceKind::SubAgentOther),
+                "unknown" => Ok(ThreadSourceKind::Unknown),
+                _ => Err(SdkRuntimeError::new(
+                    "codex_thread_source_kind_unsupported",
+                    format!("unsupported Codex thread source kind {value}"),
+                )),
+            }
+        })
+        .collect()
+}
+
+/// Maps a generic SPI sort key onto a Codex `ThreadSortKey`.
+fn normalized_thread_sort_key(value: &str) -> Result<ThreadSortKey, SdkRuntimeError> {
+    let compact = value
+        .chars()
+        .filter(|character| !matches!(character, '-' | '_' | ' '))
+        .collect::<String>()
+        .to_ascii_lowercase();
+    match compact.as_str() {
+        "created" | "createdat" => Ok(ThreadSortKey::CreatedAt),
+        "updated" | "updatedat" => Ok(ThreadSortKey::UpdatedAt),
+        "recency" | "recencyat" => Ok(ThreadSortKey::RecencyAt),
+        "sectionposition" => Ok(ThreadSortKey::SectionPosition),
+        _ => Err(SdkRuntimeError::new(
+            "codex_thread_sort_key_unsupported",
+            format!("unsupported Codex thread sort key {value}"),
+        )),
+    }
+}
+
+/// Maps a generic SPI sort direction onto a Codex `SortDirection`.
+fn normalized_sort_direction(value: &str) -> Result<SortDirection, SdkRuntimeError> {
+    match value.to_ascii_lowercase().as_str() {
+        "asc" | "ascending" => Ok(SortDirection::Asc),
+        "desc" | "descending" => Ok(SortDirection::Desc),
+        _ => Err(SdkRuntimeError::new(
+            "codex_sort_direction_unsupported",
+            format!("unsupported Codex sort direction {value}"),
         )),
     }
 }
@@ -2462,9 +2651,7 @@ fn kernel_event_type(method: &str, item_type: &str, status: Option<&str>) -> &'s
         }
         "item/started" => "agent.tool.started",
         "item/completed" => "agent.tool.completed",
-        _ if method.contains("outputDelta") || method.contains("progress") => {
-            "agent.tool.streamed"
-        }
+        _ if method.contains("outputDelta") || method.contains("progress") => "agent.tool.streamed",
         _ => "agent.provider.updated",
     }
 }
@@ -2613,7 +2800,11 @@ fn fail_all_active(coordinator: &Mutex<RuntimeCoordinator>, error: SdkRuntimeErr
         Ok(mut state) => {
             state.active_provider_sessions.clear();
             state.pending_interactions.clear();
-            state.active.drain().map(|(_, execution)| execution).collect::<Vec<_>>()
+            state
+                .active
+                .drain()
+                .map(|(_, execution)| execution)
+                .collect::<Vec<_>>()
         }
         Err(_) => Vec::new(),
     };
@@ -2653,9 +2844,10 @@ fn receive_runtime_response(
         Some(timeout) => receiver
             .recv_timeout(timeout)
             .map_err(|error| match error {
-                std_mpsc::RecvTimeoutError::Timeout => {
-                    SdkRuntimeError::new("codex_runtime_timeout", "Codex runtime operation timed out")
-                }
+                std_mpsc::RecvTimeoutError::Timeout => SdkRuntimeError::new(
+                    "codex_runtime_timeout",
+                    "Codex runtime operation timed out",
+                ),
                 std_mpsc::RecvTimeoutError::Disconnected => {
                     runtime_worker_unavailable("runtime response channel is closed")
                 }
@@ -2750,5 +2942,163 @@ mod tests {
         assert_eq!(windows_command_extension(".EXE"), Some(".EXE"));
         assert_eq!(windows_command_extension(" .cmd "), Some(".cmd"));
         assert_eq!(windows_command_extension(".ps1"), None);
+    }
+
+    #[test]
+    fn maps_generic_session_list_filters_onto_codex_thread_list_params() {
+        let source_kinds = normalized_thread_source_kinds(&[
+            "subagent".to_string(),
+            "sub_agent_review".to_string(),
+            "vscode".to_string(),
+        ])
+        .expect("source kinds");
+        assert_eq!(source_kinds[0], ThreadSourceKind::SubAgent);
+        assert_eq!(source_kinds[1], ThreadSourceKind::SubAgentReview);
+        assert_eq!(source_kinds[2], ThreadSourceKind::VsCode);
+        assert!(normalized_thread_source_kinds(&["bogus".to_string()]).is_err());
+
+        assert_eq!(
+            normalized_thread_sort_key("recency_at").expect("sort key"),
+            ThreadSortKey::RecencyAt
+        );
+        assert_eq!(
+            normalized_thread_sort_key("updated").expect("sort key"),
+            ThreadSortKey::UpdatedAt
+        );
+        assert!(normalized_thread_sort_key("random").is_err());
+
+        assert_eq!(
+            normalized_sort_direction("desc").expect("direction"),
+            SortDirection::Desc
+        );
+        assert_eq!(
+            normalized_sort_direction("Ascending").expect("direction"),
+            SortDirection::Asc
+        );
+        assert!(normalized_sort_direction("sideways").is_err());
+    }
+
+    #[test]
+    fn interaction_resolutions_round_trip_through_codex_protocol_types() {
+        use codex_app_server_protocol::{
+            CommandExecutionApprovalDecision, CommandExecutionRequestApprovalResponse,
+            DynamicToolCallResponse, FileChangeApprovalDecision,
+            FileChangeRequestApprovalResponse, McpServerElicitationRequestResponse,
+            PermissionsRequestApprovalResponse, ToolRequestUserInputResponse,
+        };
+        let pending = |method: &str| PendingInteraction {
+            model_request_id: "run-1".to_string(),
+            session_id: None,
+            turn_id: None,
+            provider_session_id: "thread-1".to_string(),
+            provider_turn_id: "turn-1".to_string(),
+            request_id: RequestId::Integer(1),
+            method: method.to_string(),
+        };
+
+        for action in ["accept", "accept_for_session", "decline", "cancel"] {
+            let result = codex_interaction_result(
+                &pending("item/commandExecution/requestApproval"),
+                &json!({ "action": action }),
+            )
+            .expect("command decision");
+            let response: CommandExecutionRequestApprovalResponse =
+                serde_json::from_value(result).expect("protocol round trip");
+            match action {
+                "accept_for_session" => assert_eq!(
+                    response.decision,
+                    CommandExecutionApprovalDecision::AcceptForSession
+                ),
+                _ => {}
+            }
+        }
+        let result = codex_interaction_result(
+            &pending("item/commandExecution/requestApproval"),
+            &json!({
+                "action": "accept_with_exec_policy_amendment",
+                "execPolicyAmendment": {"commandPrefix": ["cargo", "test"]},
+            }),
+        )
+        .expect("exec policy amendment");
+        let response: CommandExecutionRequestApprovalResponse =
+            serde_json::from_value(result).expect("protocol round trip");
+        assert!(matches!(
+            response.decision,
+            CommandExecutionApprovalDecision::AcceptWithExecpolicyAmendment { .. }
+        ));
+        let result = codex_interaction_result(
+            &pending("item/commandExecution/requestApproval"),
+            &json!({
+                "action": "apply_network_policy_amendment",
+                "networkPolicyAmendment": {"hosts": ["registry.npmjs.org"]},
+            }),
+        )
+        .expect("network policy amendment");
+        let response: CommandExecutionRequestApprovalResponse =
+            serde_json::from_value(result).expect("protocol round trip");
+        assert!(matches!(
+            response.decision,
+            CommandExecutionApprovalDecision::ApplyNetworkPolicyAmendment { .. }
+        ));
+
+        for action in ["accept", "accept_for_session", "decline", "cancel"] {
+            let result = codex_interaction_result(
+                &pending("item/fileChange/requestApproval"),
+                &json!({ "action": action }),
+            )
+            .expect("file change decision");
+            let response: FileChangeRequestApprovalResponse =
+                serde_json::from_value(result).expect("protocol round trip");
+            if action == "decline" {
+                assert_eq!(response.decision, FileChangeApprovalDecision::Decline);
+            }
+        }
+
+        let result = codex_interaction_result(
+            &pending("item/tool/requestUserInput"),
+            &json!({
+                "action": "submit",
+                "answers": {"question-1": ["yes", "no"], "question-2": ["42"]},
+            }),
+        )
+        .expect("user input answers");
+        let response: ToolRequestUserInputResponse =
+            serde_json::from_value(result).expect("protocol round trip");
+        assert_eq!(response.answers.len(), 2);
+        assert_eq!(response.answers["question-1"].answers, vec!["yes", "no"]);
+
+        let result = codex_interaction_result(
+            &pending("mcpServer/elicitation/request"),
+            &json!({ "action": "accept", "content": {"answer": 7} }),
+        )
+        .expect("elicitation");
+        let response: McpServerElicitationRequestResponse =
+            serde_json::from_value(result).expect("protocol round trip");
+        assert!(response.content.is_some());
+
+        let result = codex_interaction_result(
+            &pending("item/permissions/requestApproval"),
+            &json!({
+                "action": "grant",
+                "permissions": {"network": {"allow": true}},
+                "scope": "turn",
+            }),
+        )
+        .expect("permissions");
+        let response: PermissionsRequestApprovalResponse =
+            serde_json::from_value(result).expect("protocol round trip");
+        assert_eq!(response.permissions.network.is_some(), true);
+
+        let result = codex_interaction_result(
+            &pending("item/tool/call"),
+            &json!({
+                "contentItems": [{"type": "inputText", "text": "done"}],
+                "success": true,
+            }),
+        )
+        .expect("dynamic tool result");
+        let response: DynamicToolCallResponse =
+            serde_json::from_value(result).expect("protocol round trip");
+        assert!(response.success);
     }
 }

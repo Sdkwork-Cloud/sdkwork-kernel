@@ -76,6 +76,31 @@ pub trait AgentConfigurationProvider {
         Ok(())
     }
 
+    /// Reads the currently effective model configuration back from the
+    /// provider's native config surface and reports whether a SDKWork-managed
+    /// entry is in effect there.
+    ///
+    /// The status reflects the native surface's *current* state: providers
+    /// that write a SDKWork-managed marker return
+    /// [`ProviderModelMaterializationState::Materialized`] only when that
+    /// marker (and the materialized values) are still present, `Diverged`
+    /// when the marker exists but the values are missing or the surface
+    /// cannot be parsed, and `NotMaterialized` otherwise. Comparing the
+    /// returned effective values against the store profile's expected values
+    /// is the caller's responsibility (the SPI carries no expected value).
+    /// Providers without a readable native surface return
+    /// [`ProviderModelMaterializationState::Unsupported`]; the store profile
+    /// remains the authoritative applied record.
+    fn read_model_configuration(
+        &self,
+        _agent_id: &str,
+        _profile_id: &str,
+    ) -> KernelResult<ProviderModelConfigurationStatus> {
+        Ok(ProviderModelConfigurationStatus::unsupported(
+            self.provider_manifest().provider_id,
+        ))
+    }
+
     fn plan_configuration_upgrade(
         &self,
         _request: &AgentConfigurationUpgradeRequest,
@@ -396,6 +421,87 @@ impl AgentModelConfigurationFieldMapping {
     }
 }
 
+/// Read-back state of a provider's materialized model configuration.
+///
+/// Providers parse their native config surface (config file, env file,
+/// settings store) and report whether the applied profile is actually in
+/// effect, letting callers detect configuration drift and stale CLI state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderModelConfigurationStatus {
+    /// Provider scope the status belongs to (e.g. `codex`, `claude-code`).
+    pub provider_scope: String,
+    pub materialization: ProviderModelMaterializationState,
+    /// Base URL currently in effect on the provider's native config surface.
+    pub effective_base_url: Option<String>,
+    /// Default model currently in effect on the provider's native config
+    /// surface (the per-turn selection may differ).
+    pub effective_default_model: Option<String>,
+    /// Whether a credential (API key / bearer token) is present on the
+    /// provider's native config surface.
+    pub credential_configured: bool,
+    /// Human-readable issues found while reading back (unparseable config,
+    /// missing entries, drift details). Empty when the read-back is clean.
+    pub issues: Vec<String>,
+}
+
+impl ProviderModelConfigurationStatus {
+    /// Status for providers without a readable native config surface; the
+    /// store profile is the only record for them.
+    pub fn unsupported(provider_scope: impl Into<String>) -> Self {
+        Self {
+            provider_scope: provider_scope.into(),
+            materialization: ProviderModelMaterializationState::Unsupported,
+            effective_base_url: None,
+            effective_default_model: None,
+            credential_configured: false,
+            issues: Vec::new(),
+        }
+    }
+
+    /// Status for providers whose native config is absent or carries no
+    /// SDKWork-managed entry (nothing has been materialized yet).
+    pub fn not_materialized(provider_scope: impl Into<String>) -> Self {
+        Self {
+            provider_scope: provider_scope.into(),
+            materialization: ProviderModelMaterializationState::NotMaterialized,
+            effective_base_url: None,
+            effective_default_model: None,
+            credential_configured: false,
+            issues: Vec::new(),
+        }
+    }
+}
+
+/// Materialization state of a provider's native config surface relative to
+/// the applied profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderModelMaterializationState {
+    /// The provider has no native config surface to read back; the store
+    /// profile is the only record.
+    Unsupported,
+    /// The provider config is absent or carries no SDKWork-managed entry.
+    NotMaterialized,
+    /// The provider config exists and carries the SDKWork-managed entry with
+    /// its materialized values.
+    Materialized,
+    /// The provider config exists and carries the SDKWork-managed marker but
+    /// its values are missing, or the surface cannot be parsed — the
+    /// materialization no longer reflects what was applied (drift or stale
+    /// CLI state).
+    Diverged,
+}
+
+impl ProviderModelMaterializationState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Unsupported => "unsupported",
+            Self::NotMaterialized => "not_materialized",
+            Self::Materialized => "materialized",
+            Self::Diverged => "diverged",
+        }
+    }
+}
+
 pub trait AgentConfigurationStore: Send + Sync {
     fn save_profile(
         &mut self,
@@ -505,7 +611,10 @@ impl ConfigurationSubscription {
         }
     }
 
-    fn registered(
+    /// Builds a live subscription handle bound to the subscriber registry, so
+    /// store implementations outside this crate (e.g. persistence-backed
+    /// stores) can reuse the kernel subscription machinery.
+    pub fn registered(
         subscription_id: String,
         registry: std::sync::Arc<std::sync::RwLock<Vec<(String, AgentConfigurationSubscriber)>>>,
     ) -> Self {

@@ -247,6 +247,21 @@ pub trait RuntimeExecutionRepository: Send + Sync {
         event: &EventRow,
     ) -> DatabaseResult<()>;
 
+    /// Atomically schedule a bounded retry for a transiently failed fenced
+    /// run: release the lease, move the run back to a claimable state with an
+    /// exponential backoff deadline (`next_attempt_at`), and append a retry
+    /// event. The fencing token is incremented so the stale claim can no
+    /// longer renew or complete the run.
+    fn schedule_run_retry(
+        &self,
+        claim: &ClaimedRun,
+        error_kind: &str,
+        error_code: Option<&str>,
+        error_detail: &str,
+        next_attempt_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<()>;
+
     /// Request cancellation for the task and its active run in one transaction.
     fn request_task_cancellation(
         &self,

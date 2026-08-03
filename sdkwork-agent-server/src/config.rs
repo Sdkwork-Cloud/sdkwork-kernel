@@ -122,6 +122,13 @@ pub struct ServerConfig {
     pub task_worker_poll_interval_ms: u64,
     /// Lease duration for one claimed task run.
     pub task_worker_lease_secs: u64,
+    /// Maximum execution attempts per durable task run before a transient
+    /// failure becomes permanent.
+    pub task_worker_max_attempts: u64,
+    /// Base exponential backoff (seconds) for transiently failed task runs.
+    pub task_worker_retry_backoff_base_secs: u64,
+    /// Upper bound (seconds) for the retry backoff.
+    pub task_worker_retry_backoff_max_secs: u64,
 }
 
 impl Default for ServerConfig {
@@ -182,6 +189,9 @@ impl Default for ServerConfig {
             task_worker_max_concurrency: 4,
             task_worker_poll_interval_ms: 250,
             task_worker_lease_secs: 120,
+            task_worker_max_attempts: 3,
+            task_worker_retry_backoff_base_secs: 5,
+            task_worker_retry_backoff_max_secs: 300,
         }
     }
 }
@@ -416,6 +426,28 @@ impl ServerConfig {
         }
         if !(10..=3_600).contains(&config.task_worker_lease_secs) {
             anyhow::bail!("SDKWORK_TASK_WORKER_LEASE_SECS must be between 10 and 3600");
+        }
+        if let Ok(max_attempts) = std::env::var("SDKWORK_TASK_WORKER_MAX_ATTEMPTS") {
+            config.task_worker_max_attempts = max_attempts.parse()?;
+        }
+        if !(1..=10).contains(&config.task_worker_max_attempts) {
+            anyhow::bail!("SDKWORK_TASK_WORKER_MAX_ATTEMPTS must be between 1 and 10");
+        }
+        if let Ok(backoff_secs) =
+            std::env::var("SDKWORK_TASK_WORKER_RETRY_BACKOFF_BASE_SECS")
+        {
+            config.task_worker_retry_backoff_base_secs = backoff_secs.parse()?;
+        }
+        if !(1..=60).contains(&config.task_worker_retry_backoff_base_secs) {
+            anyhow::bail!("SDKWORK_TASK_WORKER_RETRY_BACKOFF_BASE_SECS must be between 1 and 60");
+        }
+        if let Ok(backoff_secs) = std::env::var("SDKWORK_TASK_WORKER_RETRY_BACKOFF_MAX_SECS") {
+            config.task_worker_retry_backoff_max_secs = backoff_secs.parse()?;
+        }
+        if !(config.task_worker_retry_backoff_base_secs..=3_600)
+            .contains(&config.task_worker_retry_backoff_max_secs)
+        {
+            anyhow::bail!("SDKWORK_TASK_WORKER_RETRY_BACKOFF_MAX_SECS must be between the base backoff and 3600");
         }
         if let Ok(mode) = std::env::var("SDKWORK_KERNEL_METRICS_AUTH_MODE") {
             config.metrics_auth_mode = mode;

@@ -498,6 +498,54 @@ impl RuntimeExecutionRepository for SqliteDatabase {
         )
     }
 
+    fn schedule_run_retry(
+        &self,
+        claim: &ClaimedRun,
+        error_kind: &str,
+        error_code: Option<&str>,
+        error_detail: &str,
+        next_attempt_at: &str,
+        event: &EventRow,
+    ) -> DatabaseResult<()> {
+        let (owner, fence) = ensure_claim_identity(claim)?;
+        crate::event_identity::ensure_event_session(event, &claim.run.session_id, "run retry")?;
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let run_changed = tx.execute(
+            "UPDATE runs SET state = 'created', lease_owner = NULL, lease_expires_at = NULL,
+                 next_attempt_at = ?1, error_kind = ?2, error_code = ?3, error_detail = ?4,
+                 attempt = attempt + 1, fencing_token = fencing_token + 1, updated_at = ?1
+             WHERE run_id = ?5 AND lease_owner = ?6 AND fencing_token = ?7
+               AND cancel_requested_at IS NULL",
+            params![
+                next_attempt_at,
+                error_kind,
+                error_code,
+                error_detail,
+                claim.run.run_id,
+                owner,
+                fence,
+            ],
+        )?;
+        let step_changed = tx.execute(
+            "UPDATE steps SET state = 'ready', error_kind = NULL, error_code = NULL,
+                 error_detail = NULL, updated_at = ?1
+             WHERE step_id = ?2 AND run_id = ?3",
+            params![next_attempt_at, claim.step.step_id, claim.run.run_id],
+        )?;
+        if run_changed != 1 || step_changed != 1 {
+            return Err(DatabaseError::ConstraintViolation(
+                "run retry rejected for stale lease, fence, or state".to_string(),
+            ));
+        }
+        crate::sqlite_repository::sqlite_save_event_idempotent(&tx, event)?;
+        tx.commit()?;
+        Ok(())
+    }
+
     fn request_task_cancellation(
         &self,
         task_id: &str,

@@ -128,7 +128,6 @@ paths:
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/permissions/{permissionRequestId}:
-  /internal/v3/api/intelligence/runtime/sessions/{sessionId}/tasks/submit:
     post:
       tags: [intelligence]
       summary: Decide a permission request

@@ -26,9 +26,11 @@ pub use model_wire::{
     wire_system_text, ModelWireMessage,
 };
 pub use provider_config_file::{
-    dematerialize_provider_config, merge_json_path, provider_config_backup_path,
-    read_provider_config, restore_provider_config_backup, update_provider_config_file,
-    update_provider_json_config, PROVIDER_CONFIG_BACKUP_SUFFIX,
+    dematerialize_provider_config, dematerialize_provider_config_named, merge_json_path,
+    provider_config_backup_path, provider_config_backup_path_named, read_provider_config,
+    restore_provider_config_backup, restore_provider_config_backup_named,
+    update_provider_config_file, update_provider_config_file_named, update_provider_json_config,
+    update_provider_json_config_named, PROVIDER_CONFIG_BACKUP_SUFFIX,
 };
 pub use provider_local_config::provider_user_home;
 pub use provider_session_activity::{

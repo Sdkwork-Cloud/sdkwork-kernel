@@ -14,6 +14,8 @@ use tracing::{info, warn};
 const MAX_TASK_OUTPUT_BYTES: usize = 1024 * 1024;
 const MAX_ERROR_DETAIL_CHARS: usize = 1024;
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+/// Retry event type appended when a transiently failed run is rescheduled.
+const RETRY_EVENT_TYPE: &str = "task.retry_scheduled";
 
 pub struct TaskExecutionWorker {
     task: Option<JoinHandle<()>>,
@@ -149,7 +151,16 @@ async fn execute_claim(
     let (task, session) = match loaded {
         Ok(rows) => rows,
         Err(error) => {
-            fail_claim(&state, &claim, "persistence_error", Some("50001"), &error).await;
+            fail_claim(
+                &state,
+                &config,
+                &claim,
+                "persistence_error",
+                Some("50001"),
+                &error,
+                true,
+            )
+            .await;
             return;
         }
     };
@@ -173,10 +184,12 @@ async fn execute_claim(
         Err(error) => {
             fail_claim(
                 &state,
+                &config,
                 &claim,
                 "provider_unavailable",
                 Some("50301"),
                 error.safe_message(),
+                true,
             )
             .await;
             return;
@@ -188,10 +201,12 @@ async fn execute_claim(
     {
         fail_claim(
             &state,
+            &config,
             &claim,
             "session_restore_failed",
             Some(&error.code.as_i32().to_string()),
             &error.detail,
+            true,
         )
         .await;
         return;
@@ -242,10 +257,12 @@ async fn execute_claim(
         Err(error) => {
             fail_claim(
                 &state,
+                &config,
                 &claim,
                 &format!("{:?}", error.kind()).to_lowercase(),
                 None,
                 error.safe_message(),
+                error.retryable(),
             )
             .await;
             return;
@@ -254,10 +271,12 @@ async fn execute_claim(
     if !model_result.tool_calls.is_empty() {
         fail_claim(
             &state,
+            &config,
             &claim,
             "execution_requires_tool_steps",
             Some("60005"),
             "model requested tool execution that requires planned durable steps",
+            false,
         )
         .await;
         return;
@@ -266,10 +285,12 @@ async fn execute_claim(
     if assistant_content.len() > MAX_TASK_OUTPUT_BYTES {
         fail_claim(
             &state,
+            &config,
             &claim,
             "resource_exhausted",
             Some("50301"),
             "model output exceeds the durable task output limit",
+            false,
         )
         .await;
         return;
@@ -358,16 +379,27 @@ async fn complete_claim(
     }
 }
 
+/// Records a failed claim.
+///
+/// Transient failures (provider unavailability, admission saturation,
+/// persistence hiccups, retryable model errors) are rescheduled with an
+/// exponential backoff up to `task_worker_max_attempts`; permanent failures
+/// (tool-step requirements, output overruns, validation errors) fail the run
+/// immediately. Rescheduling releases the lease and moves the run back to a
+/// claimable state, so any replica may pick the retry up after
+/// `next_attempt_at`.
 async fn fail_claim(
     state: &InternalRuntimeApiState,
+    config: &Arc<ServerConfig>,
     claim: &ClaimedRun,
     error_kind: &str,
     error_code: Option<&str>,
     error_detail: &str,
+    transient: bool,
 ) {
     let finished_at = sdkwork_agent_database::runtime_now_timestamp();
-    let event = run_event(claim, "task.failed", "error", &finished_at);
-    let failed_run_id = claim.run.run_id.clone();
+    let attempt = claim.run.attempt;
+    let run_id = claim.run.run_id.clone();
     let claim = claim.clone();
     let error_kind = error_kind.to_string();
     let error_code = error_code.map(str::to_string);
@@ -375,6 +407,45 @@ async fn fail_claim(
         .chars()
         .take(MAX_ERROR_DETAIL_CHARS)
         .collect::<String>();
+    if transient && attempt < i64::try_from(config.task_worker_max_attempts).unwrap_or(i64::MAX) {
+        let backoff_secs = (config.task_worker_retry_backoff_base_secs as u64)
+            .saturating_mul(1u64 << (attempt as u32).min(10))
+            .min(config.task_worker_retry_backoff_max_secs);
+        let next_attempt_at = sdkwork_agent_database::format_runtime_timestamp(
+            Utc::now() + ChronoDuration::seconds(backoff_secs as i64),
+        );
+        let retry_event = run_event(&claim, RETRY_EVENT_TYPE, "warning", &finished_at);
+        let schedule_kind = error_kind.clone();
+        if let Err(error) = state
+            .persist(move |persistence| {
+                persistence.schedule_run_retry(
+                    &claim,
+                    &schedule_kind,
+                    error_code.as_deref(),
+                    &error_detail,
+                    &next_attempt_at,
+                    &retry_event,
+                )
+            })
+            .await
+        {
+            warn!(run_id = %run_id, error = %error, "durable task retry could not be scheduled");
+        } else {
+            state
+                .runtime
+                .record_durable_worker_outcome(DurableWorkerKind::Task, "retry_scheduled", 1);
+            warn!(
+                run_id = %run_id,
+                attempt,
+                backoff_secs,
+                error_kind = %error_kind,
+                "durable task failure is transient; retry scheduled"
+            );
+        }
+        return;
+    }
+    let event = run_event(&claim, "task.failed", "error", &finished_at);
+    let failed_run_id = claim.run.run_id.clone();
     if let Err(error) = state
         .persist(move |persistence| {
             persistence.fail_claimed_run(

@@ -214,15 +214,54 @@ providers whose request-time behavior is driven by their own config files):
 - `dematerialize_model_configuration(agent_id, profile_id)` restores the
   pre-materialization state (backup restore or file removal) when a profile is
   deprecated, archived, or removed.
+- `read_model_configuration(agent_id, profile_id)` reads the currently
+  effective model configuration back from the provider's native config surface
+  and reports the materialization state so callers can detect drift and stale
+  CLI state. Providers without a readable native surface (in-process
+  providers) return `Unsupported`; the store profile remains the authoritative
+  applied record.
+
+Read-back state vocabulary (`ProviderModelMaterializationState`):
+
+- `Unsupported` — the provider has no readable native config surface.
+- `NotMaterialized` — the surface is absent or carries no SDKWork-managed
+  entry.
+- `Materialized` — the surface carries the SDKWork-managed marker and the
+  materialized values.
+- `Diverged` — the surface carries the SDKWork-managed marker but its values
+  are missing, or the surface cannot be parsed.
 
 Rules:
 
 - Materialization `MUST` back up the existing provider config file before any
   mutation, write atomically, verify the read-back content, and restore the
   backup on failure or when the profile is dematerialized.
+- Backups `MUST` be scoped by provider (`<file>.sdkwork.<provider_scope>.bak`)
+  because multiple providers may share one config surface (Claude Code and
+  Mimo Code both manage `~/.claude/settings.json`); one provider's
+  dematerialization `MUST NOT` restore over or delete another provider's
+  backup. When the config file did not exist before materialization, an empty
+  backup marker is written so dematerialization removes only the file the
+  provider itself created.
+- Dematerialization `MUST` never delete a config file without a provider-scoped
+  backup: the file may be user-owned or materialized by another provider, and
+  deleting it would destroy user data (fail-closed).
 - Materialization `MUST` merge into the existing provider config (user-defined
   relay entries, permissions, and unrelated settings survive) and `MUST` fail
-  closed when the existing config cannot be parsed.
+  closed when the existing config cannot be parsed or when the merge target is
+  not an object.
+- Materialization `MUST` fail closed (return an error) when the provider
+  config path cannot be resolved instead of silently skipping the write while
+  the applied profile reports success.
+- Read-back `MUST` determine `Materialized` from a SDKWork-managed marker
+  written by materialization (for example `SDKWORK_MANAGED=true` in a settings
+  env block or env file), never from the mere presence of user-configured
+  relay values: a user-configured relay `MUST NOT` be reported as materialized,
+  and a marker whose materialized values are missing `MUST` be reported as
+  `Diverged`. Unparseable surfaces `MUST` be reported as `Diverged` with
+  issues, not as `NotMaterialized`.
+- Read-back `MUST NOT` expose raw credentials: only a boolean
+  `credential_configured` flag may be reported.
 - Raw credential values `MUST NOT` be stored inside kernel profiles; providers
   resolve secrets through the host secret surface (or the transient
   `api_key_materialization` request field, which `MUST` be redacted from

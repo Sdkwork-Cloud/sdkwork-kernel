@@ -9,9 +9,12 @@
 
 use sdkwork_agent_kernel::{
     AgentModelConfigurationApplication, AgentModelConfigurationRequest, AgentModelSelectionRequest,
-    KernelError, KernelResult,
+    KernelError, KernelResult, ProviderModelConfigurationStatus,
+    ProviderModelMaterializationState,
 };
-use sdkwork_agent_provider_core::{dematerialize_provider_config, update_provider_config_file};
+use sdkwork_agent_provider_core::{
+    dematerialize_provider_config_named, read_provider_config, update_provider_config_file_named,
+};
 
 use crate::codex_config_path;
 
@@ -165,7 +168,10 @@ pub fn materialize_codex_model_configuration(
     application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = codex_config_path() else {
-        return Ok(());
+            return Err(KernelError::provider_error(
+                "provider_config_path",
+                "could not resolve the Codex config path: CODEX_HOME is set to a missing directory or the user home is unavailable",
+            ));
     };
     materialize_codex_model_configuration_at(&path, request, application)
 }
@@ -183,7 +189,7 @@ pub(crate) fn materialize_codex_model_configuration_at(
         return Ok(());
     }
     let api_key = resolve_materialization_api_key(request);
-    update_provider_config_file(path, |current| {
+    update_provider_config_file_named(path, "codex", |current| {
         build_materialized_config(current, request, api_key.as_deref())
     })
 }
@@ -194,7 +200,10 @@ pub fn materialize_codex_model_selection(
     application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = codex_config_path() else {
-        return Ok(());
+            return Err(KernelError::provider_error(
+                "provider_config_path",
+                "could not resolve the Codex config path: CODEX_HOME is set to a missing directory or the user home is unavailable",
+            ));
     };
     materialize_codex_model_selection_at(&path, request, application)
 }
@@ -205,7 +214,7 @@ pub(crate) fn materialize_codex_model_selection_at(
     request: &AgentModelSelectionRequest,
     _application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
-    update_provider_config_file(path, |current| {
+    update_provider_config_file_named(path, "codex", |current| {
         update_selected_model(current, request.model_id.trim())
     })
 }
@@ -216,16 +225,102 @@ pub fn dematerialize_codex_model_configuration(
     _profile_id: &str,
 ) -> KernelResult<()> {
     let Some(path) = codex_config_path() else {
-        return Ok(());
+            return Err(KernelError::provider_error(
+                "provider_config_path",
+                "could not resolve the Codex config path: CODEX_HOME is set to a missing directory or the user home is unavailable",
+            ));
     };
-    dematerialize_provider_config(&path)
+    dematerialize_provider_config_named(&path, "codex")
+}
+
+/// Reads the currently effective Codex model configuration back from the
+/// Codex config file (`CODEX_HOME`/`~/.codex/config.toml`) and reports the
+/// materialization state, so callers can detect drift and stale CLI state.
+pub fn read_codex_model_configuration() -> KernelResult<ProviderModelConfigurationStatus> {
+    let Some(path) = codex_config_path() else {
+        return Ok(ProviderModelConfigurationStatus::not_materialized("codex"));
+    };
+    read_codex_model_configuration_at(&path)
+}
+
+/// Reads the effective Codex model configuration back from an explicit config
+/// file (used by tests and by config surfaces with a known path).
+pub(crate) fn read_codex_model_configuration_at(
+    path: &std::path::Path,
+) -> KernelResult<ProviderModelConfigurationStatus> {
+    let Some(content) = read_provider_config(path)? else {
+        return Ok(ProviderModelConfigurationStatus::not_materialized("codex"));
+    };
+    let document = match content.parse::<toml::Value>() {
+        Ok(document) => document,
+        Err(error) => {
+            return Ok(ProviderModelConfigurationStatus {
+                provider_scope: "codex".to_string(),
+                materialization: ProviderModelMaterializationState::Diverged,
+                effective_base_url: None,
+                effective_default_model: None,
+                credential_configured: false,
+                issues: vec![format!(
+                    "{} could not be parsed as TOML: {error}",
+                    path.display()
+                )],
+            });
+        }
+    };
+    let is_sdkwork_routed = document
+        .get("model_provider")
+        .and_then(toml::Value::as_str)
+        .is_some_and(|provider| provider == SDKWORK_CODEX_MODEL_PROVIDER_ID);
+    let sdkwork_entry = document
+        .get("model_providers")
+        .and_then(|providers| providers.get(SDKWORK_CODEX_MODEL_PROVIDER_ID));
+    let effective_base_url = sdkwork_entry
+        .and_then(|entry| entry.get("base_url"))
+        .and_then(toml::Value::as_str)
+        .map(str::to_string);
+    // The routing marker without its provider entry is drift: the CLI would
+    // fail to resolve the SDKWork provider at request time.
+    let (materialization, issues) = if !is_sdkwork_routed {
+        (
+            ProviderModelMaterializationState::NotMaterialized,
+            vec![format!(
+                "codex model_provider is not routed through the {} provider entry",
+                SDKWORK_CODEX_MODEL_PROVIDER_ID
+            )],
+        )
+    } else if sdkwork_entry.is_none() || effective_base_url.is_none() {
+        (
+            ProviderModelMaterializationState::Diverged,
+            vec![format!(
+                "codex is routed through the {} provider entry but the entry is missing or carries no base_url",
+                SDKWORK_CODEX_MODEL_PROVIDER_ID
+            )],
+        )
+    } else {
+        (ProviderModelMaterializationState::Materialized, Vec::new())
+    };
+    let status = ProviderModelConfigurationStatus {
+        provider_scope: "codex".to_string(),
+        materialization,
+        effective_base_url,
+        effective_default_model: document
+            .get("model")
+            .and_then(toml::Value::as_str)
+            .map(str::to_string),
+        credential_configured: sdkwork_entry
+            .and_then(|entry| entry.get("experimental_bearer_token"))
+            .and_then(toml::Value::as_str)
+            .is_some_and(|token| !token.is_empty()),
+        issues,
+    };
+    Ok(status)
 }
 
 /// Restores the pre-materialization backup for an explicit config file.
 pub(crate) fn dematerialize_codex_model_configuration_at(
     path: &std::path::Path,
 ) -> KernelResult<()> {
-    dematerialize_provider_config(path)
+    dematerialize_provider_config_named(path, "codex")
 }
 
 #[cfg(test)]
@@ -405,6 +500,64 @@ mod tests {
         dematerialize_codex_model_configuration_at(&config_path).expect("dematerialize");
         let restored = std::fs::read_to_string(&config_path).expect("read restored");
         assert_eq!(restored, "model = \"original\"\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_back_reports_materialized_effective_values() {
+        let _guard = test_guard();
+        let dir =
+            std::env::temp_dir().join(format!("sdkwork-codex-readback-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let config_path = dir.join("config.toml");
+        std::fs::write(
+            &config_path,
+            "model = \"gpt-5.4\"\nmodel_provider = \"sdkwork\"\n\n[model_providers.sdkwork]\nbase_url = \"https://api.birdcoder.com/v1\"\nexperimental_bearer_token = \"token-abc\"\n",
+        )
+        .expect("seed");
+
+        let status = read_codex_model_configuration_at(&config_path).expect("read back");
+        assert_eq!(
+            status.materialization,
+            sdkwork_agent_kernel::ProviderModelMaterializationState::Materialized
+        );
+        assert_eq!(
+            status.effective_base_url.as_deref(),
+            Some("https://api.birdcoder.com/v1")
+        );
+        assert_eq!(status.effective_default_model.as_deref(), Some("gpt-5.4"));
+        assert!(status.credential_configured);
+        assert!(status.issues.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_back_detects_missing_and_non_sdkwork_configs() {
+        let _guard = test_guard();
+        let dir =
+            std::env::temp_dir().join(format!("sdkwork-codex-readback-missing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let config_path = dir.join("config.toml");
+
+        // Absent file: nothing has been materialized.
+        let status = read_codex_model_configuration_at(&config_path).expect("read back");
+        assert_eq!(
+            status.materialization,
+            sdkwork_agent_kernel::ProviderModelMaterializationState::NotMaterialized
+        );
+
+        // Existing file routed through a different provider: diverged surface.
+        std::fs::write(&config_path, "model = \"gpt-4\"\nmodel_provider = \"openai\"\n")
+            .expect("seed");
+        let status = read_codex_model_configuration_at(&config_path).expect("read back");
+        assert_eq!(
+            status.materialization,
+            sdkwork_agent_kernel::ProviderModelMaterializationState::NotMaterialized
+        );
+        assert_eq!(status.effective_default_model.as_deref(), Some("gpt-4"));
+        assert!(!status.issues.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

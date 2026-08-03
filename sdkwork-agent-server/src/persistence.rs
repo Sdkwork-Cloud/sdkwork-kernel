@@ -195,6 +195,35 @@ impl RuntimeExecutionRepository for ExecutionDb {
         }
     }
 
+    fn schedule_run_retry(
+        &self,
+        claim: &ClaimedRun,
+        error_kind: &str,
+        error_code: Option<&str>,
+        error_detail: &str,
+        next_attempt_at: &str,
+        event: &EventRow,
+    ) -> Result<(), sdkwork_agent_database::DatabaseError> {
+        match self {
+            Self::Sqlite(db) => db.schedule_run_retry(
+                claim,
+                error_kind,
+                error_code,
+                error_detail,
+                next_attempt_at,
+                event,
+            ),
+            Self::Postgres(db) => db.schedule_run_retry(
+                claim,
+                error_kind,
+                error_code,
+                error_detail,
+                next_attempt_at,
+                event,
+            ),
+        }
+    }
+
     fn request_task_cancellation(
         &self,
         task_id: &str,
@@ -946,6 +975,29 @@ impl PersistenceState {
                 event,
             )
             .map_err(|error| format!("failed to fail claimed run: {error}"))?;
+        self.event_bus.publish(event.clone());
+        Ok(())
+    }
+
+    pub fn schedule_run_retry(
+        &self,
+        claim: &ClaimedRun,
+        error_kind: &str,
+        error_code: Option<&str>,
+        error_detail: &str,
+        next_attempt_at: &str,
+        event: &EventRow,
+    ) -> Result<(), String> {
+        self.execution_db
+            .schedule_run_retry(
+                claim,
+                error_kind,
+                error_code,
+                error_detail,
+                next_attempt_at,
+                event,
+            )
+            .map_err(|error| format!("failed to schedule run retry: {error}"))?;
         self.event_bus.publish(event.clone());
         Ok(())
     }

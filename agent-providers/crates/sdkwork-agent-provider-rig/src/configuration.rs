@@ -4,6 +4,7 @@ use sdkwork_agent_kernel::{
     AgentConfigurationProvider, AgentConfigurationSpec, AgentConfigurationValidation,
     AgentModelConfigurationApplication, AgentModelConfigurationRequest, AgentModelSelectionRequest,
     AgentSecretBinding, KernelError, KernelEventRedaction, KernelResult, ProviderHealth,
+    ProviderModelConfigurationStatus,
 };
 
 use crate::ids;
@@ -277,6 +278,16 @@ impl AgentConfigurationProvider for RigConfigurationProvider {
             "rig",
             profile,
         ))
+    }
+
+    fn read_model_configuration(
+        &self,
+        _agent_id: &str,
+        _profile_id: &str,
+    ) -> KernelResult<ProviderModelConfigurationStatus> {
+        // Rig is an in-process provider without a native config file; the
+        // store profile is the only record of the applied configuration.
+        Ok(ProviderModelConfigurationStatus::unsupported("rig"))
     }
 
     fn health(&self) -> ProviderHealth {

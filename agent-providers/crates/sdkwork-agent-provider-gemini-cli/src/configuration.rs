@@ -2,7 +2,7 @@ use crate::{
     ids,
     materializer::{
         dematerialize_gemini_cli_model_configuration,
-        materialize_gemini_cli_model_configuration,
+        materialize_gemini_cli_model_configuration, read_gemini_cli_model_configuration,
     },
 };
 use sdkwork_agent_kernel::{
@@ -12,7 +12,7 @@ use sdkwork_agent_kernel::{
     AgentExecutionSettingsRequest, AgentExecutionSettingsResolution, AgentExecutionSettingsSpec,
     AgentExecutionWorkspaceAccess, AgentModelConfigurationApplication,
     AgentModelConfigurationRequest, AgentModelSelectionRequest, KernelError, KernelResult,
-    ProviderHealth,
+    ProviderHealth, ProviderModelConfigurationStatus,
 };
 use sdkwork_agent_plugin_core::ProcessAdapterConfigurationProvider;
 
@@ -69,7 +69,12 @@ impl AgentConfigurationProvider for GeminiCliConfigurationProvider {
         &self,
         request: &AgentModelConfigurationRequest,
     ) -> KernelResult<AgentModelConfigurationApplication> {
-        self.base.apply_model_configuration(request)
+        // The base apply builds and validates the profile; the wrapper is
+        // responsible for materializing it into the CLI-native config surface
+        // (the base's own materialize hook is a no-op).
+        let application = self.base.apply_model_configuration(request)?;
+        self.materialize_model_configuration(request, &application)?;
+        Ok(application)
     }
 
     fn apply_model_selection(
@@ -95,6 +100,14 @@ impl AgentConfigurationProvider for GeminiCliConfigurationProvider {
         profile_id: &str,
     ) -> KernelResult<()> {
         dematerialize_gemini_cli_model_configuration(agent_id, profile_id)
+    }
+
+    fn read_model_configuration(
+        &self,
+        _agent_id: &str,
+        _profile_id: &str,
+    ) -> KernelResult<ProviderModelConfigurationStatus> {
+        read_gemini_cli_model_configuration()
     }
 
     fn execution_settings_spec(&self, agent_id: &str) -> KernelResult<AgentExecutionSettingsSpec> {

@@ -141,7 +141,6 @@ paths:
         default:
           $ref: '#/components/responses/Problem'
   /internal/v3/api/intelligence/runtime/permissions/{permissionRequestId}:
-  /internal/v3/api/intelligence/runtime/sessions/{sessionId}/tasks/submit:
     post:
       x-sdkwork-owner: sdkwork-kernel
       x-sdkwork-api-authority: sdkwork-agent-internal-api

@@ -35,6 +35,16 @@ const DEFAULT_IDEMPOTENCY_TTL_SECS: u64 = 24 * 60 * 60;
 #[cfg(test)]
 const DEFAULT_MAX_CACHED_RESPONSE_BYTES: usize = 512 * 1024;
 
+/// Response cache ceiling for model-output-bearing idempotent routes.
+///
+/// Message turns and model invokes can carry up to the model output ceiling
+/// (`sdkwork-agent-api-bridge` `MAX_MODEL_OUTPUT_BYTES`, 3 MiB) plus the user
+/// message and the response envelope. Caching at the generic limit would turn
+/// a committed mutation into a `413` with a stuck reservation that blocks
+/// retries for the whole retention window. 4 MiB bounds the cache while
+/// keeping every legitimate response replayable.
+pub const MODEL_ROUTE_MAX_CACHED_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
+
 /// Runtime state for the idempotency middleware.
 #[derive(Clone)]
 pub struct IdempotencyState {
@@ -102,6 +112,22 @@ impl IdempotencyState {
             max_cached_response_bytes: DEFAULT_MAX_CACHED_RESPONSE_BYTES,
             allow_local_anonymous: true,
             require_key: true,
+        }
+    }
+}
+
+impl IdempotencyState {
+    /// Returns the response cache limit for a request path.
+    ///
+    /// Model-output-bearing routes (message turns and model invokes) use
+    /// [`MODEL_ROUTE_MAX_CACHED_RESPONSE_BYTES`] so a committed mutation with
+    /// a large assistant message stays replayable; all other routes use the
+    /// configured generic limit.
+    pub fn max_cached_response_bytes_for(&self, path: &str) -> usize {
+        if path.ends_with("/messages") || path.ends_with("/model/invoke") {
+            MODEL_ROUTE_MAX_CACHED_RESPONSE_BYTES.max(self.max_cached_response_bytes)
+        } else {
+            self.max_cached_response_bytes
         }
     }
 }
@@ -371,6 +397,9 @@ pub async fn middleware(
 
     let mut guard =
         IdempotencyGuard::new(state.store.clone(), scope_key.clone(), fingerprint.clone());
+    // The response cache limit depends on the route; capture the path before
+    // the request is moved into the handler chain.
+    let request_path = request.uri().path().to_string();
     let mut response = next.run(request).await;
     let status = response.status();
 
@@ -442,20 +471,22 @@ pub async fn middleware(
     }
 
     let (response_parts, response_body) = response.into_parts();
-    let response_bytes = match to_bytes(response_body, state.max_cached_response_bytes).await {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            // The business response was successful, so releasing here could
-            // duplicate a committed side effect. The consumed oversized body
-            // cannot be returned, but the reservation remains fail-closed.
-            guard.mark_completed();
-            return error_response(
-                &context,
-                SdkWorkResultCode::PayloadTooLarge,
-                "idempotent response exceeds the configured cache limit",
-            );
-        }
-    };
+    let response_bytes =
+        match to_bytes(response_body, state.max_cached_response_bytes_for(&request_path)).await
+        {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                // The business response was successful, so releasing here could
+                // duplicate a committed side effect. The consumed oversized body
+                // cannot be returned, but the reservation remains fail-closed.
+                guard.mark_completed();
+                return error_response(
+                    &context,
+                    SdkWorkResultCode::PayloadTooLarge,
+                    "idempotent response exceeds the configured cache limit",
+                );
+            }
+        };
 
     let content_type = response_parts
         .headers
@@ -521,6 +552,31 @@ mod tests {
             &Method::GET,
             "/internal/v3/api/intelligence/runtime/sessions"
         ));
+    }
+
+    #[test]
+    fn model_output_routes_use_a_larger_response_cache_limit() {
+        let state = IdempotencyState::memory_for_tests();
+        assert!(MODEL_ROUTE_MAX_CACHED_RESPONSE_BYTES > state.max_cached_response_bytes);
+        assert_eq!(
+            state.max_cached_response_bytes_for(
+                "/internal/v3/api/intelligence/runtime/sessions/sess/messages"
+            ),
+            MODEL_ROUTE_MAX_CACHED_RESPONSE_BYTES
+        );
+        assert_eq!(
+            state.max_cached_response_bytes_for(
+                "/internal/v3/api/intelligence/runtime/sessions/sess/model/invoke"
+            ),
+            MODEL_ROUTE_MAX_CACHED_RESPONSE_BYTES
+        );
+        assert_eq!(
+            state.max_cached_response_bytes_for(
+                "/internal/v3/api/intelligence/runtime/sessions/sess/tasks/submit"
+            ),
+            state.max_cached_response_bytes,
+            "non-model routes keep the configured generic limit"
+        );
     }
 
     #[tokio::test]

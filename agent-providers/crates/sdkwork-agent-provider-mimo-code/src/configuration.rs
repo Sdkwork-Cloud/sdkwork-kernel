@@ -2,13 +2,14 @@ use crate::{
     ids,
     materializer::{
         dematerialize_mimo_code_model_configuration, materialize_mimo_code_model_configuration,
-        materialize_mimo_code_model_selection,
+        materialize_mimo_code_model_selection, read_mimo_code_model_configuration,
     },
 };
 use sdkwork_agent_kernel::{
     AgentConfiguration, AgentConfigurationProvider, AgentConfigurationSpec,
     AgentConfigurationValidation, AgentModelConfigurationApplication,
     AgentModelConfigurationRequest, AgentModelSelectionRequest, KernelResult, ProviderHealth,
+    ProviderModelConfigurationStatus,
 };
 use sdkwork_agent_plugin_core::ProcessAdapterConfigurationProvider;
 
@@ -50,14 +51,21 @@ impl AgentConfigurationProvider for MiMoCodeConfigurationProvider {
         &self,
         request: &AgentModelConfigurationRequest,
     ) -> KernelResult<AgentModelConfigurationApplication> {
-        self.base.apply_model_configuration(request)
+        // The base apply builds and validates the profile; the wrapper is
+        // responsible for materializing it into the CLI-native config surface
+        // (the base's own materialize hook is a no-op).
+        let application = self.base.apply_model_configuration(request)?;
+        self.materialize_model_configuration(request, &application)?;
+        Ok(application)
     }
 
     fn apply_model_selection(
         &self,
         request: &AgentModelSelectionRequest,
     ) -> KernelResult<AgentModelConfigurationApplication> {
-        self.base.apply_model_selection(request)
+        let application = self.base.apply_model_selection(request)?;
+        self.materialize_model_selection(request, &application)?;
+        Ok(application)
     }
 
     fn materialize_model_configuration(
@@ -82,6 +90,14 @@ impl AgentConfigurationProvider for MiMoCodeConfigurationProvider {
         profile_id: &str,
     ) -> KernelResult<()> {
         dematerialize_mimo_code_model_configuration(agent_id, profile_id)
+    }
+
+    fn read_model_configuration(
+        &self,
+        _agent_id: &str,
+        _profile_id: &str,
+    ) -> KernelResult<ProviderModelConfigurationStatus> {
+        read_mimo_code_model_configuration()
     }
 
     fn health(&self) -> ProviderHealth {

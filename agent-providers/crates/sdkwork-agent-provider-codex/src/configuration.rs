@@ -2,7 +2,7 @@ use crate::{
     ids,
     materializer::{
         dematerialize_codex_model_configuration, materialize_codex_model_configuration,
-        materialize_codex_model_selection,
+        materialize_codex_model_selection, read_codex_model_configuration,
     },
 };
 use sdkwork_agent_kernel::{
@@ -12,8 +12,8 @@ use sdkwork_agent_kernel::{
     AgentExecutionRiskLevel, AgentExecutionSettingsRequest, AgentExecutionSettingsResolution,
     AgentExecutionSettingsSpec, AgentExecutionWorkspaceAccess, AgentModelConfigurationApplication,
     AgentModelConfigurationRequest, AgentModelSelectionRequest, KernelError, KernelResult,
-    ProviderHealth, APPROVE_FOR_ME_ACCESS_MODE_ID, ASK_FOR_APPROVAL_ACCESS_MODE_ID,
-    FULL_ACCESS_MODE_ID,
+    ProviderHealth, ProviderModelConfigurationStatus, APPROVE_FOR_ME_ACCESS_MODE_ID,
+    ASK_FOR_APPROVAL_ACCESS_MODE_ID, FULL_ACCESS_MODE_ID,
 };
 use sdkwork_agent_plugin_core::ProcessAdapterConfigurationProvider;
 
@@ -90,14 +90,21 @@ impl AgentConfigurationProvider for CodexConfigurationProvider {
         &self,
         request: &AgentModelConfigurationRequest,
     ) -> KernelResult<AgentModelConfigurationApplication> {
-        self.base.apply_model_configuration(request)
+        // The base apply builds and validates the profile; the wrapper is
+        // responsible for materializing it into the CLI-native config surface
+        // (the base's own materialize hook is a no-op).
+        let application = self.base.apply_model_configuration(request)?;
+        self.materialize_model_configuration(request, &application)?;
+        Ok(application)
     }
 
     fn apply_model_selection(
         &self,
         request: &AgentModelSelectionRequest,
     ) -> KernelResult<AgentModelConfigurationApplication> {
-        self.base.apply_model_selection(request)
+        let application = self.base.apply_model_selection(request)?;
+        self.materialize_model_selection(request, &application)?;
+        Ok(application)
     }
 
     fn materialize_model_configuration(
@@ -122,6 +129,14 @@ impl AgentConfigurationProvider for CodexConfigurationProvider {
         profile_id: &str,
     ) -> KernelResult<()> {
         dematerialize_codex_model_configuration(agent_id, profile_id)
+    }
+
+    fn read_model_configuration(
+        &self,
+        _agent_id: &str,
+        _profile_id: &str,
+    ) -> KernelResult<ProviderModelConfigurationStatus> {
+        read_codex_model_configuration()
     }
 
     fn execution_settings_spec(&self, agent_id: &str) -> KernelResult<AgentExecutionSettingsSpec> {

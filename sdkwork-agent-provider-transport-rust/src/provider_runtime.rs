@@ -378,6 +378,13 @@ mod tests {
                 working_directory: None,
                 cursor: None,
                 limit: 20,
+                source_kinds: None,
+                section_id: None,
+                archived: None,
+                search_term: None,
+                sort_key: None,
+                sort_direction: None,
+                model_providers: None,
             },
             SdkRuntimeOperation::SessionHistory {
                 provider_session_id: "provider-session.1".to_string(),

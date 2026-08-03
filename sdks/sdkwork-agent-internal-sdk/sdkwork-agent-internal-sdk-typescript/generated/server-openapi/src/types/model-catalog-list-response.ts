@@ -5,7 +5,7 @@ import type { SdkWorkPageData } from './sdk-work-page-data';
 export interface ModelCatalogListResponse {
   /** Numeric success result code. MUST be 0 on HTTP 2xx JSON bodies. */
   code: 0;
-  data: unknown & SdkWorkPageData & Record<string, unknown>;
+  data: unknown & SdkWorkPageData & { items?: ModelDescriptor[]; };
   /** Server-owned request correlation id. */
   traceId: string;
 }

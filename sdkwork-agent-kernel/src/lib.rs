@@ -168,7 +168,8 @@ pub use configuration::{
     AgentModelConfigurationRequest, AgentModelSelectionRequest, AgentProfileArchiveRequest,
     AgentSecretBinding, AgentSecretBindingKind, AgentSettingSources, AgentSettingsScope,
     ConfigurationMigrationStep, ConfigurationMigrationStepKind, ConfigurationSubscription,
-    InMemoryAgentConfigurationStore,
+    InMemoryAgentConfigurationStore, ProviderModelConfigurationStatus,
+    ProviderModelMaterializationState,
 };
 pub use conformance::{
     AgentRuntimeConformanceProfile, KernelConformanceCase, KernelConformanceCaseStatus,

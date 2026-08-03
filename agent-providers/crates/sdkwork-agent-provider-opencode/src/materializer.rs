@@ -9,11 +9,12 @@
 
 use sdkwork_agent_kernel::{
     AgentModelConfigurationApplication, AgentModelConfigurationRequest,
-    AgentModelSelectionRequest, KernelError, KernelResult,
+    AgentModelSelectionRequest, KernelError, KernelResult, ProviderModelConfigurationStatus,
+    ProviderModelMaterializationState,
 };
 use sdkwork_agent_provider_core::{
-    dematerialize_provider_config, merge_json_path, provider_user_home,
-    update_provider_json_config,
+    dematerialize_provider_config_named, merge_json_path, provider_user_home, read_provider_config,
+    update_provider_json_config_named,
 };
 use serde_json::{json, Value};
 
@@ -99,12 +100,12 @@ fn build_materialized_config(
         &mut document,
         &["provider", SDKWORK_OPENCODE_PROVIDER_ID],
         provider,
-    );
+    )?;
     merge_json_path(
         &mut document,
         &["model"],
         Value::String(format!("{SDKWORK_OPENCODE_PROVIDER_ID}/{model_id}")),
-    );
+    )?;
     Ok(document)
 }
 
@@ -115,14 +116,26 @@ fn update_selected_model(current: Option<&Value>, model_id: &str) -> KernelResul
         .and_then(Value::as_object_mut)
         .and_then(|providers| providers.get_mut(SDKWORK_OPENCODE_PROVIDER_ID))
         .and_then(Value::as_object_mut);
-    if let Some(provider) = provider {
-        provider.insert("models".to_string(), json!({ model_id: {} }));
+    match provider {
+        Some(provider) => {
+            provider.insert("models".to_string(), json!({ model_id: {} }));
+        }
+        // Fail closed: applying a selection with no SDKWork-managed provider
+        // entry would silently leave the CLI on its previous model.
+        None => {
+            return Err(KernelError::provider_error(
+                "opencode_model_selection",
+                format!(
+                    "no SDKWork-managed provider entry (provider.{SDKWORK_OPENCODE_PROVIDER_ID}) exists; materialize a model configuration before selecting"
+                ),
+            ));
+        }
     }
     merge_json_path(
         &mut document,
         &["model"],
         Value::String(format!("{SDKWORK_OPENCODE_PROVIDER_ID}/{model_id}")),
-    );
+    )?;
     Ok(document)
 }
 
@@ -132,7 +145,10 @@ pub fn materialize_opencode_model_configuration(
     application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = opencode_config_path() else {
-        return Ok(());
+            return Err(KernelError::provider_error(
+                "provider_config_path",
+                "could not resolve the opencode config path: user home is unavailable",
+            ));
     };
     materialize_opencode_model_configuration_at(&path, request, application)
 }
@@ -144,7 +160,7 @@ pub(crate) fn materialize_opencode_model_configuration_at(
     _application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let api_key = resolve_materialization_api_key(request);
-    update_provider_json_config(path, |current| {
+    update_provider_json_config_named(path, "opencode", |current| {
         build_materialized_config(current, request, api_key.as_deref())
     })
 }
@@ -155,7 +171,10 @@ pub fn materialize_opencode_model_selection(
     application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = opencode_config_path() else {
-        return Ok(());
+            return Err(KernelError::provider_error(
+                "provider_config_path",
+                "could not resolve the opencode config path: user home is unavailable",
+            ));
     };
     materialize_opencode_model_selection_at(&path, request, application)
 }
@@ -166,7 +185,7 @@ pub(crate) fn materialize_opencode_model_selection_at(
     request: &AgentModelSelectionRequest,
     _application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
-    update_provider_json_config(path, |current| {
+    update_provider_json_config_named(path, "opencode", |current| {
         update_selected_model(current, request.model_id.trim())
     })
 }
@@ -177,16 +196,100 @@ pub fn dematerialize_opencode_model_configuration(
     _profile_id: &str,
 ) -> KernelResult<()> {
     let Some(path) = opencode_config_path() else {
-        return Ok(());
+            return Err(KernelError::provider_error(
+                "provider_config_path",
+                "could not resolve the opencode config path: user home is unavailable",
+            ));
     };
-    dematerialize_provider_config(&path)
+    dematerialize_provider_config_named(&path, "opencode")
 }
 
 /// Restores the pre-materialization backup for an explicit config file.
 pub(crate) fn dematerialize_opencode_model_configuration_at(
     path: &std::path::Path,
 ) -> KernelResult<()> {
-    dematerialize_provider_config(path)
+    dematerialize_provider_config_named(path, "opencode")
+}
+
+/// Reads the currently effective opencode model configuration back from the
+/// opencode config file and reports the materialization state.
+pub fn read_opencode_model_configuration() -> KernelResult<ProviderModelConfigurationStatus> {
+    let Some(path) = opencode_config_path() else {
+        return Ok(ProviderModelConfigurationStatus::not_materialized("opencode"));
+    };
+    read_opencode_model_configuration_at(&path)
+}
+
+/// Reads the effective opencode model configuration back from an explicit
+/// config file (used by tests and by config surfaces with a known path).
+pub(crate) fn read_opencode_model_configuration_at(
+    path: &std::path::Path,
+) -> KernelResult<ProviderModelConfigurationStatus> {
+    let Some(content) = read_provider_config(path)? else {
+        return Ok(ProviderModelConfigurationStatus::not_materialized("opencode"));
+    };
+    let document = match serde_json::from_str::<Value>(&content) {
+        Ok(document) => document,
+        Err(error) => {
+            return Ok(ProviderModelConfigurationStatus {
+                provider_scope: "opencode".to_string(),
+                materialization: ProviderModelMaterializationState::Diverged,
+                effective_base_url: None,
+                effective_default_model: None,
+                credential_configured: false,
+                issues: vec![format!(
+                    "{} could not be parsed as JSON: {error}",
+                    path.display()
+                )],
+            });
+        }
+    };
+    let sdkwork_entry = document
+        .get("provider")
+        .and_then(|providers| providers.get(SDKWORK_OPENCODE_PROVIDER_ID));
+    let effective_base_url = sdkwork_entry
+        .and_then(|entry| entry.get("options"))
+        .and_then(|options| options.get("baseURL"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let credential_configured = sdkwork_entry
+        .and_then(|entry| entry.get("options"))
+        .and_then(|options| options.get("apiKey"))
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.is_empty());
+    // The materialized model is `sdkwork/<id>`; strip the provider prefix so
+    // the effective model id is comparable with the applied profile.
+    let effective_default_model = document
+        .get("model")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(|model| {
+            model
+                .strip_prefix(&format!("{SDKWORK_OPENCODE_PROVIDER_ID}/"))
+                .unwrap_or(model)
+                .to_string()
+        });
+    let materialized = effective_base_url.is_some();
+    let mut status = ProviderModelConfigurationStatus {
+        provider_scope: "opencode".to_string(),
+        materialization: if materialized {
+            ProviderModelMaterializationState::Materialized
+        } else {
+            ProviderModelMaterializationState::NotMaterialized
+        },
+        effective_base_url,
+        effective_default_model,
+        credential_configured,
+        issues: Vec::new(),
+    };
+    if !materialized {
+        status.issues.push(format!(
+            "provider does not carry a {} entry",
+            SDKWORK_OPENCODE_PROVIDER_ID
+        ));
+    }
+    Ok(status)
 }
 
 #[cfg(test)]
@@ -283,6 +386,70 @@ mod tests {
             std::fs::read_to_string(&path).expect("read restored"),
             "{\"model\": \"openai/gpt-5\"}\n"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_back_reports_materialized_provider_entry() {
+        let dir = std::env::temp_dir().join(format!(
+            "sdkwork-opencode-readback-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("opencode.json");
+        std::fs::write(
+            &path,
+            json!({
+                "provider": {
+                    "sdkwork": {
+                        "npm": "@ai-sdk/openai-compatible",
+                        "options": {
+                            "baseURL": "https://api.birdcoder.com",
+                            "apiKey": "token-abc"
+                        },
+                        "models": { "gpt-5.4": {} }
+                    }
+                },
+                "model": "sdkwork/gpt-5.4"
+            })
+            .to_string(),
+        )
+        .expect("seed");
+
+        let status = read_opencode_model_configuration_at(&path).expect("read back");
+        assert_eq!(
+            status.materialization,
+            sdkwork_agent_kernel::ProviderModelMaterializationState::Materialized
+        );
+        assert_eq!(
+            status.effective_base_url.as_deref(),
+            Some("https://api.birdcoder.com")
+        );
+        // The `sdkwork/` prefix is stripped so the id compares with the profile.
+        assert_eq!(status.effective_default_model.as_deref(), Some("gpt-5.4"));
+        assert!(status.credential_configured);
+        assert!(status.issues.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_back_reports_not_materialized_without_provider_entry() {
+        let dir = std::env::temp_dir().join(format!(
+            "sdkwork-opencode-readback-native-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("opencode.json");
+        std::fs::write(&path, json!({ "model": "openai/gpt-5" }).to_string()).expect("seed");
+
+        let status = read_opencode_model_configuration_at(&path).expect("read back");
+        assert_eq!(
+            status.materialization,
+            sdkwork_agent_kernel::ProviderModelMaterializationState::NotMaterialized
+        );
+        assert!(!status.issues.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

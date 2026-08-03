@@ -4,7 +4,7 @@
   "mode": "apply",
   "standardProfile": "sdkwork-v3",
   "sdkgenPath": "../sdkwork-sdk-generator/bin/sdkgen.js",
-  "startedAt": "2026-07-16T18:14:11.645Z",
+  "startedAt": "2026-08-03T14:20:49.167Z",
   "families": [
     {
       "key": "internal",
@@ -19,11 +19,11 @@
       "apiPrefix": "/internal/v3/api",
       "sdkDependencies": [],
       "version": "0.1.0",
-      "fingerprint": "dd12dc437ca08adb4b36b9a1ec8996e1dedb33ff31e36118ce85f6789b53b26c",
+      "fingerprint": "67c3ea1b18c11135a15972c1d658577c22061270a03325b427b8fbd167312655",
       "hasChanges": false,
-      "riskLevel": "low",
-      "generated": false
+      "riskLevel": "high",
+      "generated": true
     }
   ],
-  "finishedAt": "2026-07-16T18:14:11.914Z"
+  "finishedAt": "2026-08-03T14:20:49.664Z"
 }

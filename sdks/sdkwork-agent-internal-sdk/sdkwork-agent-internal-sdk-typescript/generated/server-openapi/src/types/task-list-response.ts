@@ -5,7 +5,7 @@ import type { TaskResponse } from './task-response';
 export interface TaskListResponse {
   /** Numeric success result code. MUST be 0 on HTTP 2xx JSON bodies. */
   code: 0;
-  data: unknown & SdkWorkPageData & Record<string, unknown>;
+  data: unknown & SdkWorkPageData & { items: TaskResponse[]; };
   /** Server-owned request correlation id. */
   traceId: string;
 }

@@ -11,11 +11,12 @@
 
 use sdkwork_agent_kernel::{
     AgentModelConfigurationApplication, AgentModelConfigurationRequest,
-    AgentModelSelectionRequest, KernelError, KernelResult,
+    AgentModelSelectionRequest, KernelError, KernelResult, ProviderModelConfigurationStatus,
+    ProviderModelMaterializationState,
 };
 use sdkwork_agent_provider_core::{
-    dematerialize_provider_config, merge_json_path, provider_user_home,
-    update_provider_config_file,
+    dematerialize_provider_config_named, merge_json_path, provider_user_home, read_provider_config,
+    update_provider_config_file_named,
 };
 use serde_json::{json, Value};
 
@@ -29,7 +30,7 @@ fn update_openclaw_config_file(
     path: &std::path::Path,
     transform: impl FnOnce(Option<&Value>) -> KernelResult<Value>,
 ) -> KernelResult<()> {
-    update_provider_config_file(path, |current| {
+    update_provider_config_file_named(path, "openclaw", |current| {
         let current = match current {
             Some(content) => Some(json5::from_str(content).map_err(|error| {
                 KernelError::provider_error(
@@ -115,7 +116,7 @@ fn build_materialized_config(
         &mut document,
         &["models", "providers", SDKWORK_OPENCLAW_PROVIDER_ID],
         provider,
-    );
+    )?;
     Ok(document)
 }
 
@@ -128,13 +129,23 @@ fn update_selected_model(current: Option<&Value>, model_id: &str) -> KernelResul
         .and_then(Value::as_object_mut)
         .and_then(|providers| providers.get_mut(SDKWORK_OPENCLAW_PROVIDER_ID))
         .and_then(Value::as_object_mut);
-    if let Some(provider) = provider {
-        provider.insert(
-            "models".to_string(),
-            json!({ model_id: { "name": model_id } }),
-        );
+    match provider {
+        Some(provider) => {
+            provider.insert(
+                "models".to_string(),
+                json!({ model_id: { "name": model_id } }),
+            );
+            Ok(document)
+        }
+        // Fail closed: applying a selection with no SDKWork-managed provider
+        // entry would silently leave the CLI on its previous model.
+        None => Err(KernelError::provider_error(
+            "openclaw_model_selection",
+            format!(
+                "no SDKWork-managed provider entry (models.providers.{SDKWORK_OPENCLAW_PROVIDER_ID}) exists; materialize a model configuration before selecting"
+            ),
+        )),
     }
-    Ok(document)
 }
 
 /// Materializes an OpenClaw model configuration into the OpenClaw config file.
@@ -143,7 +154,10 @@ pub fn materialize_openclaw_model_configuration(
     application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = openclaw_config_path() else {
-        return Ok(());
+            return Err(KernelError::provider_error(
+                "provider_config_path",
+                "could not resolve the OpenClaw config path: user home is unavailable",
+            ));
     };
     materialize_openclaw_model_configuration_at(&path, request, application)
 }
@@ -166,7 +180,10 @@ pub fn materialize_openclaw_model_selection(
     application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = openclaw_config_path() else {
-        return Ok(());
+            return Err(KernelError::provider_error(
+                "provider_config_path",
+                "could not resolve the OpenClaw config path: user home is unavailable",
+            ));
     };
     materialize_openclaw_model_selection_at(&path, request, application)
 }
@@ -188,16 +205,94 @@ pub fn dematerialize_openclaw_model_configuration(
     _profile_id: &str,
 ) -> KernelResult<()> {
     let Some(path) = openclaw_config_path() else {
-        return Ok(());
+            return Err(KernelError::provider_error(
+                "provider_config_path",
+                "could not resolve the OpenClaw config path: user home is unavailable",
+            ));
     };
-    dematerialize_provider_config(&path)
+    dematerialize_provider_config_named(&path, "openclaw")
 }
 
 /// Restores the pre-materialization backup for an explicit config file.
 pub(crate) fn dematerialize_openclaw_model_configuration_at(
     path: &std::path::Path,
 ) -> KernelResult<()> {
-    dematerialize_provider_config(path)
+    dematerialize_provider_config_named(path, "openclaw")
+}
+
+/// Reads the currently effective OpenClaw model configuration back from the
+/// OpenClaw config file and reports the materialization state. OpenClaw
+/// configs are natively JSON5, so the file is parsed as JSON5 on read-back.
+pub fn read_openclaw_model_configuration() -> KernelResult<ProviderModelConfigurationStatus> {
+    let Some(path) = openclaw_config_path() else {
+        return Ok(ProviderModelConfigurationStatus::not_materialized("openclaw"));
+    };
+    read_openclaw_model_configuration_at(&path)
+}
+
+/// Reads the effective OpenClaw model configuration back from an explicit
+/// config file (used by tests and by config surfaces with a known path).
+pub(crate) fn read_openclaw_model_configuration_at(
+    path: &std::path::Path,
+) -> KernelResult<ProviderModelConfigurationStatus> {
+    let Some(content) = read_provider_config(path)? else {
+        return Ok(ProviderModelConfigurationStatus::not_materialized("openclaw"));
+    };
+    let document = match json5::from_str::<Value>(&content) {
+        Ok(document) => document,
+        Err(error) => {
+            return Ok(ProviderModelConfigurationStatus {
+                provider_scope: "openclaw".to_string(),
+                materialization: ProviderModelMaterializationState::Diverged,
+                effective_base_url: None,
+                effective_default_model: None,
+                credential_configured: false,
+                issues: vec![format!(
+                    "{} could not be parsed as JSON5: {error}",
+                    path.display()
+                )],
+            });
+        }
+    };
+    let sdkwork_entry = document
+        .get("models")
+        .and_then(|models| models.get("providers"))
+        .and_then(|providers| providers.get(SDKWORK_OPENCLAW_PROVIDER_ID));
+    let effective_base_url = sdkwork_entry
+        .and_then(|entry| entry.get("baseUrl"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let effective_default_model = sdkwork_entry
+        .and_then(|entry| entry.get("models"))
+        .and_then(Value::as_object)
+        .map(|models| models.keys().cloned().collect::<Vec<_>>())
+        .filter(|models| !models.is_empty())
+        .map(|mut models| models.swap_remove(0));
+    let credential_configured = sdkwork_entry
+        .and_then(|entry| entry.get("apiKey"))
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.is_empty());
+    let materialized = effective_base_url.is_some();
+    let mut status = ProviderModelConfigurationStatus {
+        provider_scope: "openclaw".to_string(),
+        materialization: if materialized {
+            ProviderModelMaterializationState::Materialized
+        } else {
+            ProviderModelMaterializationState::NotMaterialized
+        },
+        effective_base_url,
+        effective_default_model,
+        credential_configured,
+        issues: Vec::new(),
+    };
+    if !materialized {
+        status.issues.push(format!(
+            "models.providers does not carry a {} entry",
+            SDKWORK_OPENCLAW_PROVIDER_ID
+        ));
+    }
+    Ok(status)
 }
 
 #[cfg(test)]
@@ -333,6 +428,69 @@ mod tests {
             std::fs::read_to_string(&path).expect("read restored"),
             "{\"agents\":{\"main\":{\"provider\":\"deepseek\"}}}\n"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_back_reports_materialized_provider_entry() {
+        let dir = std::env::temp_dir().join(format!(
+            "sdkwork-openclaw-readback-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("openclaw.json");
+        std::fs::write(
+            &path,
+            json!({
+                "models": {
+                    "providers": {
+                        "sdkwork": {
+                            "name": "SDKWork BirdCoder",
+                            "baseUrl": "https://api.birdcoder.com",
+                            "apiKey": "token-abc",
+                            "models": { "gpt-5.4": { "name": "gpt-5.4" } }
+                        }
+                    }
+                }
+            })
+            .to_string(),
+        )
+        .expect("seed");
+
+        let status = read_openclaw_model_configuration_at(&path).expect("read back");
+        assert_eq!(
+            status.materialization,
+            sdkwork_agent_kernel::ProviderModelMaterializationState::Materialized
+        );
+        assert_eq!(
+            status.effective_base_url.as_deref(),
+            Some("https://api.birdcoder.com")
+        );
+        assert_eq!(status.effective_default_model.as_deref(), Some("gpt-5.4"));
+        assert!(status.credential_configured);
+        assert!(status.issues.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_back_reports_not_materialized_without_provider_entry() {
+        let dir = std::env::temp_dir().join(format!(
+            "sdkwork-openclaw-readback-native-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("openclaw.json");
+        std::fs::write(&path, json!({ "agents": { "main": { "provider": "deepseek" } } }).to_string())
+            .expect("seed");
+
+        let status = read_openclaw_model_configuration_at(&path).expect("read back");
+        assert_eq!(
+            status.materialization,
+            sdkwork_agent_kernel::ProviderModelMaterializationState::NotMaterialized
+        );
+        assert!(!status.issues.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

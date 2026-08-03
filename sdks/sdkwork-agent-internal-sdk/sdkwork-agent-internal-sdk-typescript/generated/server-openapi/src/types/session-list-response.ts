@@ -5,7 +5,7 @@ import type { SessionResponse } from './session-response';
 export interface SessionListResponse {
   /** Numeric success result code. MUST be 0 on HTTP 2xx JSON bodies. */
   code: 0;
-  data: unknown & SdkWorkPageData & Record<string, unknown>;
+  data: unknown & SdkWorkPageData & { items: SessionResponse[]; };
   /** Server-owned request correlation id. */
   traceId: string;
 }

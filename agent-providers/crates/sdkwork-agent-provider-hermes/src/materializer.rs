@@ -8,10 +8,12 @@
 
 use sdkwork_agent_kernel::{
     AgentModelConfigurationApplication, AgentModelConfigurationRequest, AgentModelSelectionRequest,
-    KernelError, KernelResult,
+    KernelError, KernelResult, ProviderModelConfigurationStatus,
+    ProviderModelMaterializationState,
 };
 use sdkwork_agent_provider_core::{
-    dematerialize_provider_config, provider_user_home, update_provider_config_file,
+    dematerialize_provider_config_named, provider_user_home, read_provider_config,
+    update_provider_config_file_named,
 };
 
 const HERMES_PROVIDER_ID: &str = "sdkwork";
@@ -204,7 +206,10 @@ pub fn materialize_hermes_model_configuration(
     _application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = hermes_config_path() else {
-        return Ok(());
+            return Err(KernelError::provider_error(
+                "provider_config_path",
+                "could not resolve the Hermes config path: user home is unavailable",
+            ));
     };
     materialize_hermes_model_configuration_at(&path, request)
 }
@@ -215,16 +220,18 @@ pub(crate) fn materialize_hermes_model_configuration_at(
     request: &AgentModelConfigurationRequest,
 ) -> KernelResult<()> {
     let api_key = resolve_materialization_api_key(request);
-    update_provider_config_file(path, |current| {
+    update_provider_config_file_named(path, "hermes", |current| {
         build_materialized_config(current, request, api_key.as_deref())
     })?;
     if let (Some(api_key), Some(env_path)) = (api_key, hermes_env_path()) {
-        if let Err(error) =
-            update_provider_config_file(&env_path, |current| merge_env_key(current, &api_key))
-        {
+        if let Err(error) = update_provider_config_file_named(
+            &env_path,
+            "hermes",
+            |current| merge_env_key(current, &api_key),
+        ) {
             // The config.yaml was already materialized; restore its backup so
             // a partial two-file materialization never persists.
-            let _ = dematerialize_provider_config(path);
+            let _ = dematerialize_provider_config_named(path, "hermes");
             return Err(error);
         }
     }
@@ -237,9 +244,12 @@ pub fn materialize_hermes_model_selection(
     _application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = hermes_config_path() else {
-        return Ok(());
+            return Err(KernelError::provider_error(
+                "provider_config_path",
+                "could not resolve the Hermes config path: user home is unavailable",
+            ));
     };
-    update_provider_config_file(&path, |current| {
+    update_provider_config_file_named(&path, "hermes", |current| {
         update_selected_model(current, request.model_id.trim())
     })
 }
@@ -250,11 +260,14 @@ pub fn dematerialize_hermes_model_configuration(
     _profile_id: &str,
 ) -> KernelResult<()> {
     let Some(path) = hermes_config_path() else {
-        return Ok(());
+            return Err(KernelError::provider_error(
+                "provider_config_path",
+                "could not resolve the Hermes config path: user home is unavailable",
+            ));
     };
-    dematerialize_provider_config(&path)?;
+    dematerialize_provider_config_named(&path, "hermes")?;
     if let Some(env_path) = hermes_env_path() {
-        dematerialize_provider_config(&env_path)?;
+        dematerialize_provider_config_named(&env_path, "hermes")?;
     }
     Ok(())
 }
@@ -263,7 +276,110 @@ pub fn dematerialize_hermes_model_configuration(
 pub(crate) fn dematerialize_hermes_model_configuration_at(
     path: &std::path::Path,
 ) -> KernelResult<()> {
-    dematerialize_provider_config(path)
+    dematerialize_provider_config_named(path, "hermes")
+}
+
+/// Reads the currently effective Hermes model configuration back from
+/// `~/.hermes/config.yaml` (plus the `~/.hermes/.env` key when the provider
+/// entry references it) and reports the materialization state.
+pub fn read_hermes_model_configuration() -> KernelResult<ProviderModelConfigurationStatus> {
+    let Some(path) = hermes_config_path() else {
+        return Ok(ProviderModelConfigurationStatus::not_materialized("hermes"));
+    };
+    read_hermes_model_configuration_at(&path, hermes_env_path().as_deref())
+}
+
+/// Reads the effective Hermes model configuration back from an explicit
+/// config file, resolving the referenced key from an explicit env file (used
+/// by tests and by config surfaces with known paths).
+pub(crate) fn read_hermes_model_configuration_at(
+    path: &std::path::Path,
+    env_path: Option<&std::path::Path>,
+) -> KernelResult<ProviderModelConfigurationStatus> {
+    let Some(content) = read_provider_config(path)? else {
+        return Ok(ProviderModelConfigurationStatus::not_materialized("hermes"));
+    };
+    let document: serde_yaml::Mapping = match serde_yaml::from_str(&content) {
+        Ok(document) => document,
+        Err(error) => {
+            return Ok(ProviderModelConfigurationStatus {
+                provider_scope: "hermes".to_string(),
+                materialization: ProviderModelMaterializationState::Diverged,
+                effective_base_url: None,
+                effective_default_model: None,
+                credential_configured: false,
+                issues: vec![format!(
+                    "{} could not be parsed as YAML: {error}",
+                    path.display()
+                )],
+            });
+        }
+    };
+    let sdkwork_entry = document
+        .get("providers")
+        .and_then(|providers| providers.as_mapping())
+        .and_then(|providers| providers.get(HERMES_PROVIDER_ID))
+        .and_then(|provider| provider.as_mapping());
+    let effective_base_url = sdkwork_entry
+        .and_then(|provider| provider.get("api"))
+        .and_then(serde_yaml::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let effective_default_model = document
+        .get("model")
+        .and_then(|model| model.as_mapping())
+        .and_then(|model| model.get("default"))
+        .and_then(serde_yaml::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let key_env = sdkwork_entry
+        .and_then(|provider| provider.get("key_env"))
+        .and_then(serde_yaml::Value::as_str)
+        .filter(|value| !value.is_empty());
+    // A credential counts as configured only when the referenced env file
+    // carries a non-empty value; unreadable env files fail closed (reported as
+    // an issue) instead of silently reading as "not configured".
+    let mut issues = Vec::new();
+    let credential_configured = match key_env {
+        Some(key_env) => match env_path {
+            Some(env_path) => match read_provider_config(env_path) {
+                Ok(Some(env)) => env.lines().any(|line| {
+                    line.trim_start()
+                        .split_once('=')
+                        .is_some_and(|(key, value)| key.trim() == key_env && !value.trim().is_empty())
+                }),
+                Ok(None) => false,
+                Err(error) => {
+                    issues.push(format!(
+                        "referenced env file {} could not be read: {error}",
+                        env_path.display()
+                    ));
+                    false
+                }
+            },
+            None => false,
+        },
+        None => false,
+    };
+    let materialized = effective_base_url.is_some();
+    let mut status = ProviderModelConfigurationStatus {
+        provider_scope: "hermes".to_string(),
+        materialization: if materialized {
+            ProviderModelMaterializationState::Materialized
+        } else {
+            ProviderModelMaterializationState::NotMaterialized
+        },
+        effective_base_url,
+        effective_default_model,
+        credential_configured,
+        issues,
+    };
+    if !materialized {
+        status.issues.push(format!(
+            "config.yaml does not carry a {HERMES_PROVIDER_ID} providers entry"
+        ));
+    }
+    Ok(status)
 }
 
 #[cfg(test)]
@@ -346,5 +462,58 @@ mod tests {
         let document: serde_yaml::Value = serde_yaml::from_str(&content).expect("parse");
         assert_eq!(document["model"]["default"].as_str(), Some("gpt-5.5"));
         assert!(document["providers"]["sdkwork"].is_mapping());
+    }
+
+    #[test]
+    fn read_back_reports_materialized_provider_entry() {
+        let dir = std::env::temp_dir().join(format!(
+            "sdkwork-hermes-readback-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let config_path = dir.join("config.yaml");
+        std::fs::write(
+            &config_path,
+            "model:\n  default: gpt-5.4\nproviders:\n  sdkwork:\n    name: SDKWork BirdCoder\n    api: https://api.birdcoder.com\n    transport: openai_chat\n    key_env: SDKWORK_BIRDOODER_RELAY_API_KEY\n",
+        )
+        .expect("seed");
+        let env_path = dir.join(".env");
+        std::fs::write(&env_path, "SDKWORK_BIRDOODER_RELAY_API_KEY=token-abc\n").expect("seed");
+
+        let status = read_hermes_model_configuration_at(&config_path, Some(&env_path))
+            .expect("read back");
+        assert_eq!(
+            status.materialization,
+            sdkwork_agent_kernel::ProviderModelMaterializationState::Materialized
+        );
+        assert_eq!(
+            status.effective_base_url.as_deref(),
+            Some("https://api.birdcoder.com")
+        );
+        assert_eq!(status.effective_default_model.as_deref(), Some("gpt-5.4"));
+        assert!(status.credential_configured);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_back_reports_not_materialized_without_provider_entry() {
+        let dir = std::env::temp_dir().join(format!(
+            "sdkwork-hermes-readback-native-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let config_path = dir.join("config.yaml");
+        std::fs::write(&config_path, "model:\n  default: gemini-2.5-pro\n").expect("seed");
+
+        let status = read_hermes_model_configuration_at(&config_path, None).expect("read back");
+        assert_eq!(
+            status.materialization,
+            sdkwork_agent_kernel::ProviderModelMaterializationState::NotMaterialized
+        );
+        assert_eq!(status.effective_default_model.as_deref(), Some("gemini-2.5-pro"));
+        assert!(!status.issues.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

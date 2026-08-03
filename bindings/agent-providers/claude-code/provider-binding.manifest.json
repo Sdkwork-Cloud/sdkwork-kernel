@@ -52,7 +52,7 @@
         {
           "kind": "typescript_node",
           "driver_id": "driver.claude-code.model.chat.ts",
-          "runtime_operations": ["ping", "model_chat"],
+          "runtime_operations": ["ping", "model_chat", "model_chat_stream"],
           "package": "@anthropic-ai/claude-agent-sdk"
         }
       ]

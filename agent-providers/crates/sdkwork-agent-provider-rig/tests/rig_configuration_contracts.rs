@@ -14,7 +14,9 @@ fn rig_configuration_spec_requires_secret_refs_and_security_defaults() {
         .expect("rig configuration spec loads");
 
     assert!(spec.required_keys().contains(&"agent.display_name"));
-    assert!(spec.required_keys().contains(&"llm.rig.provider_id"));
+    // The model provider id is optional: the backend resolves it when set and
+    // the official adapter requires it explicitly (llm.rig.provider_id=openai).
+    assert!(!spec.required_keys().contains(&"llm.rig.provider_id"));
     assert!(spec.required_keys().contains(&"llm.rig.api_key"));
     assert!(spec.required_keys().contains(&"runtime.rig.backend_mode"));
     assert!(spec.required_keys().contains(&"security.fail_closed"));

@@ -865,26 +865,31 @@ export function createOpencodeClient(options = {}) {
       // v1 fallback cannot satisfy this mirror: only the durable v2 surface
       // (session.prompt + event.subscribe under v2) may be used.
     },
-    v2: {
-      session: {
-        prompt: async (parameters = {}, { signal } = {}) => {
-          record.session_prompt_v2 = { parameters, signal_present: Boolean(signal) };
-          activeSessionId = parameters.sessionID;
-          submittedPrompt = parameters.prompt?.text;
-          resolvePrompt();
-          capture(record);
-          return {
-            data: {
-              admittedSeq: 41,
-              id: parameters.id,
-              sessionID: parameters.sessionID,
-              prompt: { text: submittedPrompt },
-              delivery: parameters.delivery,
-              timeCreated: Date.now(),
-            },
-          };
+      v2: {
+        session: {
+          prompt: async (parameters = {}, { signal } = {}) => {
+            record.session_prompt_v2 = { parameters, signal_present: Boolean(signal) };
+            activeSessionId = parameters.sessionID;
+            submittedPrompt = parameters.prompt?.text;
+            resolvePrompt();
+            capture(record);
+            return {
+              data: {
+                admittedSeq: 41,
+                id: parameters.id,
+                sessionID: parameters.sessionID,
+                prompt: { text: submittedPrompt },
+                delivery: parameters.delivery,
+                timeCreated: Date.now(),
+              },
+            };
+          },
+          active: async (parameters = {}, { signal } = {}) => {
+            record.session_active_v2 = { parameters, signal_present: Boolean(signal) };
+            capture(record);
+            return { data: { data: {} } };
+          },
         },
-      },
       event: {
         subscribe: async (parameters = {}, { signal } = {}) => {
           record.event_subscribe_v2 = { parameters, signal_present: Boolean(signal) };
@@ -1738,6 +1743,7 @@ assert.deepEqual(opencodeCapture.session_create, {
       { permission: 'grep', pattern: '*', action: 'allow' },
       { permission: 'list', pattern: '*', action: 'allow' },
     ],
+    model: { id: 'big-pickle', providerID: 'opencode' },
   },
   signal_present: true,
 });
@@ -1864,17 +1870,25 @@ assert.deepEqual(
 const durableOpencodeCapture = JSON.parse(
   fs.readFileSync(opencodeDurableCapturePath, 'utf8'),
 );
-assert.deepEqual(durableOpencodeCapture.session_prompt_v2, {
-  parameters: {
-    sessionID: 'opencode-durable-created',
-    id: 'msg_req-opencode-durable',
-    prompt: { text: 'OpenCode durable prompt' },
-    delivery: 'steer',
-    resume: true,
-  },
+assert.equal(
+  durableOpencodeCapture.session_prompt_v2.parameters.sessionID,
+  'opencode-durable-created',
+);
+assert.match(
+  durableOpencodeCapture.session_prompt_v2.parameters.id,
+  /^msg_req-opencode-durable_[a-z0-9]+$/,
+  'Durable prompt ids must be unique per admission',
+);
+assert.deepEqual(durableOpencodeCapture.session_prompt_v2.parameters.prompt, {
+  text: 'OpenCode durable prompt',
+});
+assert.equal(durableOpencodeCapture.session_prompt_v2.parameters.delivery, 'steer');
+assert.equal(durableOpencodeCapture.session_prompt_v2.parameters.resume, true);
+assert.equal(durableOpencodeCapture.session_prompt_v2.signal_present, true);assert.deepEqual(durableOpencodeCapture.event_subscribe_v2, {
+  parameters: {},
   signal_present: true,
 });
-assert.deepEqual(durableOpencodeCapture.event_subscribe_v2, {
+assert.deepEqual(durableOpencodeCapture.session_active_v2, {
   parameters: {},
   signal_present: true,
 });

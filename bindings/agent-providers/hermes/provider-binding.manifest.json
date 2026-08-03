@@ -34,7 +34,8 @@
           "runtime_operations": [
             "ping",
             "session_create",
-            "session_list"
+            "session_list",
+            "session_history"
           ],
           "python_module": "hermes_state"
         },
@@ -44,7 +45,8 @@
           "runtime_operations": [
             "ping",
             "session_create",
-            "session_list"
+            "session_list",
+            "session_history"
           ],
           "transport": "jsonrpc_stdio"
         }

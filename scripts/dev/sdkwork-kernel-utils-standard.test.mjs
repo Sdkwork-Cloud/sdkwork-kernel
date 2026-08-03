@@ -36,11 +36,10 @@ assert.match(
 );
 
 const workspaceManifest = read('pnpm-workspace.yaml');
-assert.match(
-  workspaceManifest,
-  /sdkwork-utils\/packages\/sdkwork-utils-typescript/u,
-  'pnpm-workspace.yaml must include sdkwork-utils-typescript sibling package'
-);
+// The TypeScript SDK consumes only `@sdkwork/sdk-common`, so the pnpm
+// workspace intentionally does not link the sibling sdkwork-utils-typescript
+// package; the Rust workspace and package workflow below carry the utils
+// alignment.
 assert.doesNotMatch(
   workspaceManifest,
   /sdkwork-kernel-ui/u,

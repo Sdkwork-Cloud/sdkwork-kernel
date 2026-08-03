@@ -76,8 +76,22 @@ async fn live_send_message_and_stream_reply() {
                     diagnostics.iter().find_map(|diagnostic| {
                         let diagnostic = diagnostic.as_str()?;
                         let (key, value) = diagnostic.split_once('=')?;
-                        (key.trim() == "sdk_runtime_session_id").then(|| value.trim().to_string())
+                        (key.trim() == "sdk_runtime_provider_session_id")
+                            .then(|| value.trim().to_string())
                     })
+                })
+                .or_else(|| {
+                    payload
+                        .get("diagnostics")
+                        .and_then(|value| value.as_array())
+                        .and_then(|diagnostics| {
+                            diagnostics.iter().find_map(|diagnostic| {
+                                let diagnostic = diagnostic.as_str()?;
+                                let (key, value) = diagnostic.split_once('=')?;
+                                (key.trim() == "sdk_runtime_session_id")
+                                    .then(|| value.trim().to_string())
+                            })
+                        })
                 })
         })
         .expect("live invoke returns a provider session id");

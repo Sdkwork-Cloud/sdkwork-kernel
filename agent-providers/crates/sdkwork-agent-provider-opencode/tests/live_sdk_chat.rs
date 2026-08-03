@@ -16,14 +16,29 @@ fn live_sdk_model_chat() {
     eprintln!("opencode_live_phase=bootstrap_complete");
     let models = integration.model.list_models();
     assert!(!models.is_empty(), "opencode SDK must publish models");
-    let model_id = models[0].model_id.clone();
+    // The durable v2 runner resolves models from the server's built-in
+    // catalog, not config-file providers: prefer OPENCODE_MODEL (the agents
+    // e2e convention) and otherwise pick a catalog model instead of the first
+    // (often config-file) entry.
+    let model_id = std::env::var("OPENCODE_MODEL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            models
+                .iter()
+                .map(|model| model.model_id.as_str())
+                .find(|model_id| model_id.starts_with("opencode/"))
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "opencode/deepseek-v4-flash-free".to_string());
     eprintln!("opencode_live_phase=models model={model_id}");
 
     let request = sdkwork_agent_kernel::ModelRequest::new(
         format!("opencode-live-{}", std::process::id()),
         vec!["Reply with exactly one word: OK".to_string()],
     )
-    .with_model_id(model_id.clone());
+    .with_model_id(model_id.clone())
+    .with_metadata("sdkwork.code_engine.require_live_provider", "true");
     let response = integration
         .model
         .invoke(request)

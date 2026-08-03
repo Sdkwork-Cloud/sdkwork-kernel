@@ -255,7 +255,7 @@ assert.equal(chatResponse.result.gateway_method, 'prompt.submit');
 assert.deepEqual(chatResponse.result.messages, ['Hello world']);
 assert.equal(chatResponse.result.provider_session_id, '20260802_120000_abc123');
 assert.ok(
-  chatResponse.result.diagnostics.some((line) => line === 'sdk_runtime_session_id=20260802_120000_abc123'),
+  chatResponse.result.diagnostics.some((line) => line === 'sdk_runtime_provider_session_id=20260802_120000_abc123'),
   'diagnostics must carry the persistent provider session id',
 );
 

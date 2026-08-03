@@ -301,7 +301,16 @@ Rules:
   use `client.v2.session` from the official `@opencode-ai/sdk/v2` export against
   the owning `OPENCODE_SERVER_URL`; `fork` uses the same package's official
   root client. Adapters `MUST NOT` treat the v2 export's legacy
-  `client.session` projection as the `/api/session/*` control surface.
+  `client.session` projection as the `/api/session/*` control surface. Chat
+  uses the durable `/api/session/{id}/prompt` route with `delivery: steer` and
+  `resume: true`, consumes the `session.next.*` runner event family (the
+  durable runner does not emit `session.idle`), and gates turn completion by
+  polling `v2.session.active` until the drain ends; the requested model is
+  applied at session creation and confirmed through `v2.session.switchModel`
+  because the durable runner resolves models from the server's built-in
+  catalog rather than config-file providers. In-process servers bind an
+  ephemeral OS-assigned port instead of the SDK default so concurrent turns
+  cannot collide on one shared port.
 - The Codex executable reference lane uses one resident app-server connection.
   An active canonical Session is bound to its exact Node worker and model
   request before the Turn starts; control is multiplexed to that worker through

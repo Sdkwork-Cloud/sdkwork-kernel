@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
+import { createServer as createTcpServer } from 'node:net';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -1553,9 +1554,7 @@ function createClaudeStreamProjection(stream) {
   };
 
   const blockKey = (event, index) => {
-    const messageId = optionalProviderIdentifier(event?.uuid)
-      ?? currentMessageId
-      ?? `message.${stream.modelRequestId}`;
+    const messageId = currentMessageId ?? `message.${stream.modelRequestId}`;
     return `${messageId}:block:${Number.isSafeInteger(index) ? index : 0}`;
   };
 
@@ -1564,6 +1563,11 @@ function createClaudeStreamProjection(stream) {
       return;
     }
     if (lifecycle === 'item.completed') {
+      // Terminal reasoning items must carry text (kernel validation); the
+      // model can emit empty thinking blocks, so drop those completions.
+      if (block.item.type === 'reasoning' && !String(block.item.text ?? '').trim()) {
+        return;
+      }
       block.completed = true;
     }
     await stream.event(lifecycle, block.item, rawEvent, providerSessionId);
@@ -1576,7 +1580,8 @@ function createClaudeStreamProjection(stream) {
     providerSessionId,
   ) => {
     const id = optionalProviderIdentifier(contentBlock?.id) ?? blockKey(event, index);
-    let block = blocks.get(id);
+    const indexKey = blockKey(event, index);
+    let block = blocks.get(id) ?? blocks.get(indexKey);
     if (block) {
       return block;
     }
@@ -1586,6 +1591,12 @@ function createClaudeStreamProjection(stream) {
     }
     block = { id, item, completed: false, inputJson: '' };
     blocks.set(id, block);
+    // Index alias keeps content_block_delta / content_block_stop lookups (which
+    // only carry an index) on the same block even when the provider assigned an
+    // explicit content-block id (tool_use blocks, final message parts).
+    if (indexKey !== id) {
+      blocks.set(indexKey, block);
+    }
     if (item.type === 'mcp_tool_call' || item.type === 'command_execution'
       || item.type === 'file_change' || item.type === 'web_search') {
       tools.set(id, block);
@@ -1599,7 +1610,6 @@ function createClaudeStreamProjection(stream) {
     const nativeType = nativeEvent?.type;
     if (nativeType === 'message_start') {
       currentMessageId = optionalProviderIdentifier(nativeEvent?.message?.id)
-        ?? optionalProviderIdentifier(event?.uuid)
         ?? currentMessageId;
       await emitTurnStarted(event, providerSessionId);
       return;
@@ -1963,7 +1973,16 @@ async function withOpencodeClient(moduleNamespace, workingDirectory, signal, inv
   }
 
   if (typeof createOpencodeServer === 'function' && typeof createOpencodeClient === 'function') {
-    const server = await createOpencodeServer({ signal });
+    const config = resolveOpencodeServerConfig();
+    // The SDK server binds a fixed default port (4096); concurrent in-process
+    // servers (parallel sessions or turns) would collide on it. Bind an
+    // ephemeral free port per server so every invocation is isolated.
+    const port = await resolveEphemeralPort();
+    const server = await createOpencodeServer({
+      signal,
+      ...(port ? { port } : {}),
+      ...(config ? { config } : {}),
+    });
     try {
       return await invoke(createOpencodeClient({
         baseUrl: server?.url,
@@ -3319,7 +3338,7 @@ async function invokeOpencodeClient(
   const permission = resolveOpencodePermissionRules(operation);
   const createdSessionId = requestedProviderSessionId
     ? null
-    : await createOpencodeSession(client, signal, permission);
+    : await createOpencodeSession(client, signal, permission, operation);
   const sessionId = requestedProviderSessionId
     ? await verifyOpencodeSession(client, requestedProviderSessionId, signal)
     : createdSessionId;
@@ -3368,11 +3387,50 @@ async function invokeOpencodeClient(
         },
         { signal },
       );
+  // The durable v2 runner does not emit `session.idle` on the event stream,
+  // and `v2.session.wait` is not available on every server generation. The
+  // completion gate polls `v2.session.active` until the session's drain ends;
+  // content still flows through the event projection while the loop runs.
+  const turnCompletion = v2Durable
+    ? (async () => {
+        let eventError = null;
+        const eventLoop = eventCompletion.catch((error) => {
+          eventError = error;
+        });
+        try {
+          await promptRequest;
+          // Wait until the durable loop has actually started (first session
+          // event) before polling: polling an admitted-but-not-running session
+          // would observe the idle state and return immediately.
+          await Promise.race([eventProjection.whenTurnStarted(), promptRequest]);
+          await pollOpencodeSessionIdle(client, sessionId, signal);
+        } finally {
+          // Let the event loop drain trailing content and observe a terminal
+          // failure before the subscription is closed.
+          await Promise.race([
+            eventLoop,
+            new Promise((resolve) => setTimeout(resolve, 1_500)),
+          ]);
+        }
+        if (eventError) {
+          throw eventError;
+        }
+      })()
+    : eventCompletion;
   let response;
   try {
-    [response] = await Promise.all([promptRequest, eventCompletion]);
+    [response] = await Promise.all([promptRequest, turnCompletion]);
   } finally {
-    await subscription.stream.return?.();
+    // The v2 durable SSE transport can leave return() pending indefinitely;
+    // bound the close so a finished turn never blocks the worker.
+    try {
+      await Promise.race([
+        subscription.stream.return?.(),
+        new Promise((resolve) => setTimeout(resolve, 1_000)),
+      ]);
+    } catch {
+      // the transport may already be aborted by the signal
+    }
     clearPendingSdkInteractions(
       operation.model_request_id,
       'OpenCode turn ended before the interaction was resolved',
@@ -3400,12 +3458,45 @@ async function invokeOpencodeClient(
   return stream ? { ...result, chunks: stream.chunks } : result;
 }
 
+const OPENCODE_SESSION_POLL_INTERVAL_MS = 250;
+
+async function pollOpencodeSessionIdle(client, sessionId, signal) {
+  if (typeof client?.v2?.session?.active !== 'function') {
+    // No active-drain surface: fall back to a bounded sleep so the turn can
+    // still complete through the event stream on older server generations.
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    return;
+  }
+  for (;;) {
+    if (signal?.aborted) {
+      throw signal.reason instanceof Error ? signal.reason : new Error('aborted');
+    }
+    const active = await client.v2.session.active({}, { signal });
+    const error = readProviderError(active?.error);
+    if (error) {
+      // The active-drain surface can be unavailable on some server builds;
+      // fall back to the bounded sleep instead of failing the turn.
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      return;
+    }
+    const map = active?.data?.data ?? active?.data ?? {};
+    const activeIds = typeof map === 'object' && map !== null ? Object.keys(map) : [];
+    if (!activeIds.includes(sessionId)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, OPENCODE_SESSION_POLL_INTERVAL_MS));
+  }
+}
+
 function buildOpencodeV2PromptId(operation) {
   const requestId = optionalOperationString(operation.model_request_id, 'model_request_id');
   const suffix = requestId
     ? requestId.replace(/[^A-Za-z0-9_-]/gu, '-')
     : `turn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-  return suffix.startsWith('msg_') ? suffix : `msg_${suffix}`;
+  // The durable store rejects a prompt id that already has a record, so the
+  // id must be unique per admission (never reuse a plain request id).
+  const unique = `${suffix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  return unique.startsWith('msg_') ? unique : `msg_${unique}`;
 }
 
 function buildOpencodeV2PromptText(operation) {
@@ -3435,9 +3526,16 @@ async function consumeOpencodeSessionEvents(eventStream, projection) {
 function createOpencodeEventProjection(sessionId, stream, activity, client, signal, operation) {
   const messageRoles = new Map();
   const parts = new Map();
+  const sessionNextParts = new Map();
+  let sessionNextText = '';
   let turnObserved = false;
   let idleEvent = null;
   let latestAssistantMessageId = null;
+  let resolveTurnStarted = null;
+  let turnStartedResolved = false;
+  const turnStarted = new Promise((resolve) => {
+    resolveTurnStarted = resolve;
+  });
 
   const emitPart = async (lifecycle, partState, rawEvent) => {
     if (!stream || !partState || partState.completed) {
@@ -3501,6 +3599,59 @@ function createOpencodeEventProjection(sessionId, stream, activity, client, sign
     }
   };
 
+  // Synthesizes kernel part items from the durable `session.next.*` runner
+  // events, reusing the legacy part normalization for kernel event parity.
+  // Provider part ids (text-0, reasoning-0) repeat across turns, so the
+  // kernel-facing item id is scoped to the assistant message to stay unique.
+  const pushSessionNextPart = async (part, rawEvent, terminal = false) => {
+    const partId = optionalProviderIdentifier(part?.id);
+    const messageId = optionalProviderIdentifier(part?.messageID)
+      ?? latestAssistantMessageId
+      ?? `message.${sessionId}`;
+    if (partId) {
+      latestAssistantMessageId = messageId;
+    }
+    const itemId = partId ? `${messageId}:${partId}` : null;
+    const normalized = normalizeOpencodeStreamPart(
+      itemId ? { ...part, id: itemId } : part,
+    );
+    if (!normalized) {
+      return;
+    }
+    // Terminal reasoning items must carry text (kernel validation); drop
+    // empty reasoning parts instead of completing them without content.
+    if (normalized.type === 'reasoning' && !String(normalized.text ?? '').trim()) {
+      return;
+    }
+    let state = sessionNextParts.get(itemId);
+    const isNew = !state;
+    if (isNew && terminal) {
+      state = { item: normalized, messageId, completed: false };
+      sessionNextParts.set(itemId, state);
+      await emitPart('item.started', state, rawEvent);
+    } else {
+      const previous = state?.item?.text ?? '';
+      const nextText = normalized.text ?? '';
+      state = {
+        item: normalized,
+        messageId,
+        completed: terminal,
+      };
+      sessionNextParts.set(itemId, state);
+      if (isNew) {
+        await emitPart('item.started', state, rawEvent);
+      } else if (normalized.type === 'agent_message' && nextText.startsWith(previous)) {
+        await stream?.chunk(nextText.slice(previous.length));
+        await emitPart('item.updated', state, rawEvent);
+      } else {
+        await emitPart('item.updated', state, rawEvent);
+      }
+    }
+    if (terminal && normalized.type === 'agent_message') {
+      await emitPart('item.completed', state, rawEvent);
+    }
+  };
+
   return {
     belongsToSession(event) {
       const candidate = opencodeEventSessionId(event);
@@ -3508,6 +3659,13 @@ function createOpencodeEventProjection(sessionId, stream, activity, client, sign
     },
     async push(event) {
       const properties = opencodeEventData(event);
+      if (
+        !turnStartedResolved
+        && opencodeEventSessionId(event) === sessionId
+      ) {
+        turnStartedResolved = true;
+        resolveTurnStarted();
+      }
       if (event?.type === 'message.updated') {
         const info = properties.info;
         const messageId = optionalProviderIdentifier(info?.id);
@@ -3566,6 +3724,124 @@ function createOpencodeEventProjection(sessionId, stream, activity, client, sign
           activity,
           event,
         );
+      } else if (event?.type === 'session.next.prompt.admitted') {
+        turnObserved = true;
+        await activity.working(sessionId);
+      } else if (event?.type === 'session.next.prompted') {
+        turnObserved = true;
+      } else if (event?.type === 'session.next.step.started') {
+        turnObserved = true;
+        await activity.working(sessionId);
+        await stream?.event('turn.started', null, event, sessionId);
+      } else if (event?.type === 'session.next.step.ended') {
+        turnObserved = true;
+        await activity.working(sessionId);
+        await stream?.event('turn.updated', null, event, sessionId);
+      } else if (event?.type === 'session.next.step.failed') {
+        const message = readOpencodeEventError(event) ?? 'OpenCode step failed';
+        await stream?.terminal('turn.failed', event, sessionId, {
+          error: { message },
+        });
+        throw new Error(`opencode step failed: ${message}`);
+      } else if (event?.type === 'session.next.text.started') {
+        turnObserved = true;
+        await activity.working(sessionId);
+        await stream?.event('turn.started', null, event, sessionId);
+      } else if (event?.type === 'session.next.text.delta') {
+        turnObserved = true;
+        const delta = String(properties.delta ?? '');
+        sessionNextText += delta;
+        if (delta) {
+          await stream?.chunk(delta);
+        }
+      } else if (event?.type === 'session.next.text.ended') {
+        turnObserved = true;
+        const finalText = String(properties.text ?? '');
+        if (finalText) {
+          // The terminal event carries the authoritative full text even when
+          // the server buffered the deltas; the delta accumulator may be a
+          // prefix of it.
+          sessionNextText = finalText;
+        }
+        await pushSessionNextPart(
+          {
+            id: properties.textID,
+            messageID: properties.assistantMessageID,
+            type: 'text',
+            text: String(properties.text ?? ''),
+          },
+          event,
+          true,
+        );
+      } else if (event?.type === 'session.next.reasoning.started') {
+        turnObserved = true;
+        await pushSessionNextPart(
+          {
+            id: properties.reasoningID,
+            messageID: properties.assistantMessageID,
+            type: 'reasoning',
+            text: '',
+          },
+          event,
+        );
+      } else if (event?.type === 'session.next.reasoning.delta') {
+        turnObserved = true;
+        await pushSessionNextPart(
+          {
+            id: properties.reasoningID,
+            messageID: properties.assistantMessageID,
+            type: 'reasoning',
+            text: String(properties.delta ?? ''),
+          },
+          event,
+        );
+      } else if (event?.type === 'session.next.reasoning.ended') {
+        turnObserved = true;
+        await pushSessionNextPart(
+          {
+            id: properties.reasoningID,
+            messageID: properties.assistantMessageID,
+            type: 'reasoning',
+            text: String(properties.text ?? ''),
+          },
+          event,
+          true,
+        );
+      } else if (event?.type === 'session.next.tool.called') {
+        turnObserved = true;
+        await pushSessionNextPart(
+          {
+            id: properties.callID,
+            messageID: properties.assistantMessageID,
+            type: 'tool',
+            tool: properties.tool,
+            state: { status: 'running', input: properties.input ?? {} },
+            callID: properties.callID,
+          },
+          event,
+        );
+      } else if (
+        event?.type === 'session.next.tool.success'
+        || event?.type === 'session.next.tool.failed'
+      ) {
+        turnObserved = true;
+        await pushSessionNextPart(
+          {
+            id: properties.callID,
+            messageID: properties.assistantMessageID,
+            type: 'tool',
+            tool: properties.tool,
+            state: {
+              status: event.type === 'session.next.tool.success' ? 'completed' : 'error',
+              input: properties.input ?? {},
+              output: properties.result ?? properties.structured ?? null,
+              error: properties.error ?? null,
+            },
+            callID: properties.callID,
+          },
+          event,
+          true,
+        );
       } else if (event?.type === 'session.error') {
         const message = readOpencodeEventError(event) ?? 'OpenCode session failed';
         await stream?.terminal('turn.failed', event, sessionId, {
@@ -3581,9 +3857,25 @@ function createOpencodeEventProjection(sessionId, stream, activity, client, sign
       }
       return false;
     },
+    whenTurnStarted() {
+      return turnStarted;
+    },
     assistantText() {
       // Durable v2 responses only admit the input (`SessionInputAdmitted`);
       // the assistant content arrives exclusively through the event stream.
+      if (sessionNextText.trim()) {
+        return sessionNextText;
+      }
+      // Some server/model combinations deliver the full text in the terminal
+      // `text.ended` event without preceding incremental `text.delta` frames;
+      // the normalized part snapshot carries that full text.
+      const nextPartText = [...sessionNextParts.values()]
+        .filter((state) => state.item.type === 'agent_message' && state.item.text)
+        .map((state) => String(state.item.text))
+        .join('\n');
+      if (nextPartText.trim()) {
+        return nextPartText;
+      }
       return [...parts.values()]
         .filter((state) => state.item.type === 'agent_message' && state.item.text)
         .map((state) => String(state.item.text))
@@ -3622,6 +3914,15 @@ function createOpencodeEventProjection(sessionId, stream, activity, client, sign
     },
     async complete(providerSessionId) {
       for (const state of parts.values()) {
+        if (state.completed) {
+          continue;
+        }
+        if (isToolItem(state.item) && !isTerminalProviderItemStatus(state.item.status)) {
+          state.item = { ...state.item, status: 'completed' };
+        }
+        await emitPart('item.completed', state, idleEvent);
+      }
+      for (const state of sessionNextParts.values()) {
         if (state.completed) {
           continue;
         }
@@ -3763,16 +4064,87 @@ async function verifyOpencodeSession(client, requestedProviderSessionId, signal)
   );
 }
 
-async function createOpencodeSession(client, signal, permission) {
+async function createOpencodeSession(client, signal, permission, operation) {
+  const model = resolveOpencodeModelSelection(operation);
   const created = await client.session.create(
-    permission ? { permission } : {},
+    {
+      ...(permission ? { permission } : {}),
+      ...(model ? { model: opencodeModelRef(model) } : {}),
+    },
     { signal },
   );
   const error = readProviderError(created?.error);
   if (error) {
     throw new Error(`opencode session.create failed: ${error}`);
   }
-  return requireProviderSessionId('opencode_sdk', created?.data?.id ?? created?.id);
+  const sessionId = requireProviderSessionId('opencode_sdk', created?.data?.id ?? created?.id);
+  // The durable v2 runner must use the requested model: the legacy session
+  // create route may leave the server default (e.g. the api-router) in place,
+  // which then fails the provider step. Switch the durable aggregate model
+  // explicitly when the v2 surface is available.
+  if (model && typeof client?.v2?.session?.switchModel === 'function') {
+    const switched = await client.v2.session.switchModel(
+      { sessionID: sessionId, model: opencodeModelRef(model) },
+      { signal },
+    );
+    const switchError = readProviderError(switched?.error);
+    if (switchError) {
+      throw new Error(`opencode session.switchModel failed: ${switchError}`);
+    }
+  }
+  return sessionId;
+}
+
+function opencodeModelRef(model) {
+  return { id: model.modelID, providerID: model.providerID };
+}
+
+// The in-process server receives its config through OPENCODE_CONFIG_CONTENT,
+// which takes precedence over the config file. Pass the real configuration so
+// the provider registry (and thus the durable runner's model resolution) sees
+// the configured providers instead of an empty document.
+function resolveOpencodeServerConfig() {
+  const inline = process.env.OPENCODE_CONFIG_CONTENT?.trim();
+  if (inline) {
+    try {
+      return JSON.parse(inline);
+    } catch {
+      return null;
+    }
+  }
+  const configPath = process.env.OPENCODE_CONFIG?.trim();
+  if (!configPath) {
+    return null;
+  }
+  try {
+    return JSON.parse(readFileSync(configPath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+// Reserves an OS-assigned free port for an ephemeral in-process server. The
+// socket is closed before the server binds, so the port can race; retry a few
+// times and fall back to the SDK default when the machine cannot allocate one.
+async function resolveEphemeralPort() {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const port = await new Promise((resolve, reject) => {
+        const probe = createTcpServer();
+        probe.once('error', reject);
+        probe.listen(0, '127.0.0.1', () => {
+          const address = probe.address();
+          probe.close(() => resolve(typeof address === 'object' && address ? address.port : 0));
+        });
+      });
+      if (port) {
+        return port;
+      }
+    } catch {
+      // transient probe failure: retry before falling back to the SDK default
+    }
+  }
+  return null;
 }
 
 async function updateOpencodeSessionPermissions(client, sessionId, signal, permission) {

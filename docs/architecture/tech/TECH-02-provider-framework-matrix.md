@@ -163,10 +163,17 @@ a binding manifest declares `integration_sources`.
 - **Strengths:** Bun server SDK through the typed `@opencode-ai/sdk@1.18.11`
   worker; model chat prefers the durable v2 surface (`client.v2.session.prompt`
   with `delivery: steer` and `resume: true` against `/api/session/{id}/prompt`,
-  plus `client.v2.event.subscribe` against `/api/event`) and falls back to the
-  legacy v1 routes on older SDKs; the worker normalizes v2 `data` payloads and
-  sync-bridge envelopes (`{type: "sync", syncEvent}` with versioned type
-  suffixes) to one event shape. Official `client.v2.session`
+  plus `client.v2.event.subscribe` against `/api/event`). The durable runner
+  emits `session.next.*` events (step/text/reasoning/tool lifecycle) instead of
+  the legacy `message.part.updated` family and never emits `session.idle`; the
+  worker normalizes both event families and gates turn completion by polling
+  `v2.session.active` until the session's drain ends. Sessions are created with
+  the requested model through the official model ref and confirmed with
+  `v2.session.switchModel`; the server's built-in model catalog is used (the
+  durable runner cannot resolve config-file providers). In-process servers bind
+  an ephemeral OS-assigned port instead of the SDK default so concurrent turns
+  cannot collide on one shared port. Legacy v1 routes remain
+  the fallback for older SDKs. Official `client.v2.session`
   `interrupt`/`compact` and root-client `fork` are wired as policy-gated
   `sdk.session.control` operations with exact session identity.
 - **Package evidence:** npm tarball SHA-1

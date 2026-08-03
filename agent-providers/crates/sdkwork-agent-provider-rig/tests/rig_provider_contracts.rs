@@ -1,11 +1,11 @@
 use sdkwork_agent_kernel::{
     AgentExecutionRequest, AgentExecutionService, AgentExecutionStatus, KernelErrorKind,
     KernelResult, KnowledgeDocumentFilter, KnowledgeDocumentKind, KnowledgeProvider,
-    KnowledgeRetrievalMethod, KnowledgeSearchRequest, McpProvider, MemoryProvider, MemoryRecord,
-    MemoryScope, ModelExecutionRequest, ModelExecutionService, ModelProvider, ModelRequest,
-    ModelResponse, ModelResponseFormat, PlanningProvider, PolicyCategory, PolicyDecisionValue,
-    PolicyProvider, PolicyRequest, ProtocolAdapterRequest, ProtocolFamily, ProtocolObjectKind,
-    RedactionClassification, RuntimeBuilder, SideEffectLevel, TrustLevel,
+    KnowledgeRetrievalMethod, KnowledgeSearchRequest, McpProvider, McpTransportKind, MemoryProvider,
+    MemoryRecord, MemoryScope, ModelExecutionRequest, ModelExecutionService, ModelProvider,
+    ModelRequest, ModelResponse, ModelResponseFormat, PlanningProvider, PolicyCategory,
+    PolicyDecisionValue, PolicyProvider, PolicyRequest, ProtocolAdapterRequest, ProtocolFamily,
+    ProtocolObjectKind, RedactionClassification, RuntimeBuilder, SideEffectLevel, TrustLevel,
 };
 use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
 use sdkwork_agent_provider_rig::{
@@ -78,7 +78,7 @@ fn rig_mcp_provider_exposes_only_implemented_resources_and_prompts() {
 
     let server = provider.list_servers().expect("list_servers")[0].clone();
     assert_eq!(server.provider_id, ids::MCP_PROVIDER_ID);
-    assert_eq!(server.transport, "sdkwork.rig.adapter");
+    assert_eq!(server.transport, McpTransportKind::Sse);
     assert!(!server.capabilities.contains(&"mcp.tools".to_string()));
     assert!(server.capabilities.contains(&"mcp.resources".to_string()));
     assert!(server.capabilities.contains(&"mcp.prompts".to_string()));

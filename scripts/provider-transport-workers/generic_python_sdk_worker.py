@@ -699,6 +699,8 @@ def _run_hermes_turn(client, operation, emit_stream, request_id=None):
     text, usage, status = client.submit_prompt(live_session_id, prompt, on_event)
     if status == "failed" or status == "error":
         raise RuntimeError("Hermes turn failed with status {0}".format(status))
+    if not (text or "").strip():
+        raise RuntimeError("Hermes turn completed without assistant content")
     return text, usage, stored_session_id
 
 

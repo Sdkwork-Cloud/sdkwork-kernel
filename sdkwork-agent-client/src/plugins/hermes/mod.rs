@@ -318,9 +318,8 @@ mod tests {
             response.content
         );
         assert!(
-            response.content.contains("run_agent stub")
-                || response.content.to_ascii_lowercase().contains("hermes"),
-            "expected hermes sdk-backed response, got: {}",
+            !response.content.contains("Mock response"),
+            "direct mock fallback must not be returned: {}",
             response.content
         );
     }

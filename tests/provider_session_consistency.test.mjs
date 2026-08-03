@@ -13,9 +13,27 @@ const providers = [
     integration: 'src/sdk_integration.rs',
     officialSdkHistory: true,
   },
-  { id: 'codex', adapter: 'src/lib.rs', integration: 'src/sdk_integration.rs' },
+  {
+    id: 'codex',
+    adapter: 'src/lib.rs',
+    integration: 'src/sdk_integration.rs',
+    officialSdkHistory: true,
+    // Codex routes inventory/transcript through the official app-server client
+    // protocol instead of the shared AgentSdk runtime helpers.
+    sessionListMarker: /ClientRequest::ThreadList/u,
+    sessionHistoryMarker: /ClientRequest::ThreadTurnsList/u,
+  },
   { id: 'gemini-cli', adapter: 'src/lib.rs', integration: 'src/sdk_integration.rs' },
-  { id: 'hermes', adapter: 'src/lib.rs', integration: 'src/sdk_integration.rs' },
+  {
+    id: 'hermes',
+    adapter: 'src/lib.rs',
+    integration: 'src/sdk_integration.rs',
+    officialSdkHistory: true,
+    // Hermes routes inventory/transcript through the TUI gateway runtime
+    // (hermes_state python backend), mirroring the desktop app.
+    sessionListMarker: /SdkRuntimeOperation::SessionList/u,
+    sessionHistoryMarker: /SdkRuntimeOperation::SessionHistory/u,
+  },
   { id: 'mimo-code', adapter: 'src/lib.rs', integration: 'src/sdk_integration.rs' },
   { id: 'openclaw', adapter: 'src/lib.rs', integration: 'src/sdk_integration.rs' },
   {
@@ -102,13 +120,13 @@ test('every shipped provider exposes one complete unified session surface', asyn
         `${provider.id} official SDK backend must expose list and history`,
       );
       assert.match(
-        integrationSource,
-        /list_all_provider_sessions_from_runtime/u,
+        `${integrationSource}\n${adapterSource}`,
+        provider.sessionListMarker ?? /list_all_provider_sessions_from_runtime/u,
         `${provider.id} inventory must route through the official SDK runtime`,
       );
       assert.match(
-        integrationSource,
-        /load_all_provider_messages_from_runtime/u,
+        `${integrationSource}\n${adapterSource}`,
+        provider.sessionHistoryMarker ?? /load_all_provider_messages_from_runtime/u,
         `${provider.id} transcript must route through the official SDK runtime`,
       );
       assert.doesNotMatch(

@@ -5,7 +5,7 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AgentBridgeType {
     OpenClaw,
-    ZeroClaw,
+    ZeroCloud,
     Hermes,
     Codex,
     ClaudeCode,
@@ -18,7 +18,7 @@ impl fmt::Display for AgentBridgeType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::OpenClaw => write!(f, "openclaw"),
-            Self::ZeroClaw => write!(f, "zeroclaw"),
+            Self::ZeroCloud => write!(f, "zeroclaw"),
             Self::Hermes => write!(f, "hermes"),
             Self::Codex => write!(f, "codex"),
             Self::ClaudeCode => write!(f, "claude-code"),

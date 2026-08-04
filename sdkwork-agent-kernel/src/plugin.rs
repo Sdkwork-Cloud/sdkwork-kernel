@@ -362,6 +362,12 @@ struct PluginEntry {
     contributions: Vec<PluginContribution>,
 }
 
+/// Shared handle to one registered plugin instance.
+type PluginHandle = (String, Arc<RwLock<Box<dyn Plugin>>>);
+
+/// Plugin handle plus the context captured at registration time.
+type PluginHandleWithContext = (String, Arc<RwLock<Box<dyn Plugin>>>, PluginContext);
+
 /// Plugin registry for managing multiple plugins
 pub struct PluginRegistry {
     plugins: RwLock<HashMap<String, PluginEntry>>,
@@ -494,7 +500,7 @@ impl PluginRegistry {
 
     /// Initialize all plugins
     pub fn initialize_all(&self) -> KernelResult<Vec<String>> {
-        let plugin_handles: Vec<(String, Arc<RwLock<Box<dyn Plugin>>>, PluginContext)> = {
+        let plugin_handles: Vec<PluginHandleWithContext> = {
             let plugins = handle_lock_error(self.plugins.read())?;
             plugins
                 .iter()
@@ -551,7 +557,7 @@ impl PluginRegistry {
 
     /// Activate all initialized plugins
     pub fn activate_all(&self) -> KernelResult<Vec<String>> {
-        let plugin_handles: Vec<(String, Arc<RwLock<Box<dyn Plugin>>>)> = {
+        let plugin_handles: Vec<PluginHandle> = {
             let plugins = handle_lock_error(self.plugins.read())?;
             plugins
                 .iter()
@@ -678,7 +684,7 @@ impl PluginRegistry {
 
     /// Shutdown all plugins
     pub fn shutdown_all(&self) -> KernelResult<()> {
-        let plugin_handles: Vec<(String, Arc<RwLock<Box<dyn Plugin>>>)> = {
+        let plugin_handles: Vec<PluginHandle> = {
             let plugins = handle_lock_error(self.plugins.read())?;
             plugins
                 .iter()

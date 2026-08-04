@@ -21,7 +21,7 @@ Environment variable: `SDKWORK_KERNEL_AGENT_PLUGIN` (also declared in `specs/top
 | Value | Provider crate | Default model provider |
 | --- | --- | --- |
 | `rig` (default) | `sdkwork-agent-provider-rig` | Rig typed providers |
-| `openclaw`, `open-claw` | `sdkwork-agent-provider-openclaw` | `provider.openclaw` |
+| `openclaw`, `open-cloud` | `sdkwork-agent-provider-openclaw` | `provider.openclaw` |
 | `hermes`, `hermes-agent` | `sdkwork-agent-provider-hermes` | `provider.hermes` |
 | `codex`, `openai-codex` | `sdkwork-agent-provider-codex` | `provider.codex` |
 | `claude-code` | `sdkwork-agent-provider-claude-code` | `provider.claude-code` |
@@ -53,7 +53,7 @@ Ingress auth: `sdkwork-agent-client/src/ingress_auth.rs` (MAC / bearer profiles 
 | `builtin.openclaw` | OpenClaw | `OpenClawSdkIntegration` → `SdkModelBridgeRuntime` | SDK-backed |
 | `builtin.hermes` | Hermes | `HermesSdkIntegration` → `SdkModelBridgeRuntime` | SDK-backed |
 | `builtin.codex` | Codex | `CodexSdkIntegration` → `SdkModelBridgeRuntime` | SDK-backed |
-| `builtin.zeroclaw` | ZeroClaw | Fail-closed until adapter exists | Session store only |
+| `builtin.zeroclaw` | ZeroCloud | Fail-closed until adapter exists | Session store only |
 | `builtin.*` (codex registry) | Codex | same as codex | SDK-backed |
 
 Client-local session store: `sdkwork-agent-client/src/session/` (SQLite via `SDKWORK_DATABASE_FILE`).
@@ -111,7 +111,7 @@ pnpm test:topology
 
 ## Out of scope (not yet implemented)
 
-- ZeroClaw upstream adapter and kernel plugin
+- ZeroCloud upstream adapter and kernel plugin
 - gRPC client protocol (`AgentProtocol::Grpc`)
 - Dynamic `libloading` bridge plugins (builtins only)
 - Kernel `BridgeProviderAdapter` / in-process kernel integrator from the original design draft

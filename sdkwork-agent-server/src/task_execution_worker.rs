@@ -422,7 +422,8 @@ async fn fail_claim(
         .take(MAX_ERROR_DETAIL_CHARS)
         .collect::<String>();
     if transient && attempt < i64::try_from(config.task_worker_max_attempts).unwrap_or(i64::MAX) {
-        let backoff_secs = (config.task_worker_retry_backoff_base_secs as u64)
+        let backoff_secs = config
+            .task_worker_retry_backoff_base_secs
             .saturating_mul(1u64 << (attempt as u32).min(10))
             .min(config.task_worker_retry_backoff_max_secs);
         let next_attempt_at = sdkwork_agent_database::format_runtime_timestamp(

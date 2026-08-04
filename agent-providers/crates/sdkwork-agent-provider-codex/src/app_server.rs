@@ -2389,10 +2389,7 @@ fn normalized_approvals_reviewer(
     else {
         return Ok(None);
     };
-    let compact = value
-        .replace('-', "_")
-        .replace(' ', "_")
-        .to_ascii_lowercase();
+    let compact = value.replace(['-', ' '], "_").to_ascii_lowercase();
     match compact.as_str() {
         "user" => Ok(Some("user".to_string())),
         "auto_review" | "guardian_subagent" => Ok(Some("auto_review".to_string())),

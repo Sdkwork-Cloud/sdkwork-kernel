@@ -2,14 +2,14 @@ use crate::bridge::{AgentBridgeConfig, AgentBridgeHealth, AgentBridgeStatus};
 use crate::session::BridgeSessionRuntime;
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, SessionConfig, SessionInfo};
 
-const ZEROCLAW_LOCAL_CHAT_UNAVAILABLE: &str = "ZeroClaw local bridge is not SDK-backed yet; use AgentClientMode::Remote or select openclaw, hermes, or codex";
+const ZEROCLOUD_LOCAL_CHAT_UNAVAILABLE: &str = "ZeroCloud local bridge is not SDK-backed yet; use AgentClientMode::Remote or select openclaw, hermes, or codex";
 
-/// ZeroClaw runtime handle: session persistence only until an upstream adapter exists.
-pub struct ZeroClawRuntime {
+/// ZeroCloud runtime handle: session persistence only until an upstream adapter exists.
+pub struct ZeroCloudRuntime {
     inner: BridgeSessionRuntime,
 }
 
-impl ZeroClawRuntime {
+impl ZeroCloudRuntime {
     pub fn new(config: &AgentBridgeConfig) -> Result<Self, String> {
         Ok(Self {
             inner: BridgeSessionRuntime::new("zeroclaw", &config.bridge_id)?,
@@ -17,7 +17,7 @@ impl ZeroClawRuntime {
     }
 
     pub fn send_message(&self, _request: ChatRequest) -> Result<ChatResponse, String> {
-        Err(ZEROCLAW_LOCAL_CHAT_UNAVAILABLE.to_string())
+        Err(ZEROCLOUD_LOCAL_CHAT_UNAVAILABLE.to_string())
     }
 
     pub fn get_messages(
@@ -46,7 +46,7 @@ impl ZeroClawRuntime {
     pub fn health_check(&self) -> AgentBridgeHealth {
         AgentBridgeHealth {
             status: AgentBridgeStatus::Degraded,
-            message: Some(ZEROCLAW_LOCAL_CHAT_UNAVAILABLE.to_string()),
+            message: Some(ZEROCLOUD_LOCAL_CHAT_UNAVAILABLE.to_string()),
             last_check: chrono::Utc::now(),
         }
     }

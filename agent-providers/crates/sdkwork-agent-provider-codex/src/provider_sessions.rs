@@ -828,7 +828,7 @@ fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
         } => {
             let mut part = provider_text(item_id, "agent_message", text);
             if let Some(phase) = phase {
-                part = part.with_metadata("codex.message.phase", &provider_scalar(phase));
+                part = part.with_metadata("codex.message.phase", provider_scalar(phase));
             }
             if let Some(citation) = memory_citation {
                 part = part.with_metadata(
@@ -870,7 +870,7 @@ fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
             )
             .with_metadata("codex.command", command)
             .with_metadata("codex.command.cwd", cwd.as_str())
-            .with_metadata("codex.command.source", &provider_scalar(source))];
+            .with_metadata("codex.command.source", provider_scalar(source))];
             if let Some(plugin_id) = plugin_id {
                 parts[0] = parts[0]
                     .clone()
@@ -1041,7 +1041,7 @@ fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
                 agent_path
             ),
         )
-        .with_metadata("codex.sub_agent.kind", &provider_scalar(kind))
+        .with_metadata("codex.sub_agent.kind", provider_scalar(kind))
         .with_metadata("codex.sub_agent.thread_id", agent_thread_id)
         .with_metadata("codex.sub_agent.path", agent_path)],
         ThreadItem::WebSearch(item) => {

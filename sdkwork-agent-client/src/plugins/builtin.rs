@@ -1,6 +1,6 @@
 use super::{
     ClaudeCodePlugin, CodexPlugin, GeminiCliPlugin, HermesPlugin, OpenClawPlugin, OpenCodePlugin,
-    ZeroClawPlugin,
+    ZeroCloudPlugin,
 };
 use crate::bridge::{AgentBridgePlugin, AgentBridgePluginRegistry};
 use std::sync::Arc;
@@ -14,7 +14,7 @@ impl BuiltinPlugins {
         Self {
             plugins: vec![
                 Arc::new(OpenClawPlugin::new()),
-                Arc::new(ZeroClawPlugin::new()),
+                Arc::new(ZeroCloudPlugin::new()),
                 Arc::new(HermesPlugin::new()),
                 Arc::new(CodexPlugin::new()),
                 Arc::new(ClaudeCodePlugin::new()),

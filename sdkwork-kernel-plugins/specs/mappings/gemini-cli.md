@@ -59,7 +59,7 @@ Initial target: process-adapter profile with model/tool policy cases.
 - Provider crate: `agent-providers/crates/sdkwork-agent-provider-gemini-cli`
 - SDK binding: `bindings/agent-providers/gemini-cli/provider-binding.manifest.json`
 - Managed installer registry pin (verified 2026-07-30):
-  `@google/gemini-cli@0.53.0`. The source-tree
+  `@google/gemini-cli@0.53.1`. The source-tree
   `@google/gemini-cli-sdk` package is not published to npm.
 - Runtime worker: source-tree `@google/gemini-cli-sdk` via `NodeSdkBackendRuntime`; public npm package `@google/gemini-cli` is a CLI package, not the SDK binding source
 - SPI surface: `sdk.session.lifecycle`, `sdk.model.chat`, optional `sdk.model.stream`, optional `sdk.tool.invoke`

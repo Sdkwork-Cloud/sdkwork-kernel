@@ -85,7 +85,7 @@ a failed gate, not an accepted technical debt item.
 | P3 | Application layer separation (`sdkwork-agents`) | Boundary implemented; cross-repository gate remains |
 | P4 | Commercial hardening | In progress — [REQ-2026-0001](../requirements/REQ-2026-0001-commercial-hardening.md) |
 | P5 | Dual-mode distributed agent runtime | Draft product requirement - [PRD-05](PRD-05-distributed-agent-runtime.md) |
-| P6 | ZeroClaw, dynamic plugins, expanded RPC/A2A integration | Deferred |
+| P6 | ZeroCloud, dynamic plugins, expanded RPC/A2A integration | Deferred |
 
 ## 4. Success Metrics
 

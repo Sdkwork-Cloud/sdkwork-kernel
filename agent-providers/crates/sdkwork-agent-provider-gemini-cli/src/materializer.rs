@@ -140,7 +140,7 @@ pub fn dematerialize_gemini_cli_model_configuration(
             "could not resolve the ~/.gemini/.env path: user home is unavailable",
         ));
     };
-    dematerialize_provider_config_named(&path, "gemini-cli")
+    dematerialize_gemini_cli_model_configuration_at(&path)
 }
 
 /// Restores the pre-materialization backup for an explicit `.env` file.

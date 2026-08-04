@@ -1154,7 +1154,8 @@ impl AgentExecutionService {
                     )
                     .with_session_id_optional(&session_id),
                 )?;
-                Ok(outcome.result)
+                let _: () = outcome.result;
+                Ok(())
             }
             Err(error) => {
                 sink.push_event(
@@ -1227,7 +1228,7 @@ impl AgentExecutionService {
 
             let chat_response = match self.invoke_model_round_with_history(
                 runtime,
-                &request,
+                request,
                 started_at,
                 history.clone(),
             ) {
@@ -1354,7 +1355,7 @@ impl AgentExecutionService {
             // history so the next model round observes them.
             let mut tool_results: Vec<(String, String)> = Vec::new();
             for (index, tool_call) in model_response.tool_calls.iter().cloned().enumerate() {
-                if let Err(error) = self.phase_check(&request, started_at) {
+                if let Err(error) = self.phase_check(request, started_at) {
                     tool_failed = true;
                     sink.push_event(
                         AgentStreamEvent::ToolResult(
@@ -1375,7 +1376,7 @@ impl AgentExecutionService {
                 }
                 let result_event = match self.execute_tool_call_with_retry(
                     runtime,
-                    &request,
+                    request,
                     tool_call.clone(),
                     index + 1,
                     sink,
@@ -1546,7 +1547,7 @@ impl AgentExecutionService {
             AgentStreamEvent::Result(result_event).with_session_id_optional(&session_id),
         )?;
 
-        self.push_ended(sink, &request, &session_id, &stream_id)
+        self.push_ended(sink, request, &session_id, &stream_id)
     }
 
     fn push_ended(
@@ -1804,6 +1805,11 @@ impl AgentExecutionService {
     /// Retries only apply to read-only tools: replaying a write/side-effect
     /// tool could duplicate effects. Each retry attempt surfaces a warn
     /// status event in the stream before the backoff delay.
+    ///
+    /// Each argument is an independent execution dimension (runtime, request,
+    /// tool, sequence, stream sink, stream routing); grouping them would
+    /// create a baggage struct that couples unrelated concerns.
+    #[allow(clippy::too_many_arguments)]
     fn execute_tool_call_with_retry(
         &self,
         runtime: &AgentRuntime,
@@ -1844,7 +1850,7 @@ impl AgentExecutionService {
                         )
                         .with_session_id_optional(session_id),
                     )?;
-                    std::thread::sleep(crate::retry::calculate_delay(attempt as u32 - 1, config));
+                    std::thread::sleep(crate::retry::calculate_delay(attempt - 1, config));
                 }
                 Err(error) => return Err(error),
             }

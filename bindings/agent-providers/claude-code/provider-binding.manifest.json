@@ -14,7 +14,7 @@
   "language_packages": {
     "typescript": {
       "package": "@anthropic-ai/claude-agent-sdk",
-      "version": "0.3.220",
+      "version": "0.3.221",
       "optional": false
     }
   },

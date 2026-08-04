@@ -53,7 +53,7 @@ fn opencode_binding_declares_live_session_control_operations() {
         .as_ref()
         .and_then(|packages| packages.typescript.as_ref())
         .expect("OpenCode TypeScript SDK");
-    assert_eq!(typescript.version.as_deref(), Some("1.18.11"));
+    assert_eq!(typescript.version.as_deref(), Some("1.18.12"));
 
     let control = manifest
         .capability_binding("sdk.session.control")

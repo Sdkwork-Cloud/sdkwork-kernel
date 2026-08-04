@@ -262,7 +262,7 @@ pub fn dematerialize_hermes_model_configuration(
             "could not resolve the Hermes config path: user home is unavailable",
         ));
     };
-    dematerialize_provider_config_named(&path, "hermes")?;
+    dematerialize_hermes_model_configuration_at(&path)?;
     if let Some(env_path) = hermes_env_path() {
         dematerialize_provider_config_named(&env_path, "hermes")?;
     }

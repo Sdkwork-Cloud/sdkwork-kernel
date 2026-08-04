@@ -595,12 +595,16 @@ impl AgentConfigurationChange {
 pub type AgentConfigurationSubscriber =
     Box<dyn Fn(&AgentConfigurationStoreRecord, AgentConfigurationChange) + Send + Sync>;
 
+/// Shared subscriber registry: subscription id + callback pairs guarded by an
+/// RwLock. Used by the store and by subscription handles.
+pub(crate) type AgentConfigurationSubscriberRegistry =
+    std::sync::Arc<std::sync::RwLock<Vec<(String, AgentConfigurationSubscriber)>>>;
+
 /// Subscription handle; dropping it does not unsubscribe, call
 /// [`ConfigurationSubscription::unsubscribe`] to detach.
 pub struct ConfigurationSubscription {
     pub subscription_id: String,
-    registry:
-        Option<std::sync::Arc<std::sync::RwLock<Vec<(String, AgentConfigurationSubscriber)>>>>,
+    registry: Option<AgentConfigurationSubscriberRegistry>,
 }
 
 impl ConfigurationSubscription {
@@ -616,7 +620,7 @@ impl ConfigurationSubscription {
     /// stores) can reuse the kernel subscription machinery.
     pub fn registered(
         subscription_id: String,
-        registry: std::sync::Arc<std::sync::RwLock<Vec<(String, AgentConfigurationSubscriber)>>>,
+        registry: AgentConfigurationSubscriberRegistry,
     ) -> Self {
         Self {
             subscription_id,
@@ -708,7 +712,7 @@ impl AgentSettingSources {
 #[derive(Default)]
 pub struct InMemoryAgentConfigurationStore {
     profiles: Vec<AgentConfigurationProfile>,
-    subscribers: std::sync::Arc<std::sync::RwLock<Vec<(String, AgentConfigurationSubscriber)>>>,
+    subscribers: AgentConfigurationSubscriberRegistry,
     next_subscription_id: std::sync::atomic::AtomicU64,
 }
 

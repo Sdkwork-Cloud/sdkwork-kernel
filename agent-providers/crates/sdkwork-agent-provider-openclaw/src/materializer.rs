@@ -209,7 +209,7 @@ pub fn dematerialize_openclaw_model_configuration(
             "could not resolve the OpenClaw config path: user home is unavailable",
         ));
     };
-    dematerialize_provider_config_named(&path, "openclaw")
+    dematerialize_openclaw_model_configuration_at(&path)
 }
 
 /// Restores the pre-materialization backup for an explicit config file.

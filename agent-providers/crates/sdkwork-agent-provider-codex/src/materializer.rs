@@ -229,7 +229,7 @@ pub fn dematerialize_codex_model_configuration(
                 "could not resolve the Codex config path: CODEX_HOME is set to a missing directory or the user home is unavailable",
             ));
     };
-    dematerialize_provider_config_named(&path, "codex")
+    dematerialize_codex_model_configuration_at(&path)
 }
 
 /// Reads the currently effective Codex model configuration back from the

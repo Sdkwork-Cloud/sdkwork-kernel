@@ -9,7 +9,7 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{Duration, Instant};
 
 /// Handle RwLock poisoning errors gracefully
-fn handle_lock_poisoned<T>(op: &str) -> KernelError {
+fn handle_lock_poisoned(op: &str) -> KernelError {
     KernelError::Internal {
         message: format!(
             "Lock poisoned in circuit breaker.{}: a thread panicked while holding the lock",
@@ -20,29 +20,24 @@ fn handle_lock_poisoned<T>(op: &str) -> KernelError {
 
 /// Read an RwLock with poison recovery
 fn read_lock<'a, T>(lock: &'a RwLock<T>, op: &str) -> KernelResult<RwLockReadGuard<'a, T>> {
-    lock.read().map_err(|_| handle_lock_poisoned::<T>(op))
+    lock.read().map_err(|_| handle_lock_poisoned(op))
 }
 
 /// Write an RwLock with poison recovery
 fn write_lock<'a, T>(lock: &'a RwLock<T>, op: &str) -> KernelResult<RwLockWriteGuard<'a, T>> {
-    lock.write().map_err(|_| handle_lock_poisoned::<T>(op))
+    lock.write().map_err(|_| handle_lock_poisoned(op))
 }
 
 /// Circuit breaker state
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CircuitState {
     /// Normal operation, requests flow through
+    #[default]
     Closed,
     /// Failure threshold exceeded, requests are blocked
     Open,
     /// Recovery timeout passed, allowing probe requests
     HalfOpen,
-}
-
-impl Default for CircuitState {
-    fn default() -> Self {
-        CircuitState::Closed
-    }
 }
 
 /// Circuit breaker configuration
@@ -274,7 +269,6 @@ impl CircuitBreaker {
                                 drop(consecutive);
                                 drop(state);
                                 self.open_circuit();
-                                return;
                             }
                         }
                     }

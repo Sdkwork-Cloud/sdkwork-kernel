@@ -157,7 +157,7 @@ pub fn dematerialize_claude_code_model_configuration(
             "could not resolve the ~/.claude/settings.json path: user home is unavailable",
         ));
     };
-    dematerialize_provider_config_named(&path, "claude-code")
+    dematerialize_claude_code_model_configuration_at(&path)
 }
 
 /// Restores the pre-materialization backup for an explicit settings file.

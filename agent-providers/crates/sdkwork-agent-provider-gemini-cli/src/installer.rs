@@ -3,7 +3,7 @@ use sdkwork_agent_plugin_core::{ProcessAdapterInstaller, ProcessAdapterPackage};
 use crate::ids;
 
 pub const GEMINI_CLI_PACKAGE: &str = "@google/gemini-cli";
-pub const GEMINI_CLI_VERSION: &str = "0.53.0";
+pub const GEMINI_CLI_VERSION: &str = "0.53.1";
 
 pub fn gemini_cli_agent_installer() -> ProcessAdapterInstaller {
     ProcessAdapterInstaller::new(

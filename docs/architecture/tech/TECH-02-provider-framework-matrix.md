@@ -160,7 +160,7 @@ a binding manifest declares `integration_sources`.
 
 ### OpenCode
 
-- **Strengths:** Bun server SDK through the typed `@opencode-ai/sdk@1.18.11`
+- **Strengths:** Bun server SDK through the typed `@opencode-ai/sdk@1.18.12`
   worker; model chat prefers the durable v2 surface (`client.v2.session.prompt`
   with `delivery: steer` and `resume: true` against `/api/session/{id}/prompt`,
   plus `client.v2.event.subscribe` against `/api/event`). The durable runner
@@ -184,7 +184,7 @@ a binding manifest declares `integration_sources`.
 - **Gaps:** Experimental status; context-usage inspection, model and agent
   switching, and HTTP OpenAPI fallback are not in binding yet. The pinned
   `external/opencode` tree is the archived legacy Go project rather than the
-  source authority for `@opencode-ai/sdk@1.18.11`; replacing that gitlink
+  source authority for `@opencode-ai/sdk@1.18.12`; replacing that gitlink
   requires human-reviewed provenance and supply-chain evidence before release.
 - **BirdCoder:** Engine catalog entry; release proof uses the staging live SDK gate.
 

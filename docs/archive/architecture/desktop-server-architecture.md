@@ -44,7 +44,7 @@ Retired application-local prefixes such as `/api/kernel/*` and draft-only REST/W
 
 - Tauri/Electron desktop host (owned by product applications outside `sdkwork-kernel`)
 - Draft `UnifiedSessionManager` / `SessionRouter` types as a single merged crate API
-- ZeroClaw local SDK bridge (fail-closed; mapping-only upstream)
+- ZeroCloud local SDK bridge (fail-closed; mapping-only upstream)
 - opencode / claude-code / gemini-cli adapters (mapping-only)
 
 ## Verification

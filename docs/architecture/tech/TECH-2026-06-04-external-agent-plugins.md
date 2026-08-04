@@ -27,7 +27,7 @@ Authoritative rules: `sdkwork-kernel-plugins/specs/EXTERNAL_AGENT_PLUGIN_SPEC.md
 | Upstream | Provider crate | Server env (`SDKWORK_KERNEL_AGENT_PLUGIN`) | Client local bridge |
 | --- | --- | --- | --- |
 | Rig | `agent-providers/crates/sdkwork-agent-provider-rig` | `rig` (production default) | Remote internal-api |
-| OpenClaw | `agent-providers/crates/sdkwork-agent-provider-openclaw` | `openclaw`, `open-claw` | `builtin.openclaw` → `SdkModelBridgeRuntime` |
+| OpenClaw | `agent-providers/crates/sdkwork-agent-provider-openclaw` | `openclaw`, `open-cloud` | `builtin.openclaw` → `SdkModelBridgeRuntime` |
 | Hermes | `agent-providers/crates/sdkwork-agent-provider-hermes` | `hermes`, `hermes-agent` | `builtin.hermes` → `SdkModelBridgeRuntime` |
 | Codex | `agent-providers/crates/sdkwork-agent-provider-codex` | `codex`, `openai-codex` | Official in-process `codex-app-server-client` + typed protocol for Thread/Turn/Item history; `builtin.codex` → `SdkModelBridgeRuntime` for client execution |
 

@@ -164,7 +164,7 @@ function validatePinnedCleanSubmodule(kernelRoot, errors) {
 /// Documented Windows toolchain workaround allowed inside the pinned Codex
 /// submodule: pinning `tracing` to =0.1.41 / `tracing-subscriber` to 0.3.18
 /// avoids nondeterministic rustc const-eval ICEs on Windows (shared with the
-/// clawrouter workspace). Any other modification fails the cleanliness gate.
+/// cloudrouter workspace). Any other modification fails the cleanliness gate.
 const ALLOWED_CODEX_WORKAROUND_PATHS = new Set(['M codex-rs/Cargo.toml']);
 
 function requireText(content, expected, message, errors) {

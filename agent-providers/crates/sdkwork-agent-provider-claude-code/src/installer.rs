@@ -3,7 +3,7 @@ use sdkwork_agent_plugin_core::{ProcessAdapterInstaller, ProcessAdapterPackage};
 use crate::ids;
 
 pub const CLAUDE_AGENT_SDK_PACKAGE: &str = "@anthropic-ai/claude-agent-sdk";
-pub const CLAUDE_AGENT_SDK_VERSION: &str = "0.3.220";
+pub const CLAUDE_AGENT_SDK_VERSION: &str = "0.3.221";
 pub const ANTHROPIC_SDK_PACKAGE: &str = "@anthropic-ai/sdk";
 pub const ANTHROPIC_SDK_VERSION: &str = "0.115.0";
 pub const MCP_SDK_PACKAGE: &str = "@modelcontextprotocol/sdk";

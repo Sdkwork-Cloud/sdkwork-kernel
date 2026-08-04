@@ -13,4 +13,4 @@ pub use sdk_backed::{
     ClaudeCodePlugin, ClaudeCodeProvider, GeminiCliPlugin, GeminiCliProvider, OpenCodePlugin,
     OpenCodeProvider,
 };
-pub use zeroclaw::{ZeroClawPlugin, ZeroClawProvider};
+pub use zeroclaw::{ZeroCloudPlugin, ZeroCloudProvider};

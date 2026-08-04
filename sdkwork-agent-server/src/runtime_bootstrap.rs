@@ -32,7 +32,7 @@ pub fn kernel_agent_plugin_kind_from_env() -> KernelAgentPluginKind {
 pub fn parse_kernel_agent_plugin_kind(value: &str) -> Option<KernelAgentPluginKind> {
     match value.trim().to_ascii_lowercase().as_str() {
         "rig" => Some(KernelAgentPluginKind::Rig),
-        "openclaw" | "open-claw" => Some(KernelAgentPluginKind::OpenClaw),
+        "openclaw" | "open-cloud" => Some(KernelAgentPluginKind::OpenClaw),
         "hermes" | "hermes-agent" => Some(KernelAgentPluginKind::Hermes),
         "codex" | "openai-codex" => Some(KernelAgentPluginKind::Codex),
         "claude" | "claude-code" => Some(KernelAgentPluginKind::ClaudeCode),

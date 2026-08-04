@@ -18,7 +18,7 @@ goals:
   - Complete MiMo Code agents facade registration and staging live SDK proof
   - Route IM PC agent surfaces exclusively through sdkwork-agents SDK
 non_goals:
-  - P5 ZeroClaw, gRPC client, dynamic plugins, discovery
+  - P5 ZeroCloud, gRPC client, dynamic plugins, discovery
   - Product business features in sdkwork-kernel
 users:
   - SRE / release engineer

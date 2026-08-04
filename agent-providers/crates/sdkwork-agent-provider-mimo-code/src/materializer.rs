@@ -157,7 +157,7 @@ pub fn dematerialize_mimo_code_model_configuration(
                 "could not resolve the ~/.claude/settings.json (Mimo Code) path: user home is unavailable",
             ));
     };
-    dematerialize_provider_config_named(&path, "mimo-code")
+    dematerialize_mimo_code_model_configuration_at(&path)
 }
 
 /// Restores the pre-materialization backup for an explicit settings file.

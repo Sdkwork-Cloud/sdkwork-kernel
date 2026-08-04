@@ -1,4 +1,4 @@
-# ZeroClaw Mapping
+# ZeroCloud Mapping
 
 ## Source
 
@@ -7,7 +7,7 @@
 
 ## SDKWork Surface
 
-ZeroClaw is reserved for future general-agent integration. When upstream is declared, the target surface is:
+ZeroCloud is reserved for future general-agent integration. When upstream is declared, the target surface is:
 
 - `AgentRuntime`
 - `ModelProvider` / `sdk.model.chat`
@@ -38,7 +38,7 @@ Local chat (`send_message`) returns an explicit error. Health reports `degraded`
 
 Target when upstream is declared: manifest profile, adapter crate contract tests, kernel plugin registration through `SDKWORK_KERNEL_AGENT_PLUGIN`, and client `SdkModelBridgeRuntime` routing.
 
-Current client-only checks: `sdkwork-agent-client` ZeroClaw provider tests (fail-closed after init).
+Current client-only checks: `sdkwork-agent-client` ZeroCloud provider tests (fail-closed after init).
 
 ## Status
 

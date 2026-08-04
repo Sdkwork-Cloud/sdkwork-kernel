@@ -14,7 +14,7 @@ The original design draft for bridge providers, hybrid client modes, and kernel 
 ## What landed
 
 - `AgentBridgeProvider`, `AgentBridgePluginRegistry`, `AgentClient` (Remote / Local / Hybrid)
-- Builtin bridge plugins for OpenClaw, Hermes, Codex (SDK-backed); ZeroClaw (fail-closed session store)
+- Builtin bridge plugins for OpenClaw, Hermes, Codex (SDK-backed); ZeroCloud (fail-closed session store)
 - `SdkModelBridgeRuntime` for SDK-backed local chat
 - Kernel plugins: Rig, OpenClaw, Hermes, Codex with `SDKWORK_KERNEL_AGENT_PLUGIN`
 - Internal-api runtime HTTP via `SseChatClient` (`INTERNAL_RUNTIME_MOUNT_PREFIX`)
@@ -22,7 +22,7 @@ The original design draft for bridge providers, hybrid client modes, and kernel 
 ## What did not land (intentionally deferred)
 
 - Placeholder runtime stubs that returned `"runtime not implemented"`
-- PyO3 ZeroClaw embedding from the draft
+- PyO3 ZeroCloud embedding from the draft
 - gRPC server/client surfaces
 - App packager / dynamic plugin loading from the Phase 5 draft
 

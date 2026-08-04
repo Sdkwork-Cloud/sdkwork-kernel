@@ -206,7 +206,7 @@ pub fn dematerialize_opencode_model_configuration(
             "could not resolve the opencode config path: user home is unavailable",
         ));
     };
-    dematerialize_provider_config_named(&path, "opencode")
+    dematerialize_opencode_model_configuration_at(&path)
 }
 
 /// Restores the pre-materialization backup for an explicit config file.

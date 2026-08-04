@@ -11,7 +11,7 @@ use uuid::Uuid;
 #[test]
 fn test_bridge_type_display() {
     assert_eq!(AgentBridgeType::OpenClaw.to_string(), "openclaw");
-    assert_eq!(AgentBridgeType::ZeroClaw.to_string(), "zeroclaw");
+    assert_eq!(AgentBridgeType::ZeroCloud.to_string(), "zeroclaw");
     assert_eq!(AgentBridgeType::Hermes.to_string(), "hermes");
     assert_eq!(AgentBridgeType::Codex.to_string(), "codex");
     assert_eq!(AgentBridgeType::ClaudeCode.to_string(), "claude-code");

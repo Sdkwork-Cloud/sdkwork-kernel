@@ -478,9 +478,11 @@ fn gemini_content_text(value: &Value) -> Option<String> {
     }
 }
 
-fn gemini_session_files(
-    temp_path: &Path,
-) -> KernelResult<Vec<(PathBuf, Option<String>, Option<String>)>> {
+/// One Gemini session file: absolute path, optional project key, and
+/// optional chat key.
+type GeminiSessionFile = (PathBuf, Option<String>, Option<String>);
+
+fn gemini_session_files(temp_path: &Path) -> KernelResult<Vec<GeminiSessionFile>> {
     let mut files = Vec::new();
     for project_entry in fs::read_dir(temp_path).map_err(gemini_inventory_error)? {
         let project_path = project_entry.map_err(gemini_inventory_error)?.path();
@@ -501,7 +503,7 @@ fn collect_gemini_chat_files(
     directory: &Path,
     project_root: Option<&str>,
     parent_session_id: Option<&str>,
-    files: &mut Vec<(PathBuf, Option<String>, Option<String>)>,
+    files: &mut Vec<GeminiSessionFile>,
 ) -> KernelResult<()> {
     for entry in fs::read_dir(directory).map_err(gemini_inventory_error)? {
         let path = entry.map_err(gemini_inventory_error)?.path();

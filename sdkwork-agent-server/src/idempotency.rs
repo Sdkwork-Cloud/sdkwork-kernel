@@ -471,22 +471,25 @@ pub async fn middleware(
     }
 
     let (response_parts, response_body) = response.into_parts();
-    let response_bytes =
-        match to_bytes(response_body, state.max_cached_response_bytes_for(&request_path)).await
-        {
-            Ok(bytes) => bytes,
-            Err(_) => {
-                // The business response was successful, so releasing here could
-                // duplicate a committed side effect. The consumed oversized body
-                // cannot be returned, but the reservation remains fail-closed.
-                guard.mark_completed();
-                return error_response(
-                    &context,
-                    SdkWorkResultCode::PayloadTooLarge,
-                    "idempotent response exceeds the configured cache limit",
-                );
-            }
-        };
+    let response_bytes = match to_bytes(
+        response_body,
+        state.max_cached_response_bytes_for(&request_path),
+    )
+    .await
+    {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            // The business response was successful, so releasing here could
+            // duplicate a committed side effect. The consumed oversized body
+            // cannot be returned, but the reservation remains fail-closed.
+            guard.mark_completed();
+            return error_response(
+                &context,
+                SdkWorkResultCode::PayloadTooLarge,
+                "idempotent response exceeds the configured cache limit",
+            );
+        }
+    };
 
     let content_type = response_parts
         .headers

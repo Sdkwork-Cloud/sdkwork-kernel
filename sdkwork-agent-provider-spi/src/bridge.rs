@@ -1221,13 +1221,7 @@ mod tests {
 
         impl ModelProvider for FallbackModel {
             fn provider_manifest(&self) -> ProviderManifest {
-                ProviderManifest::new(
-                    "provider.fallback",
-                    "model",
-                    "Fallback",
-                    "0.1.0",
-                    vec![],
-                )
+                ProviderManifest::new("provider.fallback", "model", "Fallback", "0.1.0", vec![])
             }
 
             fn health(&self) -> ProviderHealth {

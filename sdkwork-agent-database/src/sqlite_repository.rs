@@ -749,9 +749,11 @@ impl SessionRepository for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
-            DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
-        })?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| {
+                DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+            })?;
         tx.execute(
             "DELETE FROM events WHERE session_id = ?1",
             params![session_id],
@@ -1007,9 +1009,11 @@ impl TaskRepository for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
-            DatabaseError::Transaction(format!("failed to begin task transaction: {error}"))
-        })?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| {
+                DatabaseError::Transaction(format!("failed to begin task transaction: {error}"))
+            })?;
         let _session_state: String = tx
             .query_row(
                 "SELECT state FROM sessions WHERE session_id = ?1",
@@ -1494,9 +1498,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
-            DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
-        })?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| {
+                DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+            })?;
         let changed = tx
             .execute(
                 crate::upsert_sql::sqlite::SAVE_SESSION,
@@ -1626,9 +1632,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
-            DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
-        })?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| {
+                DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+            })?;
         let (session_state, current_count): (String, i64) = tx
             .query_row(
                 "SELECT state, message_count FROM sessions WHERE session_id = ?1",
@@ -1752,9 +1760,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
-            DatabaseError::Transaction(format!("failed to begin message turn: {error}"))
-        })?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| {
+                DatabaseError::Transaction(format!("failed to begin message turn: {error}"))
+            })?;
         let (session_state, current_count): (String, i64) = tx
             .query_row(
                 "SELECT state, message_count FROM sessions WHERE session_id = ?1",
@@ -1895,9 +1905,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
-            DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
-        })?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| {
+                DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+            })?;
         tx.execute(
             "DELETE FROM messages WHERE session_id = ?1",
             params![session_id],
@@ -1933,9 +1945,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
-            DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
-        })?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| {
+                DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+            })?;
         tx.execute(
             "DELETE FROM messages WHERE session_id = ?1",
             params![session_id],
@@ -1966,9 +1980,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
-            DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
-        })?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| {
+                DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+            })?;
         let session_state: String = tx
             .query_row(
                 "SELECT state FROM sessions WHERE session_id = ?1",
@@ -2024,9 +2040,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
-            DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
-        })?;
+        let tx = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| {
+                DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
+            })?;
         let mut task = tx
             .query_row(
                 "SELECT task_id, session_id, instruction, state, created_at, updated_at

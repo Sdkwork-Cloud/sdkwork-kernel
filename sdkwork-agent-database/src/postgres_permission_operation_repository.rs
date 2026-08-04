@@ -399,11 +399,13 @@ impl PermissionOperationRepository for PostgresDatabase {
                 return Ok(None);
             };
             let operation = map_operation_row(&operation)?;
-            let run_row = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {RUN_COLUMNS} FROM runs WHERE run_id = $1")))
-                .bind(&operation.run_id)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(map_sqlx_error)?;
+            let run_row = sqlx::query(sqlx::AssertSqlSafe(format!(
+                "SELECT {RUN_COLUMNS} FROM runs WHERE run_id = $1"
+            )))
+            .bind(&operation.run_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(map_sqlx_error)?;
             let step_row = sqlx::query(sqlx::AssertSqlSafe(format!(
                 "SELECT {STEP_COLUMNS} FROM steps WHERE step_id = $1"
             )))

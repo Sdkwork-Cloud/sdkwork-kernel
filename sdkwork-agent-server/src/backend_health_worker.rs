@@ -110,11 +110,9 @@ fn health_check_loop(
     let Ok(wake_guard) = wake_lock.lock() else {
         return;
     };
-    let Ok((wake_guard, _timeout)) =
-        wake_signal.wait_timeout_while(wake_guard, interval, |_| {
-            !stop_for_thread.load(Ordering::Relaxed)
-        })
-    else {
+    let Ok((wake_guard, _timeout)) = wake_signal.wait_timeout_while(wake_guard, interval, |_| {
+        !stop_for_thread.load(Ordering::Relaxed)
+    }) else {
         return;
     };
     drop(wake_guard);

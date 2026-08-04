@@ -2,8 +2,7 @@ use std::mem::size_of;
 use std::sync::Arc;
 
 pub(crate) const PROVIDER_SESSION_ID_METADATA: &str = "providerSessionId";
-const SDK_RUNTIME_PROVIDER_SESSION_DIAGNOSTIC_PREFIX: &str =
-    "sdk_runtime_provider_session_id=";
+const SDK_RUNTIME_PROVIDER_SESSION_DIAGNOSTIC_PREFIX: &str = "sdk_runtime_provider_session_id=";
 
 use crate::types::{generate_id, BridgeEvent, BridgeEventSeverity, BridgeModelResult};
 use sdkwork_agent_kernel::{
@@ -464,8 +463,7 @@ impl ModelBridge {
             severity: BridgeEventSeverity::Info,
         }];
 
-        let provider_session_id =
-            provider_session_id_from_response(&response.model_response)?;
+        let provider_session_id = provider_session_id_from_response(&response.model_response)?;
         Ok(BridgeModelResult {
             response: response.model_response,
             provider_session_id,
@@ -870,10 +868,8 @@ mod tests {
     #[test]
     fn build_request_preserves_independent_provider_session_identity() {
         let bridge = ModelBridge::new();
-        let session = AgentSession::new("session.canonical").with_metadata(
-            PROVIDER_SESSION_ID_METADATA,
-            "codex.thread.provider",
-        );
+        let session = AgentSession::new("session.canonical")
+            .with_metadata(PROVIDER_SESSION_ID_METADATA, "codex.thread.provider");
 
         let request = bridge.build_request("session.canonical", &session, &[], &[], None);
 

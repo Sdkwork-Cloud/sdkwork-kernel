@@ -220,11 +220,13 @@ impl RuntimeExecutionRepository for PostgresDatabase {
         let pool = self.pool.pool().clone();
         let run_id = run_id.to_string();
         self.pool.run_db(async move {
-            let row = sqlx::query(sqlx::AssertSqlSafe(format!("SELECT {RUN_COLUMNS} FROM runs WHERE run_id = $1")))
-                .bind(&run_id)
-                .fetch_optional(&pool)
-                .await
-                .map_err(map_sqlx_error)?;
+            let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+                "SELECT {RUN_COLUMNS} FROM runs WHERE run_id = $1"
+            )))
+            .bind(&run_id)
+            .fetch_optional(&pool)
+            .await
+            .map_err(map_sqlx_error)?;
             row.as_ref().map(map_run_row).transpose()
         })
     }

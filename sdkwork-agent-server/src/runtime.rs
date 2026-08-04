@@ -780,10 +780,7 @@ mod tests {
             model: model.map(str::to_string),
             instructions: None,
             cwd: None,
-            metadata: vec![(
-                "modelProvider".to_string(),
-                "provider.blocking".to_string(),
-            )],
+            metadata: vec![("modelProvider".to_string(), "provider.blocking".to_string())],
         }
     }
 

@@ -41,10 +41,13 @@ pub fn read_provider_config(path: &Path) -> KernelResult<Option<String>> {
     match std::fs::read_to_string(path) {
         Ok(content) => Ok(Some(content)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(KernelError::provider_error("provider_config_file", format!(
-            "provider config {} could not be read: {error}",
-            path.display()
-        ))),
+        Err(error) => Err(KernelError::provider_error(
+            "provider_config_file",
+            format!(
+                "provider config {} could not be read: {error}",
+                path.display()
+            ),
+        )),
     }
 }
 
@@ -68,13 +71,18 @@ fn backup_provider_config(config_path: &Path, backup_path: &Path) -> KernelResul
 /// Writes the provider config file atomically (temp file + rename) and
 /// verifies the read-back content before reporting success.
 fn write_file_atomic(path: &Path, content: &str) -> KernelResult<()> {
-    let parent = path.parent().filter(|parent| !parent.as_os_str().is_empty());
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
     if let Some(parent) = parent {
         std::fs::create_dir_all(parent).map_err(|error| {
-            KernelError::provider_error("provider_config_file", format!(
-                "provider config directory {} could not be created: {error}",
-                parent.display()
-            ))
+            KernelError::provider_error(
+                "provider_config_file",
+                format!(
+                    "provider config directory {} could not be created: {error}",
+                    parent.display()
+                ),
+            )
         })?;
     }
     let mut file_name = path
@@ -83,25 +91,31 @@ fn write_file_atomic(path: &Path, content: &str) -> KernelResult<()> {
         .unwrap_or_default();
     file_name.push(PROVIDER_CONFIG_TMP_SUFFIX);
     let tmp_path = path.with_file_name(file_name);
-    let write_result = std::fs::write(&tmp_path, content)
-        .and_then(|()| std::fs::rename(&tmp_path, path));
+    let write_result =
+        std::fs::write(&tmp_path, content).and_then(|()| std::fs::rename(&tmp_path, path));
     if let Err(error) = write_result {
         let _ = std::fs::remove_file(&tmp_path);
-        return Err(KernelError::provider_error("provider_config_file", format!(
-            "provider config {} could not be written: {error}",
-            path.display()
-        )));
+        return Err(KernelError::provider_error(
+            "provider_config_file",
+            format!(
+                "provider config {} could not be written: {error}",
+                path.display()
+            ),
+        ));
     }
     match read_provider_config(path)? {
         Some(verified) if verified == content => Ok(()),
-        Some(_) => Err(KernelError::provider_error("provider_config_file", format!(
-            "provider config {} write verification failed",
-            path.display()
-        ))),
-        None => Err(KernelError::provider_error("provider_config_file", format!(
-            "provider config {} is missing after write",
-            path.display()
-        ))),
+        Some(_) => Err(KernelError::provider_error(
+            "provider_config_file",
+            format!(
+                "provider config {} write verification failed",
+                path.display()
+            ),
+        )),
+        None => Err(KernelError::provider_error(
+            "provider_config_file",
+            format!("provider config {} is missing after write", path.display()),
+        )),
     }
 }
 
@@ -115,10 +129,7 @@ pub fn restore_provider_config_backup(path: &Path) -> KernelResult<bool> {
 }
 
 /// Restores the pre-mutation backup at an explicit provider-scoped path.
-pub fn restore_provider_config_backup_named(
-    path: &Path,
-    backup_path: &Path,
-) -> KernelResult<bool> {
+pub fn restore_provider_config_backup_named(path: &Path, backup_path: &Path) -> KernelResult<bool> {
     match read_provider_config(backup_path)? {
         Some(backup) => {
             if backup.is_empty() {
@@ -141,10 +152,13 @@ pub fn restore_provider_config_backup_named(
                 write_file_atomic(path, &backup)?;
             }
             std::fs::remove_file(backup_path).map_err(|error| {
-                KernelError::provider_error("provider_config_file", format!(
-                    "provider config backup {} could not be removed: {error}",
-                    backup_path.display()
-                ))
+                KernelError::provider_error(
+                    "provider_config_file",
+                    format!(
+                        "provider config backup {} could not be removed: {error}",
+                        backup_path.display()
+                    ),
+                )
             })?;
             Ok(true)
         }
@@ -214,7 +228,6 @@ pub fn update_provider_config_file(
     update_provider_config_file_named(path, "provider", transform)
 }
 
-
 /// Merges a JSON value into an existing JSON document at the given path,
 /// creating intermediate objects as needed.
 ///
@@ -231,10 +244,16 @@ pub fn merge_json_path(
         let is_object = matches!(cursor.get(*key), Some(serde_json::Value::Object(_)));
         if !is_object {
             if let Some(object) = cursor.as_object_mut() {
-                object.insert((*key).to_string(), serde_json::Value::Object(Default::default()));
+                object.insert(
+                    (*key).to_string(),
+                    serde_json::Value::Object(Default::default()),
+                );
             }
         }
-        cursor = match cursor.as_object_mut().and_then(|object| object.get_mut(*key)) {
+        cursor = match cursor
+            .as_object_mut()
+            .and_then(|object| object.get_mut(*key))
+        {
             Some(next) => next,
             None => {
                 return Err(KernelError::provider_error(
@@ -332,7 +351,8 @@ mod tests {
         let _guard = test_guard();
         let dir = temp_dir("create");
         let path = dir.join(".env");
-        update_provider_config_file(&path, |_current| Ok("KEY=value\n".to_string())).expect("write");
+        update_provider_config_file(&path, |_current| Ok("KEY=value\n".to_string()))
+            .expect("write");
         assert_eq!(std::fs::read_to_string(&path).expect("read"), "KEY=value\n");
         dematerialize_provider_config(&path).expect("dematerialize");
         assert!(!path.exists(), "created config must be removed");
@@ -363,7 +383,11 @@ mod tests {
         let path = dir.join("config.toml");
         std::fs::write(&path, "original\n").expect("seed");
         update_provider_config_file(&path, |current| {
-            Ok(format!("{}{}", current.unwrap_or_default(), "materialized\n"))
+            Ok(format!(
+                "{}{}",
+                current.unwrap_or_default(),
+                "materialized\n"
+            ))
         })
         .expect("update");
         assert!(restore_provider_config_backup(&path).expect("restore"));
@@ -379,11 +403,19 @@ mod tests {
         let path = dir.join("config.toml");
         std::fs::write(&path, "original\n").expect("seed");
         update_provider_config_file(&path, |current| {
-            Ok(format!("{}{}", current.unwrap_or_default(), "materialized-1\n"))
+            Ok(format!(
+                "{}{}",
+                current.unwrap_or_default(),
+                "materialized-1\n"
+            ))
         })
         .expect("first update");
         update_provider_config_file(&path, |current| {
-            Ok(format!("{}{}", current.unwrap_or_default(), "materialized-2\n"))
+            Ok(format!(
+                "{}{}",
+                current.unwrap_or_default(),
+                "materialized-2\n"
+            ))
         })
         .expect("second update");
         // The backup still holds the ORIGINAL state so dematerialization can
@@ -405,7 +437,10 @@ mod tests {
         std::fs::write(&path, "user-owned\n").expect("seed");
         dematerialize_provider_config(&path).expect("dematerialize is safe no-op");
         assert!(path.exists(), "user file must survive without a backup");
-        assert_eq!(std::fs::read_to_string(&path).expect("read"), "user-owned\n");
+        assert_eq!(
+            std::fs::read_to_string(&path).expect("read"),
+            "user-owned\n"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -414,10 +449,14 @@ mod tests {
         let _guard = test_guard();
         let dir = temp_dir("created-marker");
         let path = dir.join(".env");
-        update_provider_config_file(&path, |_current| Ok("KEY=value\n".to_string())).expect("write");
+        update_provider_config_file(&path, |_current| Ok("KEY=value\n".to_string()))
+            .expect("write");
         assert!(path.exists());
         dematerialize_provider_config(&path).expect("dematerialize");
-        assert!(!path.exists(), "file created by materialization must be removed");
+        assert!(
+            !path.exists(),
+            "file created by materialization must be removed"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -430,12 +469,20 @@ mod tests {
 
         // claude-code materializes the shared settings surface.
         update_provider_config_file_named(&path, "claude-code", |current| {
-            Ok(format!("{}{}", current.unwrap_or_default(), "claude-config\n"))
+            Ok(format!(
+                "{}{}",
+                current.unwrap_or_default(),
+                "claude-config\n"
+            ))
         })
         .expect("claude update");
         // mimo-code materializes the same surface; its backup is independent.
         update_provider_config_file_named(&path, "mimo-code", |current| {
-            Ok(format!("{}{}", current.unwrap_or_default(), "mimo-config\n"))
+            Ok(format!(
+                "{}{}",
+                current.unwrap_or_default(),
+                "mimo-config\n"
+            ))
         })
         .expect("mimo update");
 
@@ -457,7 +504,10 @@ mod tests {
         dematerialize_provider_config_named(&path, "claude-code").expect("claude dematerialize");
         assert_eq!(std::fs::read_to_string(&path).expect("read"), "original\n");
         assert!(!claude_backup.exists());
-        assert!(mimo_backup.is_file(), "mimo backup survives claude dematerialize");
+        assert!(
+            mimo_backup.is_file(),
+            "mimo backup survives claude dematerialize"
+        );
 
         // mimo dematerialize restores its own snapshot (the claude-materialized
         // state) — the user file is never deleted.
@@ -476,15 +526,26 @@ mod tests {
         let mut document = serde_json::json!([1, 2, 3]);
         let result = merge_json_path(&mut document, &["env"], serde_json::json!({}));
         assert!(result.is_err(), "non-object root must fail closed");
-        assert_eq!(document, serde_json::json!([1, 2, 3]), "document must be untouched");
+        assert_eq!(
+            document,
+            serde_json::json!([1, 2, 3]),
+            "document must be untouched"
+        );
     }
 
     #[test]
     fn merge_json_path_creates_intermediate_objects() {
         let _guard = test_guard();
         let mut document = serde_json::json!({});
-        merge_json_path(&mut document, &["providers", "sdkwork", "model"], serde_json::json!("m"))
-            .expect("merge");
-        assert_eq!(document["providers"]["sdkwork"]["model"], serde_json::json!("m"));
+        merge_json_path(
+            &mut document,
+            &["providers", "sdkwork", "model"],
+            serde_json::json!("m"),
+        )
+        .expect("merge");
+        assert_eq!(
+            document["providers"]["sdkwork"]["model"],
+            serde_json::json!("m")
+        );
     }
 }

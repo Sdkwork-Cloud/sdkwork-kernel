@@ -61,9 +61,7 @@ pub fn active_hosted_agent() -> RegisteredAgent {
 #[cfg(debug_assertions)]
 fn dev_agent_alias_canonical(agent_id: &str) -> Option<&'static str> {
     match agent_id {
-        "agent.1" | "agent.2" | "agent.general" => {
-            Some(active_hosted_agent().agent_id)
-        }
+        "agent.1" | "agent.2" | "agent.general" => Some(active_hosted_agent().agent_id),
         _ => None,
     }
 }

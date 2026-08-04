@@ -812,9 +812,7 @@ impl SqliteDatabase {
                 )
                 .optional()
                 .map_err(|error| {
-                    DatabaseError::Query(format!(
-                        "failed to load run-message retry: {error}"
-                    ))
+                    DatabaseError::Query(format!("failed to load run-message retry: {error}"))
                 })?;
             if let Some(existing) = existing {
                 crate::message_identity::ensure_message_retry_matches(&existing, message)?;
@@ -903,8 +901,10 @@ fn load_task(conn: &Connection, task_id: &str) -> DatabaseResult<TaskRow> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::traits::{MessageRepository, RuntimeSessionWrites, SessionRepository, TaskRepository};
-    use crate::types::{runtime_now_timestamp, MessageRow, MessageQuery, SessionRow};
+    use crate::traits::{
+        MessageRepository, RuntimeSessionWrites, SessionRepository, TaskRepository,
+    };
+    use crate::types::{runtime_now_timestamp, MessageQuery, MessageRow, SessionRow};
 
     fn session() -> SessionRow {
         SessionRow {
@@ -1230,7 +1230,11 @@ mod tests {
             .load_run(&run.run_id)
             .expect("load")
             .expect("run present");
-        assert_eq!(run_row.state, RunState::Created, "run returns to a claimable state");
+        assert_eq!(
+            run_row.state,
+            RunState::Created,
+            "run returns to a claimable state"
+        );
         assert_eq!(run_row.attempt, 2, "retry increments the attempt");
         assert_eq!(run_row.lease_owner, None, "lease is released");
         assert_eq!(
@@ -1259,7 +1263,10 @@ mod tests {
             .expect("reclaimable run");
         assert_eq!(re_claim.run.attempt, 2);
         assert_eq!(re_claim.run.lease_owner.as_deref(), Some("worker.two"));
-        assert_eq!(re_claim.run.fencing_token, 3, "stale claim fence cannot renew or finish");
+        assert_eq!(
+            re_claim.run.fencing_token, 3,
+            "stale claim fence cannot renew or finish"
+        );
 
         // The stale claim's renew and finish attempts are rejected.
         assert!(!database
@@ -1357,7 +1364,9 @@ mod tests {
             .load_session(&task.session_id)
             .expect("session")
             .expect("present");
-        assert_eq!(session_row.message_count, 2, "count counts each message exactly once");
+        assert_eq!(
+            session_row.message_count, 2,
+            "count counts each message exactly once"
+        );
     }
 }
-

@@ -62,10 +62,7 @@ mod tests {
         let _lock = env_lock();
         let _profile = EnvVarGuard::set("USERPROFILE", Some("C:/Users/test"));
         let _home = EnvVarGuard::set("HOME", Some("/home/test"));
-        assert_eq!(
-            provider_user_home(),
-            Some(PathBuf::from("C:/Users/test"))
-        );
+        assert_eq!(provider_user_home(), Some(PathBuf::from("C:/Users/test")));
     }
 
     #[test]

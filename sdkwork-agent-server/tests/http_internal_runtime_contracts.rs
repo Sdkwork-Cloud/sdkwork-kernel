@@ -661,7 +661,11 @@ async fn internal_runtime_list_queries_reject_forbidden_pagination_aliases() {
             .await
             .expect("problem body");
         let problem: Value = serde_json::from_slice(&bytes).expect("problem json");
-        assert_eq!(problem["code"], json!(40003), "alias rejection code: {query}");
+        assert_eq!(
+            problem["code"],
+            json!(40003),
+            "alias rejection code: {query}"
+        );
         assert!(
             problem["traceId"].is_string(),
             "alias rejection must carry a traceId: {query}"

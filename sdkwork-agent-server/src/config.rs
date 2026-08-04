@@ -433,9 +433,7 @@ impl ServerConfig {
         if !(1..=10).contains(&config.task_worker_max_attempts) {
             anyhow::bail!("SDKWORK_TASK_WORKER_MAX_ATTEMPTS must be between 1 and 10");
         }
-        if let Ok(backoff_secs) =
-            std::env::var("SDKWORK_TASK_WORKER_RETRY_BACKOFF_BASE_SECS")
-        {
+        if let Ok(backoff_secs) = std::env::var("SDKWORK_TASK_WORKER_RETRY_BACKOFF_BASE_SECS") {
             config.task_worker_retry_backoff_base_secs = backoff_secs.parse()?;
         }
         if !(1..=60).contains(&config.task_worker_retry_backoff_base_secs) {

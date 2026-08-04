@@ -445,9 +445,11 @@ async fn fail_claim(
         {
             warn!(run_id = %run_id, error = %error, "durable task retry could not be scheduled");
         } else {
-            state
-                .runtime
-                .record_durable_worker_outcome(DurableWorkerKind::Task, "retry_scheduled", 1);
+            state.runtime.record_durable_worker_outcome(
+                DurableWorkerKind::Task,
+                "retry_scheduled",
+                1,
+            );
             warn!(
                 run_id = %run_id,
                 attempt,

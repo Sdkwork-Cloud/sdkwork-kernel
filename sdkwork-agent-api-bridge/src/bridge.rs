@@ -232,10 +232,8 @@ impl AgentRuntimeBridge {
             model_request.model_request_id.clone(),
         );
         if let Some(provider_session_id) = model_request.provider_session_id.as_deref() {
-            user_message = user_message.with_metadata(
-                PREPARED_PROVIDER_SESSION_ID_METADATA,
-                provider_session_id,
-            );
+            user_message = user_message
+                .with_metadata(PREPARED_PROVIDER_SESSION_ID_METADATA, provider_session_id);
         }
 
         let provider_id = session
@@ -373,10 +371,8 @@ impl AgentRuntimeBridge {
             model_request.model_request_id.clone(),
         );
         if let Some(provider_session_id) = model_request.provider_session_id.as_deref() {
-            user_message = user_message.with_metadata(
-                PREPARED_PROVIDER_SESSION_ID_METADATA,
-                provider_session_id,
-            );
+            user_message = user_message
+                .with_metadata(PREPARED_PROVIDER_SESSION_ID_METADATA, provider_session_id);
         }
 
         let provider_id = session

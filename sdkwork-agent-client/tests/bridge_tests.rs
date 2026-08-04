@@ -174,6 +174,7 @@ fn test_agent_client_mode_local_not_found() {
 }
 
 #[test]
+#[ignore = "live test: requires real Codex/Hermes installs to create sessions"]
 fn test_registry_list_all_sessions_sorted_by_updated_at() {
     let database_path = std::env::temp_dir().join(format!(
         "sdkwork-agent-client-bridge-test-{}.sqlite",

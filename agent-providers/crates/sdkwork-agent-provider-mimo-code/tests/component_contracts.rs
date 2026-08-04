@@ -27,6 +27,12 @@ fn model_provider_manifest_uses_canonical_provider_id() {
 
 #[test]
 fn kernel_plugin_exposes_the_standard_installation_surface() {
+    // The TypeScript runtime for @mimo-ai/sdk falls back to the local
+    // sdk_probe mock backend when the official package is not installed; that
+    // fallback is fail-closed unless the explicit mock override is enabled.
+    std::env::set_var("SDKWORK_KERNEL_ENVIRONMENT", "development");
+    std::env::set_var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "1");
+
     let manifest = mimo_code_kernel_plugin_manifest();
     assert_eq!(manifest.plugin_id, "plugin.intelligence.mimo-code");
     assert!(manifest.supports_profile("agent-installation"));

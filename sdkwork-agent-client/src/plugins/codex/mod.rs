@@ -203,11 +203,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "live test: requires a real Codex app-server install and OpenAI credentials"]
     fn provider_session_history_roundtrip() {
-        // These tests exercise the local sdk_probe backend, which is gated
-        // behind the explicit mock-provider override (fail-closed by default).
-        std::env::set_var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "1");
-
+        // The Codex bridge drives the Rust-native codex app-server worker
+        // (unlike TypeScript/Python runtimes there is no mockable sdk_probe
+        // backend), so this test needs a working Codex install and
+        // credentials. Gated as a live test.
         let provider = CodexProvider::new(test_config()).unwrap();
         provider.initialize().expect("init");
         let session = provider
@@ -234,11 +235,11 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "live test: requires a real Codex app-server install and OpenAI credentials"]
     fn provider_send_message_routes_through_sdk_model_provider() {
-        // These tests exercise the local sdk_probe backend, which is gated
-        // behind the explicit mock-provider override (fail-closed by default).
-        std::env::set_var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "1");
-
+        // Same live constraint as `provider_session_history_roundtrip`: the
+        // Rust-native codex app-server worker is a real client, so this test
+        // needs a working Codex install and credentials.
         let provider = CodexProvider::new(test_config()).unwrap();
         provider.initialize().expect("init");
         let session = provider

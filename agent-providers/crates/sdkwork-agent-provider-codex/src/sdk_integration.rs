@@ -301,12 +301,12 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "live test: requires a real Codex app-server install and OpenAI credentials"]
     fn runtime_model_chat_uses_rust_app_server_backend() {
-        // The sdk_probe backend is the local mock runtime for these tests;
-        // it requires the explicit non-production mock override (fail-closed
-        // by default).
-        std::env::set_var("SDKWORK_KERNEL_ENVIRONMENT", "development");
-        std::env::set_var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "1");
+        // Unlike the TypeScript/Python runtimes (mockable via the sdk_probe
+        // worker backend), the Codex Rust-native runtime drives a real
+        // app-server worker process that calls the live OpenAI API. There is
+        // no in-process mock branch, so this test is gated as a live test.
         let integration = CodexSdkIntegration::bootstrap().expect("bootstrap should succeed");
         let response = integration
             .invoke_runtime(&SdkRuntimeRequest::model_chat(
@@ -320,12 +320,11 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "live test: requires a real Codex app-server install and OpenAI credentials"]
     fn model_provider_routes_invoke_through_runtime() {
-        // The sdk_probe backend is the local mock runtime for these tests;
-        // it requires the explicit non-production mock override (fail-closed
-        // by default).
-        std::env::set_var("SDKWORK_KERNEL_ENVIRONMENT", "development");
-        std::env::set_var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "1");
+        // Same live constraint as `runtime_model_chat_uses_rust_app_server_backend`:
+        // the Rust-native codex runtime spawns the real app-server worker, so
+        // this test needs a working Codex install and credentials.
         let integration = CodexSdkIntegration::bootstrap().expect("bootstrap should succeed");
         let response = integration
             .model

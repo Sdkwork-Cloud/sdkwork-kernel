@@ -61,18 +61,15 @@ fn plugin_manifest_preserves_standard_identity_and_provider_ids() {
         "typed-local-provider",
     )
     .with_source_reference("external/rig")
-    .with_agent_id("agent.intelligence.rig-general")
-    .with_provider_id("provider.model.rig-rust")
+    .with_agent_id("agent.rig-general")
+    .with_provider_id("provider.rig-rust")
     .with_supported_profile("runtime-local");
 
     assert_eq!(manifest.plugin_id, "plugin.intelligence.rig");
     assert_eq!(manifest.implementation_kind, "typed-local-provider");
     assert_eq!(manifest.source_reference.as_deref(), Some("external/rig"));
-    assert_eq!(
-        manifest.agent_id.as_deref(),
-        Some("agent.intelligence.rig-general")
-    );
-    assert_eq!(manifest.provider_ids, ["provider.model.rig-rust"]);
+    assert_eq!(manifest.agent_id.as_deref(), Some("agent.rig-general"));
+    assert_eq!(manifest.provider_ids, ["provider.rig-rust"]);
     assert!(manifest.supports_profile("runtime-local"));
 }
 
@@ -85,8 +82,8 @@ fn canonical_plugin_manifest_uses_plugin_as_top_level_name() {
         "typed-local-provider",
     )
     .with_source_reference("external/rig")
-    .with_agent_id("agent.intelligence.rig-general")
-    .with_provider_id("provider.model.rig-rust")
+    .with_agent_id("agent.rig-general")
+    .with_provider_id("provider.rig-rust")
     .with_provider_id("adapter.rpc.agent-chat")
     .with_supported_profile("runtime-local");
 
@@ -101,8 +98,8 @@ fn canonical_plugin_manifest_uses_plugin_as_top_level_name() {
 fn canonical_plugin_binding_and_deployment_snapshot_keep_runtime_evidence() {
     let binding = KernelProviderBinding::new(
         "binding.rig.default",
-        "agent.intelligence.rig-general",
-        "provider.model.rig-rust",
+        "agent.rig-general",
+        "provider.rig-rust",
         "typed-local-provider",
         "profile.rig.local",
     )
@@ -116,7 +113,7 @@ fn canonical_plugin_binding_and_deployment_snapshot_keep_runtime_evidence() {
         "2026-06-10T00:00:00Z",
     );
 
-    assert_eq!(deployment.provider_id_snapshot, "provider.model.rig-rust");
+    assert_eq!(deployment.provider_id_snapshot, "provider.rig-rust");
     assert_eq!(deployment.capabilities_snapshot, ["model.chat"]);
 }
 
@@ -140,13 +137,13 @@ fn plugin_manifest_accepts_protocol_adapter_ids_as_runtime_providers() {
         "0.1.0",
         "typed-local-provider",
     )
-    .with_agent_id("agent.intelligence.rig-general")
-    .with_provider_id("provider.model.rig-rust")
+    .with_agent_id("agent.rig-general")
+    .with_provider_id("provider.rig-rust")
     .with_provider_id("adapter.rpc.agent-chat");
 
     assert_eq!(
         manifest.provider_ids,
-        ["provider.model.rig-rust", "adapter.rpc.agent-chat"]
+        ["provider.rig-rust", "adapter.rpc.agent-chat"]
     );
 }
 
@@ -186,9 +183,9 @@ fn plugin_manifest_rejects_non_standard_identity_and_duplicate_provider_ids() {
         "typed-local-provider",
     )
     .expect("standard plugin id should be accepted")
-    .try_with_provider_id("provider.model.rig-rust")
+    .try_with_provider_id("provider.rig-rust")
     .expect("standard provider id should be accepted")
-    .try_with_provider_id("provider.model.rig-rust")
+    .try_with_provider_id("provider.rig-rust")
     .expect_err("duplicate provider id should fail");
     assert!(error.contains("duplicate providerId"));
 }
@@ -197,8 +194,8 @@ fn plugin_manifest_rejects_non_standard_identity_and_duplicate_provider_ids() {
 fn provider_binding_can_be_activated_without_mutating_deployment_snapshot() {
     let binding = KernelProviderBinding::new(
         "binding.rig.default",
-        "agent.intelligence.rig-general",
-        "provider.model.rig-rust",
+        "agent.rig-general",
+        "provider.rig-rust",
         "typed-local-provider",
         "profile.rig.local",
     )
@@ -214,12 +211,12 @@ fn provider_binding_can_be_activated_without_mutating_deployment_snapshot() {
 
     let switched = binding
         .clone()
-        .with_provider_id("provider.model.other")
+        .with_provider_id("provider.other")
         .deactivate();
 
     assert!(binding.active);
     assert!(!switched.active);
-    assert_eq!(deployment.provider_id_snapshot, "provider.model.rig-rust");
+    assert_eq!(deployment.provider_id_snapshot, "provider.rig-rust");
     assert_eq!(deployment.binding_id, "binding.rig.default");
     assert_eq!(deployment.capabilities_snapshot, ["model.chat"]);
 }
@@ -228,8 +225,8 @@ fn provider_binding_can_be_activated_without_mutating_deployment_snapshot() {
 fn plugin_core_rejects_non_standard_provider_binding_contracts() {
     let error = KernelProviderBinding::try_new(
         "rig.default",
-        "agent.intelligence.rig-general",
-        "provider.model.rig-rust",
+        "agent.rig-general",
+        "provider.rig-rust",
         "typed-local-provider",
         "profile.rig.local",
     )
@@ -238,7 +235,7 @@ fn plugin_core_rejects_non_standard_provider_binding_contracts() {
 
     let error = KernelProviderBinding::try_new(
         "binding.rig.default",
-        "agent.intelligence.rig-general",
+        "agent.rig-general",
         "model.rig-rust",
         "typed-local-provider",
         "profile.rig.local",
@@ -248,8 +245,8 @@ fn plugin_core_rejects_non_standard_provider_binding_contracts() {
 
     let error = KernelProviderBinding::try_new(
         "binding.rig.default",
-        "agent.intelligence.rig-general",
-        "provider.model.rig-rust",
+        "agent.rig-general",
+        "provider.rig-rust",
         "typed-local-provider",
         "config.rig.local",
     )
@@ -258,8 +255,8 @@ fn plugin_core_rejects_non_standard_provider_binding_contracts() {
 
     let error = KernelProviderBinding::try_new(
         "binding.rig.default",
-        "agent.intelligence.rig-general",
-        "provider.model.rig-rust",
+        "agent.rig-general",
+        "provider.rig-rust",
         "typed-local-provider",
         "profile.rig.local",
     )
@@ -273,8 +270,8 @@ fn plugin_core_rejects_non_standard_provider_binding_contracts() {
 fn plugin_core_rejects_non_standard_deployment_snapshots() {
     let binding = KernelProviderBinding::try_new(
         "binding.rig.default",
-        "agent.intelligence.rig-general",
-        "provider.model.rig-rust",
+        "agent.rig-general",
+        "provider.rig-rust",
         "typed-local-provider",
         "profile.rig.local",
     )
@@ -294,7 +291,7 @@ fn plugin_core_rejects_non_standard_deployment_snapshots() {
 
 #[test]
 fn standard_plugin_ids_match_kernel_standard_patterns() {
-    assert!(StandardPluginIds::validate_provider_id("provider.model.rig-rust").is_ok());
+    assert!(StandardPluginIds::validate_provider_id("provider.rig-rust").is_ok());
     assert!(StandardPluginIds::validate_binding_id("binding.rig.default").is_ok());
     assert!(StandardPluginIds::validate_profile_id("profile.rig.local").is_ok());
     assert!(StandardPluginIds::validate_deployment_id("deployment.rig.1").is_ok());
@@ -325,25 +322,16 @@ fn plugin_trait_exposes_agent_package_provider_and_runtime_assembly_contracts() 
         plugin.plugin_manifest().plugin_id,
         "plugin.intelligence.static"
     );
-    assert_eq!(
-        plugin.agent_manifest().agent_id,
-        "agent.intelligence.static"
-    );
-    assert_eq!(
-        plugin.agent_definition().manifest.agent_id,
-        "agent.intelligence.static"
-    );
-    assert_eq!(
-        plugin.package_manifest().agent_id,
-        "agent.intelligence.static"
-    );
+    assert_eq!(plugin.agent_manifest().agent_id, "agent.static");
+    assert_eq!(plugin.agent_definition().manifest.agent_id, "agent.static");
+    assert_eq!(plugin.package_manifest().agent_id, "agent.static");
     assert!(plugin
         .agent_definition()
         .default_binding(AgentProviderFamily::Model)
         .is_none());
     assert_eq!(
         plugin.provider_manifests()[0].provider_id,
-        "provider.model.static"
+        "provider.static"
     );
     assert!(plugin.conformance_profile().requires("runtime-local"));
 
@@ -358,7 +346,7 @@ fn plugin_trait_exposes_agent_package_provider_and_runtime_assembly_contracts() 
         .capability_manifest()
         .providers
         .iter()
-        .any(|provider| provider.provider_id == "provider.model.static"));
+        .any(|provider| provider.provider_id == "provider.static"));
 }
 
 fn assert_kernel_plugin_trait<T: SdkworkKernelPlugin>(_plugin: &T) {}
@@ -397,7 +385,7 @@ impl SdkworkKernelPlugin for StaticPlugin {
         AgentManifest {
             schema_version: "0.1.0".to_string(),
             manifest_type: "agent".to_string(),
-            agent_id: "agent.intelligence.static".to_string(),
+            agent_id: "agent.static".to_string(),
             name: "static-agent".to_string(),
             display_name: "Static Agent".to_string(),
             description: "Static test agent".to_string(),
@@ -415,13 +403,9 @@ impl SdkworkKernelPlugin for StaticPlugin {
 
     fn package_manifest(&self) -> AgentPackageManifest {
         AgentPackageManifest::new(
-            "agent.intelligence.static",
+            "agent.static",
             "0.1.0",
-            sdkwork_agent_kernel::AgentPackageSource::registry(
-                "sdkwork",
-                "agent.intelligence.static",
-                "0.1.0",
-            ),
+            sdkwork_agent_kernel::AgentPackageSource::registry("sdkwork", "agent.static", "0.1.0"),
         )
         .with_lifecycle(AgentPackageLifecycle::installable())
         .expect("installable lifecycle is valid")
@@ -434,7 +418,7 @@ impl SdkworkKernelPlugin for StaticPlugin {
 
     fn provider_manifests(&self) -> Vec<ProviderManifest> {
         vec![ProviderManifest::new(
-            "provider.model.static",
+            "provider.static",
             "model",
             "static",
             "0.1.0",
@@ -443,7 +427,7 @@ impl SdkworkKernelPlugin for StaticPlugin {
     }
 
     fn configure_runtime(&self, builder: RuntimeBuilder) -> RuntimeBuilder {
-        builder.register_model_provider_manifest("provider.model.static", "0.1.0")
+        builder.register_model_provider_manifest("provider.static", "0.1.0")
     }
 
     fn conformance_profile(&self) -> KernelPluginConformanceProfile {

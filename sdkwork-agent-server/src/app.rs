@@ -183,7 +183,12 @@ fn try_build_app_with_rate_limit(
         .layer(axum_middleware::from_fn(
             middleware::request_context_middleware,
         ))
-        .layer(middleware::cors_layer(&config)))
+        .layer(middleware::cors_layer(&config))
+        // Outermost: normalize axum extractor rejections (text/plain 400)
+        // into the SDKWork problem contract before the client sees them.
+        .layer(axum_middleware::from_fn(
+            middleware::extractor_rejection_normalizer,
+        )))
 }
 
 /// Build a test router with in-memory persistence and open ingress auth.

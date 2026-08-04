@@ -8,9 +8,8 @@
 //! config management surface.
 
 use sdkwork_agent_kernel::{
-    AgentModelConfigurationApplication, AgentModelConfigurationRequest,
-    AgentModelSelectionRequest, KernelError, KernelResult, ProviderModelConfigurationStatus,
-    ProviderModelMaterializationState,
+    AgentModelConfigurationApplication, AgentModelConfigurationRequest, AgentModelSelectionRequest,
+    KernelError, KernelResult, ProviderModelConfigurationStatus, ProviderModelMaterializationState,
 };
 use sdkwork_agent_provider_core::{
     dematerialize_provider_config_named, merge_json_path, provider_user_home, read_provider_config,
@@ -64,7 +63,10 @@ fn build_materialized_settings(
         Value::String(request.base_url.trim().to_string()),
     );
     if let Some(api_key) = api_key {
-        env.insert(ANTHROPIC_AUTH_TOKEN_ENV.to_string(), Value::String(api_key.to_string()));
+        env.insert(
+            ANTHROPIC_AUTH_TOKEN_ENV.to_string(),
+            Value::String(api_key.to_string()),
+        );
     }
     env.insert(
         ANTHROPIC_MODEL_ENV.to_string(),
@@ -74,11 +76,7 @@ fn build_materialized_settings(
         SDKWORK_MANAGED_MARKER_ENV.to_string(),
         Value::String("true".to_string()),
     );
-    merge_json_path(
-        &mut document,
-        &["env"],
-        Value::Object(env),
-    )?;
+    merge_json_path(&mut document, &["env"], Value::Object(env))?;
     Ok(document)
 }
 
@@ -89,7 +87,10 @@ fn update_selected_model(current: Option<&Value>, model_id: &str) -> KernelResul
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
-    env.insert(ANTHROPIC_MODEL_ENV.to_string(), Value::String(model_id.to_string()));
+    env.insert(
+        ANTHROPIC_MODEL_ENV.to_string(),
+        Value::String(model_id.to_string()),
+    );
     merge_json_path(&mut document, &["env"], Value::Object(env))?;
     Ok(document)
 }
@@ -100,10 +101,10 @@ pub fn materialize_claude_code_model_configuration(
     application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = claude_code_settings_path() else {
-            return Err(KernelError::provider_error(
-                "provider_config_path",
-                "could not resolve the ~/.claude/settings.json path: user home is unavailable",
-            ));
+        return Err(KernelError::provider_error(
+            "provider_config_path",
+            "could not resolve the ~/.claude/settings.json path: user home is unavailable",
+        ));
     };
     materialize_claude_code_model_configuration_at(&path, request, application)
 }
@@ -126,10 +127,10 @@ pub fn materialize_claude_code_model_selection(
     application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = claude_code_settings_path() else {
-            return Err(KernelError::provider_error(
-                "provider_config_path",
-                "could not resolve the ~/.claude/settings.json path: user home is unavailable",
-            ));
+        return Err(KernelError::provider_error(
+            "provider_config_path",
+            "could not resolve the ~/.claude/settings.json path: user home is unavailable",
+        ));
     };
     materialize_claude_code_model_selection_at(&path, request, application)
 }
@@ -151,10 +152,10 @@ pub fn dematerialize_claude_code_model_configuration(
     _profile_id: &str,
 ) -> KernelResult<()> {
     let Some(path) = claude_code_settings_path() else {
-            return Err(KernelError::provider_error(
-                "provider_config_path",
-                "could not resolve the ~/.claude/settings.json path: user home is unavailable",
-            ));
+        return Err(KernelError::provider_error(
+            "provider_config_path",
+            "could not resolve the ~/.claude/settings.json path: user home is unavailable",
+        ));
     };
     dematerialize_provider_config_named(&path, "claude-code")
 }
@@ -286,7 +287,10 @@ pub(crate) mod tests {
         let document =
             build_materialized_settings(None, &request, Some("token-abc")).expect("build");
         let env = document["env"].as_object().expect("env object");
-        assert_eq!(env["ANTHROPIC_BASE_URL"].as_str(), Some("https://api.birdcoder.com"));
+        assert_eq!(
+            env["ANTHROPIC_BASE_URL"].as_str(),
+            Some("https://api.birdcoder.com")
+        );
         assert_eq!(env["ANTHROPIC_AUTH_TOKEN"].as_str(), Some("token-abc"));
         assert_eq!(env["ANTHROPIC_MODEL"].as_str(), Some("claude-sonnet-4-5"));
         assert_eq!(env[SDKWORK_MANAGED_MARKER_ENV].as_str(), Some("true"));
@@ -299,17 +303,20 @@ pub(crate) mod tests {
             "permissions": { "allow": ["Bash(*)" ] }
         });
         let request = request_with(None, "https://api.birdcoder.com", "claude-sonnet-4-5");
-        let document =
-            build_materialized_settings(Some(&existing), &request, None).expect("merge");
+        let document = build_materialized_settings(Some(&existing), &request, None).expect("merge");
         let env = document["env"].as_object().expect("env object");
         assert_eq!(env["OTHER"].as_str(), Some("keep"));
-        assert_eq!(env["ANTHROPIC_BASE_URL"].as_str(), Some("https://api.birdcoder.com"));
+        assert_eq!(
+            env["ANTHROPIC_BASE_URL"].as_str(),
+            Some("https://api.birdcoder.com")
+        );
         assert!(document["permissions"].is_object());
     }
 
     #[test]
     fn update_selected_model_keeps_other_env() {
-        let existing = json!({ "env": { "ANTHROPIC_BASE_URL": "https://x", "ANTHROPIC_MODEL": "a" } });
+        let existing =
+            json!({ "env": { "ANTHROPIC_BASE_URL": "https://x", "ANTHROPIC_MODEL": "a" } });
         let document = update_selected_model(Some(&existing), "claude-opus-4-5").expect("update");
         let env = document["env"].as_object().expect("env object");
         assert_eq!(env["ANTHROPIC_MODEL"].as_str(), Some("claude-opus-4-5"));
@@ -462,8 +469,11 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         let path = dir.join("settings.json");
-        std::fs::write(&path, json!({ "permissions": { "allow": ["Bash(*)"] } }).to_string())
-            .expect("seed");
+        std::fs::write(
+            &path,
+            json!({ "permissions": { "allow": ["Bash(*)"] } }).to_string(),
+        )
+        .expect("seed");
         let request = request_with(
             Some("token-abc"),
             "https://api.birdcoder.com",
@@ -494,7 +504,10 @@ pub(crate) mod tests {
         assert!(status.credential_configured);
         // User content survives materialization.
         let content = std::fs::read_to_string(&path).expect("read");
-        assert!(content.contains("\"Bash(*)\""), "user permissions must be preserved");
+        assert!(
+            content.contains("\"Bash(*)\""),
+            "user permissions must be preserved"
+        );
 
         dematerialize_claude_code_model_configuration_at(&path).expect("dematerialize");
         let status = read_claude_code_model_configuration_at(&path).expect("read back");

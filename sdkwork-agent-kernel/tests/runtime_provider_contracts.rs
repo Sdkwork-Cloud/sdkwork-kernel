@@ -88,7 +88,7 @@ fn capability_manifest_metadata_defines_tool_memory_and_knowledge_spi_operations
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.spi-metadata",
+  "agent_id": "agent.spi-metadata",
   "name": "spi-metadata",
   "display_name": "SPI Metadata",
   "description": "Agent used to prove capability metadata.",
@@ -257,7 +257,7 @@ fn capability_manifest(
         schema_version: "0.1.0".to_string(),
         manifest_type: "capability".to_string(),
         runtime_id: "runtime.local".to_string(),
-        agent_id: "agent.intelligence.general".to_string(),
+        agent_id: "agent.general".to_string(),
         kernel_version: "0.1.0".to_string(),
         providers: vec![],
         capabilities: vec![],

@@ -107,7 +107,7 @@ does not implement a second Sandbox lifecycle or Workspace registry.
 | --- | --- |
 | `AgentSession` | Existing Kernel execution-session mechanism; it is not the Agents-owned persistent `AgentSession` business aggregate and does not replace `SandboxSession` |
 | `SandboxSessionRuntimeProjection` | Kernel view of Sandbox lifecycle state; maps `SandboxRuntimeBindingId` to opaque Agents `runtimeLocationId` without exposing Provider-private metadata |
-| `ProviderBinding` | Catalog manifest (`binding.agent-provider.*`) |
+| `ProviderBinding` | Catalog manifest (`binding.*`) |
 | `CapabilityDriver` | Registered handler for `sdk.*` capability ids |
 | `TransportHost` | Language/runtime probe (`typescript_node`, `rust_native`, …) |
 | `SdkRuntimeRouter` | Routes runtime requests to healthy negotiated transports |

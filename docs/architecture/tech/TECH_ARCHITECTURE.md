@@ -545,7 +545,11 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
   scoped by verified identity, route, query, key, and server-computed request
   fingerprint. Bounded JSON success and 5xx responses are replayed exactly;
   4xx reservations are released, while uncacheable or uncertain outcomes stay
-  fail-closed to prevent duplicate side effects.
+  fail-closed to prevent duplicate side effects. Model-output-bearing routes
+  (message turns and model invokes) cache responses up to 4 MiB — above the
+  3 MiB model output ceiling plus envelope — so a committed mutation with a
+  large assistant message stays replayable instead of returning `413` with a
+  stuck reservation; all other routes keep the configured generic limit.
 - **SSE events**: The handler subscribes before persistence replay, uses the
   process-local broadcast path for low latency, and polls the durable store in
   bounded batches to recover cross-pod and lagged events. Each connection has
@@ -558,8 +562,8 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
   `CountedStream`. Event-stream admission occurs before session lookup,
   broadcast subscription, or persistence replay, so saturated requests cannot
   consume database or replay-memory capacity. Durable per-connection polling
-  starts at one second, exponentially backs off to five seconds while idle, and
-  resets after activity or broadcast lag. It remains a bounded recovery path; a shared cross-pod notification transport
+  starts at one second, exponentially backs off to thirty seconds while idle,
+  and resets after activity or broadcast lag. It remains a bounded recovery path; a shared cross-pod notification transport
   and target-cluster fan-out evidence remain commercial scale gates.
 - **Model stream provider state**: In-memory stream provider slots are released
   by `finalize_stream`, so completed streams do not keep occupying
@@ -579,11 +583,31 @@ Topology detail: [TECH-topology-standard.md](TECH-topology-standard.md).
   up the prior page's row, so retention or concurrent deletion cannot truncate
   continuation. `page_size` defaults to 20, rejects values outside `1..=200`,
   and each query fetches at most `page_size + 1` rows to determine `hasMore`
-  and `nextCursor` per `PAGINATION_SPEC.md`.
+  and `nextCursor` per `PAGINATION_SPEC.md`. Repository list methods treat
+  keyset cursors and offsets as mutually exclusive (a cursor forces offset 0)
+  so the two modes can never combine into wrong pages.
   Cursor signatures use the dedicated `SDKWORK_CURSOR_SIGNING_SECRET`; production
   requires at least 32 bytes and rejects reuse of ingress, JWT, or metrics
   credentials. Rotating unrelated credentials does not invalidate pagination
   cursors, while rotating the cursor key intentionally invalidates old cursors.
+- **Message response bound**: Persisted message bodies can reach the 3 MiB
+  model output ceiling, but API responses truncate `content` to the OpenAPI
+  `maxLength` of 262144 characters, so a full page of oversized messages can
+  never materialize hundreds of MB of JSON; the persisted rows keep the
+  complete content.
+- **Extractor rejections**: axum 0.8 default `text/plain` 400 rejections
+  (unknown query parameters such as `pageSize`/`limit`, malformed JSON bodies,
+  bad path values) are normalized to `application/problem+json` `40003`
+  responses by an outer middleware, so every error path carries `code` and
+  `traceId` per `PAGINATION_SPEC.md` §10.1.
+- **Durable task retries**: Transient task failures (provider unavailability,
+  admission saturation, persistence hiccups, retryable model errors) are
+  rescheduled with exponential backoff (`SDKWORK_TASK_WORKER_RETRY_BACKOFF_*`,
+  capped by `SDKWORK_TASK_WORKER_MAX_ATTEMPTS`, default 3) instead of failing
+  permanently; the run returns to a claimable state with a fresh fencing token
+  and a persisted `next_attempt_at`, so any replica can pick the retry up.
+  Permanent failures (tool-step requirements, output overruns, validation
+  errors) still fail immediately.
 - **sdkwork-utils-rust**: Shared utility library provides SHA-256,
   HMAC, AES-256-GCM, HKDF, and ID generation to reduce cross-crate
   code duplication.

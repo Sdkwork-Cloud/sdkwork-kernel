@@ -11,7 +11,7 @@ const STANDARD_AGENT_DEFINITION_JSON: &str = r#"
   "agent": {
     "schema_version": "0.1.0",
     "manifest_type": "agent",
-    "agent_id": "agent.intelligence.research",
+    "agent_id": "agent.research",
     "name": "research-agent",
     "display_name": "Research Agent",
     "description": "Agent used to prove provider binding standards.",
@@ -51,7 +51,7 @@ const STANDARD_AGENT_DEFINITION_JSON: &str = r#"
     {
       "binding_id": "binding.model.primary",
       "family": "model",
-      "provider_id": "provider.model.openai",
+      "provider_id": "provider.openai",
       "required": true,
       "default": true,
       "mode": "typed_local",
@@ -80,7 +80,7 @@ const STANDARD_AGENT_DEFINITION_JSON: &str = r#"
     }
   ],
   "model_selection": {
-    "default_provider_id": "provider.model.openai",
+    "default_provider_id": "provider.openai",
     "default_model_id": "gpt-4.1",
     "required_capabilities": ["model.chat"],
     "allow_provider_fallback": true
@@ -121,7 +121,7 @@ fn agent_definition_makes_model_tool_and_memory_bindings_explicit() {
     let model = definition
         .default_binding(AgentProviderFamily::Model)
         .expect("default model binding is explicit");
-    assert_eq!(model.provider_id, "provider.model.openai");
+    assert_eq!(model.provider_id, "provider.openai");
     assert_eq!(model.mode, AgentProviderBindingMode::TypedLocal);
     assert!(model.supports_capability("model.chat"));
     assert!(model.satisfies_version("0.1.0"));
@@ -148,7 +148,7 @@ fn agent_definition_preserves_llm_tool_call_and_memory_policies() {
 
     assert_eq!(
         definition.model_selection.default_provider_id.as_deref(),
-        Some("provider.model.openai")
+        Some("provider.openai")
     );
     assert_eq!(
         definition.model_selection.default_model_id.as_deref(),
@@ -195,14 +195,14 @@ fn agent_definition_rejects_ambiguous_default_provider_bindings() {
     let binding_a = AgentProviderBinding::new(
         "binding.model.a",
         AgentProviderFamily::Model,
-        "provider.model.a",
+        "provider.a",
         true,
     )
     .as_default();
     let binding_b = AgentProviderBinding::new(
         "binding.model.b",
         AgentProviderFamily::Model,
-        "provider.model.b",
+        "provider.b",
         true,
     )
     .as_default();
@@ -210,7 +210,7 @@ fn agent_definition_rejects_ambiguous_default_provider_bindings() {
     let error = AgentDefinition::new("definition.intelligence.ambiguous", manifest)
         .with_provider_binding(binding_a)
         .with_provider_binding(binding_b)
-        .with_model_selection(ModelSelectionPolicy::default_provider("provider.model.a"))
+        .with_model_selection(ModelSelectionPolicy::default_provider("provider.a"))
         .with_tool_call_policy(ToolCallPolicy::default())
         .with_memory_strategy(MemoryStrategy::disabled())
         .validate()
@@ -236,9 +236,7 @@ fn agent_definition_rejects_policy_references_without_matching_bindings() {
             )
             .as_default(),
         )
-        .with_model_selection(ModelSelectionPolicy::default_provider(
-            "provider.model.missing",
-        ))
+        .with_model_selection(ModelSelectionPolicy::default_provider("provider.missing"))
         .with_tool_call_policy(ToolCallPolicy::default_provider("provider.tool.mcp"))
         .with_memory_strategy(MemoryStrategy::disabled())
         .validate()

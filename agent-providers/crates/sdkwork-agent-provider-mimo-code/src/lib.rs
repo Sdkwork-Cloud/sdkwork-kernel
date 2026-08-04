@@ -226,7 +226,7 @@ impl Default for MiMoCodeModelProvider {
 impl ModelProvider for MiMoCodeModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.mimo",
+            "provider.mimo",
             "model",
             "MiMo Model Provider",
             "0.1.0",
@@ -244,25 +244,20 @@ impl ModelProvider for MiMoCodeModelProvider {
 
     fn list_models(&self) -> Vec<ModelDescriptor> {
         vec![
-            ModelDescriptor::new(
-                "mimo-v2.5-pro",
-                "provider.model.mimo",
-                "MiMo v2.5 Pro",
-                "mimo",
-            )
-            .with_version("2.5")
-            .with_capability("chat")
-            .with_capability("tool_call")
-            .with_context_window_tokens(200000)
-            .with_max_output_tokens(32000)
-            .with_input_mode("text")
-            .with_output_mode("text")
-            .with_response_format(ModelResponseFormat::Text)
-            .with_response_format(ModelResponseFormat::Json)
-            .with_tool_capability("function_calling"),
+            ModelDescriptor::new("mimo-v2.5-pro", "provider.mimo", "MiMo v2.5 Pro", "mimo")
+                .with_version("2.5")
+                .with_capability("chat")
+                .with_capability("tool_call")
+                .with_context_window_tokens(200000)
+                .with_max_output_tokens(32000)
+                .with_input_mode("text")
+                .with_output_mode("text")
+                .with_response_format(ModelResponseFormat::Text)
+                .with_response_format(ModelResponseFormat::Json)
+                .with_tool_capability("function_calling"),
             ModelDescriptor::new(
                 "mimo-v2.5-flash",
-                "provider.model.mimo",
+                "provider.mimo",
                 "MiMo v2.5 Flash",
                 "mimo",
             )
@@ -279,11 +274,11 @@ impl ModelProvider for MiMoCodeModelProvider {
     }
 
     fn invoke(&self, _request: ModelRequest) -> KernelResult<ModelResponse> {
-        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.model.mimo")
+        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.mimo")
     }
 
     fn stream(&self, _request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
-        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.model.mimo")
+        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.mimo")
     }
 }
 
@@ -632,7 +627,7 @@ mod tests {
     fn model_provider_manifest() {
         let provider = MiMoCodeModelProvider::new();
         let manifest = provider.provider_manifest();
-        assert_eq!(manifest.provider_id, "provider.model.mimo");
+        assert_eq!(manifest.provider_id, "provider.mimo");
         assert_eq!(manifest.provider_family, "model");
     }
 

@@ -11,8 +11,8 @@ use sdkwork_agent_provider_rig::{
 #[test]
 fn rig_uses_stable_standard_ids() {
     assert_eq!(ids::PLUGIN_ID, "plugin.intelligence.rig");
-    assert_eq!(ids::AGENT_ID, "agent.intelligence.rig-general");
-    assert_eq!(ids::MODEL_PROVIDER_ID, "provider.model.rig-rust");
+    assert_eq!(ids::AGENT_ID, "agent.rig-general");
+    assert_eq!(ids::MODEL_PROVIDER_ID, "provider.rig-rust");
     assert_eq!(ids::MEMORY_PROVIDER_ID, "provider.memory.rig-rust");
     assert_eq!(ids::KNOWLEDGE_PROVIDER_ID, "provider.knowledge.rig-rust");
     assert_eq!(ids::MCP_PROVIDER_ID, "provider.mcp.rig-rust");

@@ -11,7 +11,7 @@ const DIAGNOSTICS_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.diagnostics",
+  "agent_id": "agent.diagnostics",
   "name": "sdkwork-diagnostics-agent",
   "display_name": "SDKWork Diagnostics Agent",
   "description": "Agent used to prove runtime diagnostics contracts.",
@@ -45,7 +45,7 @@ const CORE_PROVIDER_HEALTH_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.provider-health",
+  "agent_id": "agent.provider-health",
   "name": "sdkwork-provider-health-agent",
   "display_name": "SDKWork Provider Health Agent",
   "description": "Agent used to prove all core provider SPI expose health.",
@@ -86,7 +86,7 @@ const MINIMAL_READY_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.minimal-ready",
+  "agent_id": "agent.minimal-ready",
   "name": "sdkwork-minimal-ready-agent",
   "display_name": "SDKWork Minimal Ready Agent",
   "description": "Agent used to prove missing full-profile provider families do not degrade a partial runtime.",
@@ -112,7 +112,7 @@ fn runtime_diagnostics_report_typed_manifest_only_health_and_missing_standard_fa
     let manifest = AgentManifest::from_json(DIAGNOSTICS_AGENT_MANIFEST_JSON).unwrap();
     let report = RuntimeBuilder::new("runtime.agent.diagnostics", manifest)
         .with_generated_at("2026-05-29T00:00:00Z")
-        .register_model_provider("provider.model.typed", "0.1.0", DegradedModelProvider)
+        .register_model_provider("provider.typed", "0.1.0", DegradedModelProvider)
         .register_policy_provider_manifest("provider.policy.manifest", "0.1.0")
         .bootstrap()
         .expect("runtime bootstraps");
@@ -122,7 +122,7 @@ fn runtime_diagnostics_report_typed_manifest_only_health_and_missing_standard_fa
     let diagnostics = report.runtime.diagnostics();
 
     assert_eq!(diagnostics.runtime_id, "runtime.agent.diagnostics");
-    assert_eq!(diagnostics.agent_id, "agent.intelligence.diagnostics");
+    assert_eq!(diagnostics.agent_id, "agent.diagnostics");
     assert_eq!(diagnostics.state, "degraded");
     assert_eq!(diagnostics.provider_count, 2);
     assert_eq!(diagnostics.capability_count, 2);
@@ -136,7 +136,7 @@ fn runtime_diagnostics_report_typed_manifest_only_health_and_missing_standard_fa
     assert!(diagnostics.is_degraded());
 
     let model = diagnostics
-        .provider("provider.model.typed")
+        .provider("provider.typed")
         .expect("model provider diagnostic exists");
     assert_eq!(model.provider_family, "model");
     assert_eq!(model.provider_version, "0.1.0");
@@ -189,7 +189,7 @@ fn runtime_state_degrades_when_required_typed_provider_health_is_degraded() {
     let manifest = AgentManifest::from_json(MINIMAL_READY_AGENT_MANIFEST_JSON).unwrap();
     let report = RuntimeBuilder::new("runtime.agent.degraded-health", manifest)
         .with_generated_at("2026-05-29T00:00:00Z")
-        .register_model_provider("provider.model.typed", "0.1.0", DegradedModelProvider)
+        .register_model_provider("provider.typed", "0.1.0", DegradedModelProvider)
         .bootstrap()
         .expect("runtime bootstraps");
 
@@ -245,7 +245,7 @@ fn runtime_diagnostics_do_not_degrade_partial_runtimes_for_missing_full_profile_
     let manifest = AgentManifest::from_json(MINIMAL_READY_AGENT_MANIFEST_JSON).unwrap();
     let report = RuntimeBuilder::new("runtime.agent.minimal-ready", manifest)
         .with_generated_at("2026-05-29T00:00:00Z")
-        .register_model_provider("provider.model.typed", "0.1.0", HealthyModelProvider)
+        .register_model_provider("provider.typed", "0.1.0", HealthyModelProvider)
         .bootstrap()
         .expect("runtime bootstraps");
 
@@ -271,9 +271,9 @@ struct DegradedModelProvider;
 impl ModelProvider for DegradedModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.typed",
+            "provider.typed",
             "model",
-            "provider.model.typed",
+            "provider.typed",
             "0.1.0",
             vec!["model.chat".to_string()],
         )
@@ -288,7 +288,7 @@ impl ModelProvider for DegradedModelProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.typed",
+            "provider.typed",
             "diagnostic response",
         ))
     }
@@ -299,9 +299,9 @@ struct HealthyModelProvider;
 impl ModelProvider for HealthyModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.typed",
+            "provider.typed",
             "model",
-            "provider.model.typed",
+            "provider.typed",
             "0.1.0",
             vec!["model.chat".to_string()],
         )
@@ -314,7 +314,7 @@ impl ModelProvider for HealthyModelProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.typed",
+            "provider.typed",
             "healthy response",
         ))
     }

@@ -8,7 +8,7 @@ const AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.general",
+  "agent_id": "agent.general",
   "name": "sdkwork-general-agent",
   "display_name": "SDKWork General Agent",
   "description": "Provider-neutral agent runtime.",
@@ -50,7 +50,7 @@ const AGENT_MANIFEST_JSON: &str = r#"
 fn parses_agent_manifest_and_reports_required_capabilities() {
     let manifest = AgentManifest::from_json(AGENT_MANIFEST_JSON).expect("manifest parses");
 
-    assert_eq!(manifest.agent_id, "agent.intelligence.general");
+    assert_eq!(manifest.agent_id, "agent.general");
     assert!(manifest.requires_capability("model.chat"));
     assert!(manifest.requires_capability("policy.evaluate"));
     assert!(!manifest.requires_capability("memory.query"));
@@ -62,13 +62,13 @@ fn capability_manifest_reports_missing_required_capabilities() {
         schema_version: "0.1.0".to_string(),
         manifest_type: "capability".to_string(),
         runtime_id: "runtime.local".to_string(),
-        agent_id: "agent.intelligence.general".to_string(),
+        agent_id: "agent.general".to_string(),
         kernel_version: "0.1.0".to_string(),
         providers: vec![],
         capabilities: vec![Capability {
             capability_id: "model.chat".to_string(),
             version: "0.1.0".to_string(),
-            provider_id: "provider.model.fake".to_string(),
+            provider_id: "provider.fake".to_string(),
             status: "available".to_string(),
             required: true,
             operations: vec!["invoke".to_string()],
@@ -130,7 +130,7 @@ struct FakeModelProvider;
 impl ModelProvider for FakeModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.fake",
+            "provider.fake",
             "model",
             "sdkwork-fake-model",
             "0.1.0",
@@ -145,7 +145,7 @@ impl ModelProvider for FakeModelProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.fake",
+            "provider.fake",
             "hello from fake model",
         ))
     }
@@ -156,7 +156,7 @@ fn model_provider_trait_supports_deterministic_fake_provider() {
     let provider = FakeModelProvider;
     let manifest = provider.provider_manifest();
 
-    assert_eq!(manifest.provider_id, "provider.model.fake");
+    assert_eq!(manifest.provider_id, "provider.fake");
     assert_eq!(provider.health().status, "available");
 
     let response = provider
@@ -166,6 +166,6 @@ fn model_provider_trait_supports_deterministic_fake_provider() {
         ))
         .expect("fake model responds");
 
-    assert_eq!(response.provider_id, "provider.model.fake");
+    assert_eq!(response.provider_id, "provider.fake");
     assert_eq!(response.messages, ["hello from fake model"]);
 }

@@ -282,7 +282,7 @@ mod tests {
 
     impl ModelProvider for StubModelProvider {
         fn provider_manifest(&self) -> ProviderManifest {
-            ProviderManifest::new("provider.model.stub", "model", "Stub", "0.1.0", vec![])
+            ProviderManifest::new("provider.stub", "model", "Stub", "0.1.0", vec![])
         }
 
         fn health(&self) -> ProviderHealth {
@@ -296,7 +296,7 @@ mod tests {
         fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
             Ok(ModelResponse::text(
                 &request.model_request_id,
-                "provider.model.stub",
+                "provider.stub",
                 "stub-response",
             ))
         }

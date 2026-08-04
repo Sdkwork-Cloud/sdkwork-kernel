@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1.0",
   "manifest_type": "provider",
-  "provider_id": "provider.model.codex",
+  "provider_id": "provider.codex",
   "provider_family": "model",
   "name": "codex-model",
   "display_name": "Codex Model Provider",

@@ -8,7 +8,7 @@ const MODEL_CATALOG_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.model-catalog",
+  "agent_id": "agent.model-catalog",
   "name": "sdkwork-model-catalog-agent",
   "display_name": "SDKWork Model Catalog Agent",
   "description": "Agent used to prove model catalog SPI contracts.",
@@ -44,33 +44,29 @@ const MODEL_CATALOG_AGENT_MANIFEST_JSON: &str = r#"
 
 #[test]
 fn model_descriptor_declares_routing_capabilities_limits_and_policy_surface() {
-    let descriptor = ModelDescriptor::new(
-        "model.openai.gpt-5",
-        "provider.model.openai",
-        "GPT-5",
-        "openai",
-    )
-    .with_version("2026-05-01")
-    .with_capability("chat")
-    .with_capability("reasoning")
-    .with_capability("tool_call")
-    .with_capability("structured_output")
-    .with_context_window_tokens(1_000_000)
-    .with_max_output_tokens(128_000)
-    .with_input_mode("text")
-    .with_input_mode("image")
-    .with_output_mode("text")
-    .with_output_mode("json")
-    .with_response_format(ModelResponseFormat::json_schema(
-        "sdkwork.answer.schema.v1".to_string(),
-    ))
-    .with_tool_capability("tool.invoke")
-    .with_policy_category("model.invoke")
-    .with_policy_category("model.send_sensitive_context")
-    .with_metadata("sdkwork.model.routing.tier", "frontier");
+    let descriptor =
+        ModelDescriptor::new("model.openai.gpt-5", "provider.openai", "GPT-5", "openai")
+            .with_version("2026-05-01")
+            .with_capability("chat")
+            .with_capability("reasoning")
+            .with_capability("tool_call")
+            .with_capability("structured_output")
+            .with_context_window_tokens(1_000_000)
+            .with_max_output_tokens(128_000)
+            .with_input_mode("text")
+            .with_input_mode("image")
+            .with_output_mode("text")
+            .with_output_mode("json")
+            .with_response_format(ModelResponseFormat::json_schema(
+                "sdkwork.answer.schema.v1".to_string(),
+            ))
+            .with_tool_capability("tool.invoke")
+            .with_policy_category("model.invoke")
+            .with_policy_category("model.send_sensitive_context")
+            .with_metadata("sdkwork.model.routing.tier", "frontier");
 
     assert_eq!(descriptor.model_id, "model.openai.gpt-5");
-    assert_eq!(descriptor.provider_id, "provider.model.openai");
+    assert_eq!(descriptor.provider_id, "provider.openai");
     assert_eq!(descriptor.family, "openai");
     assert!(descriptor.supports_capability("reasoning"));
     assert!(
@@ -129,7 +125,7 @@ fn model_provider_exposes_catalog_and_rejects_unknown_model_ids() {
     let descriptor = provider
         .describe_model("model.local.small")
         .expect("model descriptor exists");
-    assert_eq!(descriptor.provider_id, "provider.model.catalog");
+    assert_eq!(descriptor.provider_id, "provider.catalog");
 
     let selected = provider
         .invoke(
@@ -137,7 +133,7 @@ fn model_provider_exposes_catalog_and_rejects_unknown_model_ids() {
                 .with_model_id("model.local.small"),
         )
         .expect("selected model invokes");
-    assert_eq!(selected.provider_id, "provider.model.catalog");
+    assert_eq!(selected.provider_id, "provider.catalog");
     assert_eq!(selected.messages, ["model.local.small:hello"]);
 
     let error = provider
@@ -158,7 +154,7 @@ fn runtime_model_registration_uses_provider_manifest_capabilities_for_negotiatio
         .expect("model catalog manifest parses");
     let report = RuntimeBuilder::new("runtime.model.catalog", manifest)
         .with_generated_at("2026-05-30T00:00:00Z")
-        .register_model_provider("provider.model.catalog", "0.1.0", CatalogModelProvider)
+        .register_model_provider("provider.catalog", "0.1.0", CatalogModelProvider)
         .bootstrap()
         .expect("runtime bootstraps");
 
@@ -177,7 +173,7 @@ fn runtime_model_registration_uses_provider_manifest_capabilities_for_negotiatio
         .iter()
         .any(
             |capability| capability.capability_id == "model.structured_output"
-                && capability.provider_id == "provider.model.catalog"
+                && capability.provider_id == "provider.catalog"
         ));
     assert_eq!(
         report
@@ -196,21 +192,16 @@ struct CatalogModelProvider;
 impl CatalogModelProvider {
     fn descriptors(&self) -> Vec<ModelDescriptor> {
         vec![
-            ModelDescriptor::new(
-                "model.openai.gpt-5",
-                "provider.model.catalog",
-                "GPT-5",
-                "openai",
-            )
-            .with_capability("chat")
-            .with_capability("reasoning")
-            .with_capability("tool_call")
-            .with_capability("structured_output")
-            .with_context_window_tokens(1_000_000)
-            .with_policy_category("model.invoke"),
+            ModelDescriptor::new("model.openai.gpt-5", "provider.catalog", "GPT-5", "openai")
+                .with_capability("chat")
+                .with_capability("reasoning")
+                .with_capability("tool_call")
+                .with_capability("structured_output")
+                .with_context_window_tokens(1_000_000)
+                .with_policy_category("model.invoke"),
             ModelDescriptor::new(
                 "model.local.small",
-                "provider.model.catalog",
+                "provider.catalog",
                 "Local Small",
                 "local",
             )
@@ -224,7 +215,7 @@ impl CatalogModelProvider {
 impl ModelProvider for CatalogModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.catalog",
+            "provider.catalog",
             "model",
             "catalog",
             "0.1.0",

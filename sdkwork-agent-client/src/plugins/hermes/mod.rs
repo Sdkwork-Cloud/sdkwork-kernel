@@ -298,10 +298,14 @@ mod tests {
 
     #[test]
     fn provider_send_message_routes_through_sdk_model_provider() {
+        // These tests exercise the local sdk_probe backend, which is gated
+        // behind the explicit mock-provider override (fail-closed by default).
+        std::env::set_var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "1");
+
         let provider = HermesProvider::new(test_config()).unwrap();
         provider.initialize().expect("init");
         let session = provider
-            .create_session(SessionConfig::new("agent.intelligence.hermes"))
+            .create_session(SessionConfig::new("agent.hermes"))
             .expect("create session");
         let response = provider
             .send_message(ChatRequest {

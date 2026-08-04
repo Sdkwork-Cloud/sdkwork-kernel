@@ -22,7 +22,7 @@ const SANDBOX_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.sandbox",
+  "agent_id": "agent.sandbox",
   "name": "sdkwork-sandbox-agent",
   "display_name": "SDKWork Sandbox Agent",
   "description": "Agent used to prove sandboxed streaming execution contracts.",
@@ -184,9 +184,9 @@ fn sandbox_runtime() -> sdkwork_agent_kernel::AgentRuntime {
     )
     .with_generated_at("2026-08-01T00:00:00Z")
     .register_model_provider(
-        "provider.model.sandbox",
+        "provider.sandbox",
         "0.1.0",
-        SandboxToolModelProvider::new("provider.model.sandbox"),
+        SandboxToolModelProvider::new("provider.sandbox"),
     )
     .register_tool_provider("provider.tool.sandbox", "0.1.0", SandboxStaticToolProvider)
     .register_policy_provider(
@@ -313,7 +313,7 @@ fn sandbox_events(events: &[AgentStreamEvent]) -> Vec<(String, SandboxEventPhase
 fn execution_request() -> AgentExecutionRequest {
     AgentExecutionRequest::new("exec.sandbox.1", vec!["run in sandbox".to_string()])
         .for_session("session-1")
-        .with_provider_id("provider.model.sandbox")
+        .with_provider_id("provider.sandbox")
 }
 
 #[tokio::test]

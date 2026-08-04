@@ -58,10 +58,7 @@ const OVERRIDDEN_AUTH_MODE_KEYS: &[&str] = &[
     "GEMINI_CLI_USE_COMPUTE_ADC",
 ];
 
-fn merge_env_lines(
-    current: Option<&str>,
-    entries: &[(String, String)],
-) -> KernelResult<String> {
+fn merge_env_lines(current: Option<&str>, entries: &[(String, String)]) -> KernelResult<String> {
     let mut lines: Vec<String> = Vec::new();
     let mut seen = std::collections::HashSet::new();
     if let Some(content) = current {
@@ -103,10 +100,10 @@ pub fn materialize_gemini_cli_model_configuration(
     _application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = gemini_env_path() else {
-            return Err(KernelError::provider_error(
-                "provider_config_path",
-                "could not resolve the ~/.gemini/.env path: user home is unavailable",
-            ));
+        return Err(KernelError::provider_error(
+            "provider_config_path",
+            "could not resolve the ~/.gemini/.env path: user home is unavailable",
+        ));
     };
     materialize_gemini_cli_model_configuration_at(&path, request)
 }
@@ -123,10 +120,7 @@ pub(crate) fn materialize_gemini_cli_model_configuration_at(
                 GEMINI_BASE_URL_ENV.to_string(),
                 request.base_url.trim().to_string(),
             ),
-            (
-                SDKWORK_MANAGED_MARKER_ENV.to_string(),
-                "true".to_string(),
-            ),
+            (SDKWORK_MANAGED_MARKER_ENV.to_string(), "true".to_string()),
         ];
         if let Some(api_key) = api_key {
             entries.push((GEMINI_API_KEY_ENV.to_string(), api_key));
@@ -141,10 +135,10 @@ pub fn dematerialize_gemini_cli_model_configuration(
     _profile_id: &str,
 ) -> KernelResult<()> {
     let Some(path) = gemini_env_path() else {
-            return Err(KernelError::provider_error(
-                "provider_config_path",
-                "could not resolve the ~/.gemini/.env path: user home is unavailable",
-            ));
+        return Err(KernelError::provider_error(
+            "provider_config_path",
+            "could not resolve the ~/.gemini/.env path: user home is unavailable",
+        ));
     };
     dematerialize_provider_config_named(&path, "gemini-cli")
 }
@@ -168,10 +162,7 @@ fn parse_env_lines(content: &str) -> Vec<(String, String)> {
                 return None;
             }
             let (key, value) = line.split_once('=')?;
-            Some((
-                key.trim().to_string(),
-                unescape_env_value(value.trim()),
-            ))
+            Some((key.trim().to_string(), unescape_env_value(value.trim())))
         })
         .collect()
 }
@@ -203,7 +194,9 @@ fn unescape_env_value(value: &str) -> String {
 /// passed per turn, so no model entry is expected in the env file.
 pub fn read_gemini_cli_model_configuration() -> KernelResult<ProviderModelConfigurationStatus> {
     let Some(path) = gemini_env_path() else {
-        return Ok(ProviderModelConfigurationStatus::not_materialized("gemini-cli"));
+        return Ok(ProviderModelConfigurationStatus::not_materialized(
+            "gemini-cli",
+        ));
     };
     read_gemini_cli_model_configuration_at(&path)
 }
@@ -214,7 +207,9 @@ pub(crate) fn read_gemini_cli_model_configuration_at(
     path: &std::path::Path,
 ) -> KernelResult<ProviderModelConfigurationStatus> {
     let Some(content) = read_provider_config(path)? else {
-        return Ok(ProviderModelConfigurationStatus::not_materialized("gemini-cli"));
+        return Ok(ProviderModelConfigurationStatus::not_materialized(
+            "gemini-cli",
+        ));
     };
     let entries = parse_env_lines(&content);
     let value_of = |key: &str| {
@@ -231,7 +226,10 @@ pub(crate) fn read_gemini_cli_model_configuration_at(
     // this platform; a user-configured relay must not be reported as
     // materialized, and a marker without its values is drift.
     let (materialization, issues) = if !sdkwork_managed {
-        (ProviderModelMaterializationState::NotMaterialized, Vec::new())
+        (
+            ProviderModelMaterializationState::NotMaterialized,
+            Vec::new(),
+        )
     } else if effective_base_url.is_none() {
         (
             ProviderModelMaterializationState::Diverged,
@@ -278,7 +276,10 @@ mod tests {
         let merged = merge_env_lines(
             Some(current),
             &[
-                (GEMINI_BASE_URL_ENV.to_string(), "https://api.birdcoder.com".to_string()),
+                (
+                    GEMINI_BASE_URL_ENV.to_string(),
+                    "https://api.birdcoder.com".to_string(),
+                ),
                 (GEMINI_API_KEY_ENV.to_string(), "token-new".to_string()),
             ],
         )
@@ -287,22 +288,23 @@ mod tests {
         assert!(merged.contains("GOOGLE_GEMINI_BASE_URL=https://api.birdcoder.com"));
         assert!(merged.contains("CUSTOM=keep"));
         assert!(!merged.contains("GEMINI_API_KEY=old"));
-        assert!(!merged.contains("GOOGLE_GENAI_USE_VERTEXAI=1"), "gateway mode must override vertex");
+        assert!(
+            !merged.contains("GOOGLE_GENAI_USE_VERTEXAI=1"),
+            "gateway mode must override vertex"
+        );
     }
 
     #[test]
     fn merge_env_appends_new_entries() {
-        let merged = merge_env_lines(None, &[("KEY_A".to_string(), "1".to_string())])
-            .expect("merge");
+        let merged =
+            merge_env_lines(None, &[("KEY_A".to_string(), "1".to_string())]).expect("merge");
         assert!(merged.contains("KEY_A=1"));
     }
 
     #[test]
     fn materialize_round_trip_writes_and_dematerializes() {
-        let dir = std::env::temp_dir().join(format!(
-            "sdkwork-gemini-materialize-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sdkwork-gemini-materialize-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         let path = dir.join(".env");
@@ -322,10 +324,8 @@ mod tests {
 
     #[test]
     fn read_back_reports_materialized_env_and_credential() {
-        let dir = std::env::temp_dir().join(format!(
-            "sdkwork-gemini-readback-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sdkwork-gemini-readback-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         let path = dir.join(".env");

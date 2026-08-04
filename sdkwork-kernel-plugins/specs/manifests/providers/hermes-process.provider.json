@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1.0",
   "manifest_type": "provider",
-  "provider_id": "provider.model.hermes",
+  "provider_id": "provider.hermes",
   "provider_family": "model",
   "name": "hermes-process",
   "display_name": "Hermes Agent Process Model Provider",

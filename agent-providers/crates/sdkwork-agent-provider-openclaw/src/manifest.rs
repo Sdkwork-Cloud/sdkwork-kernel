@@ -1,6 +1,4 @@
-use crate::{
-    openclaw_agent_installer, OpenClawConfigurationProvider, OpenClawSdkIntegration,
-};
+use crate::{openclaw_agent_installer, OpenClawConfigurationProvider, OpenClawSdkIntegration};
 use sdkwork_agent_kernel::{
     AgentDefinition, AgentInstaller, AgentManifest, AgentPackageManifest, ModelProvider,
     ProviderManifest, RuntimeBuilder,

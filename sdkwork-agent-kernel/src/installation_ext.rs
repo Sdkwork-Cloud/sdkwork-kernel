@@ -1,6 +1,10 @@
 //! Additional structures for AgentInstaller SPI
 //!
-//! Rollback, verify, and list_installed support
+//! Rollback, verify, and list_installed support. The `AgentInstaller` trait in
+//! `installation.rs` carries default implementations of
+//! `verify_installation`, `rollback`, and `list_installed` so core installers
+//! keep the minimal contract while hosts can rely on verification and
+//! inventory semantics that are always derivable from installation detection.
 
 /// Rollback request for reverting to a previous version
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,6 +13,7 @@ pub struct AgentRollbackRequest {
     pub agent_id: String,
     pub target_version: Option<String>,
     pub rollback_token: Option<String>,
+    pub options: Option<crate::AgentInstallOptions>,
     pub preserve_data: bool,
     pub requested_by: Option<String>,
 }
@@ -20,6 +25,7 @@ impl AgentRollbackRequest {
             agent_id: agent_id.into(),
             target_version: None,
             rollback_token: None,
+            options: None,
             preserve_data: true,
             requested_by: None,
         }
@@ -32,6 +38,11 @@ impl AgentRollbackRequest {
 
     pub fn with_rollback_token(mut self, token: impl Into<String>) -> Self {
         self.rollback_token = Some(token.into());
+        self
+    }
+
+    pub fn with_options(mut self, options: crate::AgentInstallOptions) -> Self {
+        self.options = Some(options);
         self
     }
 
@@ -345,6 +356,39 @@ pub enum AgentInstallRecordStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::AgentInstallOptions;
+
+    #[test]
+    fn install_options_builder() {
+        let options = AgentInstallOptions::new()
+            .with_install_root("/custom/agent-root")
+            .with_python_binary("/opt/python/bin/python3")
+            .with_install_scripts_enabled(true);
+
+        assert_eq!(options.install_root.as_deref(), Some("/custom/agent-root"));
+        assert_eq!(
+            options.python_binary.as_deref(),
+            Some("/opt/python/bin/python3")
+        );
+        assert_eq!(options.install_scripts_enabled, Some(true));
+        assert_eq!(AgentInstallOptions::new().install_root, None);
+    }
+
+    #[test]
+    fn rollback_request_with_options() {
+        let request = AgentRollbackRequest::new("req-1", "agent-1")
+            .with_rollback_token("token-123")
+            .with_options(AgentInstallOptions::new().with_install_root("/custom/agent-root"));
+
+        assert_eq!(request.rollback_token.as_deref(), Some("token-123"));
+        assert_eq!(
+            request
+                .options
+                .and_then(|options| options.install_root)
+                .as_deref(),
+            Some("/custom/agent-root")
+        );
+    }
 
     #[test]
     fn rollback_request_builder() {

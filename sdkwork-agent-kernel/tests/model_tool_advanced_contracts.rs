@@ -52,7 +52,7 @@ fn model_request_carries_runtime_context_policy_trace_timeout_and_response_forma
 
 #[test]
 fn model_response_preserves_status_usage_tool_calls_redaction_and_diagnostics() {
-    let response = ModelResponse::text("model-request.1", "provider.model.fake", "hello")
+    let response = ModelResponse::text("model-request.1", "provider.fake", "hello")
         .with_status(ModelStatus::Succeeded)
         .with_usage(ModelUsage::new(10, 20))
         .with_tool_call(ToolCall::new(
@@ -136,7 +136,7 @@ fn model_execution_service_evaluates_invoke_and_sensitive_context_policy_before_
         model_execution_agent_manifest("agent.model.execution", "Model Execution"),
     )
     .register_model_provider(
-        "provider.model.execution",
+        "provider.execution",
         "0.1.0",
         CountingModelProvider::new(captured_model_requests.clone()),
     )
@@ -172,11 +172,11 @@ fn model_execution_service_evaluates_invoke_and_sensitive_context_policy_before_
                     RedactionClassification::TenantSensitive,
                 )),
             )
-            .with_provider_id("provider.model.execution"),
+            .with_provider_id("provider.execution"),
         )
         .expect("allowed model execution invokes provider");
 
-    assert_eq!(response.provider_id, "provider.model.execution");
+    assert_eq!(response.provider_id, "provider.execution");
     assert_eq!(
         response.invoke_policy_decision.decision,
         PolicyDecisionValue::Allow
@@ -203,7 +203,7 @@ fn model_execution_service_evaluates_invoke_and_sensitive_context_policy_before_
     assert_eq!(sensitive_request.resource, "model.secure");
     assert_eq!(
         sensitive_request.context_value("provider_id"),
-        Some("provider.model.execution")
+        Some("provider.execution")
     );
 
     let model_requests = captured_model_requests.lock().unwrap();
@@ -211,7 +211,7 @@ fn model_execution_service_evaluates_invoke_and_sensitive_context_policy_before_
     assert_eq!(model_requests[0].model_id.as_deref(), Some("model.secure"));
     assert_eq!(
         model_requests[0].metadata_value("sdkwork.model.provider_id"),
-        Some("provider.model.execution")
+        Some("provider.execution")
     );
     assert_eq!(
         model_requests[0].metadata_value("sdkwork.model.policy_decision_id"),
@@ -235,7 +235,7 @@ fn model_execution_service_fails_closed_when_invoke_policy_denies_before_provide
         model_execution_agent_manifest("agent.model.denied", "Model Denied"),
     )
     .register_model_provider(
-        "provider.model.execution",
+        "provider.execution",
         "0.1.0",
         CountingModelProvider::new(captured_model_requests.clone()),
     )
@@ -277,7 +277,7 @@ fn model_execution_service_streams_through_policy_gate() {
         model_execution_agent_manifest("agent.model.stream", "Model Stream"),
     )
     .register_model_provider(
-        "provider.model.complete",
+        "provider.complete",
         "0.1.0",
         CompleteModelProvider::new(
             captured_stream_requests.clone(),
@@ -301,11 +301,11 @@ fn model_execution_service_streams_through_policy_gate() {
                 ModelRequest::new("model-request.stream", vec!["stream".to_string()])
                     .with_model_id("model.complete"),
             )
-            .with_provider_id("provider.model.complete"),
+            .with_provider_id("provider.complete"),
         )
         .expect("allowed model stream executes");
 
-    assert_eq!(response.provider_id, "provider.model.complete");
+    assert_eq!(response.provider_id, "provider.complete");
     assert_eq!(response.chunks.len(), 2);
     assert_eq!(response.chunks[0].sequence, 1);
     assert_eq!(
@@ -333,7 +333,7 @@ fn model_execution_service_cancels_through_selected_provider() {
         model_execution_agent_manifest("agent.model.cancel", "Model Cancel"),
     )
     .register_model_provider(
-        "provider.model.complete",
+        "provider.complete",
         "0.1.0",
         CompleteModelProvider::new(
             Arc::new(Mutex::new(Vec::new())),
@@ -353,11 +353,11 @@ fn model_execution_service_cancels_through_selected_provider() {
         .cancel(
             &runtime,
             ModelCancellationRequest::new("model.cancel.1", "model-request.cancel")
-                .with_provider_id("provider.model.complete"),
+                .with_provider_id("provider.complete"),
         )
         .expect("model cancellation delegates to provider");
 
-    assert_eq!(response.provider_id, "provider.model.complete");
+    assert_eq!(response.provider_id, "provider.complete");
     assert_eq!(response.model_response.status, ModelStatus::Cancelled);
     assert_eq!(
         captured_cancellations.lock().unwrap().as_slice(),
@@ -374,7 +374,7 @@ fn model_execution_service_validates_structured_output_when_json_schema_is_reque
         model_execution_agent_manifest("agent.model.structured", "Model Structured"),
     )
     .register_model_provider(
-        "provider.model.complete",
+        "provider.complete",
         "0.1.0",
         CompleteModelProvider::new(
             captured_invocations.clone(),
@@ -401,7 +401,7 @@ fn model_execution_service_validates_structured_output_when_json_schema_is_reque
                         "sdkwork.answer.schema.v1".to_string(),
                     )),
             )
-            .with_provider_id("provider.model.complete"),
+            .with_provider_id("provider.complete"),
         )
         .expect("structured model response validates");
 
@@ -425,7 +425,7 @@ fn model_execution_service_returns_validation_error_for_invalid_structured_outpu
         ),
     )
     .register_model_provider(
-        "provider.model.invalid-structured",
+        "provider.invalid-structured",
         "0.1.0",
         InvalidStructuredModelProvider,
     )
@@ -449,7 +449,7 @@ fn model_execution_service_returns_validation_error_for_invalid_structured_outpu
                         "sdkwork.answer.schema.v1".to_string(),
                     )),
             )
-            .with_provider_id("provider.model.invalid-structured"),
+            .with_provider_id("provider.invalid-structured"),
         )
         .expect_err("invalid structured output maps to validation error");
 
@@ -1070,7 +1070,7 @@ struct BasicModelProvider;
 
 impl ModelProvider for BasicModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
-        ProviderManifest::new("provider.model.basic", "model", "basic", "0.1.0", vec![])
+        ProviderManifest::new("provider.basic", "model", "basic", "0.1.0", vec![])
     }
 
     fn health(&self) -> ProviderHealth {
@@ -1080,7 +1080,7 @@ impl ModelProvider for BasicModelProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.basic",
+            "provider.basic",
             "ok",
         ))
     }
@@ -1091,7 +1091,7 @@ struct AdvancedModelProvider;
 impl ModelProvider for AdvancedModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.advanced",
+            "provider.advanced",
             "model",
             "advanced",
             "0.1.0",
@@ -1106,7 +1106,7 @@ impl ModelProvider for AdvancedModelProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.advanced",
+            "provider.advanced",
             "ok",
         ))
     }
@@ -1122,7 +1122,7 @@ impl ModelProvider for AdvancedModelProvider {
     fn cancel(&self, model_request_id: &str) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::cancelled(
             model_request_id,
-            "provider.model.advanced",
+            "provider.advanced",
         ))
     }
 }
@@ -1141,7 +1141,7 @@ impl CountingModelProvider {
 impl ModelProvider for CountingModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.execution",
+            "provider.execution",
             "model",
             "counting-model",
             "0.1.0",
@@ -1156,7 +1156,7 @@ impl ModelProvider for CountingModelProvider {
     fn list_models(&self) -> Vec<sdkwork_agent_kernel::ModelDescriptor> {
         vec![sdkwork_agent_kernel::ModelDescriptor::new(
             "model.secure",
-            "provider.model.execution",
+            "provider.execution",
             "Secure Model",
             "test",
         )
@@ -1169,7 +1169,7 @@ impl ModelProvider for CountingModelProvider {
         self.captured_requests.lock().unwrap().push(request.clone());
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.execution",
+            "provider.execution",
             "executed",
         ))
     }
@@ -1196,7 +1196,7 @@ impl CompleteModelProvider {
 impl ModelProvider for CompleteModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.complete",
+            "provider.complete",
             "model",
             "complete-model",
             "0.1.0",
@@ -1217,7 +1217,7 @@ impl ModelProvider for CompleteModelProvider {
     fn list_models(&self) -> Vec<sdkwork_agent_kernel::ModelDescriptor> {
         vec![sdkwork_agent_kernel::ModelDescriptor::new(
             "model.complete",
-            "provider.model.complete",
+            "provider.complete",
             "Complete Model",
             "test",
         )
@@ -1236,7 +1236,7 @@ impl ModelProvider for CompleteModelProvider {
         self.captured_requests.lock().unwrap().push(request.clone());
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.complete",
+            "provider.complete",
             "{\"answer\":\"ok\"}",
         ))
     }
@@ -1256,7 +1256,7 @@ impl ModelProvider for CompleteModelProvider {
             .push(model_request_id.to_string());
         Ok(ModelResponse::cancelled(
             model_request_id,
-            "provider.model.complete",
+            "provider.complete",
         ))
     }
 
@@ -1281,7 +1281,7 @@ struct InvalidStructuredModelProvider;
 impl ModelProvider for InvalidStructuredModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.invalid-structured",
+            "provider.invalid-structured",
             "model",
             "invalid-structured-model",
             "0.1.0",
@@ -1300,7 +1300,7 @@ impl ModelProvider for InvalidStructuredModelProvider {
     fn list_models(&self) -> Vec<sdkwork_agent_kernel::ModelDescriptor> {
         vec![sdkwork_agent_kernel::ModelDescriptor::new(
             "model.invalid-structured",
-            "provider.model.invalid-structured",
+            "provider.invalid-structured",
             "Invalid Structured Model",
             "test",
         )
@@ -1315,7 +1315,7 @@ impl ModelProvider for InvalidStructuredModelProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.invalid-structured",
+            "provider.invalid-structured",
             "not-json",
         ))
     }

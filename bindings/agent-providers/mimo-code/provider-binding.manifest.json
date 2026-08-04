@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent_provider_binding",
-  "binding_id": "binding.agent-provider.mimo-code",
-  "agent_id": "agent.intelligence.mimo-code",
+  "binding_id": "binding.mimo-code",
+  "agent_id": "agent.mimo-code",
   "display_name": "MiMo Code",
   "description": "External agent provider binding for MiMo Code OpenCode-derived Bun/TypeScript server SDK surfaces.",
   "version": "0.1.0",

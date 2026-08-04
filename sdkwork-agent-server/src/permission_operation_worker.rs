@@ -39,7 +39,20 @@ impl PermissionOperationWorker {
             }
             while let Some(result) = workers.join_next().await {
                 if let Err(error) = result {
-                    warn!(error = %error, "permission operation worker terminated unexpectedly");
+                    // Restart a panicked worker so approval capacity
+                    // self-heals; permission claims are lease-fenced, so a
+                    // restart cannot resume a stale lease.
+                    warn!(error = %error, "permission operation worker panicked; restarting");
+                    workers.spawn(run_worker_loop(
+                        format!(
+                            "permission-worker-{}-{}",
+                            std::process::id(),
+                            sdkwork_utils_rust::uuid()
+                        ),
+                        state.clone(),
+                        config.clone(),
+                        shutdown.clone(),
+                    ));
                 }
             }
         });

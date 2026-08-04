@@ -63,9 +63,9 @@ This ADR documents the current state, identifies gaps, and proposes concrete imp
 - `IpcProtocol` - IPC transport
 
 **Binding Manifests** (JSON):
-- Codex: `agent.intelligence.codex`, 5 capabilities, TypeScript priority
-- Hermes: `agent.intelligence.hermes`, 4 capabilities, Python priority
-- OpenClaw: `agent.intelligence.openclaw`, 3 capabilities, TypeScript + HTTP priority
+- Codex: `agent.codex`, 5 capabilities, TypeScript priority
+- Hermes: `agent.hermes`, 4 capabilities, Python priority
+- OpenClaw: `agent.openclaw`, 3 capabilities, TypeScript + HTTP priority
 
 ### Resilience Layer (retry.rs + resilience.rs)
 

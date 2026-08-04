@@ -117,7 +117,7 @@ export function migrateManifest(agent, manifest) {
   if (migrated.binding_id?.startsWith('binding.agent-sdk.')) {
     migrated.binding_id = migrated.binding_id.replace(
       'binding.agent-sdk.',
-      'binding.agent-provider.'
+      'binding.'
     );
   }
   if (integrationByAgent[agent]) {

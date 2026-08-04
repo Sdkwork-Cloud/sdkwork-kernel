@@ -52,7 +52,7 @@ impl MiMoCodeSdkIntegration {
             runtime.clone(),
             Arc::new(MiMoCodeModelProvider::new()),
             SDK_CAPABILITY_MODEL_CHAT,
-            "provider.model.mimo",
+            "provider.mimo",
         );
         let tools = SdkRuntimeBackedToolProvider::new(
             runtime.clone(),
@@ -91,6 +91,11 @@ mod tests {
 
     #[test]
     fn bootstrap_exposes_session_lifecycle_and_transport_runtime() {
+        // The sdk_probe backend is the local mock runtime for these tests;
+        // it requires the explicit non-production mock override (fail-closed
+        // by default).
+        std::env::set_var("SDKWORK_KERNEL_ENVIRONMENT", "development");
+        std::env::set_var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "1");
         let integration = MiMoCodeSdkIntegration::bootstrap().expect("bootstrap");
         assert_eq!(integration.binding_id(), MIMO_CODE_BINDING_ID);
         assert!(integration
@@ -99,7 +104,7 @@ mod tests {
             .is_some());
         let session = integration
             .lifecycle
-            .create_session("agent.intelligence.mimo-code", None, SessionConfig::new())
+            .create_session("agent.mimo-code", None, SessionConfig::new())
             .expect("session");
         assert_eq!(
             integration

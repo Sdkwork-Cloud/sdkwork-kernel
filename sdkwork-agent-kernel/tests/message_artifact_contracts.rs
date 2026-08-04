@@ -48,7 +48,7 @@ fn agent_message_rejects_empty_parts() {
 fn agent_parts_support_standard_content_references_schema_and_provenance() {
     let json = AgentPart::json("part.json", "{\"answer\":42}")
         .with_schema("sdkwork.answer.v1")
-        .from_provider("provider.model.fake")
+        .from_provider("provider.fake")
         .with_redaction(KernelEventRedaction::Internal);
     let file = AgentPart::file_ref("part.file", "host://workspace/README.md", "text/markdown")
         .with_name("README.md");
@@ -57,7 +57,7 @@ fn agent_parts_support_standard_content_references_schema_and_provenance() {
     let error = AgentPart::error("part.error", "policy_denied", "permission denied");
 
     assert_eq!(json.schema.as_deref(), Some("sdkwork.answer.v1"));
-    assert_eq!(json.provenance.as_deref(), Some("provider.model.fake"));
+    assert_eq!(json.provenance.as_deref(), Some("provider.fake"));
     assert_eq!(
         json.redaction_classification,
         KernelEventRedaction::Internal

@@ -105,10 +105,10 @@ Provider Session catalog inventory remains BirdCoder-owned. Live replies route t
 
 | Engine | Kernel binding | Bridge transport label | Workbench `transportKind` |
 | --- | --- | --- | --- |
-| codex | `binding.agent-provider.codex` | `typescript_node` / `rust_native` / `ipc_protocol` | `sdk-stream` / `cli-jsonl` / `json-rpc-v2` |
-| claude-code | `binding.agent-provider.claude-code` | `typescript_node` | `sdk-stream` |
-| gemini-cli | `binding.agent-provider.gemini-cli` | `typescript_node` | `sdk-stream` |
-| opencode | `binding.agent-provider.opencode` | `typescript_node` / `http_openapi` | `sdk-stream` / `openapi-http` |
+| codex | `binding.codex` | `typescript_node` / `rust_native` / `ipc_protocol` | `sdk-stream` / `cli-jsonl` / `json-rpc-v2` |
+| claude-code | `binding.claude-code` | `typescript_node` | `sdk-stream` |
+| gemini-cli | `binding.gemini-cli` | `typescript_node` | `sdk-stream` |
+| opencode | `binding.opencode` | `typescript_node` / `http_openapi` | `sdk-stream` / `openapi-http` |
 
 ## Production Fail-Closed
 

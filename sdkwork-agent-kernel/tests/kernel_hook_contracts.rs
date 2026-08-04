@@ -19,7 +19,7 @@ const HOOK_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.hooks",
+  "agent_id": "agent.hooks",
   "name": "sdkwork-hooks-agent",
   "display_name": "SDKWork Hooks Agent",
   "description": "Agent used to prove kernel hook contracts.",
@@ -328,10 +328,10 @@ fn hook_runtime(hook: Arc<dyn KernelHook>) -> sdkwork_agent_kernel::AgentRuntime
     .with_generated_at("2026-08-01T00:00:00Z")
     .register_kernel_hook(hook)
     .register_model_provider(
-        "provider.model.hook",
+        "provider.hook",
         "0.1.0",
         StaticModelProvider {
-            provider_id: "provider.model.hook".to_string(),
+            provider_id: "provider.hook".to_string(),
         },
     )
     .register_tool_provider(
@@ -572,10 +572,10 @@ fn delegation_stream_fires_subagent_stop_hook() {
     .with_generated_at("2026-08-01T00:00:00Z")
     .register_kernel_hook(hook.clone())
     .register_model_provider(
-        "provider.model.hook",
+        "provider.hook",
         "0.1.0",
         StaticModelProvider {
-            provider_id: "provider.model.hook".to_string(),
+            provider_id: "provider.hook".to_string(),
         },
     )
     .register_tool_provider(

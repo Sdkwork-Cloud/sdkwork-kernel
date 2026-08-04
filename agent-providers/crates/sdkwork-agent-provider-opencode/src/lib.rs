@@ -12,8 +12,8 @@ use sdkwork_agent_provider_core::{
 };
 
 mod configuration;
-mod materializer;
 mod local_plugins;
+mod materializer;
 
 pub use configuration::{
     OpenCodeConfigurationProvider, OPENCODE_ALLOW_ALL_ACCESS_MODE_ID,
@@ -265,8 +265,14 @@ fn opencode_config_path() -> Option<std::path::PathBuf> {
     #[cfg(windows)]
     let candidates = [
         // xdg-basedir maps XDG_CONFIG_HOME to %APPDATA% on Windows.
-        home.join("AppData").join("Roaming").join("opencode").join("opencode.json"),
-        home.join("AppData").join("Roaming").join("opencode").join("opencode.jsonc"),
+        home.join("AppData")
+            .join("Roaming")
+            .join("opencode")
+            .join("opencode.json"),
+        home.join("AppData")
+            .join("Roaming")
+            .join("opencode")
+            .join("opencode.jsonc"),
         home.join(".config").join("opencode").join("opencode.json"),
         home.join(".config").join("opencode").join("opencode.jsonc"),
         home.join(".opencode").join("opencode.json"),
@@ -307,7 +313,7 @@ impl Default for OpenCodeModelProvider {
 impl ModelProvider for OpenCodeModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.opencode",
+            "provider.opencode",
             "model",
             "OpenCode Model Provider",
             "0.1.0",
@@ -326,7 +332,7 @@ impl ModelProvider for OpenCodeModelProvider {
     fn list_models(&self) -> Vec<ModelDescriptor> {
         let mut models = vec![ModelDescriptor::new(
             "opencode-default",
-            "provider.model.opencode",
+            "provider.opencode",
             "OpenCode Default",
             "opencode",
         )
@@ -352,7 +358,7 @@ impl ModelProvider for OpenCodeModelProvider {
                 0,
                 ModelDescriptor::new(
                     &self.default_model,
-                    "provider.model.opencode",
+                    "provider.opencode",
                     &self.default_model,
                     "opencode",
                 )
@@ -370,11 +376,11 @@ impl ModelProvider for OpenCodeModelProvider {
     }
 
     fn invoke(&self, _request: ModelRequest) -> KernelResult<ModelResponse> {
-        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.model.opencode")
+        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.opencode")
     }
 
     fn stream(&self, _request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
-        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.model.opencode")
+        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.opencode")
     }
 }
 
@@ -598,7 +604,7 @@ mod tests {
     fn model_provider_manifest() {
         let provider = OpenCodeModelProvider::new();
         let manifest = provider.provider_manifest();
-        assert_eq!(manifest.provider_id, "provider.model.opencode");
+        assert_eq!(manifest.provider_id, "provider.opencode");
         assert_eq!(manifest.provider_family, "model");
     }
 

@@ -7,7 +7,7 @@ const CODE_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.code",
+  "agent_id": "agent.code",
   "name": "sdkwork-code-agent",
   "display_name": "SDKWork Code Agent",
   "description": "Code agent loaded into a multi-agent kernel host.",
@@ -32,7 +32,7 @@ const RESEARCH_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.research",
+  "agent_id": "agent.research",
   "name": "sdkwork-research-agent",
   "display_name": "SDKWork Research Agent",
   "description": "Research agent loaded into a multi-agent kernel host.",
@@ -58,12 +58,12 @@ fn kernel_host_loads_multiple_agent_runtime_implementations_and_aggregates_diagn
     let code_runtime = bootstrap_manifest_runtime(
         "runtime.agent.code",
         CODE_AGENT_MANIFEST_JSON,
-        "provider.model.code",
+        "provider.code",
     );
     let research_runtime = bootstrap_manifest_runtime(
         "runtime.agent.research",
         RESEARCH_AGENT_MANIFEST_JSON,
-        "provider.model.research",
+        "provider.research",
     );
 
     let mut host = AgentKernelHost::new("host.local");
@@ -95,7 +95,7 @@ fn kernel_host_loads_multiple_agent_runtime_implementations_and_aggregates_diagn
             .expect("research runtime exists")
             .capability_manifest()
             .agent_id,
-        "agent.intelligence.research"
+        "agent.research"
     );
 
     let diagnostics = host.diagnostics();
@@ -113,12 +113,12 @@ fn kernel_host_rejects_duplicate_runtime_ids_and_can_unload_runtime() {
     let code_runtime = bootstrap_manifest_runtime(
         "runtime.agent.duplicate",
         CODE_AGENT_MANIFEST_JSON,
-        "provider.model.code",
+        "provider.code",
     );
     let duplicate_runtime = bootstrap_manifest_runtime(
         "runtime.agent.duplicate",
         RESEARCH_AGENT_MANIFEST_JSON,
-        "provider.model.research",
+        "provider.research",
     );
 
     let mut host = AgentKernelHost::new("host.local");
@@ -139,10 +139,7 @@ fn kernel_host_rejects_duplicate_runtime_ids_and_can_unload_runtime() {
     let removed = host
         .unload_runtime("runtime.agent.duplicate")
         .expect("runtime unloads");
-    assert_eq!(
-        removed.runtime.capability_manifest().agent_id,
-        "agent.intelligence.code"
-    );
+    assert_eq!(removed.runtime.capability_manifest().agent_id, "agent.code");
     assert_eq!(host.runtime_count(), 0);
     assert!(host.runtime("runtime.agent.duplicate").is_none());
 }
@@ -152,12 +149,12 @@ fn kernel_host_tracks_runtime_lifecycle_and_protects_active_unload() {
     let code_runtime = bootstrap_manifest_runtime(
         "runtime.agent.code.lifecycle",
         CODE_AGENT_MANIFEST_JSON,
-        "provider.model.code",
+        "provider.code",
     );
     let research_runtime = bootstrap_manifest_runtime(
         "runtime.agent.research.lifecycle",
         RESEARCH_AGENT_MANIFEST_JSON,
-        "provider.model.research",
+        "provider.research",
     );
 
     let mut host = AgentKernelHost::new("host.local");
@@ -228,12 +225,12 @@ fn kernel_host_marks_runtime_failed_without_mutating_other_slots() {
     let code_runtime = bootstrap_manifest_runtime(
         "runtime.agent.code.failure",
         CODE_AGENT_MANIFEST_JSON,
-        "provider.model.code",
+        "provider.code",
     );
     let research_runtime = bootstrap_manifest_runtime(
         "runtime.agent.research.failure",
         RESEARCH_AGENT_MANIFEST_JSON,
-        "provider.model.research",
+        "provider.research",
     );
 
     let mut host = AgentKernelHost::new("host.local");

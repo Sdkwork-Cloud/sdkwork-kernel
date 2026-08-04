@@ -45,9 +45,7 @@ fn live_sdk_model_chat() {
         .expect("live opencode invoke succeeds");
     eprintln!(
         "opencode_live_phase=invoke_complete status={:?} finish={:?} provider={}",
-        response.status,
-        response.finish_reason,
-        response.provider_id,
+        response.status, response.finish_reason, response.provider_id,
     );
     eprintln!("opencode_live_phase=reply messages={:?}", response.messages);
     assert_eq!(
@@ -70,13 +68,10 @@ fn live_sdk_model_chat() {
             (key.trim() == "sdk_runtime_provider_session_id").then(|| value.trim().to_string())
         })
         .or_else(|| {
-            response
-                .diagnostics
-                .iter()
-                .find_map(|diagnostic| {
-                    let (key, value) = diagnostic.split_once('=')?;
-                    (key.trim() == "provider_session_id").then(|| value.trim().to_string())
-                })
+            response.diagnostics.iter().find_map(|diagnostic| {
+                let (key, value) = diagnostic.split_once('=')?;
+                (key.trim() == "provider_session_id").then(|| value.trim().to_string())
+            })
         });
     eprintln!(
         "opencode_live_phase=parity_ok provider_session_id={provider_session_id:?} messages={:?}",

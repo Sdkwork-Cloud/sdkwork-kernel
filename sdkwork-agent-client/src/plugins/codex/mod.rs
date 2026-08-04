@@ -204,6 +204,10 @@ mod tests {
 
     #[test]
     fn provider_session_history_roundtrip() {
+        // These tests exercise the local sdk_probe backend, which is gated
+        // behind the explicit mock-provider override (fail-closed by default).
+        std::env::set_var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "1");
+
         let provider = CodexProvider::new(test_config()).unwrap();
         provider.initialize().expect("init");
         let session = provider
@@ -231,10 +235,14 @@ mod tests {
 
     #[test]
     fn provider_send_message_routes_through_sdk_model_provider() {
+        // These tests exercise the local sdk_probe backend, which is gated
+        // behind the explicit mock-provider override (fail-closed by default).
+        std::env::set_var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "1");
+
         let provider = CodexProvider::new(test_config()).unwrap();
         provider.initialize().expect("init");
         let session = provider
-            .create_session(SessionConfig::new("agent.intelligence.codex"))
+            .create_session(SessionConfig::new("agent.codex"))
             .expect("create session");
         let response = provider
             .send_message(ChatRequest {

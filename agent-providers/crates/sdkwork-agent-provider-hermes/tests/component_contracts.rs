@@ -21,23 +21,17 @@ fn component_spec_matches_crate_identity() {
 #[test]
 fn model_provider_manifest_uses_canonical_provider_id() {
     let provider = HermesModelProvider::new();
-    assert_eq!(
-        provider.provider_manifest().provider_id,
-        "provider.model.hermes"
-    );
+    assert_eq!(provider.provider_manifest().provider_id, "provider.hermes");
 }
 
 #[test]
 fn kernel_plugin_manifest_declares_runtime_providers() {
     let manifest = hermes_kernel_plugin_manifest();
     assert_eq!(manifest.plugin_id, "plugin.intelligence.hermes");
-    assert_eq!(
-        manifest.agent_id.as_deref(),
-        Some("agent.intelligence.hermes")
-    );
+    assert_eq!(manifest.agent_id.as_deref(), Some("agent.hermes"));
     assert!(manifest
         .provider_ids
-        .contains(&"provider.model.hermes".to_string()));
+        .contains(&"provider.hermes".to_string()));
     assert!(!manifest
         .provider_ids
         .contains(&"provider.tool.hermes".to_string()));
@@ -52,7 +46,7 @@ fn provider_manifests_exclude_agent_internal_tools() {
         .into_iter()
         .map(|manifest| manifest.provider_id)
         .collect();
-    assert!(provider_ids.contains(&"provider.model.hermes".to_string()));
+    assert!(provider_ids.contains(&"provider.hermes".to_string()));
     assert!(!provider_ids.contains(&"provider.tool.hermes".to_string()));
     assert!(provider_ids.contains(&"provider.policy.sdk-standard".to_string()));
     assert!(provider_ids.contains(&"provider.agent.installer.hermes".to_string()));
@@ -90,10 +84,7 @@ fn kernel_plugin_configures_runtime() {
         plugin.plugin_manifest().plugin_id,
         "plugin.intelligence.hermes"
     );
-    assert_eq!(
-        plugin.agent_manifest().agent_id,
-        "agent.intelligence.hermes"
-    );
+    assert_eq!(plugin.agent_manifest().agent_id, "agent.hermes");
     let report = plugin
         .configure_runtime(RuntimeBuilder::new(
             "runtime.hermes.installer",

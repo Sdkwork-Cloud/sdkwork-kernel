@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent_provider_binding",
-  "binding_id": "binding.agent-provider.opencode",
-  "agent_id": "agent.intelligence.opencode",
+  "binding_id": "binding.opencode",
+  "agent_id": "agent.opencode",
   "display_name": "OpenCode",
   "description": "External agent provider binding for OpenCode Bun/TypeScript server SDK surfaces.",
   "version": "0.1.0",

@@ -10,7 +10,7 @@ fn legacy_error_variants_expose_stable_typed_error_metadata() {
         capability_id: "model.streaming".to_string(),
     };
     let unavailable = KernelError::ProviderUnavailable {
-        provider_id: "provider.model.fake".to_string(),
+        provider_id: "provider.fake".to_string(),
     };
     let denied = KernelError::PolicyDenied {
         reason_code: "command_denied".to_string(),
@@ -32,7 +32,7 @@ fn legacy_error_variants_expose_stable_typed_error_metadata() {
 
     assert_eq!(unavailable.kind(), KernelErrorKind::ProviderUnavailable);
     assert_eq!(unavailable.code(), "provider_unavailable");
-    assert_eq!(unavailable.provider_id(), Some("provider.model.fake"));
+    assert_eq!(unavailable.provider_id(), Some("provider.fake"));
     assert!(unavailable.retryable());
 
     assert_eq!(denied.kind(), KernelErrorKind::PolicyDenied);
@@ -52,7 +52,7 @@ fn structured_error_preserves_provider_source_trace_details_and_redaction() {
         "provider.timeout",
         "model provider timed out after retry budget",
     )
-    .with_provider("provider.model.fake")
+    .with_provider("provider.fake")
     .from_source(KernelErrorSource::Model)
     .with_trace_context(TraceContext::new("trace.1", "span.error"))
     .with_detail("model_request_id", "model-request.1")
@@ -71,7 +71,7 @@ fn structured_error_preserves_provider_source_trace_details_and_redaction() {
         error.safe_message(),
         "model provider is temporarily unavailable"
     );
-    assert_eq!(error.provider_id(), Some("provider.model.fake"));
+    assert_eq!(error.provider_id(), Some("provider.fake"));
     assert_eq!(error.source(), KernelErrorSource::Model);
     assert_eq!(error.trace_context().unwrap().trace_id, "trace.1");
     assert_eq!(
@@ -124,7 +124,7 @@ fn kernel_error_maps_to_protocol_safe_error_without_leaking_internal_details() {
         "provider.anthropic.raw",
         "raw provider stack trace with tenant detail",
     )
-    .with_provider("provider.model.fake")
+    .with_provider("provider.fake")
     .with_safe_for_user(false)
     .with_safe_message("provider failed");
 

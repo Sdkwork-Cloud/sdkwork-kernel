@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent_provider_binding",
-  "binding_id": "binding.agent-provider.hermes",
-  "agent_id": "agent.intelligence.hermes",
+  "binding_id": "binding.hermes",
+  "agent_id": "agent.hermes",
   "display_name": "Hermes Agent",
   "description": "External agent provider binding for Hermes Agent Python runtime and TUI gateway JSON-RPC.",
   "version": "0.2.0",

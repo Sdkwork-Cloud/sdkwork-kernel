@@ -1,8 +1,8 @@
 use crate::{
     ids,
     materializer::{
-        dematerialize_gemini_cli_model_configuration,
-        materialize_gemini_cli_model_configuration, read_gemini_cli_model_configuration,
+        dematerialize_gemini_cli_model_configuration, materialize_gemini_cli_model_configuration,
+        read_gemini_cli_model_configuration,
     },
 };
 use sdkwork_agent_kernel::{

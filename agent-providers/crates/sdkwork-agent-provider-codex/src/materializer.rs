@@ -9,8 +9,7 @@
 
 use sdkwork_agent_kernel::{
     AgentModelConfigurationApplication, AgentModelConfigurationRequest, AgentModelSelectionRequest,
-    KernelError, KernelResult, ProviderModelConfigurationStatus,
-    ProviderModelMaterializationState,
+    KernelError, KernelResult, ProviderModelConfigurationStatus, ProviderModelMaterializationState,
 };
 use sdkwork_agent_provider_core::{
     dematerialize_provider_config_named, read_provider_config, update_provider_config_file_named,
@@ -168,7 +167,7 @@ pub fn materialize_codex_model_configuration(
     application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = codex_config_path() else {
-            return Err(KernelError::provider_error(
+        return Err(KernelError::provider_error(
                 "provider_config_path",
                 "could not resolve the Codex config path: CODEX_HOME is set to a missing directory or the user home is unavailable",
             ));
@@ -200,7 +199,7 @@ pub fn materialize_codex_model_selection(
     application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = codex_config_path() else {
-            return Err(KernelError::provider_error(
+        return Err(KernelError::provider_error(
                 "provider_config_path",
                 "could not resolve the Codex config path: CODEX_HOME is set to a missing directory or the user home is unavailable",
             ));
@@ -225,7 +224,7 @@ pub fn dematerialize_codex_model_configuration(
     _profile_id: &str,
 ) -> KernelResult<()> {
     let Some(path) = codex_config_path() else {
-            return Err(KernelError::provider_error(
+        return Err(KernelError::provider_error(
                 "provider_config_path",
                 "could not resolve the Codex config path: CODEX_HOME is set to a missing directory or the user home is unavailable",
             ));
@@ -535,8 +534,10 @@ mod tests {
     #[test]
     fn read_back_detects_missing_and_non_sdkwork_configs() {
         let _guard = test_guard();
-        let dir =
-            std::env::temp_dir().join(format!("sdkwork-codex-readback-missing-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "sdkwork-codex-readback-missing-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         let config_path = dir.join("config.toml");
@@ -549,8 +550,11 @@ mod tests {
         );
 
         // Existing file routed through a different provider: diverged surface.
-        std::fs::write(&config_path, "model = \"gpt-4\"\nmodel_provider = \"openai\"\n")
-            .expect("seed");
+        std::fs::write(
+            &config_path,
+            "model = \"gpt-4\"\nmodel_provider = \"openai\"\n",
+        )
+        .expect("seed");
         let status = read_codex_model_configuration_at(&config_path).expect("read back");
         assert_eq!(
             status.materialization,

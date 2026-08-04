@@ -171,7 +171,7 @@ fn official_knowledgebase_provider_enriches_agent_chat_context_when_selected() {
 
     let runtime = RuntimeBuilder::new("runtime.knowledgebase.chat", manifest)
         .register_model_provider(
-            "provider.model.recording",
+            "provider.recording",
             "0.1.0",
             RecordingKnowledgeChatModelProvider::new(captured_model_requests.clone()),
         )
@@ -192,7 +192,7 @@ fn official_knowledgebase_provider_enriches_agent_chat_context_when_selected() {
                 "chat.knowledgebase.1",
                 vec!["Summarize the RAG boundary.".to_string()],
             )
-            .with_provider_id("provider.model.recording")
+            .with_provider_id("provider.recording")
             .for_session("session.knowledgebase")
             .for_task("task.knowledgebase")
             .with_knowledge_query("RAG boundary")
@@ -204,7 +204,7 @@ fn official_knowledgebase_provider_enriches_agent_chat_context_when_selected() {
         )
         .expect("knowledgebase-enriched chat succeeds");
 
-    assert_eq!(response.provider_id, "provider.model.recording");
+    assert_eq!(response.provider_id, "provider.recording");
     let model_requests = captured_model_requests.lock().unwrap();
     assert_eq!(model_requests.len(), 1);
     assert_eq!(model_requests[0].context_frames.len(), 1);
@@ -268,7 +268,7 @@ fn official_knowledgebase_chat_fails_closed_when_sensitive_context_policy_denies
 
     let runtime = RuntimeBuilder::new("runtime.knowledgebase.chat.policy", manifest)
         .register_model_provider(
-            "provider.model.recording",
+            "provider.recording",
             "0.1.0",
             RecordingKnowledgeChatModelProvider::new(captured_model_requests.clone()),
         )
@@ -289,7 +289,7 @@ fn official_knowledgebase_chat_fails_closed_when_sensitive_context_policy_denies
                 "chat.knowledgebase.policy",
                 vec!["Summarize the RAG boundary.".to_string()],
             )
-            .with_provider_id("provider.model.recording")
+            .with_provider_id("provider.recording")
             .for_session("session.knowledgebase.policy")
             .for_task("task.knowledgebase.policy")
             .with_knowledge_query("RAG boundary")
@@ -459,7 +459,7 @@ impl RecordingKnowledgeChatModelProvider {
 impl ModelProvider for RecordingKnowledgeChatModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.recording",
+            "provider.recording",
             "model",
             "recording-model",
             "0.1.0",
@@ -475,7 +475,7 @@ impl ModelProvider for RecordingKnowledgeChatModelProvider {
         self.captured_requests.lock().unwrap().push(request.clone());
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.recording",
+            "provider.recording",
             "recorded",
         ))
     }

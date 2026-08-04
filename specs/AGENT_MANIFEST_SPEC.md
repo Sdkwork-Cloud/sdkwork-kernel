@@ -98,10 +98,10 @@ Canonical id formats:
 
 | Subject | Format | Example |
 | --- | --- | --- |
-| Agent | `agent.<domain>.<name>` | `agent.intelligence.research` |
+| Agent | `agent.<domain>.<name>` | `agent.research` |
 | Agent card | `agent_card.<domain>.<name>` | `agent_card.intelligence.research` |
 | Capability | `<family>.<capability>` | `model.chat`, `tool.invoke`, `memory.query`, `knowledge.search` |
-| Provider | `provider.<family>.<name>` | `provider.model.openai`, `provider.tool.mcp` |
+| Provider | `provider.<family>.<name>` | `provider.openai`, `provider.tool.mcp` |
 | Protocol adapter | `adapter.<protocol>.<name>` | `adapter.mcp.default`, `adapter.a2a.public` |
 | Extension | reverse-domain or `sdkwork.*` | `sdkwork.code.workspace`, `com.example.case` |
 
@@ -178,7 +178,7 @@ Example:
 ```yaml
 schema_version: 0.1.0
 manifest_type: agent
-agent_id: agent.intelligence.general
+agent_id: agent.general
 name: sdkwork-general-agent
 display_name: SDKWork General Agent
 description: Provider-neutral agent runtime for planning, tool use, memory, and policy-controlled execution.
@@ -331,7 +331,7 @@ definition_id: definition.intelligence.general
 agent:
   schema_version: 0.1.0
   manifest_type: agent
-  agent_id: agent.intelligence.general
+  agent_id: agent.general
   name: sdkwork-general-agent
   display_name: SDKWork General Agent
   description: Provider-neutral agent runtime for planning, tools, memory, knowledge, and policy.
@@ -375,7 +375,7 @@ agent:
 provider_bindings:
   - binding_id: binding.model.primary
     family: model
-    provider_id: provider.model.openai
+    provider_id: provider.openai
     required: true
     default: true
     mode: typed_local
@@ -418,7 +418,7 @@ provider_bindings:
       - knowledge.list
     min_version: 0.1.0
 model_selection:
-  default_provider_id: provider.model.openai
+  default_provider_id: provider.openai
   default_model_id: gpt-4.1
   required_capabilities:
     - model.chat
@@ -483,7 +483,7 @@ Example:
 ```yaml
 schema_version: 0.1.0
 manifest_type: agent_card
-agent_id: agent.intelligence.general
+agent_id: agent.general
 card_id: agent_card.intelligence.general
 display_name: SDKWork General Agent
 description: General SDKWork-compatible agent for planning and tool-assisted execution.

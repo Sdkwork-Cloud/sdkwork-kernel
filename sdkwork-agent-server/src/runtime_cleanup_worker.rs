@@ -70,7 +70,15 @@ impl RuntimeCleanupWorker {
         shutdown: watch::Receiver<bool>,
     ) -> Self {
         let task = tokio::spawn(async move {
-            run_worker(persistence, config, shutdown).await;
+            // Restart the loop if it ever terminates unexpectedly (panic), so
+            // retention cleanup self-heals; the loop only returns on shutdown.
+            loop {
+                run_worker(persistence.clone(), config.clone(), shutdown.clone()).await;
+                if *shutdown.borrow() {
+                    return;
+                }
+                warn!("runtime retention worker terminated unexpectedly; restarting");
+            }
         });
         Self { task: Some(task) }
     }

@@ -102,8 +102,8 @@ test('official SDK source must match the declared TypeScript SDK package', () =>
   const manifest = {
     schema_version: '0.1.0',
     manifest_type: 'agent_provider_binding',
-    binding_id: 'binding.agent-provider.opencode',
-    agent_id: 'agent.intelligence.opencode',
+    binding_id: 'binding.opencode',
+    agent_id: 'agent.opencode',
     display_name: 'OpenCode',
     description: 'Synthetic binding used to prove package drift is rejected.',
     version: '0.1.0',
@@ -205,8 +205,8 @@ test('http_openapi integration sources must be backed by matching capability bac
   const manifest = {
     schema_version: '0.1.0',
     manifest_type: 'agent_provider_binding',
-    binding_id: 'binding.agent-provider.opencode',
-    agent_id: 'agent.intelligence.opencode',
+    binding_id: 'binding.opencode',
+    agent_id: 'agent.opencode',
     display_name: 'OpenCode',
     description: 'Synthetic binding used to prove unbacked OpenAPI sources are rejected.',
     version: '0.1.0',
@@ -254,8 +254,8 @@ test('backend candidates must declare executable runtime operations', () => {
   const manifest = {
     schema_version: '0.1.0',
     manifest_type: 'agent_provider_binding',
-    binding_id: 'binding.agent-provider.codex',
-    agent_id: 'agent.intelligence.codex',
+    binding_id: 'binding.codex',
+    agent_id: 'agent.codex',
     display_name: 'Codex',
     description: 'Synthetic binding used to prove runtime operation declarations are required.',
     version: '0.1.0',
@@ -297,8 +297,8 @@ test('rust native lifecycle bindings must not claim unsupported runtime operatio
   const manifest = {
     schema_version: '0.1.0',
     manifest_type: 'agent_provider_binding',
-    binding_id: 'binding.agent-provider.codex',
-    agent_id: 'agent.intelligence.codex',
+    binding_id: 'binding.codex',
+    agent_id: 'agent.codex',
     display_name: 'Codex',
     description: 'Synthetic binding used to prove unsupported Rust runtime operations are rejected.',
     version: '0.1.0',
@@ -342,8 +342,8 @@ test('integration sources reject fields outside the binding schema contract', ()
   const manifest = {
     schema_version: '0.1.0',
     manifest_type: 'agent_provider_binding',
-    binding_id: 'binding.agent-provider.codex',
-    agent_id: 'agent.intelligence.codex',
+    binding_id: 'binding.codex',
+    agent_id: 'agent.codex',
     display_name: 'Codex',
     description: 'Synthetic binding used to prove unknown source fields are rejected.',
     version: '0.1.0',
@@ -386,8 +386,8 @@ test('integration source modes require their authoritative locator fields', () =
   const manifest = {
     schema_version: '0.1.0',
     manifest_type: 'agent_provider_binding',
-    binding_id: 'binding.agent-provider.hermes',
-    agent_id: 'agent.intelligence.hermes',
+    binding_id: 'binding.hermes',
+    agent_id: 'agent.hermes',
     display_name: 'Hermes Agent',
     description: 'Synthetic binding used to prove source locator requirements.',
     version: '0.1.0',
@@ -435,8 +435,8 @@ test('binding manifests reject unknown fields on closed contract objects', () =>
   const manifest = {
     schema_version: '0.1.0',
     manifest_type: 'agent_provider_binding',
-    binding_id: 'binding.agent-provider.codex',
-    agent_id: 'agent.intelligence.codex',
+    binding_id: 'binding.codex',
+    agent_id: 'agent.codex',
     display_name: 'Codex',
     description: 'Synthetic binding used to prove closed object validation.',
     version: '0.1.0',
@@ -528,7 +528,7 @@ test('migration fills capability execution scope and backend runtime operations'
     schema_version: '0.1.0',
     manifest_type: 'agent_sdk_binding',
     binding_id: 'binding.agent-sdk.codex',
-    agent_id: 'agent.intelligence.codex',
+    agent_id: 'agent.codex',
     display_name: 'Codex',
     description: 'External agent SDK binding for migration coverage.',
     version: '0.1.0',
@@ -561,7 +561,7 @@ test('migration fills capability execution scope and backend runtime operations'
   });
 
   assert.equal(migrated.manifest_type, 'agent_provider_binding');
-  assert.equal(migrated.binding_id, 'binding.agent-provider.codex');
+  assert.equal(migrated.binding_id, 'binding.codex');
   assert.equal(
     migrated.description,
     'External agent provider binding for migration coverage.'
@@ -588,8 +588,8 @@ test('migration does not synthesize unsupported rust native runtime operations',
   const migrated = migrateManifest('codex', {
     schema_version: '0.1.0',
     manifest_type: 'agent_provider_binding',
-    binding_id: 'binding.agent-provider.codex',
-    agent_id: 'agent.intelligence.codex',
+    binding_id: 'binding.codex',
+    agent_id: 'agent.codex',
     display_name: 'Codex',
     description: 'Synthetic binding used to prove rust operation filtering.',
     version: '0.1.0',

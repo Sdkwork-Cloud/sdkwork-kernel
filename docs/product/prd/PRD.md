@@ -76,7 +76,7 @@ Canonical product scenarios. Implementation detail: [TECH_ARCHITECTURE.md](../..
 ### US-2: BirdCoder runs a coding session with Codex
 
 1. BirdCoder bootstraps `sdkwork-agents-runtime-facade` for engine key `codex`.
-2. Facade negotiates `binding.agent-provider.codex` with healthy transports.
+2. Facade negotiates `binding.codex` with healthy transports.
 3. Events project per `KERNEL_PRODUCT_PROJECTION_SPEC.md`.
 4. Production rejects mock/stub responses unless development topology allows it.
 

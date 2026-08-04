@@ -10,7 +10,7 @@ const EXTENSIBLE_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.extensible",
+  "agent_id": "agent.extensible",
   "name": "sdkwork-extensible-agent",
   "display_name": "SDKWork Extensible Agent",
   "description": "Agent used to prove LLM, MCP, and Agent Skill SPI contracts.",
@@ -57,14 +57,14 @@ fn runtime_registry_supports_multiple_llm_providers_mcp_and_agent_skills() {
     let report = RuntimeBuilder::new("runtime.extensible", manifest)
         .with_generated_at("2026-05-29T00:00:00Z")
         .register_model_provider(
-            "provider.model.openai",
+            "provider.openai",
             "1.0.0",
-            StaticModelProvider::new("provider.model.openai", "openai response"),
+            StaticModelProvider::new("provider.openai", "openai response"),
         )
         .register_model_provider(
-            "provider.model.anthropic",
+            "provider.anthropic",
             "1.0.0",
-            StaticModelProvider::new("provider.model.anthropic", "anthropic response"),
+            StaticModelProvider::new("provider.anthropic", "anthropic response"),
         )
         .register_mcp_provider(
             "provider.mcp.github",
@@ -101,7 +101,7 @@ fn runtime_registry_supports_multiple_llm_providers_mcp_and_agent_skills() {
 
     assert_eq!(
         report.runtime.model_provider_ids(),
-        ["provider.model.openai", "provider.model.anthropic"]
+        ["provider.openai", "provider.anthropic"]
     );
 
     let default_model = report
@@ -113,11 +113,11 @@ fn runtime_registry_supports_multiple_llm_providers_mcp_and_agent_skills() {
             vec!["hello".to_string()],
         ))
         .expect("default model invokes");
-    assert_eq!(default_model.provider_id, "provider.model.openai");
+    assert_eq!(default_model.provider_id, "provider.openai");
 
     let anthropic_model = report
         .runtime
-        .model_provider_by_id("provider.model.anthropic")
+        .model_provider_by_id("provider.anthropic")
         .expect("anthropic model provider is registered")
         .invoke(ModelRequest::new(
             "model.anthropic",

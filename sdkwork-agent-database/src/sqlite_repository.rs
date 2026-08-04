@@ -473,7 +473,7 @@ fn map_session_row(row: &Row<'_>) -> rusqlite::Result<SessionRow> {
     })
 }
 
-fn map_message_row(row: &Row<'_>) -> rusqlite::Result<MessageRow> {
+pub(crate) fn map_message_row(row: &Row<'_>) -> rusqlite::Result<MessageRow> {
     Ok(MessageRow {
         message_id: row.get("message_id")?,
         session_id: row.get("session_id")?,
@@ -647,7 +647,11 @@ impl SessionRepository for SqliteDatabase {
         }
         sql.push_str(" ORDER BY COALESCE(updated_at, created_at) DESC, session_id DESC");
         let limit = resolve_list_limit(query.limit);
-        let offset = resolve_list_offset(query.offset);
+        let offset = if query.after_session_id.is_some() {
+            0
+        } else {
+            resolve_list_offset(query.offset)
+        };
         sql.push_str(" LIMIT ? OFFSET ?");
         values.push(limit.to_string());
         values.push(offset.to_string());
@@ -741,11 +745,11 @@ impl SessionRepository for SqliteDatabase {
     }
 
     fn delete_session_cascade(&self, session_id: &str) -> DatabaseResult<()> {
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.unchecked_transaction().map_err(|error| {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
             DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
         })?;
         tx.execute(
@@ -911,7 +915,11 @@ impl MessageRepository for SqliteDatabase {
         }
         sql.push_str(" ORDER BY created_at ASC, message_id ASC");
         let limit = resolve_list_limit(query.limit);
-        let offset = resolve_list_offset(query.offset);
+        let offset = if query.after_message_id.is_some() {
+            0
+        } else {
+            resolve_list_offset(query.offset)
+        };
         sql.push_str(" LIMIT ? OFFSET ?");
         values.push(limit.to_string());
         values.push(offset.to_string());
@@ -995,11 +1003,11 @@ impl MessageRepository for SqliteDatabase {
 
 impl TaskRepository for SqliteDatabase {
     fn save_task(&self, task: &TaskRow) -> DatabaseResult<()> {
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.unchecked_transaction().map_err(|error| {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
             DatabaseError::Transaction(format!("failed to begin task transaction: {error}"))
         })?;
         let _session_state: String = tx
@@ -1104,7 +1112,11 @@ impl TaskRepository for SqliteDatabase {
         }
         sql.push_str(" ORDER BY created_at ASC, task_id ASC");
         let limit = resolve_list_limit(query.limit);
-        let offset = resolve_list_offset(query.offset);
+        let offset = if query.after_task_id.is_some() {
+            0
+        } else {
+            resolve_list_offset(query.offset)
+        };
         sql.push_str(" LIMIT ? OFFSET ?");
         values.push(limit.to_string());
         values.push(offset.to_string());
@@ -1189,7 +1201,11 @@ impl EventRepository for SqliteDatabase {
         }
         sql.push_str(" ORDER BY created_at ASC, event_id ASC");
         let limit = resolve_list_limit(query.limit);
-        let offset = resolve_list_offset(query.offset);
+        let offset = if query.after_event_id.is_some() {
+            0
+        } else {
+            resolve_list_offset(query.offset)
+        };
         sql.push_str(" LIMIT ? OFFSET ?");
         values.push(limit.to_string());
         values.push(offset.to_string());
@@ -1229,7 +1245,11 @@ impl EventRepository for SqliteDatabase {
         append_sqlite_event_scope(&mut sql, &mut values, query);
         sql.push_str(" ORDER BY created_at DESC, event_id DESC");
         let limit = resolve_list_limit(query.limit);
-        let offset = resolve_list_offset(query.offset);
+        let offset = if query.after_event_id.is_some() {
+            0
+        } else {
+            resolve_list_offset(query.offset)
+        };
         sql.push_str(" LIMIT ? OFFSET ?");
         values.push(limit.to_string());
         values.push(offset.to_string());
@@ -1470,11 +1490,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
         event: &EventRow,
     ) -> DatabaseResult<()> {
         crate::event_identity::ensure_event_session(event, &session.session_id, "session write")?;
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.unchecked_transaction().map_err(|error| {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
             DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
         })?;
         let changed = tx
@@ -1602,11 +1622,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
         event: &EventRow,
     ) -> DatabaseResult<i64> {
         crate::event_identity::ensure_event_session(event, &message.session_id, "message append")?;
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.unchecked_transaction().map_err(|error| {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
             DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
         })?;
         let (session_state, current_count): (String, i64) = tx
@@ -1728,11 +1748,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
     ) -> DatabaseResult<i64> {
         let session_id =
             crate::message_identity::validate_message_turn(turn_messages, turn_events)?;
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.unchecked_transaction().map_err(|error| {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
             DatabaseError::Transaction(format!("failed to begin message turn: {error}"))
         })?;
         let (session_state, current_count): (String, i64) = tx
@@ -1871,11 +1891,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
         session_id: &str,
         updated_at: &str,
     ) -> DatabaseResult<()> {
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.unchecked_transaction().map_err(|error| {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
             DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
         })?;
         tx.execute(
@@ -1909,11 +1929,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
         event: &EventRow,
     ) -> DatabaseResult<()> {
         crate::event_identity::ensure_event_session(event, session_id, "message deletion")?;
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.unchecked_transaction().map_err(|error| {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
             DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
         })?;
         tx.execute(
@@ -1942,11 +1962,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
 
     fn save_task_with_event(&self, task: &TaskRow, event: &EventRow) -> DatabaseResult<()> {
         crate::event_identity::ensure_event_session(event, &task.session_id, "task write")?;
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.unchecked_transaction().map_err(|error| {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
             DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
         })?;
         let session_state: String = tx
@@ -2000,11 +2020,11 @@ impl RuntimeSessionWrites for SqliteDatabase {
         updated_at: &str,
         event: &EventRow,
     ) -> DatabaseResult<(TaskRow, bool)> {
-        let conn = self
+        let mut conn = self
             .conn
             .lock()
             .map_err(|error| DatabaseError::Internal(format!("failed to acquire lock: {error}")))?;
-        let tx = conn.unchecked_transaction().map_err(|error| {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).map_err(|error| {
             DatabaseError::Transaction(format!("failed to begin transaction: {error}"))
         })?;
         let mut task = tx

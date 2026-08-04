@@ -128,7 +128,7 @@ fn telemetry_metric_preserves_kind_unit_context_and_labels_without_payload_leaka
     .for_task("task.1")
     .for_run("run.1")
     .observed_at("2026-05-28T10:00:00Z")
-    .with_label("provider_id", "provider.model.fake")
+    .with_label("provider_id", "provider.fake")
     .with_redaction(KernelEventRedaction::Internal);
 
     assert_eq!(metric.metric_id, "metric.1");
@@ -139,10 +139,7 @@ fn telemetry_metric_preserves_kind_unit_context_and_labels_without_payload_leaka
     assert_eq!(metric.session_id.as_deref(), Some("session.1"));
     assert_eq!(metric.task_id.as_deref(), Some("task.1"));
     assert_eq!(metric.run_id.as_deref(), Some("run.1"));
-    assert_eq!(
-        metric.label_value("provider_id"),
-        Some("provider.model.fake")
-    );
+    assert_eq!(metric.label_value("provider_id"), Some("provider.fake"));
     assert_eq!(
         metric.redaction_classification,
         KernelEventRedaction::Internal

@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent_provider_binding",
-  "binding_id": "binding.agent-provider.claude-code",
-  "agent_id": "agent.intelligence.claude-code",
+  "binding_id": "binding.claude-code",
+  "agent_id": "agent.claude-code",
   "display_name": "Claude Code",
   "description": "External agent provider binding for Anthropic Claude Code CLI and agent SDK surfaces.",
   "version": "0.1.0",

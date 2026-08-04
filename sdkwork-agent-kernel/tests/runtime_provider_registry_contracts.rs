@@ -21,7 +21,7 @@ const INSTALLABLE_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.registry",
+  "agent_id": "agent.registry",
   "name": "sdkwork-registry-agent",
   "display_name": "SDKWork Registry Agent",
   "description": "Agent used to prove runtime typed provider registry contracts.",
@@ -59,7 +59,7 @@ const CORE_SPI_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.core-spi",
+  "agent_id": "agent.core-spi",
   "name": "sdkwork-core-spi-agent",
   "display_name": "SDKWork Core SPI Agent",
   "description": "Agent used to prove runtime typed core provider registry contracts.",
@@ -140,9 +140,9 @@ fn runtime_registry_invokes_typed_agent_installer_and_configuration_provider() {
 
     let install_request = AgentInstallRequest::new(
         "install.registry.1",
-        "agent.intelligence.registry",
+        "agent.registry",
         "0.1.0",
-        AgentPackageSource::registry("sdkwork", "agent.intelligence.registry", "0.1.0"),
+        AgentPackageSource::registry("sdkwork", "agent.registry", "0.1.0"),
     )
     .with_configuration(valid_configuration());
 
@@ -162,14 +162,14 @@ fn runtime_registry_invokes_typed_agent_installer_and_configuration_provider() {
     let install_report = installer
         .install(install_request)
         .expect("typed installer installs");
-    assert_eq!(install_report.agent_id, "agent.intelligence.registry");
+    assert_eq!(install_report.agent_id, "agent.registry");
 
     let configuration_provider = report
         .runtime
         .agent_configuration_provider()
         .expect("typed configuration provider is registered");
     let spec = configuration_provider
-        .configuration_spec("agent.intelligence.registry")
+        .configuration_spec("agent.registry")
         .expect("typed configuration spec loads");
     assert!(spec.required_keys().contains(&"agent.display_name"));
     assert!(spec.required_keys().contains(&"auth.login.username"));
@@ -252,7 +252,7 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
         sdkwork_agent_kernel::AgentManifest::from_json(CORE_SPI_AGENT_MANIFEST_JSON).unwrap();
     let report = RuntimeBuilder::new("runtime.core", manifest)
         .with_generated_at("2026-05-29T00:00:00Z")
-        .register_model_provider("provider.model.typed", "0.1.0", FakeModelProvider)
+        .register_model_provider("provider.typed", "0.1.0", FakeModelProvider)
         .register_tool_provider(
             "provider.tool.typed",
             "0.1.0",
@@ -289,7 +289,7 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
         .expect("model provider is registered")
         .invoke(ModelRequest::new("model.1", vec!["hello".to_string()]))
         .expect("model provider invokes");
-    assert_eq!(model_response.provider_id, "provider.model.typed");
+    assert_eq!(model_response.provider_id, "provider.typed");
 
     let tool_result = report
         .runtime
@@ -467,13 +467,13 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
     assert!(manifest
         .providers
         .iter()
-        .any(|provider| provider.provider_id == "provider.model.typed"
+        .any(|provider| provider.provider_id == "provider.typed"
             && provider.provider_family == "model"));
     assert!(manifest
         .capabilities
         .iter()
         .any(|capability| capability.capability_id == "model.chat"
-            && capability.provider_id == "provider.model.typed"));
+            && capability.provider_id == "provider.typed"));
     assert!(manifest
         .capabilities
         .iter()
@@ -488,7 +488,7 @@ fn runtime_registry_supports_multiple_tool_policy_and_protocol_adapter_providers
         sdkwork_agent_kernel::AgentManifest::from_json(CORE_SPI_AGENT_MANIFEST_JSON).unwrap();
     let report = RuntimeBuilder::new("runtime.core.multi-family", manifest)
         .with_generated_at("2026-05-29T00:00:00Z")
-        .register_model_provider("provider.model.typed", "0.1.0", FakeModelProvider)
+        .register_model_provider("provider.typed", "0.1.0", FakeModelProvider)
         .register_tool_provider(
             "provider.tool.alpha",
             "0.1.0",
@@ -646,7 +646,7 @@ fn runtime_registry_supports_multiple_context_and_planning_providers() {
         sdkwork_agent_kernel::AgentManifest::from_json(CORE_SPI_AGENT_MANIFEST_JSON).unwrap();
     let report = RuntimeBuilder::new("runtime.core.multi-context-planning", manifest)
         .with_generated_at("2026-05-29T00:00:00Z")
-        .register_model_provider("provider.model.typed", "0.1.0", FakeModelProvider)
+        .register_model_provider("provider.typed", "0.1.0", FakeModelProvider)
         .register_tool_provider(
             "provider.tool.typed",
             "0.1.0",
@@ -773,7 +773,7 @@ fn runtime_registry_supports_multiple_memory_host_and_telemetry_providers() {
         sdkwork_agent_kernel::AgentManifest::from_json(CORE_SPI_AGENT_MANIFEST_JSON).unwrap();
     let report = RuntimeBuilder::new("runtime.core.multi-stateful", manifest)
         .with_generated_at("2026-05-29T00:00:00Z")
-        .register_model_provider("provider.model.typed", "0.1.0", FakeModelProvider)
+        .register_model_provider("provider.typed", "0.1.0", FakeModelProvider)
         .register_tool_provider(
             "provider.tool.typed",
             "0.1.0",
@@ -968,7 +968,7 @@ fn runtime_registry_reports_provider_unavailable_for_manifest_only_core_spi_prov
         sdkwork_agent_kernel::AgentManifest::from_json(CORE_SPI_AGENT_MANIFEST_JSON).unwrap();
     let report = RuntimeBuilder::new("runtime.core", manifest)
         .with_generated_at("2026-05-29T00:00:00Z")
-        .register_model_provider_manifest("provider.model.manifest", "0.1.0")
+        .register_model_provider_manifest("provider.manifest", "0.1.0")
         .register_tool_provider_manifest("provider.tool.manifest", "0.1.0")
         .register_policy_provider_manifest("provider.policy.manifest", "0.1.0")
         .register_context_provider_manifest("provider.context.manifest", "0.1.0")
@@ -988,7 +988,7 @@ fn runtime_registry_reports_provider_unavailable_for_manifest_only_core_spi_prov
         Err(error) => error,
     };
     assert_eq!(error.kind(), KernelErrorKind::ProviderUnavailable);
-    assert_eq!(error.provider_id(), Some("provider.model.manifest"));
+    assert_eq!(error.provider_id(), Some("provider.manifest"));
 
     let error = match report.runtime.protocol_adapter() {
         Ok(_) => panic!("typed protocol adapter instance is not registered"),
@@ -1043,7 +1043,7 @@ struct FakeModelProvider;
 
 impl ModelProvider for FakeModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
-        provider("provider.model.typed", "model", vec!["model.chat"])
+        provider("provider.typed", "model", vec!["model.chat"])
     }
 
     fn health(&self) -> ProviderHealth {
@@ -1053,7 +1053,7 @@ impl ModelProvider for FakeModelProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.typed",
+            "provider.typed",
             "model response",
         ))
     }
@@ -1823,7 +1823,7 @@ fn configuration_spec(agent_id: &str) -> AgentConfigurationSpec {
 }
 
 fn valid_configuration() -> AgentConfiguration {
-    AgentConfiguration::new("agent.intelligence.registry", "profile.local")
+    AgentConfiguration::new("agent.registry", "profile.local")
         .set(
             "agent.display_name",
             AgentConfigValue::string("Registry Agent"),

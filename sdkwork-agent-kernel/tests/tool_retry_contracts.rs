@@ -20,7 +20,7 @@ const RETRY_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.retry",
+  "agent_id": "agent.retry",
   "name": "sdkwork-retry-agent",
   "display_name": "SDKWork Retry Agent",
   "description": "Agent used to prove read-only tool retry contracts.",
@@ -279,7 +279,7 @@ fn tool_retry_config() -> RetryConfig {
 fn execution_request() -> AgentExecutionRequest {
     AgentExecutionRequest::new("exec.retry.1", vec!["retry me".to_string()])
         .for_session("session-1")
-        .with_provider_id("provider.model.retry")
+        .with_provider_id("provider.retry")
 }
 
 #[tokio::test]
@@ -291,9 +291,9 @@ async fn flaky_read_only_tool_is_retried_until_success() {
     )
     .with_generated_at("2026-08-01T00:00:00Z")
     .register_model_provider(
-        "provider.model.retry",
+        "provider.retry",
         "0.1.0",
-        RetryToolModelProvider::new("provider.model.retry"),
+        RetryToolModelProvider::new("provider.retry"),
     )
     .register_tool_provider("provider.tool.retry", "0.1.0", tool_provider.clone())
     .register_policy_provider("provider.policy.retry", "0.1.0", RetryAllowPolicyProvider)
@@ -344,9 +344,9 @@ async fn tool_retry_exhausts_attempts_on_persistent_failure() {
     )
     .with_generated_at("2026-08-01T00:00:00Z")
     .register_model_provider(
-        "provider.model.retry",
+        "provider.retry",
         "0.1.0",
-        RetryToolModelProvider::new("provider.model.retry"),
+        RetryToolModelProvider::new("provider.retry"),
     )
     .register_tool_provider("provider.tool.retry", "0.1.0", tool_provider.clone())
     .register_policy_provider("provider.policy.retry", "0.1.0", RetryAllowPolicyProvider)
@@ -379,9 +379,9 @@ async fn write_tool_is_never_retried() {
     )
     .with_generated_at("2026-08-01T00:00:00Z")
     .register_model_provider(
-        "provider.model.retry",
+        "provider.retry",
         "0.1.0",
-        RetryToolModelProvider::new("provider.model.retry"),
+        RetryToolModelProvider::new("provider.retry"),
     )
     .register_tool_provider("provider.tool.retry", "0.1.0", tool_provider.clone())
     .register_policy_provider("provider.policy.retry", "0.1.0", RetryAllowPolicyProvider)
@@ -414,9 +414,9 @@ async fn without_tool_retry_policy_there_is_no_retry() {
     )
     .with_generated_at("2026-08-01T00:00:00Z")
     .register_model_provider(
-        "provider.model.retry",
+        "provider.retry",
         "0.1.0",
-        RetryToolModelProvider::new("provider.model.retry"),
+        RetryToolModelProvider::new("provider.retry"),
     )
     .register_tool_provider("provider.tool.retry", "0.1.0", tool_provider.clone())
     .register_policy_provider("provider.policy.retry", "0.1.0", RetryAllowPolicyProvider)

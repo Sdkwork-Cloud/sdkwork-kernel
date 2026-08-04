@@ -81,7 +81,6 @@ pub struct InternalRuntimeApiState {
     pub access_policy: AccessPolicy,
     pub runtime: RuntimeState,
     pub tenant_token_quota: Arc<TenantTokenQuotaState>,
-    pub sse_event_counter: Arc<tokio::sync::Mutex<u64>>,
     pub sse_connection_count: Arc<AtomicU32>,
     pub approval_payload_vault: Option<Arc<crate::approval_payload_vault::ApprovalPayloadVault>>,
 }
@@ -191,7 +190,12 @@ pub struct RuntimeSnapshotJson {
     pub runtime: KernelRuntimeJson,
     pub events: Vec<KernelEventJson>,
     pub permissions: Vec<PermissionRequestJson>,
-    pub workspace: WorkspaceJson,
+    /// Product workspace observation. The kernel runtime has no workspace
+    /// surface, so this is `null`; the product layer (agents/BirdCoder)
+    /// projects its own workspace snapshot when mounted.
+    pub workspace: Option<WorkspaceJson>,
+    /// Product projections; the kernel runtime does not own patch,
+    /// verification, terminal, or review surfaces and reports them empty.
     pub patches: Vec<PatchSetJson>,
     pub verification_reports: Vec<VerificationReportJson>,
     pub terminal_commands: Vec<TerminalCommandJson>,
@@ -652,7 +656,6 @@ impl InternalRuntimeApiState {
             access_policy: AccessPolicy::from_config(&config),
             runtime: RuntimeState::try_for_config(&config)?,
             tenant_token_quota: Arc::new(tenant_token_quota),
-            sse_event_counter: Arc::new(tokio::sync::Mutex::new(0)),
             sse_connection_count: Arc::new(AtomicU32::new(0)),
             approval_payload_vault: approval_payload_vault.map(Arc::new),
         })
@@ -758,13 +761,9 @@ impl InternalRuntimeApiState {
             },
             events,
             permissions,
-            workspace: WorkspaceJson {
-                workspace_id: diagnostics.runtime_id.clone(),
-                root: diagnostics.agent_id.clone(),
-                branch: runtime_state,
-                dirty: false,
-                changed_files: Vec::new(),
-            },
+            // The kernel runtime owns no workspace surface; reporting a
+            // fabricated dirty/changedFiles state would be misleading.
+            workspace: None,
             patches: Vec::new(),
             verification_reports: Vec::new(),
             terminal_commands: Vec::new(),
@@ -1106,6 +1105,14 @@ fn permission_row_to_view(row: PermissionRow) -> PermissionRequestJson {
     }
 }
 
+/// Maximum characters of a single message part returned by the internal API,
+/// matching the OpenAPI `MessagePart.content`/`MessageResponse.content`
+/// `maxLength` contract. Persisted model output can exceed this ceiling (the
+/// model bridge allows up to `MAX_MODEL_OUTPUT_BYTES`), so responses truncate
+/// at the contract limit instead of materializing unbounded JSON (a single
+/// page of 200 oversized messages could otherwise reach hundreds of MB).
+pub const MESSAGE_PART_MAX_CHARS: usize = 262144;
+
 fn message_row_to_view(row: MessageRow) -> MessageViewJson {
     let cursor_sort_key = row.created_at.clone();
     MessageViewJson {
@@ -1115,12 +1122,20 @@ fn message_row_to_view(row: MessageRow) -> MessageViewJson {
         parts: vec![MessagePartJson {
             part_id: format!("{}/part.0", row.message_id),
             kind: "text".to_string(),
-            content: row.content,
+            content: truncate_message_content(row.content),
         }],
         created_at: Some(row.created_at),
         metadata: parse_metadata_map(row.metadata_json.as_deref()),
         cursor_sort_key,
     }
+}
+
+/// Truncates a persisted message body to the OpenAPI `maxLength` contract.
+fn truncate_message_content(content: String) -> String {
+    if content.chars().count() <= MESSAGE_PART_MAX_CHARS {
+        return content;
+    }
+    content.chars().take(MESSAGE_PART_MAX_CHARS).collect()
 }
 
 fn message_row_to_agent_message(row: MessageRow) -> Result<AgentMessage, String> {
@@ -1469,7 +1484,10 @@ fn live_event_stream(
     last_event_id: Option<String>,
 ) -> SessionEventStream {
     const EVENT_POLL_MIN_INTERVAL: Duration = Duration::from_secs(1);
-    const EVENT_POLL_MAX_INTERVAL: Duration = Duration::from_secs(5);
+    // Idle connections back off to 30 s (instead of 5 s) so 256 concurrent
+    // streams cannot sustain ~256 reads/s per instance while idle; activity
+    // resets the delay to the minimum immediately.
+    const EVENT_POLL_MAX_INTERVAL: Duration = Duration::from_secs(30);
     const EVENT_POLL_BATCH: i64 = 200;
     const MAX_SEEN_EVENT_IDS: usize = 1024;
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(64);
@@ -3672,6 +3690,10 @@ mod tests {
             let _plugin = crate::testing::env::VarGuard::set(
                 crate::runtime_bootstrap::KERNEL_AGENT_PLUGIN_ENV,
                 None,
+            );
+            let _mock = crate::testing::env::VarGuard::set(
+                "SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS",
+                Some("1"),
             );
             test_state()
         };

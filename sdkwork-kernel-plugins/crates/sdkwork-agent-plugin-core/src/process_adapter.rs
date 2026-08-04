@@ -20,13 +20,15 @@ use pep440_rs::Version as PythonVersion;
 use sdkwork_agent_kernel::{
     AgentConfigField, AgentConfigSection, AgentConfigSectionKind, AgentConfigValue,
     AgentConfigValueKind, AgentConfiguration, AgentConfigurationProvider, AgentConfigurationSpec,
-    AgentConfigurationValidation, AgentInstallPlan, AgentInstallReport, AgentInstallRequest,
-    AgentInstallStep, AgentInstallStepKind, AgentInstallation, AgentInstallationDependency,
-    AgentInstaller, AgentModelConfigurationApplication, AgentModelConfigurationFieldMapping,
+    AgentConfigurationValidation, AgentInstallOptions, AgentInstallPlan, AgentInstallRecord,
+    AgentInstallReport, AgentInstallRequest, AgentInstallStep, AgentInstallStepKind,
+    AgentInstallation, AgentInstallationDependency, AgentInstaller,
+    AgentModelConfigurationApplication, AgentModelConfigurationFieldMapping,
     AgentModelConfigurationRequest, AgentModelSelectionRequest, AgentPackageSource,
-    AgentSecretBinding, AgentUninstallPlan, AgentUninstallReport, AgentUninstallRequest,
-    AgentUpgradePlan, AgentUpgradeReport, AgentUpgradeRequest, KernelError, KernelEventRedaction,
-    KernelResult, PolicyCategory, ProviderHealth, ProviderManifest,
+    AgentPackageSourceInfo, AgentRollbackReport, AgentRollbackRequest, AgentSecretBinding,
+    AgentUninstallPlan, AgentUninstallReport, AgentUninstallRequest, AgentUpgradePlan,
+    AgentUpgradeReport, AgentUpgradeRequest, KernelError, KernelEventRedaction, KernelResult,
+    PolicyCategory, ProviderHealth, ProviderManifest,
 };
 use semver::Version;
 use serde_json::Value;
@@ -50,6 +52,8 @@ const MAX_MANAGED_PACKAGES: usize = 32;
 const MAX_REQUEST_ID_CHARACTERS: usize = 128;
 const OPERATION_LOCK_DIRECTORY: &str = "sdkwork-agent-provider-lifecycle-locks";
 const OPERATION_LOCK_SHARD_COUNT: u64 = 4096;
+const ROLLBACK_TOKEN_SCHEMA_VERSION: u64 = 1;
+const MAX_ROLLBACK_TOKEN_CHARACTERS: usize = 32 * 1024;
 const PYTHON_METADATA_PROBE: &str = r#"import importlib.metadata as metadata
 import json
 import sys
@@ -882,10 +886,10 @@ impl ProcessAdapterInstaller {
         Ok(manager)
     }
 
-    fn operation_lock_key(&self) -> KernelResult<String> {
+    fn operation_lock_key(&self, environment: &InstallEnvironment) -> KernelResult<String> {
         match self.validate_descriptor()? {
             ProcessAdapterPackageManager::Npm => {
-                let root = self.npm_install_root()?;
+                let root = self.resolve_npm_install_root(environment)?;
                 let mut key = root.to_string_lossy().into_owned();
                 if cfg!(windows) {
                     key.make_ascii_lowercase();
@@ -893,7 +897,8 @@ impl ProcessAdapterInstaller {
                 Ok(format!("npm:{key}"))
             }
             ProcessAdapterPackageManager::PythonPip => {
-                let mut binary = executable_lock_identity(&self.python_binary()?);
+                let mut binary =
+                    executable_lock_identity(&self.resolve_python_binary(environment)?);
                 if cfg!(windows) {
                     binary.make_ascii_lowercase();
                 }
@@ -902,8 +907,11 @@ impl ProcessAdapterInstaller {
         }
     }
 
-    fn shared_operation_lock(&self) -> KernelResult<(String, Arc<RwLock<()>>)> {
-        let key = self.operation_lock_key()?;
+    fn shared_operation_lock(
+        &self,
+        environment: &InstallEnvironment,
+    ) -> KernelResult<(String, Arc<RwLock<()>>)> {
+        let key = self.operation_lock_key(environment)?;
         let registry = OPERATION_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
         let mut registry = registry.lock().map_err(|_| {
             KernelError::provider_error(
@@ -925,9 +933,10 @@ impl ProcessAdapterInstaller {
 
     fn with_detection_lock<T>(
         &self,
+        environment: &InstallEnvironment,
         operation: impl FnOnce() -> KernelResult<T>,
     ) -> KernelResult<T> {
-        let (key, lock) = self.shared_operation_lock()?;
+        let (key, lock) = self.shared_operation_lock(environment)?;
         let started = Instant::now();
         loop {
             match lock.try_read() {
@@ -958,9 +967,10 @@ impl ProcessAdapterInstaller {
 
     fn with_mutation_lock<T>(
         &self,
+        environment: &InstallEnvironment,
         operation: impl FnOnce() -> KernelResult<T>,
     ) -> KernelResult<T> {
-        let (key, lock) = self.shared_operation_lock()?;
+        let (key, lock) = self.shared_operation_lock(environment)?;
         let started = Instant::now();
         loop {
             match lock.try_write() {
@@ -1009,6 +1019,7 @@ impl ProcessAdapterInstaller {
                 && package_id == &primary.package_id
                 && version == &primary.version =>
             {
+                self.validate_install_options(request.options.as_ref())?;
                 self.validate_request_configuration(request.configuration.as_ref())
             }
             _ => Err(KernelError::validation(
@@ -1032,11 +1043,36 @@ impl ProcessAdapterInstaller {
                 "provider upgrade source version must be an exact semantic version",
             ));
         }
+        self.validate_install_options(request.options.as_ref())?;
         self.validate_request_configuration(request.configuration.as_ref())
     }
 
-    fn npm_install_root(&self) -> KernelResult<PathBuf> {
-        let root = if let Some(root) = &self.install_root {
+    fn validate_install_options(&self, options: Option<&AgentInstallOptions>) -> KernelResult<()> {
+        let Some(options) = options else {
+            return Ok(());
+        };
+        if let Some(root) = &options.install_root {
+            if root.trim().is_empty() || root.trim() != root || root.chars().any(char::is_control) {
+                return Err(KernelError::validation(
+                    "provider install root option must be a non-empty bounded path",
+                ));
+            }
+        }
+        if let Some(binary) = &options.python_binary {
+            if binary.trim().is_empty()
+                || binary.trim() != binary
+                || binary.chars().any(char::is_control)
+            {
+                return Err(KernelError::validation(
+                    "provider python binary option must be a non-empty bounded executable",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn resolve_npm_install_root(&self, environment: &InstallEnvironment) -> KernelResult<PathBuf> {
+        let root = if let Some(root) = &environment.install_root {
             root.clone()
         } else if let Some(root) = configured_provider_host_root()? {
             root
@@ -1053,7 +1089,10 @@ impl ProcessAdapterInstaller {
         resolve_install_root(&root)
     }
 
-    fn python_binary(&self) -> KernelResult<String> {
+    fn resolve_python_binary(&self, environment: &InstallEnvironment) -> KernelResult<String> {
+        if let Some(binary) = &environment.python_binary {
+            return Ok(binary.clone());
+        }
         match std::env::var(PYTHON_BINARY_ENV) {
             Ok(binary) if binary.trim().is_empty() => Err(KernelError::validation(format!(
                 "{PYTHON_BINARY_ENV} must not be empty"
@@ -1091,15 +1130,21 @@ impl ProcessAdapterInstaller {
         }
     }
 
-    fn detect_dependencies(&self) -> KernelResult<Vec<AgentInstallationDependency>> {
+    fn detect_dependencies(
+        &self,
+        environment: &InstallEnvironment,
+    ) -> KernelResult<Vec<AgentInstallationDependency>> {
         match self.validate_descriptor()? {
-            ProcessAdapterPackageManager::Npm => self.detect_npm_dependencies(),
-            ProcessAdapterPackageManager::PythonPip => self.detect_pypi_dependencies(),
+            ProcessAdapterPackageManager::Npm => self.detect_npm_dependencies(environment),
+            ProcessAdapterPackageManager::PythonPip => self.detect_pypi_dependencies(environment),
         }
     }
 
-    fn detect_npm_dependencies(&self) -> KernelResult<Vec<AgentInstallationDependency>> {
-        let root = self.npm_install_root()?;
+    fn detect_npm_dependencies(
+        &self,
+        environment: &InstallEnvironment,
+    ) -> KernelResult<Vec<AgentInstallationDependency>> {
+        let root = self.resolve_npm_install_root(environment)?;
         let mut args = vec![
             "--prefix".to_string(),
             root.to_string_lossy().into_owned(),
@@ -1155,7 +1200,10 @@ impl ProcessAdapterInstaller {
             .collect())
     }
 
-    fn detect_pypi_dependencies(&self) -> KernelResult<Vec<AgentInstallationDependency>> {
+    fn detect_pypi_dependencies(
+        &self,
+        environment: &InstallEnvironment,
+    ) -> KernelResult<Vec<AgentInstallationDependency>> {
         let mut args = vec!["-c".to_string(), PYTHON_METADATA_PROBE.to_string()];
         args.extend(
             self.packages
@@ -1163,7 +1211,7 @@ impl ProcessAdapterInstaller {
                 .map(|package| package.package_id.clone()),
         );
         let output = self.executor.execute(
-            &ProcessAdapterCommand::new(self.python_binary()?, args)
+            &ProcessAdapterCommand::new(self.resolve_python_binary(environment)?, args)
                 .with_timeout(DETECTION_COMMAND_TIMEOUT),
         )?;
         if output.timed_out {
@@ -1207,20 +1255,29 @@ impl ProcessAdapterInstaller {
             .collect()
     }
 
-    fn run_package_install(&self, code: &str) -> KernelResult<()> {
+    fn run_package_install(
+        &self,
+        code: &str,
+        environment: &InstallEnvironment,
+    ) -> KernelResult<()> {
         let exact_packages: Vec<String> = self
             .packages
             .iter()
             .map(ProcessAdapterPackage::exact_spec)
             .collect();
-        self.run_exact_package_install(&exact_packages, code)
+        self.run_exact_package_install(&exact_packages, code, environment)
     }
 
-    fn run_exact_package_install(&self, exact_packages: &[String], code: &str) -> KernelResult<()> {
+    fn run_exact_package_install(
+        &self,
+        exact_packages: &[String],
+        code: &str,
+        environment: &InstallEnvironment,
+    ) -> KernelResult<()> {
         let manager = self.validate_descriptor()?;
         let command = match manager {
             ProcessAdapterPackageManager::Npm => {
-                let root = self.npm_install_root()?;
+                let root = self.resolve_npm_install_root(environment)?;
                 let mut args = vec![
                     "--prefix".to_string(),
                     root.to_string_lossy().into_owned(),
@@ -1230,7 +1287,7 @@ impl ProcessAdapterInstaller {
                     "--omit=dev".to_string(),
                     "--save-exact".to_string(),
                 ];
-                if !self.install_scripts_enabled {
+                if !environment.install_scripts_enabled {
                     args.push("--ignore-scripts".to_string());
                 }
                 args.extend(exact_packages.iter().cloned());
@@ -1246,27 +1303,36 @@ impl ProcessAdapterInstaller {
                     "--only-binary=:all:".to_string(),
                 ];
                 args.extend(exact_packages.iter().cloned());
-                ProcessAdapterCommand::new(self.python_binary()?, args)
+                ProcessAdapterCommand::new(self.resolve_python_binary(environment)?, args)
             }
         };
         self.run_checked(&command.with_timeout(PACKAGE_MUTATION_TIMEOUT), code)
     }
 
-    fn run_package_uninstall(&self, code: &str) -> KernelResult<()> {
+    fn run_package_uninstall(
+        &self,
+        code: &str,
+        environment: &InstallEnvironment,
+    ) -> KernelResult<()> {
         let package_ids: Vec<String> = self
             .packages
             .iter()
             .rev()
             .map(|package| package.package_id.clone())
             .collect();
-        self.run_package_uninstall_ids(&package_ids, code)
+        self.run_package_uninstall_ids(&package_ids, code, environment)
     }
 
-    fn run_package_uninstall_ids(&self, package_ids: &[String], code: &str) -> KernelResult<()> {
+    fn run_package_uninstall_ids(
+        &self,
+        package_ids: &[String],
+        code: &str,
+        environment: &InstallEnvironment,
+    ) -> KernelResult<()> {
         let manager = self.validate_descriptor()?;
         let command = match manager {
             ProcessAdapterPackageManager::Npm => {
-                let root = self.npm_install_root()?;
+                let root = self.resolve_npm_install_root(environment)?;
                 let mut args = vec![
                     "--prefix".to_string(),
                     root.to_string_lossy().into_owned(),
@@ -1285,7 +1351,7 @@ impl ProcessAdapterInstaller {
                     "--yes".to_string(),
                 ];
                 args.extend(package_ids.iter().cloned());
-                ProcessAdapterCommand::new(self.python_binary()?, args)
+                ProcessAdapterCommand::new(self.resolve_python_binary(environment)?, args)
             }
         };
         self.run_checked(&command.with_timeout(PACKAGE_MUTATION_TIMEOUT), code)
@@ -1310,9 +1376,13 @@ impl ProcessAdapterInstaller {
         ))
     }
 
-    fn detect_installation_unlocked(&self, agent_id: &str) -> KernelResult<AgentInstallation> {
+    fn detect_installation_unlocked(
+        &self,
+        agent_id: &str,
+        environment: &InstallEnvironment,
+    ) -> KernelResult<AgentInstallation> {
         self.validate_agent_id(agent_id)?;
-        let dependencies = self.detect_dependencies()?;
+        let dependencies = self.detect_dependencies(environment)?;
         let primary_present = dependencies
             .first()
             .and_then(|dependency| dependency.installed_version.as_ref())
@@ -1336,8 +1406,11 @@ impl ProcessAdapterInstaller {
         Ok(installation)
     }
 
-    fn verify_installed_unlocked(&self) -> KernelResult<AgentInstallation> {
-        let detection = self.detect_installation_unlocked(&self.agent_id)?;
+    fn verify_installed_unlocked(
+        &self,
+        environment: &InstallEnvironment,
+    ) -> KernelResult<AgentInstallation> {
+        let detection = self.detect_installation_unlocked(&self.agent_id, environment)?;
         if detection.is_installed() {
             Ok(detection)
         } else {
@@ -1348,8 +1421,8 @@ impl ProcessAdapterInstaller {
         }
     }
 
-    fn verify_uninstalled_unlocked(&self) -> KernelResult<()> {
-        let remaining = self.detect_dependencies()?;
+    fn verify_uninstalled_unlocked(&self, environment: &InstallEnvironment) -> KernelResult<()> {
+        let remaining = self.detect_dependencies(environment)?;
         if remaining
             .iter()
             .any(|dependency| dependency.installed_version.is_some())
@@ -1365,6 +1438,7 @@ impl ProcessAdapterInstaller {
     fn restore_dependency_snapshot(
         &self,
         snapshot: &[AgentInstallationDependency],
+        environment: &InstallEnvironment,
     ) -> KernelResult<()> {
         let manager = self.validate_dependency_snapshot(snapshot)?;
         let mut restore_specs = Vec::new();
@@ -1386,15 +1460,17 @@ impl ProcessAdapterInstaller {
             self.run_exact_package_install(
                 &restore_specs,
                 "provider_package_rollback_install_failed",
+                environment,
             )?;
         }
         if !remove_ids.is_empty() {
             self.run_package_uninstall_ids(
                 &remove_ids,
                 "provider_package_rollback_uninstall_failed",
+                environment,
             )?;
         }
-        let restored = self.detect_dependencies()?;
+        let restored = self.detect_dependencies(environment)?;
         if dependency_versions_match(snapshot, &restored) {
             Ok(())
         } else {
@@ -1422,8 +1498,9 @@ impl ProcessAdapterInstaller {
         &self,
         snapshot: &[AgentInstallationDependency],
         original: KernelError,
+        environment: &InstallEnvironment,
     ) -> KernelError {
-        match self.restore_dependency_snapshot(snapshot) {
+        match self.restore_dependency_snapshot(snapshot, environment) {
             Ok(()) => original,
             Err(_) => KernelError::provider_error(
                 "provider_package_rollback_failed",
@@ -1603,6 +1680,47 @@ fn lexical_normalize(path: &Path) -> PathBuf {
     normalized
 }
 
+/// Effective install environment for one lifecycle operation.
+///
+/// Request-level `AgentInstallOptions` override the installer's builder
+/// defaults; values not supplied on the request defer to the installer
+/// configuration and finally to environment variables and platform defaults.
+/// Detection, mutation, post-verification, compensation, and rollback within a
+/// single operation all use the same environment so a custom install root is
+/// honored consistently across the whole lifecycle.
+#[derive(Debug, Clone, Default)]
+struct InstallEnvironment {
+    install_root: Option<PathBuf>,
+    python_binary: Option<String>,
+    install_scripts_enabled: bool,
+}
+
+impl InstallEnvironment {
+    fn from_installer(installer: &ProcessAdapterInstaller) -> Self {
+        Self {
+            install_root: installer.install_root.clone(),
+            python_binary: None,
+            install_scripts_enabled: installer.install_scripts_enabled,
+        }
+    }
+
+    fn with_options(mut self, options: Option<&AgentInstallOptions>) -> Self {
+        let Some(options) = options else {
+            return self;
+        };
+        if let Some(install_root) = &options.install_root {
+            self.install_root = Some(PathBuf::from(install_root));
+        }
+        if let Some(python_binary) = &options.python_binary {
+            self.python_binary = Some(python_binary.clone());
+        }
+        if let Some(install_scripts_enabled) = options.install_scripts_enabled {
+            self.install_scripts_enabled = install_scripts_enabled;
+        }
+        self
+    }
+}
+
 impl AgentInstaller for ProcessAdapterInstaller {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
@@ -1620,7 +1738,10 @@ impl AgentInstaller for ProcessAdapterInstaller {
 
     fn detect_installation(&self, agent_id: &str) -> KernelResult<AgentInstallation> {
         self.validate_agent_id(agent_id)?;
-        self.with_detection_lock(|| self.detect_installation_unlocked(agent_id))
+        let environment = InstallEnvironment::from_installer(self);
+        self.with_detection_lock(&environment, || {
+            self.detect_installation_unlocked(agent_id, &environment)
+        })
     }
 
     fn configuration_spec(&self, agent_id: &str) -> KernelResult<AgentConfigurationSpec> {
@@ -1661,8 +1782,10 @@ impl AgentInstaller for ProcessAdapterInstaller {
                 request.target_version,
             ));
         }
-        self.with_mutation_lock(|| {
-            let snapshot = self.detect_dependencies()?;
+        let environment =
+            InstallEnvironment::from_installer(self).with_options(request.options.as_ref());
+        self.with_mutation_lock(&environment, || {
+            let snapshot = self.detect_dependencies(&environment)?;
             self.validate_dependency_snapshot(&snapshot)?;
             if snapshot
                 .iter()
@@ -1674,11 +1797,13 @@ impl AgentInstaller for ProcessAdapterInstaller {
                     request.target_version,
                 ));
             }
-            if let Err(error) = self.run_package_install("provider_package_install_failed") {
-                return Err(self.compensate_failure(&snapshot, error));
+            if let Err(error) =
+                self.run_package_install("provider_package_install_failed", &environment)
+            {
+                return Err(self.compensate_failure(&snapshot, error, &environment));
             }
-            if let Err(error) = self.verify_installed_unlocked() {
-                return Err(self.compensate_failure(&snapshot, error));
+            if let Err(error) = self.verify_installed_unlocked(&environment) {
+                return Err(self.compensate_failure(&snapshot, error, &environment));
             }
             Ok(AgentInstallReport::installed(
                 request.request_id,
@@ -1733,9 +1858,16 @@ impl AgentInstaller for ProcessAdapterInstaller {
                 request.to_version,
             ));
         }
-        self.with_mutation_lock(|| {
-            let snapshot = self.detect_dependencies()?;
+        let environment =
+            InstallEnvironment::from_installer(self).with_options(request.options.as_ref());
+        self.with_mutation_lock(&environment, || {
+            let snapshot = self.detect_dependencies(&environment)?;
             self.validate_dependency_snapshot(&snapshot)?;
+            let rollback_token = if request.rollback_required {
+                Some(encode_rollback_token(&snapshot, &request.from_version))
+            } else {
+                None
+            };
             if snapshot
                 .iter()
                 .all(AgentInstallationDependency::version_matches)
@@ -1745,20 +1877,24 @@ impl AgentInstaller for ProcessAdapterInstaller {
                     request.agent_id,
                     request.from_version,
                     request.to_version,
-                ));
+                )
+                .with_rollback_token_option(rollback_token));
             }
-            if let Err(error) = self.run_package_install("provider_package_upgrade_failed") {
-                return Err(self.compensate_failure(&snapshot, error));
+            if let Err(error) =
+                self.run_package_install("provider_package_upgrade_failed", &environment)
+            {
+                return Err(self.compensate_failure(&snapshot, error, &environment));
             }
-            if let Err(error) = self.verify_installed_unlocked() {
-                return Err(self.compensate_failure(&snapshot, error));
+            if let Err(error) = self.verify_installed_unlocked(&environment) {
+                return Err(self.compensate_failure(&snapshot, error, &environment));
             }
             Ok(AgentUpgradeReport::upgraded(
                 request.request_id,
                 request.agent_id,
                 request.from_version,
                 request.to_version,
-            ))
+            )
+            .with_rollback_token_option(rollback_token))
         })
     }
 
@@ -1777,6 +1913,7 @@ impl AgentInstaller for ProcessAdapterInstaller {
                 "provider configuration removal must be completed by the host configuration store before package uninstall",
             ));
         }
+        self.validate_install_options(request.options.as_ref())?;
         let plan = AgentUninstallPlan::new(
             format!("plan.{}.uninstall", self.agent_id),
             self.agent_id.clone(),
@@ -1803,8 +1940,10 @@ impl AgentInstaller for ProcessAdapterInstaller {
                 request.agent_id,
             ));
         }
-        self.with_mutation_lock(|| {
-            let snapshot = self.detect_dependencies()?;
+        let environment =
+            InstallEnvironment::from_installer(self).with_options(request.options.as_ref());
+        self.with_mutation_lock(&environment, || {
+            let snapshot = self.detect_dependencies(&environment)?;
             self.validate_dependency_snapshot(&snapshot)?;
             if snapshot
                 .iter()
@@ -1815,15 +1954,79 @@ impl AgentInstaller for ProcessAdapterInstaller {
                         .with_configuration_removed(false),
                 );
             }
-            if let Err(error) = self.run_package_uninstall("provider_package_uninstall_failed") {
-                return Err(self.compensate_failure(&snapshot, error));
+            if let Err(error) =
+                self.run_package_uninstall("provider_package_uninstall_failed", &environment)
+            {
+                return Err(self.compensate_failure(&snapshot, error, &environment));
             }
-            if let Err(error) = self.verify_uninstalled_unlocked() {
-                return Err(self.compensate_failure(&snapshot, error));
+            if let Err(error) = self.verify_uninstalled_unlocked(&environment) {
+                return Err(self.compensate_failure(&snapshot, error, &environment));
             }
             Ok(
                 AgentUninstallReport::uninstalled(request.request_id, request.agent_id)
                     .with_configuration_removed(false),
+            )
+        })
+    }
+
+    fn rollback(&self, request: AgentRollbackRequest) -> KernelResult<AgentRollbackReport> {
+        validate_lifecycle_request_id(&request.request_id)?;
+        self.validate_agent_id(&request.agent_id)?;
+        self.validate_descriptor()?;
+        if !request.preserve_data {
+            return Err(KernelError::provider_error(
+                "provider_data_removal_requires_host",
+                "provider package installers do not own agent data removal",
+            ));
+        }
+        self.validate_install_options(request.options.as_ref())?;
+        let token = request.rollback_token.as_deref().ok_or_else(|| {
+            KernelError::validation(
+                "provider rollback requires the rollback token returned by the upgrade report",
+            )
+        })?;
+        let snapshot = decode_rollback_token(token)?;
+        self.validate_dependency_snapshot(&snapshot.packages)?;
+        self.snapshot_matches_descriptor(&snapshot.packages)?;
+        if let Some(target_version) = &request.target_version {
+            if target_version != &snapshot.provider_version {
+                return Err(KernelError::validation(format!(
+                    "provider rollback target {target_version} does not match the snapshotted version {}",
+                    snapshot.provider_version
+                )));
+            }
+        }
+        let environment =
+            InstallEnvironment::from_installer(self).with_options(request.options.as_ref());
+        self.with_mutation_lock(&environment, || {
+            self.restore_dependency_snapshot(&snapshot.packages, &environment)?;
+            Ok(AgentRollbackReport::success(
+                request.request_id,
+                request.agent_id,
+                self.provider_version.clone(),
+                snapshot.provider_version.clone(),
+            ))
+        })
+    }
+
+    fn list_installed(&self) -> KernelResult<Vec<AgentInstallRecord>> {
+        let environment = InstallEnvironment::from_installer(self);
+        self.with_detection_lock(&environment, || {
+            let installation = self.detect_installation_unlocked(&self.agent_id, &environment)?;
+            let registry_id = match self.validate_descriptor()? {
+                ProcessAdapterPackageManager::Npm => "npm",
+                ProcessAdapterPackageManager::PythonPip => "pypi",
+            };
+            let source = AgentPackageSourceInfo::Registry {
+                registry_id: registry_id.to_string(),
+                package_id: self.packages[0].package_id.clone(),
+            };
+            Ok(
+                <ProcessAdapterInstaller as AgentInstaller>::record_from_detection(
+                    &installation,
+                    &self.provider_version,
+                    source,
+                ),
             )
         })
     }
@@ -1842,7 +2045,8 @@ impl AgentInstaller for ProcessAdapterInstaller {
                 ProcessAdapterCommand::new("npm", vec!["--version".to_string()])
             }
             ProcessAdapterPackageManager::PythonPip => {
-                let binary = match self.python_binary() {
+                let environment = InstallEnvironment::from_installer(self);
+                let binary = match self.resolve_python_binary(&environment) {
                     Ok(binary) => binary,
                     Err(_) => {
                         return ProviderHealth {
@@ -1864,6 +2068,35 @@ impl AgentInstaller for ProcessAdapterInstaller {
             _ => ProviderHealth {
                 status: "degraded".to_string(),
             },
+        }
+    }
+}
+
+impl ProcessAdapterInstaller {
+    fn snapshot_matches_descriptor(
+        &self,
+        snapshot: &[AgentInstallationDependency],
+    ) -> KernelResult<()> {
+        let expected: HashSet<(&str, &str)> = self
+            .packages
+            .iter()
+            .map(|package| (package.registry_id.as_str(), package.package_id.as_str()))
+            .collect();
+        let actual: HashSet<(&str, &str)> = snapshot
+            .iter()
+            .map(|dependency| {
+                (
+                    dependency.registry_id.as_str(),
+                    dependency.package_id.as_str(),
+                )
+            })
+            .collect();
+        if expected == actual {
+            Ok(())
+        } else {
+            Err(KernelError::validation(
+                "provider rollback snapshot does not match the managed package descriptor",
+            ))
         }
     }
 }
@@ -1934,6 +2167,141 @@ fn dependency_detection(
             &package.package_id,
             &package.version,
         ),
+    }
+}
+
+/// Opaque upgrade rollback handle payload.
+///
+/// The handle is a hex-encoded JSON document carrying only the pre-upgrade
+/// provider version and the exact managed package snapshot. It is opaque to
+/// hosts, never enters lifecycle events, and is re-validated against the
+/// installer descriptor before any package-manager mutation.
+struct RollbackSnapshot {
+    provider_version: String,
+    packages: Vec<AgentInstallationDependency>,
+}
+
+fn encode_rollback_token(
+    snapshot: &[AgentInstallationDependency],
+    provider_version: &str,
+) -> String {
+    let packages: Vec<Value> = snapshot
+        .iter()
+        .map(|dependency| {
+            serde_json::json!({
+                "registry_id": dependency.registry_id,
+                "package_id": dependency.package_id,
+                "expected_version": dependency.expected_version,
+                "installed_version": dependency.installed_version,
+            })
+        })
+        .collect();
+    let payload = serde_json::json!({
+        "version": ROLLBACK_TOKEN_SCHEMA_VERSION,
+        "provider_version": provider_version,
+        "packages": packages,
+    });
+    let json = serde_json::to_string(&payload)
+        .expect("rollback snapshot serializes into a bounded JSON document");
+    hex_encode(json.as_bytes())
+}
+
+fn decode_rollback_token(token: &str) -> KernelResult<RollbackSnapshot> {
+    if token.len() > MAX_ROLLBACK_TOKEN_CHARACTERS || token.trim() != token {
+        return Err(KernelError::validation(
+            "provider rollback token is malformed",
+        ));
+    }
+    let bytes = hex_decode(token).ok_or_else(|| {
+        KernelError::validation("provider rollback token is not valid hexadecimal")
+    })?;
+    let payload: Value = serde_json::from_slice(&bytes).map_err(|_| {
+        KernelError::validation("provider rollback token does not carry a snapshot payload")
+    })?;
+    let version = payload
+        .get("version")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| {
+            KernelError::validation("provider rollback token omits its schema version")
+        })?;
+    if version != ROLLBACK_TOKEN_SCHEMA_VERSION {
+        return Err(KernelError::validation(format!(
+            "provider rollback token schema version {version} is not supported"
+        )));
+    }
+    let provider_version = payload
+        .get("provider_version")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            KernelError::validation(
+                "provider rollback token omits the snapshotted provider version",
+            )
+        })?;
+    let packages = payload
+        .get("packages")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            KernelError::validation("provider rollback token omits the managed package snapshot")
+        })?;
+    let packages = packages
+        .iter()
+        .map(|package| {
+            let registry_id = package.get("registry_id").and_then(Value::as_str);
+            let package_id = package.get("package_id").and_then(Value::as_str);
+            match (registry_id, package_id) {
+                (Some(registry_id), Some(package_id)) => Ok(AgentInstallationDependency {
+                    registry_id: registry_id.to_string(),
+                    package_id: package_id.to_string(),
+                    expected_version: package
+                        .get("expected_version")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                    installed_version: package
+                        .get("installed_version")
+                        .and_then(Value::as_str)
+                        .map(str::to_string),
+                }),
+                _ => Err(KernelError::validation(
+                    "provider rollback token carries a malformed package entry",
+                )),
+            }
+        })
+        .collect::<KernelResult<Vec<_>>>()?;
+    Ok(RollbackSnapshot {
+        provider_version: provider_version.to_string(),
+        packages,
+    })
+}
+
+const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        encoded.push(HEX_DIGITS[(byte >> 4) as usize] as char);
+        encoded.push(HEX_DIGITS[(byte & 0x0f) as usize] as char);
+    }
+    encoded
+}
+
+fn hex_decode(encoded: &str) -> Option<Vec<u8>> {
+    if encoded.len() % 2 != 0 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(encoded.len() / 2);
+    let mut characters = encoded.chars();
+    while let (Some(high), Some(low)) = (characters.next(), characters.next()) {
+        bytes.push((hex_nibble(high)? << 4) | hex_nibble(low)?);
+    }
+    Some(bytes)
+}
+
+fn hex_nibble(character: char) -> Option<u8> {
+    match character {
+        '0'..='9' => Some(character as u8 - b'0'),
+        'a'..='f' => Some(character as u8 - b'a' + 10),
+        'A'..='F' => Some(character as u8 - b'A' + 10),
+        _ => None,
     }
 }
 

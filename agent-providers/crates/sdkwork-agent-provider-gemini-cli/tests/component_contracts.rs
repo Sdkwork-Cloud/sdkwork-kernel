@@ -24,26 +24,20 @@ fn component_spec_matches_crate_identity() {
 #[test]
 fn model_provider_manifest_uses_canonical_provider_id() {
     let provider = GeminiModelProvider::new();
-    assert_eq!(
-        provider.provider_manifest().provider_id,
-        "provider.model.gemini"
-    );
+    assert_eq!(provider.provider_manifest().provider_id, "provider.gemini");
 }
 
 #[test]
 fn kernel_plugin_uses_established_gemini_identities() {
     let manifest = gemini_cli_kernel_plugin_manifest();
     assert_eq!(manifest.plugin_id, "plugin.intelligence.gemini-cli");
-    assert_eq!(
-        manifest.agent_id.as_deref(),
-        Some("agent.intelligence.gemini")
-    );
+    assert_eq!(manifest.agent_id.as_deref(), Some("agent.gemini"));
     assert!(manifest
         .provider_ids
-        .contains(&"provider.model.gemini".to_string()));
+        .contains(&"provider.gemini".to_string()));
     assert!(!manifest
         .provider_ids
-        .contains(&"provider.model.gemini-cli".to_string()));
+        .contains(&"provider.gemini-cli".to_string()));
     assert!(manifest.supports_profile("agent-installation"));
 }
 
@@ -53,7 +47,7 @@ fn provider_manifests_and_definition_exclude_agent_internal_tools() {
         .into_iter()
         .map(|manifest| manifest.provider_id)
         .collect::<Vec<_>>();
-    assert!(provider_ids.contains(&"provider.model.gemini".to_string()));
+    assert!(provider_ids.contains(&"provider.gemini".to_string()));
     assert!(!provider_ids.contains(&"provider.tool.gemini".to_string()));
     assert!(provider_ids.contains(&"provider.policy.sdk-standard".to_string()));
     assert!(provider_ids.contains(&"provider.agent.installer.gemini-cli".to_string()));
@@ -90,10 +84,7 @@ fn kernel_plugin_configures_canonical_agent() {
         plugin.plugin_manifest().plugin_id,
         "plugin.intelligence.gemini-cli"
     );
-    assert_eq!(
-        plugin.agent_manifest().agent_id,
-        "agent.intelligence.gemini"
-    );
+    assert_eq!(plugin.agent_manifest().agent_id, "agent.gemini");
     let report = plugin
         .configure_runtime(RuntimeBuilder::new(
             "runtime.gemini-cli.installer",

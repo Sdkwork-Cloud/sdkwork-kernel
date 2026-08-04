@@ -316,7 +316,7 @@ impl From<ProviderError> for KernelError {
                 KernelError::CapabilityMissing { capability_id }
             }
             ProviderError::ResourceNotFound { resource_id, .. } => {
-                KernelError::validation(format!("Resource not found: {}", resource_id))
+                KernelError::not_found(format!("Resource not found: {}", resource_id))
             }
             ProviderError::OperationCancelled { operation_id } => {
                 KernelError::cancelled(format!("Operation '{}' cancelled", operation_id))
@@ -426,7 +426,7 @@ mod tests {
 
     #[test]
     fn provider_error_to_kernel_error_conversion() {
-        let error = ProviderError::capability_not_supported("model.stream", "provider.model.test");
+        let error = ProviderError::capability_not_supported("model.stream", "provider.test");
         let kernel_error: KernelError = error.into();
         assert!(matches!(
             kernel_error,
@@ -436,17 +436,13 @@ mod tests {
 
     #[test]
     fn provider_registration_to_manifest() {
-        let registration = ProviderRegistration::new(
-            "provider.model.test",
-            "model",
-            "Test Model Provider",
-            "1.0.0",
-        )
-        .with_capability("model.chat")
-        .with_capability("model.stream");
+        let registration =
+            ProviderRegistration::new("provider.test", "model", "Test Model Provider", "1.0.0")
+                .with_capability("model.chat")
+                .with_capability("model.stream");
 
         let manifest = registration.to_manifest();
-        assert_eq!(manifest.provider_id, "provider.model.test");
+        assert_eq!(manifest.provider_id, "provider.test");
         assert_eq!(manifest.provider_family, "model");
         assert_eq!(manifest.capabilities.len(), 2);
     }

@@ -14,12 +14,12 @@ use sdkwork_agent_provider_core::{
 
 mod agent_definition;
 mod configuration;
-mod materializer;
 mod conformance;
 pub mod ids;
 mod installer;
 mod local_plugins;
 mod manifest;
+mod materializer;
 mod package;
 mod provider_sessions;
 
@@ -296,7 +296,7 @@ impl Default for GeminiModelProvider {
 impl ModelProvider for GeminiModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.gemini",
+            "provider.gemini",
             "model",
             "Gemini Model Provider",
             "0.1.0",
@@ -316,7 +316,7 @@ impl ModelProvider for GeminiModelProvider {
         vec![
             ModelDescriptor::new(
                 "gemini-2.5-pro",
-                "provider.model.gemini",
+                "provider.gemini",
                 "Gemini 2.5 Pro",
                 "gemini",
             )
@@ -332,7 +332,7 @@ impl ModelProvider for GeminiModelProvider {
             .with_tool_capability("function_calling"),
             ModelDescriptor::new(
                 "gemini-2.5-flash",
-                "provider.model.gemini",
+                "provider.gemini",
                 "Gemini 2.5 Flash",
                 "gemini",
             )
@@ -349,11 +349,11 @@ impl ModelProvider for GeminiModelProvider {
     }
 
     fn invoke(&self, _request: ModelRequest) -> KernelResult<ModelResponse> {
-        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.model.gemini")
+        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.gemini")
     }
 
     fn stream(&self, _request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
-        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.model.gemini")
+        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.gemini")
     }
 }
 
@@ -695,7 +695,7 @@ mod tests {
     fn model_provider_manifest() {
         let provider = GeminiModelProvider::new();
         let manifest = provider.provider_manifest();
-        assert_eq!(manifest.provider_id, "provider.model.gemini");
+        assert_eq!(manifest.provider_id, "provider.gemini");
         assert_eq!(manifest.provider_family, "model");
     }
 
@@ -735,7 +735,7 @@ mod tests {
         assert_eq!(
             error,
             KernelError::ProviderUnavailable {
-                provider_id: "provider.model.gemini".to_string()
+                provider_id: "provider.gemini".to_string()
             }
         );
     }
@@ -750,7 +750,7 @@ mod tests {
         assert_eq!(
             error,
             KernelError::ProviderUnavailable {
-                provider_id: "provider.model.gemini".to_string()
+                provider_id: "provider.gemini".to_string()
             }
         );
     }

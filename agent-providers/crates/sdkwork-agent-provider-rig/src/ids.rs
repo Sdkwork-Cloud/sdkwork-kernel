@@ -1,7 +1,7 @@
 pub const PLUGIN_ID: &str = "plugin.intelligence.rig";
-pub const AGENT_ID: &str = "agent.intelligence.rig-general";
+pub const AGENT_ID: &str = "agent.rig-general";
 pub const AGENT_CARD_ID: &str = "agent_card.intelligence.rig-general";
-pub const MODEL_PROVIDER_ID: &str = "provider.model.rig-rust";
+pub const MODEL_PROVIDER_ID: &str = "provider.rig-rust";
 pub const MCP_PROVIDER_ID: &str = "provider.mcp.rig-rust";
 pub const MEMORY_PROVIDER_ID: &str = "provider.memory.rig-rust";
 pub const KNOWLEDGE_PROVIDER_ID: &str = "provider.knowledge.rig-rust";

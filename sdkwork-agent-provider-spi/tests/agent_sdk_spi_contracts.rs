@@ -33,7 +33,7 @@ impl AgentSdkCapabilityDriver for FakeDriver {
 fn codex_binding_manifest_parses() {
     let json = include_str!("../../bindings/agent-providers/codex/provider-binding.manifest.json");
     let manifest = AgentSdkBindingManifest::from_json(json).expect("manifest should parse");
-    assert_eq!(manifest.agent_id, "agent.intelligence.codex");
+    assert_eq!(manifest.agent_id, "agent.codex");
     assert!(manifest.capability_binding("sdk.model.chat").is_some());
 }
 
@@ -115,10 +115,10 @@ fn negotiation_selects_registered_drivers_manually() {
     }));
 
     let negotiation = bindings
-        .negotiate("binding.agent-provider.codex", &drivers)
+        .negotiate("binding.codex", &drivers)
         .expect("negotiation should succeed");
 
-    assert_eq!(negotiation.agent_id, "agent.intelligence.codex");
+    assert_eq!(negotiation.agent_id, "agent.codex");
     assert!(negotiation.selected_driver("sdk.model.chat").is_some());
 }
 
@@ -132,7 +132,7 @@ fn negotiation_fails_closed_for_missing_required_driver() {
 
     let drivers = DriverRegistry::new();
     let error = bindings
-        .negotiate("binding.agent-provider.codex", &drivers)
+        .negotiate("binding.codex", &drivers)
         .expect_err("empty registry should fail");
 
     assert_eq!(error.code, "missing_required_capabilities");
@@ -199,7 +199,7 @@ fn runtime_router_routes_to_registered_backend() {
     }));
 
     let negotiation = bindings
-        .negotiate("binding.agent-provider.codex", &drivers)
+        .negotiate("binding.codex", &drivers)
         .expect("negotiation should succeed");
 
     let router = SdkRuntimeRouter::new(negotiation).with_rust_runtime(Arc::new(StubRuntime {
@@ -244,8 +244,8 @@ fn runtime_router_rejects_operations_not_declared_by_selected_backend() {
     }
 
     let negotiation = SdkCapabilityNegotiation {
-        agent_id: "agent.intelligence.codex".to_string(),
-        binding_id: "binding.agent-provider.codex".to_string(),
+        agent_id: "agent.codex".to_string(),
+        binding_id: "binding.codex".to_string(),
         binding_version: "0.1.0".to_string(),
         selected: vec![NegotiatedCapability {
             capability_id: "sdk.session.lifecycle".to_string(),
@@ -392,6 +392,6 @@ fn hermes_and_openclaw_manifests_parse() {
     let openclaw_manifest =
         AgentSdkBindingManifest::from_json(openclaw).expect("openclaw manifest");
 
-    assert_eq!(hermes_manifest.agent_id, "agent.intelligence.hermes");
-    assert_eq!(openclaw_manifest.agent_id, "agent.intelligence.openclaw");
+    assert_eq!(hermes_manifest.agent_id, "agent.hermes");
+    assert_eq!(openclaw_manifest.agent_id, "agent.openclaw");
 }

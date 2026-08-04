@@ -1,5 +1,6 @@
 use crate::error::{DatabaseError, DatabaseResult};
 use crate::sqlite::SqliteDatabase;
+use crate::sqlite_repository::map_message_row;
 use crate::traits::RuntimeExecutionRepository;
 use crate::types::{
     ActionKind, ClaimedRun, EventRow, RunControlAction, RunRow, RunState, StepRow, StepState,
@@ -797,7 +798,28 @@ impl SqliteDatabase {
                 "completed run messages must belong to the run session".to_string(),
             ));
         }
+        // The streaming path may already have persisted these messages; an
+        // exact retry must not fail the completion, while a conflicting
+        // payload for the same id must still be rejected.
+        let mut inserted = 0usize;
         for message in messages {
+            let existing = tx
+                .query_row(
+                    "SELECT message_id, session_id, role, content, created_at, metadata_json
+                     FROM messages WHERE message_id = ?1",
+                    params![message.message_id],
+                    map_message_row,
+                )
+                .optional()
+                .map_err(|error| {
+                    DatabaseError::Query(format!(
+                        "failed to load run-message retry: {error}"
+                    ))
+                })?;
+            if let Some(existing) = existing {
+                crate::message_identity::ensure_message_retry_matches(&existing, message)?;
+                continue;
+            }
             tx.execute(
                 "INSERT INTO messages (
                     message_id, session_id, role, content, created_at, metadata_json
@@ -811,9 +833,10 @@ impl SqliteDatabase {
                     message.metadata_json,
                 ],
             )?;
+            inserted += 1;
         }
-        if !messages.is_empty() {
-            let added = i64::try_from(messages.len()).map_err(|_| {
+        if inserted > 0 {
+            let added = i64::try_from(inserted).map_err(|_| {
                 DatabaseError::ConstraintViolation("message turn size overflow".to_string())
             })?;
             let session_changed = tx.execute(
@@ -880,8 +903,8 @@ fn load_task(conn: &Connection, task_id: &str) -> DatabaseResult<TaskRow> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::traits::{SessionRepository, TaskRepository};
-    use crate::types::{runtime_now_timestamp, SessionRow};
+    use crate::traits::{MessageRepository, RuntimeSessionWrites, SessionRepository, TaskRepository};
+    use crate::types::{runtime_now_timestamp, MessageRow, MessageQuery, SessionRow};
 
     fn session() -> SessionRow {
         SessionRow {
@@ -1154,4 +1177,187 @@ mod tests {
             1
         );
     }
+
+    #[test]
+    fn transient_failure_is_rescheduled_and_reclaimable_after_backoff() {
+        let database = migrated_database();
+        let (task, run, step, accepted) = execution(1, "retryable");
+        database
+            .create_task_execution(&task, &run, &step, &accepted)
+            .expect("execution created");
+
+        let claim = database
+            .claim_ready_run(
+                "worker.one",
+                "2026-07-17T00:00:00.000000000Z",
+                "2026-07-17T00:01:00.000000000Z",
+            )
+            .expect("claim")
+            .expect("ready run");
+        let started = EventRow {
+            event_id: "event.retryable.started".into(),
+            session_id: Some(task.session_id.clone()),
+            event_type: "task.started".into(),
+            severity: "info".into(),
+            payload: None,
+            created_at: "2026-07-17T00:00:05.000000000Z".into(),
+        };
+        database
+            .start_claimed_run(&claim, &started.created_at, &started)
+            .expect("started");
+
+        // Transient failure schedules a retry instead of failing the run.
+        let retry_event = EventRow {
+            event_id: "event.retryable.retry".into(),
+            session_id: Some(task.session_id.clone()),
+            event_type: "task.retry_scheduled".into(),
+            severity: "warning".into(),
+            payload: None,
+            created_at: "2026-07-17T00:00:06.000000000Z".into(),
+        };
+        database
+            .schedule_run_retry(
+                &claim,
+                "provider_unavailable",
+                Some("50301"),
+                "provider unavailable",
+                "2026-07-17T00:01:06.000000000Z",
+                &retry_event,
+            )
+            .expect("retry scheduled");
+
+        let run_row = database
+            .load_run(&run.run_id)
+            .expect("load")
+            .expect("run present");
+        assert_eq!(run_row.state, RunState::Created, "run returns to a claimable state");
+        assert_eq!(run_row.attempt, 2, "retry increments the attempt");
+        assert_eq!(run_row.lease_owner, None, "lease is released");
+        assert_eq!(
+            run_row.next_attempt_at.as_deref(),
+            Some("2026-07-17T00:01:06.000000000Z"),
+            "backoff deadline is persisted"
+        );
+
+        // Before the backoff deadline the run is not claimable...
+        assert!(database
+            .claim_ready_run(
+                "worker.two",
+                "2026-07-17T00:00:30.000000000Z",
+                "2026-07-17T00:01:00.000000000Z",
+            )
+            .expect("early claim")
+            .is_none());
+        // ...and after the deadline a fresh worker picks it up with a new fence.
+        let re_claim = database
+            .claim_ready_run(
+                "worker.two",
+                "2026-07-17T00:01:10.000000000Z",
+                "2026-07-17T00:02:10.000000000Z",
+            )
+            .expect("late claim")
+            .expect("reclaimable run");
+        assert_eq!(re_claim.run.attempt, 2);
+        assert_eq!(re_claim.run.lease_owner.as_deref(), Some("worker.two"));
+        assert_eq!(re_claim.run.fencing_token, 3, "stale claim fence cannot renew or finish");
+
+        // The stale claim's renew and finish attempts are rejected.
+        assert!(!database
+            .renew_run_lease(
+                &run.run_id,
+                "worker.one",
+                1,
+                "2026-07-17T00:01:20.000000000Z",
+                "2026-07-17T00:02:20.000000000Z",
+            )
+            .expect("stale renewal rejected"));
+    }
+
+    #[test]
+    fn completion_accepts_messages_already_persisted_by_the_streaming_path() {
+        let database = migrated_database();
+        let (task, run, step, accepted) = execution(1, "idem-messages");
+        database
+            .create_task_execution(&task, &run, &step, &accepted)
+            .expect("execution created");
+
+        let claim = database
+            .claim_ready_run(
+                "worker.one",
+                "2026-07-17T00:00:00.000000000Z",
+                "2026-07-17T00:01:00.000000000Z",
+            )
+            .expect("claim")
+            .expect("ready run");
+        let started = EventRow {
+            event_id: "event.idem.started".into(),
+            session_id: Some(task.session_id.clone()),
+            event_type: "task.started".into(),
+            severity: "info".into(),
+            payload: None,
+            created_at: "2026-07-17T00:00:05.000000000Z".into(),
+        };
+        database
+            .start_claimed_run(&claim, &started.created_at, &started)
+            .expect("started");
+
+        let user_message = MessageRow {
+            message_id: "msg.idem.user".into(),
+            session_id: task.session_id.clone(),
+            role: "user".into(),
+            content: task.instruction.clone(),
+            created_at: "2026-07-17T00:00:06.000000000Z".into(),
+            metadata_json: None,
+        };
+        let assistant_message = MessageRow {
+            message_id: "msg.idem.assistant".into(),
+            session_id: task.session_id.clone(),
+            role: "assistant".into(),
+            content: "streamed partial output".into(),
+            created_at: "2026-07-17T00:00:07.000000000Z".into(),
+            metadata_json: None,
+        };
+        // The streaming path persists the assistant message first.
+        let stream_event = EventRow {
+            event_id: "event.idem.streamed".into(),
+            session_id: Some(task.session_id.clone()),
+            event_type: "message.sent".into(),
+            severity: "info".into(),
+            payload: Some("role=assistant".to_string()),
+            created_at: "2026-07-17T00:00:07.000000000Z".into(),
+        };
+        database
+            .append_message_with_event(&assistant_message, &stream_event)
+            .expect("streamed assistant message");
+
+        // The completion commits the same message id plus the user message.
+        let completed = EventRow {
+            event_id: "event.idem.completed".into(),
+            session_id: Some(task.session_id.clone()),
+            event_type: "task.completed".into(),
+            severity: "info".into(),
+            payload: None,
+            created_at: "2026-07-17T00:00:08.000000000Z".into(),
+        };
+        database
+            .complete_claimed_run_with_messages(
+                &claim,
+                &[user_message, assistant_message.clone()],
+                None,
+                &completed.created_at,
+                &completed,
+            )
+            .expect("completion accepts the already-persisted assistant message");
+
+        let messages = database
+            .load_messages(&task.session_id, &crate::types::MessageQuery::default())
+            .expect("messages");
+        assert_eq!(messages.len(), 2, "no duplicate assistant message");
+        let session_row = database
+            .load_session(&task.session_id)
+            .expect("session")
+            .expect("present");
+        assert_eq!(session_row.message_count, 2, "count counts each message exactly once");
+    }
 }
+

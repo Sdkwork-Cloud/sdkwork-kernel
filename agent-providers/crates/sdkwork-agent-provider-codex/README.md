@@ -23,7 +23,7 @@ SPI remain Codex-neutral, and `external/codex` must remain clean.
 ## Runtime Contract
 
 - Canonical plugin id: `plugin.intelligence.codex`
-- Canonical agent id: `agent.intelligence.codex`
+- Canonical agent id: `agent.codex`
 - Runtime entrypoint: `CodexKernelPlugin::configure_runtime`
 - Public manifests: `codex_agent_definition`, `codex_agent_manifest`,
   `codex_provider_manifests`, `codex_package_manifest`, and

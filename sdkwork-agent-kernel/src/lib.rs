@@ -215,11 +215,11 @@ pub use host::{
 };
 pub use host_sandbox::SandboxingHostProvider;
 pub use installation::{
-    AgentInstallPlan, AgentInstallReport, AgentInstallRequest, AgentInstallStatus,
-    AgentInstallStep, AgentInstallStepKind, AgentInstallation, AgentInstallationDependency,
-    AgentInstallationState, AgentInstaller, AgentPackageSource, AgentUninstallPlan,
-    AgentUninstallReport, AgentUninstallRequest, AgentUpgradePlan, AgentUpgradeReport,
-    AgentUpgradeRequest,
+    AgentInstallOptions, AgentInstallPlan, AgentInstallReport, AgentInstallRequest,
+    AgentInstallStatus, AgentInstallStep, AgentInstallStepKind, AgentInstallation,
+    AgentInstallationDependency, AgentInstallationState, AgentInstaller, AgentPackageSource,
+    AgentUninstallPlan, AgentUninstallReport, AgentUninstallRequest, AgentUpgradePlan,
+    AgentUpgradeReport, AgentUpgradeRequest,
 };
 pub use installation_ext::{
     AgentInstallRecord, AgentInstallRecordStatus, AgentPackageSourceInfo, AgentRollbackReport,

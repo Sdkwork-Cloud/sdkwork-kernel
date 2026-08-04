@@ -17,7 +17,19 @@ use tower::ServiceExt;
 
 const TEST_INGRESS_TOKEN: &str = "kernel-test-token";
 
+/// Enables the explicit mock-provider override once for the whole test
+/// binary: these contracts exercise model/provider paths that are
+/// fail-closed by default (see ).
+static SET_MOCK_ENV: std::sync::Once = std::sync::Once::new();
+
+fn ensure_mock_provider_override() {
+    SET_MOCK_ENV.call_once(|| {
+        std::env::set_var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "1");
+    });
+}
+
 fn open_test_app() -> Router {
+    ensure_mock_provider_override();
     app::build_test_app(Arc::new(ServerConfig::default()))
 }
 
@@ -633,6 +645,26 @@ async fn internal_runtime_list_queries_reject_forbidden_pagination_aliases() {
             response.status(),
             StatusCode::BAD_REQUEST,
             "forbidden pagination alias should be rejected: {query}"
+        );
+        // PAGINATION_SPEC §10.1: alias rejections must be structured
+        // `application/problem+json` with numeric code 40003, not axum's
+        // default text/plain body.
+        assert_eq!(
+            response
+                .headers()
+                .get(CONTENT_TYPE)
+                .map(|value| value.to_str().unwrap_or("")),
+            Some("application/problem+json"),
+            "alias rejection must use the problem+json contract: {query}"
+        );
+        let bytes = to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .expect("problem body");
+        let problem: Value = serde_json::from_slice(&bytes).expect("problem json");
+        assert_eq!(problem["code"], json!(40003), "alias rejection code: {query}");
+        assert!(
+            problem["traceId"].is_string(),
+            "alias rejection must carry a traceId: {query}"
         );
     }
 }
@@ -1276,7 +1308,7 @@ async fn internal_runtime_create_rejects_unknown_agent_id() {
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(
             json!({
-                "agentId": "agent.intelligence.unregistered",
+                "agentId": "agent.unregistered",
                 "title": "should fail"
             })
             .to_string(),

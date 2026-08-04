@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent_provider_binding",
-  "binding_id": "binding.agent-provider.openclaw",
-  "agent_id": "agent.intelligence.openclaw",
+  "binding_id": "binding.openclaw",
+  "agent_id": "agent.openclaw",
   "display_name": "OpenClaw",
   "description": "External agent provider binding for the OpenClaw OpenAI-compatible gateway protocol.",
   "version": "0.2.0",

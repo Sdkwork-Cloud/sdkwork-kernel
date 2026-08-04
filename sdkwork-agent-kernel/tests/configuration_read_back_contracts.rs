@@ -24,7 +24,8 @@ impl AgentConfigurationProvider for ReadBackUnsupportedProvider {
     fn validate_configuration(
         &self,
         configuration: &sdkwork_agent_kernel::AgentConfiguration,
-    ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentConfigurationValidation> {
+    ) -> sdkwork_agent_kernel::KernelResult<sdkwork_agent_kernel::AgentConfigurationValidation>
+    {
         Ok(sdkwork_agent_kernel::AgentConfigurationValidation::new(
             &configuration.agent_id,
             &configuration.profile_id,
@@ -42,7 +43,10 @@ fn default_read_back_reports_unsupported_with_manifest_scope() {
     let status = provider
         .read_model_configuration("agent.test", "profile.test")
         .expect("default read-back succeeds");
-    assert_eq!(status.materialization, ProviderModelMaterializationState::Unsupported);
+    assert_eq!(
+        status.materialization,
+        ProviderModelMaterializationState::Unsupported
+    );
     assert_eq!(
         status.provider_scope,
         provider.provider_manifest().provider_id
@@ -76,7 +80,10 @@ fn materialization_state_vocabulary_is_stable() {
 #[test]
 fn status_constructors_carry_expected_state() {
     let unsupported = ProviderModelConfigurationStatus::unsupported("rig");
-    assert_eq!(unsupported.materialization, ProviderModelMaterializationState::Unsupported);
+    assert_eq!(
+        unsupported.materialization,
+        ProviderModelMaterializationState::Unsupported
+    );
     assert_eq!(unsupported.provider_scope, "rig");
 
     let not_materialized = ProviderModelConfigurationStatus::not_materialized("codex");

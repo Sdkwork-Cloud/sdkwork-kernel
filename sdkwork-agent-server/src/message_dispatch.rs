@@ -133,6 +133,10 @@ mod tests {
                 crate::runtime_bootstrap::KERNEL_AGENT_PLUGIN_ENV,
                 None,
             );
+            let _mock = crate::testing::env::VarGuard::set(
+                "SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS",
+                Some("1"),
+            );
             let config = Arc::new(ServerConfig::default());
             let persistence = Arc::new(
                 PersistenceState::memory()

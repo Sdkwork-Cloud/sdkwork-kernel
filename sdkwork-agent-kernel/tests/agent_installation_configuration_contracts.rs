@@ -6,12 +6,12 @@ use sdkwork_agent_kernel::{
     AgentInstallPlan, AgentInstallReport, AgentInstallRequest, AgentInstallStatus,
     AgentInstallStep, AgentInstallStepKind, AgentInstallation, AgentInstallationDependency,
     AgentInstallationState, AgentInstaller, AgentPackageSource, AgentProfileArchiveRequest,
-    AgentSecretBinding, AgentSecretBindingKind, AgentUninstallPlan, AgentUninstallReport,
-    AgentUninstallRequest, AgentUpgradePlan, AgentUpgradeReport, AgentUpgradeRequest,
-    ConfigurationMigrationStep, ConfigurationMigrationStepKind, KernelEventRedaction,
-    KernelEventSource, KernelResult, PolicyCategory, ProviderHealth, SideEffectLevel,
-    AGENT_CONFIGURATION_MIGRATION_SCHEMA, AGENT_CONFIGURATION_PROFILE_SCHEMA,
-    AGENT_CONFIGURATION_SPEC_SCHEMA,
+    AgentRollbackRequest, AgentSecretBinding, AgentSecretBindingKind, AgentUninstallPlan,
+    AgentUninstallReport, AgentUninstallRequest, AgentUpgradePlan, AgentUpgradeReport,
+    AgentUpgradeRequest, AgentVerifyRequest, AgentVerifyStatus, ConfigurationMigrationStep,
+    ConfigurationMigrationStepKind, KernelEventRedaction, KernelEventSource, KernelResult,
+    PolicyCategory, ProviderHealth, SideEffectLevel, AGENT_CONFIGURATION_MIGRATION_SCHEMA,
+    AGENT_CONFIGURATION_PROFILE_SCHEMA, AGENT_CONFIGURATION_SPEC_SCHEMA,
 };
 
 const AGENT_CONFIGURATION_SPEC_JSON: &str = r#"
@@ -993,4 +993,117 @@ fn active_configuration_profile() -> AgentConfigurationProfile {
         "openai",
         "secret://llm/openai",
     ))
+}
+
+#[test]
+fn installer_ext_verify_derives_valid_report_from_installed_detection() {
+    let installer = FakeAgentInstaller;
+    let report = installer
+        .verify_installation(&AgentVerifyRequest::new("verify.1", "agent.code"))
+        .expect("installed agent verifies");
+    assert_eq!(report.status, AgentVerifyStatus::Valid);
+    assert_eq!(report.checksum_valid, Some(true));
+    assert_eq!(report.configuration_valid, None);
+    assert_eq!(report.capabilities_valid, None);
+    assert!(report.issues.is_empty());
+}
+
+#[test]
+fn installer_ext_verify_reports_degraded_dependencies_and_missing_agents() {
+    let degraded = StaticInstallationInstaller(
+        AgentInstallation::degraded("agent.code", "0.1.0").with_dependency(
+            AgentInstallationDependency::missing("npm", "agent.code.runtime", "0.2.0"),
+        ),
+    );
+    let report = degraded
+        .verify_installation(&AgentVerifyRequest::new("verify.2", "agent.code"))
+        .expect("degraded agent verification derives issues");
+    assert_eq!(report.status, AgentVerifyStatus::Invalid);
+    assert_eq!(report.checksum_valid, Some(false));
+    assert_eq!(report.issues.len(), 1);
+    assert_eq!(
+        report.issues[0].severity,
+        sdkwork_agent_kernel::AgentVerifyIssueSeverity::Critical
+    );
+    assert_eq!(
+        report.issues[0].category,
+        sdkwork_agent_kernel::AgentVerifyIssueCategory::Dependency
+    );
+
+    let missing = StaticInstallationInstaller(AgentInstallation::not_installed("agent.code"));
+    let report = missing
+        .verify_installation(&AgentVerifyRequest::new("verify.3", "agent.code"))
+        .expect("missing agent verification reports not found");
+    assert_eq!(report.status, AgentVerifyStatus::NotFound);
+    assert!(report.issues.is_empty());
+}
+
+#[test]
+fn installer_ext_verify_honors_checksum_flag() {
+    let installer = FakeAgentInstaller;
+    let report = installer
+        .verify_installation(
+            &AgentVerifyRequest::new("verify.4", "agent.code").verify_checksum(false),
+        )
+        .expect("installed agent verifies");
+    assert_eq!(report.status, AgentVerifyStatus::Valid);
+    assert_eq!(report.checksum_valid, None);
+}
+
+#[test]
+fn installer_ext_rollback_and_inventory_fail_closed_by_default() {
+    let installer = FakeAgentInstaller;
+    let rollback = installer.rollback(AgentRollbackRequest::new("rollback.1", "agent.code"));
+    assert_eq!(
+        rollback.unwrap_err().code(),
+        "installer_rollback_unsupported"
+    );
+
+    let inventory = installer.list_installed();
+    assert_eq!(
+        inventory.unwrap_err().code(),
+        "installer_inventory_unsupported"
+    );
+}
+
+struct StaticInstallationInstaller(AgentInstallation);
+
+impl AgentInstaller for StaticInstallationInstaller {
+    fn detect_installation(&self, agent_id: &str) -> KernelResult<AgentInstallation> {
+        let mut installation = self.0.clone();
+        installation.agent_id = agent_id.to_string();
+        Ok(installation)
+    }
+
+    fn configuration_spec(&self, agent_id: &str) -> KernelResult<AgentConfigurationSpec> {
+        Ok(agent_configuration_spec(agent_id))
+    }
+
+    fn plan_install(&self, request: &AgentInstallRequest) -> KernelResult<AgentInstallPlan> {
+        FakeAgentInstaller.plan_install(request)
+    }
+
+    fn install(&self, request: AgentInstallRequest) -> KernelResult<AgentInstallReport> {
+        FakeAgentInstaller.install(request)
+    }
+
+    fn plan_upgrade(&self, request: &AgentUpgradeRequest) -> KernelResult<AgentUpgradePlan> {
+        FakeAgentInstaller.plan_upgrade(request)
+    }
+
+    fn upgrade(&self, request: AgentUpgradeRequest) -> KernelResult<AgentUpgradeReport> {
+        FakeAgentInstaller.upgrade(request)
+    }
+
+    fn plan_uninstall(&self, request: &AgentUninstallRequest) -> KernelResult<AgentUninstallPlan> {
+        FakeAgentInstaller.plan_uninstall(request)
+    }
+
+    fn uninstall(&self, request: AgentUninstallRequest) -> KernelResult<AgentUninstallReport> {
+        FakeAgentInstaller.uninstall(request)
+    }
+
+    fn health(&self) -> ProviderHealth {
+        ProviderHealth::available()
+    }
 }

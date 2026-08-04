@@ -7,6 +7,9 @@ edition = "2021"
 name = "sdkwork_agent_plugin_core"
 path = "src/lib.rs"
 
+[features]
+test-utils = []
+
 [dependencies]
 sdkwork-agent-kernel.workspace = true
 dunce = "1"

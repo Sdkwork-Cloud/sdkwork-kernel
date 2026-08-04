@@ -16,7 +16,7 @@ const EXECUTION_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.execution",
+  "agent_id": "agent.execution",
   "name": "sdkwork-execution-agent",
   "display_name": "SDKWork Execution Agent",
   "description": "Agent used to prove bounded execution loop contracts.",
@@ -45,7 +45,7 @@ const MODEL_REQUIRED_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.execution-missing-model",
+  "agent_id": "agent.execution-missing-model",
   "name": "sdkwork-execution-missing-model-agent",
   "display_name": "SDKWork Execution Missing Model Agent",
   "description": "Agent used to prove failed runtimes stop execution.",
@@ -137,7 +137,7 @@ fn execution_service_creates_plan_and_invokes_selected_model_provider() {
                 "execution.plan.model",
                 vec!["summarize repository".to_string()],
             )
-            .with_provider_id("provider.model.recording")
+            .with_provider_id("provider.recording")
             .for_session("session.execution")
             .for_task("task.execution")
             .for_run("run.execution"),
@@ -149,7 +149,7 @@ fn execution_service_creates_plan_and_invokes_selected_model_provider() {
     assert_eq!(captured_model_requests.lock().unwrap().len(), 1);
     assert_eq!(
         report.model_response.as_ref().unwrap().provider_id,
-        "provider.model.recording"
+        "provider.recording"
     );
 }
 
@@ -163,7 +163,7 @@ fn execution_service_attaches_memory_and_knowledge_context_through_chat_service(
         .execute(
             &runtime,
             AgentExecutionRequest::new("execution.context", vec!["use known context".to_string()])
-                .with_provider_id("provider.model.recording")
+                .with_provider_id("provider.recording")
                 .for_session("session.context")
                 .for_task("task.context")
                 .with_memory_query(MemoryScope::Session, "session.context")
@@ -206,7 +206,7 @@ fn execution_service_maps_full_chat_context_to_model_knowledge_and_policy_reques
                 "execution.full-context",
                 vec!["use complete context".to_string()],
             )
-            .with_provider_id("provider.model.recording")
+            .with_provider_id("provider.recording")
             .with_model_id("model.execution.fast")
             .for_session("session.execution.full")
             .for_task("task.execution.full")
@@ -311,7 +311,7 @@ fn execution_service_returns_failed_report_when_model_policy_denies_before_provi
         .execute(
             &runtime,
             AgentExecutionRequest::new("execution.model.denied", vec!["hello".to_string()])
-                .with_provider_id("provider.model.recording"),
+                .with_provider_id("provider.recording"),
         )
         .expect("model policy denial is represented as an execution report");
 
@@ -336,7 +336,7 @@ fn execution_service_returns_permission_report_when_model_policy_requires_approv
         .execute(
             &runtime,
             AgentExecutionRequest::new("execution.model.approval", vec!["hello".to_string()])
-                .with_provider_id("provider.model.recording"),
+                .with_provider_id("provider.recording"),
         )
         .expect("model policy approval requirement is represented as an execution report");
 
@@ -391,7 +391,7 @@ fn execution_service_maps_non_success_model_statuses_to_execution_reports() {
                     format!("execution.model.status.{observation_status}"),
                     vec!["invoke model".to_string()],
                 )
-                .with_provider_id("provider.model.status"),
+                .with_provider_id("provider.status"),
             )
             .expect("non-success model status is represented as execution report");
 
@@ -414,7 +414,7 @@ fn execution_service_executes_model_tool_calls_through_tool_service() {
         .execute(
             &runtime,
             AgentExecutionRequest::new("execution.tool", vec!["call tool".to_string()])
-                .with_provider_id("provider.model.tool-calling")
+                .with_provider_id("provider.tool-calling")
                 .include_tool_descriptors(),
         )
         .expect("tool execution succeeds");
@@ -446,7 +446,7 @@ fn execution_service_enriches_model_tool_calls_with_execution_context() {
         .execute(
             &runtime,
             AgentExecutionRequest::new("execution.tool.context", vec!["call tool".to_string()])
-                .with_provider_id("provider.model.tool-calling")
+                .with_provider_id("provider.tool-calling")
                 .for_session("session.tool.context")
                 .for_task("task.tool.context")
                 .for_run("run.tool.context")
@@ -495,7 +495,7 @@ fn execution_service_stops_before_tool_when_policy_requires_approval() {
         .execute(
             &runtime,
             AgentExecutionRequest::new("execution.tool.approval", vec!["call tool".to_string()])
-                .with_provider_id("provider.model.tool-calling")
+                .with_provider_id("provider.tool-calling")
                 .include_tool_descriptors(),
         )
         .expect("permission required is returned as report");
@@ -519,7 +519,7 @@ fn execution_service_does_not_fallback_to_mcp_when_default_tool_policy_requires_
         .execute(
             &runtime,
             AgentExecutionRequest::new("execution.tool.no-fallback", vec!["call tool".to_string()])
-                .with_provider_id("provider.model.tool-no-provider")
+                .with_provider_id("provider.tool-no-provider")
                 .with_mcp_server_id("mcp.execution"),
         )
         .expect("tool approval requirement is returned as report");
@@ -544,7 +544,7 @@ fn execution_service_executes_mcp_tool_calls_through_mcp_service() {
         .execute(
             &runtime,
             AgentExecutionRequest::new("execution.mcp", vec!["call mcp".to_string()])
-                .with_provider_id("provider.model.mcp-tool-calling")
+                .with_provider_id("provider.mcp-tool-calling")
                 .with_mcp_server_id("mcp.execution"),
         )
         .expect("mcp execution succeeds");
@@ -576,7 +576,7 @@ fn execution_service_enriches_model_mcp_tool_calls_with_execution_context() {
         .execute(
             &runtime,
             AgentExecutionRequest::new("execution.mcp.context", vec!["call mcp".to_string()])
-                .with_provider_id("provider.model.mcp-tool-calling")
+                .with_provider_id("provider.mcp-tool-calling")
                 .with_mcp_server_id("mcp.execution")
                 .for_session("session.mcp.context")
                 .for_task("task.mcp.context")
@@ -632,7 +632,7 @@ fn execution_service_stops_before_mcp_tool_when_policy_requires_approval() {
         .execute(
             &runtime,
             AgentExecutionRequest::new("execution.mcp.approval", vec!["call mcp".to_string()])
-                .with_provider_id("provider.model.mcp-tool-calling")
+                .with_provider_id("provider.mcp-tool-calling")
                 .with_mcp_server_id("mcp.execution"),
         )
         .expect("mcp permission required is returned as report");
@@ -653,7 +653,7 @@ fn execution_service_preserves_prior_observations_when_later_tool_fails() {
         .execute(
             &runtime,
             AgentExecutionRequest::new("execution.partial", vec!["call tools".to_string()])
-                .with_provider_id("provider.model.two-tools"),
+                .with_provider_id("provider.two-tools"),
         )
         .expect("tool failure is represented in report");
 
@@ -677,7 +677,7 @@ fn execution_service_fails_closed_with_observation_for_unknown_tool_call() {
         .execute(
             &runtime,
             AgentExecutionRequest::new("execution.unknown-tool", vec!["call tool".to_string()])
-                .with_provider_id("provider.model.unknown-tool"),
+                .with_provider_id("provider.unknown-tool"),
         )
         .expect("unknown tool is represented in report");
 
@@ -705,7 +705,7 @@ fn execution_report_projects_completed_run_to_kernel_events_with_context() {
         .execute(
             &runtime,
             AgentExecutionRequest::new("execution.events", vec!["call tool".to_string()])
-                .with_provider_id("provider.model.tool-calling")
+                .with_provider_id("provider.tool-calling")
                 .for_session("session.execution.events")
                 .for_task("task.execution.events")
                 .for_run("run.execution.events")
@@ -767,7 +767,7 @@ fn execution_report_projects_failure_and_permission_status_to_event_severity() {
         .execute(
             &runtime_with_two_tool_calls_second_fails(),
             AgentExecutionRequest::new("execution.events.failed", vec!["call tools".to_string()])
-                .with_provider_id("provider.model.two-tools"),
+                .with_provider_id("provider.two-tools"),
         )
         .expect("tool failure is represented in report");
     let failed_event = failed_report.to_event("event.execution.failed.report");
@@ -784,7 +784,7 @@ fn execution_report_projects_failure_and_permission_status_to_event_severity() {
                 "execution.events.permission",
                 vec!["call tool".to_string()],
             )
-            .with_provider_id("provider.model.tool-calling"),
+            .with_provider_id("provider.tool-calling"),
         )
         .expect("approval requirement is represented in report");
     let permission_event = permission_report.to_event("event.execution.permission.report");
@@ -807,7 +807,7 @@ fn permission_report_builds_approval_resume_request_with_context_and_audit_event
         .execute(
             &runtime_with_tool_calling_model_and_approval_policy(),
             AgentExecutionRequest::new("execution.resume", vec!["call tool".to_string()])
-                .with_provider_id("provider.model.tool-calling")
+                .with_provider_id("provider.tool-calling")
                 .for_session("session.execution.resume")
                 .for_task("task.execution.resume")
                 .for_run("run.execution.resume")
@@ -887,7 +887,7 @@ fn non_permission_report_rejects_approval_resume_request() {
         .execute(
             &runtime_with_tool_calling_model_and_tool_provider(),
             AgentExecutionRequest::new("execution.no-resume", vec!["call tool".to_string()])
-                .with_provider_id("provider.model.tool-calling"),
+                .with_provider_id("provider.tool-calling"),
         )
         .expect("execution succeeds");
 
@@ -923,9 +923,9 @@ fn runtime_with_recording_model(
     )
     .with_generated_at("2026-06-10T00:00:00Z")
     .register_model_provider(
-        "provider.model.recording",
+        "provider.recording",
         "0.1.0",
-        RecordingModelProvider::new("provider.model.recording", captured_model_requests),
+        RecordingModelProvider::new("provider.recording", captured_model_requests),
     )
     .register_policy_provider(
         "provider.policy.execution",
@@ -944,7 +944,7 @@ fn runtime_with_unknown_tool_calling_model() -> sdkwork_agent_kernel::AgentRunti
     )
     .with_generated_at("2026-06-10T00:00:00Z")
     .register_model_provider(
-        "provider.model.unknown-tool",
+        "provider.unknown-tool",
         "0.1.0",
         UnknownToolCallingModelProvider,
     )
@@ -965,11 +965,7 @@ fn runtime_with_two_tool_calls_second_fails() -> sdkwork_agent_kernel::AgentRunt
         AgentManifest::from_json(EXECUTION_AGENT_MANIFEST_JSON).expect("execution manifest parses"),
     )
     .with_generated_at("2026-06-10T00:00:00Z")
-    .register_model_provider(
-        "provider.model.two-tools",
-        "0.1.0",
-        TwoToolCallingModelProvider,
-    )
+    .register_model_provider("provider.two-tools", "0.1.0", TwoToolCallingModelProvider)
     .register_policy_provider(
         "provider.policy.execution",
         "0.1.0",
@@ -992,7 +988,7 @@ fn runtime_with_mcp_tool_calling_model_and_mcp_provider() -> sdkwork_agent_kerne
     )
     .with_generated_at("2026-06-10T00:00:00Z")
     .register_model_provider(
-        "provider.model.mcp-tool-calling",
+        "provider.mcp-tool-calling",
         "0.1.0",
         McpToolCallingModelProvider,
     )
@@ -1014,7 +1010,7 @@ fn runtime_with_mcp_tool_calling_model_and_approval_policy() -> sdkwork_agent_ke
     )
     .with_generated_at("2026-06-10T00:00:00Z")
     .register_model_provider(
-        "provider.model.mcp-tool-calling",
+        "provider.mcp-tool-calling",
         "0.1.0",
         McpToolCallingModelProvider,
     )
@@ -1035,11 +1031,7 @@ fn runtime_with_tool_calling_model_and_approval_policy() -> sdkwork_agent_kernel
         AgentManifest::from_json(EXECUTION_AGENT_MANIFEST_JSON).expect("execution manifest parses"),
     )
     .with_generated_at("2026-06-10T00:00:00Z")
-    .register_model_provider(
-        "provider.model.tool-calling",
-        "0.1.0",
-        ToolCallingModelProvider,
-    )
+    .register_model_provider("provider.tool-calling", "0.1.0", ToolCallingModelProvider)
     .register_policy_provider(
         "provider.policy.execution",
         "0.1.0",
@@ -1060,7 +1052,7 @@ fn runtime_with_default_tool_approval_and_mcp_fallback_candidate(
     )
     .with_generated_at("2026-06-10T00:00:00Z")
     .register_model_provider(
-        "provider.model.tool-no-provider",
+        "provider.tool-no-provider",
         "0.1.0",
         ToolCallingModelWithoutProvider,
     )
@@ -1089,11 +1081,7 @@ fn runtime_with_context_capturing_tool(
         AgentManifest::from_json(EXECUTION_AGENT_MANIFEST_JSON).expect("execution manifest parses"),
     )
     .with_generated_at("2026-06-10T00:00:00Z")
-    .register_model_provider(
-        "provider.model.tool-calling",
-        "0.1.0",
-        ToolCallingModelProvider,
-    )
+    .register_model_provider("provider.tool-calling", "0.1.0", ToolCallingModelProvider)
     .register_policy_provider(
         "provider.policy.recording",
         "0.1.0",
@@ -1115,11 +1103,7 @@ fn runtime_with_tool_calling_model_and_tool_provider() -> sdkwork_agent_kernel::
         AgentManifest::from_json(EXECUTION_AGENT_MANIFEST_JSON).expect("execution manifest parses"),
     )
     .with_generated_at("2026-06-10T00:00:00Z")
-    .register_model_provider(
-        "provider.model.tool-calling",
-        "0.1.0",
-        ToolCallingModelProvider,
-    )
+    .register_model_provider("provider.tool-calling", "0.1.0", ToolCallingModelProvider)
     .register_policy_provider(
         "provider.policy.execution",
         "0.1.0",
@@ -1141,7 +1125,7 @@ fn runtime_with_context_capturing_mcp(
     )
     .with_generated_at("2026-06-10T00:00:00Z")
     .register_model_provider(
-        "provider.model.mcp-tool-calling",
+        "provider.mcp-tool-calling",
         "0.1.0",
         McpToolCallingModelProvider,
     )
@@ -1169,9 +1153,9 @@ fn runtime_with_memory_knowledge_and_recording_model(
     )
     .with_generated_at("2026-06-10T00:00:00Z")
     .register_model_provider(
-        "provider.model.recording",
+        "provider.recording",
         "0.1.0",
-        RecordingModelProvider::new("provider.model.recording", captured_model_requests),
+        RecordingModelProvider::new("provider.recording", captured_model_requests),
     )
     .register_policy_provider(
         "provider.policy.execution",
@@ -1204,9 +1188,9 @@ fn runtime_with_recording_model_knowledge_and_policy(
     )
     .with_generated_at("2026-06-10T00:00:00Z")
     .register_model_provider(
-        "provider.model.recording",
+        "provider.recording",
         "0.1.0",
-        RecordingModelProvider::new("provider.model.recording", captured_model_requests),
+        RecordingModelProvider::new("provider.recording", captured_model_requests),
     )
     .register_policy_provider(
         "provider.policy.recording",
@@ -1232,9 +1216,9 @@ fn runtime_with_model_policy_denial(
     )
     .with_generated_at("2026-06-10T00:00:00Z")
     .register_model_provider(
-        "provider.model.recording",
+        "provider.recording",
         "0.1.0",
-        RecordingModelProvider::new("provider.model.recording", captured_model_requests),
+        RecordingModelProvider::new("provider.recording", captured_model_requests),
     )
     .register_policy_provider(
         "provider.policy.model-deny",
@@ -1255,9 +1239,9 @@ fn runtime_with_model_policy_approval(
     )
     .with_generated_at("2026-06-10T00:00:00Z")
     .register_model_provider(
-        "provider.model.recording",
+        "provider.recording",
         "0.1.0",
-        RecordingModelProvider::new("provider.model.recording", captured_model_requests),
+        RecordingModelProvider::new("provider.recording", captured_model_requests),
     )
     .register_policy_provider(
         "provider.policy.model-approval",
@@ -1276,7 +1260,7 @@ fn runtime_with_model_status(model_status: ModelStatus) -> sdkwork_agent_kernel:
     )
     .with_generated_at("2026-06-10T00:00:00Z")
     .register_model_provider(
-        "provider.model.status",
+        "provider.status",
         "0.1.0",
         StatusModelProvider::new(model_status),
     )
@@ -1299,9 +1283,9 @@ fn runtime_with_recording_model_and_planner(
     )
     .with_generated_at("2026-06-10T00:00:00Z")
     .register_model_provider(
-        "provider.model.recording",
+        "provider.recording",
         "0.1.0",
-        RecordingModelProvider::new("provider.model.recording", captured_model_requests),
+        RecordingModelProvider::new("provider.recording", captured_model_requests),
     )
     .register_policy_provider(
         "provider.policy.execution",
@@ -1375,7 +1359,7 @@ impl StatusModelProvider {
 impl ModelProvider for StatusModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.status",
+            "provider.status",
             "model",
             "status-execution-model",
             "0.1.0",
@@ -1390,7 +1374,7 @@ impl ModelProvider for StatusModelProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.status",
+            "provider.status",
             "status response",
         )
         .with_status(self.model_status.clone()))
@@ -1403,7 +1387,7 @@ struct ToolCallingModelProvider;
 impl ModelProvider for ToolCallingModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.tool-calling",
+            "provider.tool-calling",
             "model",
             "tool-calling-execution-model",
             "0.1.0",
@@ -1418,7 +1402,7 @@ impl ModelProvider for ToolCallingModelProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.tool-calling",
+            "provider.tool-calling",
             "tool call requested",
         )
         .with_tool_call(
@@ -1438,7 +1422,7 @@ struct ToolCallingModelWithoutProvider;
 impl ModelProvider for ToolCallingModelWithoutProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.tool-no-provider",
+            "provider.tool-no-provider",
             "model",
             "tool-calling-no-provider-execution-model",
             "0.1.0",
@@ -1453,7 +1437,7 @@ impl ModelProvider for ToolCallingModelWithoutProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.tool-no-provider",
+            "provider.tool-no-provider",
             "tool call requested",
         )
         .with_tool_call(ToolCall::new(
@@ -1470,7 +1454,7 @@ struct McpToolCallingModelProvider;
 impl ModelProvider for McpToolCallingModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.mcp-tool-calling",
+            "provider.mcp-tool-calling",
             "model",
             "mcp-tool-calling-execution-model",
             "0.1.0",
@@ -1485,7 +1469,7 @@ impl ModelProvider for McpToolCallingModelProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.mcp-tool-calling",
+            "provider.mcp-tool-calling",
             "mcp tool call requested",
         )
         .with_tool_call(
@@ -1505,7 +1489,7 @@ struct TwoToolCallingModelProvider;
 impl ModelProvider for TwoToolCallingModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.two-tools",
+            "provider.two-tools",
             "model",
             "two-tool-calling-execution-model",
             "0.1.0",
@@ -1520,7 +1504,7 @@ impl ModelProvider for TwoToolCallingModelProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.two-tools",
+            "provider.two-tools",
             "two tool calls requested",
         )
         .with_tool_call(
@@ -1548,7 +1532,7 @@ struct UnknownToolCallingModelProvider;
 impl ModelProvider for UnknownToolCallingModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.unknown-tool",
+            "provider.unknown-tool",
             "model",
             "unknown-tool-calling-execution-model",
             "0.1.0",
@@ -1563,7 +1547,7 @@ impl ModelProvider for UnknownToolCallingModelProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.unknown-tool",
+            "provider.unknown-tool",
             "unknown tool call requested",
         )
         .with_tool_call(

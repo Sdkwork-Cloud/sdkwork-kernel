@@ -1322,7 +1322,7 @@ mod tests {
     fn synchronizes_provider_session_into_unified_store() {
         let manager = create_manager();
         let mut provider_session = AgentSession::new("codex.thread.1")
-            .with_agent_id("agent.intelligence.codex")
+            .with_agent_id("agent.codex")
             .with_user_ref("user.1")
             .with_tenant_id("tenant.1")
             .with_source(SessionSource::Cli)
@@ -1537,7 +1537,7 @@ mod tests {
     fn unified_store_rejects_stale_provider_snapshot() {
         let manager = create_manager();
         let mut newer = AgentSession::new("opencode.session.1")
-            .with_agent_id("agent.intelligence.opencode")
+            .with_agent_id("agent.opencode")
             .created_at("2026-07-15T00:00:00Z");
         newer.updated_at = Some("2026-07-15T00:02:00Z".to_string());
         newer.state = SessionState::Working;
@@ -1567,7 +1567,7 @@ mod tests {
     fn unified_store_rejects_terminal_provider_state_regression() {
         let manager = create_manager();
         let mut session = AgentSession::new("openclaw.session.terminal")
-            .with_agent_id("agent.intelligence.openclaw")
+            .with_agent_id("agent.openclaw")
             .created_at("2026-07-15T00:00:00Z");
         session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
         session.state = SessionState::Working;
@@ -1684,7 +1684,7 @@ mod tests {
     fn replaying_identical_provider_snapshot_is_event_idempotent() {
         let manager = create_manager();
         let mut provider_session = AgentSession::new("codex.thread.replay")
-            .with_agent_id("agent.intelligence.codex")
+            .with_agent_id("agent.codex")
             .created_at("2026-07-15T00:00:00Z");
         provider_session.updated_at = Some("2026-07-15T00:01:00Z".to_string());
         provider_session.state = SessionState::Working;

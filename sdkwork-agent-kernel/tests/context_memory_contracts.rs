@@ -1,6 +1,6 @@
 use sdkwork_agent_kernel::{
-    ContextFrame, ContextProvider, KernelResult, MemoryProvider, MemoryRecord, MemoryScope,
-    ProviderHealth, RedactionClassification, TrustLevel,
+    ContextFrame, ContextProvider, KernelError, KernelResult, MemoryProvider, MemoryRecord,
+    MemoryScope, ProviderHealth, RedactionClassification, TrustLevel,
 };
 
 #[test]
@@ -118,23 +118,27 @@ fn context_provider_rank_returns_scored_frames() {
 }
 
 #[test]
-fn context_provider_trim_passes_through_with_default() {
+fn context_provider_trim_fails_closed_without_an_implementation() {
     let provider = FakeContextProvider;
     let frames = provider.collect("session.1").expect("context collected");
-    let trimmed = provider.trim(frames.clone(), 100).expect("trim succeeds");
-
-    assert_eq!(trimmed.len(), frames.len());
-    assert_eq!(trimmed[0].context_frame_id, frames[0].context_frame_id);
+    // The default implementation fails closed instead of silently returning
+    // untrimmed frames (which would break the max_tokens contract).
+    assert!(matches!(
+        provider.trim(frames.clone(), 100),
+        Err(KernelError::CapabilityMissing { capability_id }) if capability_id == "context.trim"
+    ));
 }
 
 #[test]
-fn context_provider_explain_returns_default_explanation() {
+fn context_provider_explain_fails_closed_without_an_implementation() {
     let provider = FakeContextProvider;
     let frames = provider.collect("session.1").expect("context collected");
-    let explanation = provider.explain(&frames[0]).expect("explain succeeds");
-
-    assert_eq!(explanation.frame_id, "context.fake");
-    assert!(!explanation.reason.is_empty());
+    // The default implementation fails closed instead of fabricating an
+    // explanation callers cannot distinguish from a real audit trail.
+    assert!(matches!(
+        provider.explain(&frames[0]),
+        Err(KernelError::CapabilityMissing { capability_id }) if capability_id == "context.explain"
+    ));
 }
 
 struct FakeContextProvider;

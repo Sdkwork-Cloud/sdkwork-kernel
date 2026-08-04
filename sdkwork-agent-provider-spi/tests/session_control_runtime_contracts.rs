@@ -52,8 +52,8 @@ fn runtime(
     requests: Arc<Mutex<Vec<SdkRuntimeRequest>>>,
 ) -> Arc<SdkRuntimeRouter> {
     let negotiation = SdkCapabilityNegotiation {
-        agent_id: "agent.intelligence.opencode".to_string(),
-        binding_id: "binding.agent-provider.opencode".to_string(),
+        agent_id: "agent.opencode".to_string(),
+        binding_id: "binding.opencode".to_string(),
         binding_version: "0.1.0".to_string(),
         selected: vec![NegotiatedCapability {
             capability_id: SDK_CAPABILITY_SESSION_CONTROL.to_string(),

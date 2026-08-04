@@ -10,9 +10,8 @@
 //! as strict JSON; the pre-mutation backup preserves the original formatting.
 
 use sdkwork_agent_kernel::{
-    AgentModelConfigurationApplication, AgentModelConfigurationRequest,
-    AgentModelSelectionRequest, KernelError, KernelResult, ProviderModelConfigurationStatus,
-    ProviderModelMaterializationState,
+    AgentModelConfigurationApplication, AgentModelConfigurationRequest, AgentModelSelectionRequest,
+    KernelError, KernelResult, ProviderModelConfigurationStatus, ProviderModelMaterializationState,
 };
 use sdkwork_agent_provider_core::{
     dematerialize_provider_config_named, merge_json_path, provider_user_home, read_provider_config,
@@ -154,10 +153,10 @@ pub fn materialize_openclaw_model_configuration(
     application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = openclaw_config_path() else {
-            return Err(KernelError::provider_error(
-                "provider_config_path",
-                "could not resolve the OpenClaw config path: user home is unavailable",
-            ));
+        return Err(KernelError::provider_error(
+            "provider_config_path",
+            "could not resolve the OpenClaw config path: user home is unavailable",
+        ));
     };
     materialize_openclaw_model_configuration_at(&path, request, application)
 }
@@ -180,10 +179,10 @@ pub fn materialize_openclaw_model_selection(
     application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = openclaw_config_path() else {
-            return Err(KernelError::provider_error(
-                "provider_config_path",
-                "could not resolve the OpenClaw config path: user home is unavailable",
-            ));
+        return Err(KernelError::provider_error(
+            "provider_config_path",
+            "could not resolve the OpenClaw config path: user home is unavailable",
+        ));
     };
     materialize_openclaw_model_selection_at(&path, request, application)
 }
@@ -205,10 +204,10 @@ pub fn dematerialize_openclaw_model_configuration(
     _profile_id: &str,
 ) -> KernelResult<()> {
     let Some(path) = openclaw_config_path() else {
-            return Err(KernelError::provider_error(
-                "provider_config_path",
-                "could not resolve the OpenClaw config path: user home is unavailable",
-            ));
+        return Err(KernelError::provider_error(
+            "provider_config_path",
+            "could not resolve the OpenClaw config path: user home is unavailable",
+        ));
     };
     dematerialize_provider_config_named(&path, "openclaw")
 }
@@ -225,7 +224,9 @@ pub(crate) fn dematerialize_openclaw_model_configuration_at(
 /// configs are natively JSON5, so the file is parsed as JSON5 on read-back.
 pub fn read_openclaw_model_configuration() -> KernelResult<ProviderModelConfigurationStatus> {
     let Some(path) = openclaw_config_path() else {
-        return Ok(ProviderModelConfigurationStatus::not_materialized("openclaw"));
+        return Ok(ProviderModelConfigurationStatus::not_materialized(
+            "openclaw",
+        ));
     };
     read_openclaw_model_configuration_at(&path)
 }
@@ -236,7 +237,9 @@ pub(crate) fn read_openclaw_model_configuration_at(
     path: &std::path::Path,
 ) -> KernelResult<ProviderModelConfigurationStatus> {
     let Some(content) = read_provider_config(path)? else {
-        return Ok(ProviderModelConfigurationStatus::not_materialized("openclaw"));
+        return Ok(ProviderModelConfigurationStatus::not_materialized(
+            "openclaw",
+        ));
     };
     let document = match json5::from_str::<Value>(&content) {
         Ok(document) => document,
@@ -299,7 +302,11 @@ pub(crate) fn read_openclaw_model_configuration_at(
 mod tests {
     use super::*;
 
-    fn request_with(api_key: Option<&str>, base_url: &str, model: &str) -> AgentModelConfigurationRequest {
+    fn request_with(
+        api_key: Option<&str>,
+        base_url: &str,
+        model: &str,
+    ) -> AgentModelConfigurationRequest {
         let mut request = AgentModelConfigurationRequest::new(
             "request-1",
             "agent.code-engine.openclaw",
@@ -322,10 +329,12 @@ mod tests {
             "https://api.birdcoder.com/v1",
             "gpt-5.4-mini",
         );
-        let document =
-            build_materialized_config(None, &request, Some("token-abc")).expect("build");
+        let document = build_materialized_config(None, &request, Some("token-abc")).expect("build");
         let provider = &document["models"]["providers"]["sdkwork"];
-        assert_eq!(provider["baseUrl"].as_str(), Some("https://api.birdcoder.com/v1"));
+        assert_eq!(
+            provider["baseUrl"].as_str(),
+            Some("https://api.birdcoder.com/v1")
+        );
         assert_eq!(provider["apiKey"].as_str(), Some("token-abc"));
         assert!(provider["models"]["gpt-5.4-mini"].is_object());
     }
@@ -356,10 +365,8 @@ mod tests {
 
     #[test]
     fn materialization_merges_into_existing_json5_config() {
-        let dir = std::env::temp_dir().join(format!(
-            "sdkwork-openclaw-json5-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sdkwork-openclaw-json5-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         let path = dir.join("openclaw.json");
@@ -370,24 +377,31 @@ mod tests {
         )
         .expect("seed");
         let request = request_with(Some("token-xyz"), "https://api.birdcoder.com/v1", "gpt-5.4");
-        materialize_openclaw_model_configuration_at(&path, &request, &AgentModelConfigurationApplication::new(
-            "request-1",
-            "openclaw",
-            sdkwork_agent_kernel::AgentConfigurationProfile::new(
-                "profile.test",
-                "agent.code-engine.openclaw",
-                "0.2.0",
-                sdkwork_agent_kernel::AgentConfiguration::new(
-                    "agent.code-engine.openclaw",
+        materialize_openclaw_model_configuration_at(
+            &path,
+            &request,
+            &AgentModelConfigurationApplication::new(
+                "request-1",
+                "openclaw",
+                sdkwork_agent_kernel::AgentConfigurationProfile::new(
                     "profile.test",
+                    "agent.code-engine.openclaw",
+                    "0.2.0",
+                    sdkwork_agent_kernel::AgentConfiguration::new(
+                        "agent.code-engine.openclaw",
+                        "profile.test",
+                    ),
                 ),
             ),
-        ))
+        )
         .expect("materialize");
         let content = std::fs::read_to_string(&path).expect("read");
         assert!(content.contains("\"apiKey\": \"token-xyz\""));
         let document: Value = serde_json::from_str(&content).expect("strict json out");
-        assert!(document["agents"]["main"].is_object(), "user config survives");
+        assert!(
+            document["agents"]["main"].is_object(),
+            "user config survives"
+        );
         dematerialize_openclaw_model_configuration_at(&path).expect("dematerialize");
         assert_eq!(
             std::fs::read_to_string(&path).expect("read restored"),
@@ -405,21 +419,29 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         let path = dir.join("openclaw.json");
-        std::fs::write(&path, "{\"agents\":{\"main\":{\"provider\":\"deepseek\"}}}\n").expect("seed");
+        std::fs::write(
+            &path,
+            "{\"agents\":{\"main\":{\"provider\":\"deepseek\"}}}\n",
+        )
+        .expect("seed");
         let request = request_with(Some("token-xyz"), "https://api.birdcoder.com/v1", "gpt-5.4");
-        materialize_openclaw_model_configuration_at(&path, &request, &AgentModelConfigurationApplication::new(
-            "request-1",
-            "openclaw",
-            sdkwork_agent_kernel::AgentConfigurationProfile::new(
-                "profile.test",
-                "agent.code-engine.openclaw",
-                "0.2.0",
-                sdkwork_agent_kernel::AgentConfiguration::new(
-                    "agent.code-engine.openclaw",
+        materialize_openclaw_model_configuration_at(
+            &path,
+            &request,
+            &AgentModelConfigurationApplication::new(
+                "request-1",
+                "openclaw",
+                sdkwork_agent_kernel::AgentConfigurationProfile::new(
                     "profile.test",
+                    "agent.code-engine.openclaw",
+                    "0.2.0",
+                    sdkwork_agent_kernel::AgentConfiguration::new(
+                        "agent.code-engine.openclaw",
+                        "profile.test",
+                    ),
                 ),
             ),
-        ))
+        )
         .expect("materialize");
         let content = std::fs::read_to_string(&path).expect("read");
         assert!(content.contains("\"apiKey\": \"token-xyz\""));
@@ -433,10 +455,8 @@ mod tests {
 
     #[test]
     fn read_back_reports_materialized_provider_entry() {
-        let dir = std::env::temp_dir().join(format!(
-            "sdkwork-openclaw-readback-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sdkwork-openclaw-readback-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         let path = dir.join("openclaw.json");
@@ -482,8 +502,11 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         let path = dir.join("openclaw.json");
-        std::fs::write(&path, json!({ "agents": { "main": { "provider": "deepseek" } } }).to_string())
-            .expect("seed");
+        std::fs::write(
+            &path,
+            json!({ "agents": { "main": { "provider": "deepseek" } } }).to_string(),
+        )
+        .expect("seed");
 
         let status = read_openclaw_model_configuration_at(&path).expect("read back");
         assert_eq!(

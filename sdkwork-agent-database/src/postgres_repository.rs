@@ -28,7 +28,7 @@ fn map_session_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<SessionRow> {
     })
 }
 
-fn map_message_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<MessageRow> {
+pub(crate) fn map_message_row(row: &sqlx::postgres::PgRow) -> DatabaseResult<MessageRow> {
     Ok(MessageRow {
         message_id: row.try_get("message_id").map_err(map_sqlx_error)?,
         session_id: row.try_get("session_id").map_err(map_sqlx_error)?,
@@ -619,7 +619,11 @@ impl SessionRepository for PostgresDatabase {
             }
             builder.push(" ORDER BY COALESCE(updated_at, created_at) DESC, session_id DESC");
             let limit = resolve_list_limit(query.limit);
-            let offset = resolve_list_offset(query.offset);
+            let offset = if query.after_session_id.is_some() {
+                0
+            } else {
+                resolve_list_offset(query.offset)
+            };
             builder.push(" LIMIT ");
             builder.push_bind(limit);
             builder.push(" OFFSET ");
@@ -851,7 +855,11 @@ impl MessageRepository for PostgresDatabase {
             }
             builder.push(" ORDER BY created_at ASC, message_id ASC");
             let limit = resolve_list_limit(query.limit);
-            let offset = resolve_list_offset(query.offset);
+            let offset = if query.after_message_id.is_some() {
+                0
+            } else {
+                resolve_list_offset(query.offset)
+            };
             builder.push(" LIMIT ");
             builder.push_bind(limit);
             builder.push(" OFFSET ");
@@ -1029,7 +1037,11 @@ impl TaskRepository for PostgresDatabase {
             }
             builder.push(" ORDER BY created_at ASC, task_id ASC");
             let limit = resolve_list_limit(query.limit);
-            let offset = resolve_list_offset(query.offset);
+            let offset = if query.after_task_id.is_some() {
+                0
+            } else {
+                resolve_list_offset(query.offset)
+            };
             builder.push(" LIMIT ");
             builder.push_bind(limit);
             builder.push(" OFFSET ");
@@ -1124,7 +1136,11 @@ impl EventRepository for PostgresDatabase {
             }
             builder.push(" ORDER BY created_at ASC, event_id ASC");
             let limit = resolve_list_limit(query.limit);
-            let offset = resolve_list_offset(query.offset);
+            let offset = if query.after_event_id.is_some() {
+                0
+            } else {
+                resolve_list_offset(query.offset)
+            };
             builder.push(" LIMIT ");
             builder.push_bind(limit);
             builder.push(" OFFSET ");
@@ -1169,7 +1185,11 @@ impl EventRepository for PostgresDatabase {
             }
             builder.push(" ORDER BY created_at DESC, event_id DESC");
             let limit = resolve_list_limit(query.limit);
-            let offset = resolve_list_offset(query.offset);
+            let offset = if query.after_event_id.is_some() {
+                0
+            } else {
+                resolve_list_offset(query.offset)
+            };
             builder.push(" LIMIT ");
             builder.push_bind(limit);
             builder.push(" OFFSET ");
@@ -1750,6 +1770,18 @@ impl RuntimeSessionWrites for PostgresDatabase {
         let updated_at = updated_at.to_owned();
         self.pool.run_db(async move {
             let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            // Lock the session row first so a concurrent append (which takes
+            // the same row lock and increments message_count) cannot commit
+            // between the DELETE and the count reset; otherwise the session
+            // would carry messages with message_count = 0 forever.
+            sqlx::query("SELECT 1 FROM sessions WHERE session_id = $1 FOR UPDATE")
+                .bind(&session_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(map_sqlx_error)?
+                .ok_or_else(|| {
+                    DatabaseError::NotFound(format!("session not found: {session_id}"))
+                })?;
             sqlx::query("DELETE FROM messages WHERE session_id = $1")
                 .bind(&session_id)
                 .execute(&mut *tx)
@@ -1784,6 +1816,18 @@ impl RuntimeSessionWrites for PostgresDatabase {
         let event = event.clone();
         self.pool.run_db(async move {
             let mut tx = pool.begin().await.map_err(map_sqlx_error)?;
+            // Lock the session row first so a concurrent append (which takes
+            // the same row lock and increments message_count) cannot commit
+            // between the DELETE and the count reset; otherwise the session
+            // would carry messages with message_count = 0 forever.
+            sqlx::query("SELECT 1 FROM sessions WHERE session_id = $1 FOR UPDATE")
+                .bind(&session_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(map_sqlx_error)?
+                .ok_or_else(|| {
+                    DatabaseError::NotFound(format!("session not found: {session_id}"))
+                })?;
             sqlx::query("DELETE FROM messages WHERE session_id = $1")
                 .bind(&session_id)
                 .execute(&mut *tx)

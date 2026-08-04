@@ -17,3 +17,6 @@ sdkwork-agent-provider-transport-node.workspace = true
 sdkwork-agent-plugin-core.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[dev-dependencies]
+sdkwork-agent-plugin-core = { workspace = true, features = ["test-utils"] }

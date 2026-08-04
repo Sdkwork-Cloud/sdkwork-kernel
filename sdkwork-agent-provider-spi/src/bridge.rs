@@ -1203,7 +1203,7 @@ mod tests {
     fn model_provider_prefers_runtime_messages() {
         let negotiation = SdkCapabilityNegotiation {
             agent_id: "agent.test".to_string(),
-            binding_id: "binding.agent-provider.test".to_string(),
+            binding_id: "binding.test".to_string(),
             binding_version: "0.1.0".to_string(),
             selected: vec![crate::negotiation::NegotiatedCapability {
                 capability_id: SDK_CAPABILITY_MODEL_CHAT.to_string(),
@@ -1222,7 +1222,7 @@ mod tests {
         impl ModelProvider for FallbackModel {
             fn provider_manifest(&self) -> ProviderManifest {
                 ProviderManifest::new(
-                    "provider.model.fallback",
+                    "provider.fallback",
                     "model",
                     "Fallback",
                     "0.1.0",
@@ -1241,7 +1241,7 @@ mod tests {
             fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
                 Ok(ModelResponse::text(
                     &request.model_request_id,
-                    "provider.model.fallback",
+                    "provider.fallback",
                     "fallback-response",
                 ))
             }
@@ -1251,7 +1251,7 @@ mod tests {
             runtime,
             Arc::new(FallbackModel),
             SDK_CAPABILITY_MODEL_CHAT,
-            "provider.model.test",
+            "provider.test",
         );
 
         let response = provider

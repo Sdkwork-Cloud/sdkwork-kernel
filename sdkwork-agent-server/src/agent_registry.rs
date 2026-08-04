@@ -61,7 +61,7 @@ pub fn active_hosted_agent() -> RegisteredAgent {
 #[cfg(debug_assertions)]
 fn dev_agent_alias_canonical(agent_id: &str) -> Option<&'static str> {
     match agent_id {
-        "agent.1" | "agent.2" | "agent.intelligence.general" => {
+        "agent.1" | "agent.2" | "agent.general" => {
             Some(active_hosted_agent().agent_id)
         }
         _ => None,
@@ -189,7 +189,7 @@ mod tests {
     fn rejects_unknown_agent_id() {
         let _lock = lock();
         let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, None);
-        assert!(validate_hosted_agent_id("agent.intelligence.unknown").is_err());
+        assert!(validate_hosted_agent_id("agent.unknown").is_err());
     }
 
     #[test]

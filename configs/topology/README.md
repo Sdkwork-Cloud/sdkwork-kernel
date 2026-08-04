@@ -25,10 +25,10 @@ Set `SDKWORK_KERNEL_AGENT_PLUGIN` to select the kernel agent plugin loaded by `s
 
 | Value | Hosted agent id |
 | --- | --- |
-| `rig` (production default) | `agent.intelligence.rig-general` |
-| `openclaw` | `agent.intelligence.openclaw` |
-| `hermes` | `agent.intelligence.hermes` |
-| `codex` | `agent.intelligence.codex` |
+| `rig` (production default) | `agent.rig-general` |
+| `openclaw` | `agent.openclaw` |
+| `hermes` | `agent.hermes` |
+| `codex` | `agent.codex` |
 
 Development profiles may override this value for SDK integration testing. Production profiles keep `rig` unless a deliberate rollout changes the topology env and hosted agent registry together.
 

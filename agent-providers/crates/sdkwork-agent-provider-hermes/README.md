@@ -11,7 +11,7 @@ manifests, and runtime bootstrap entrypoints.
 ## Runtime Contract
 
 - Canonical plugin id: `plugin.intelligence.hermes`
-- Canonical agent id: `agent.intelligence.hermes`
+- Canonical agent id: `agent.hermes`
 - Runtime entrypoint: `HermesKernelPlugin::configure_runtime`
 - Public manifests: `hermes_agent_definition`, `hermes_agent_manifest`,
   `hermes_provider_manifests`, `hermes_package_manifest`, and

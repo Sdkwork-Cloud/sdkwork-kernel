@@ -186,8 +186,16 @@ fn provider_session_record(thread: &Thread) -> KernelResult<SdkRuntimeSessionRec
     // Fork lineage and subagent identity are part of the persisted protocol
     // tree structure; they are preserved as metadata because the session
     // record has no dedicated fork/nickname/role fields.
-    insert_metadata_string(&mut metadata, "codex.forked_from_id", thread.forked_from_id.clone());
-    insert_metadata_string(&mut metadata, "codex.agent_nickname", thread.agent_nickname.clone());
+    insert_metadata_string(
+        &mut metadata,
+        "codex.forked_from_id",
+        thread.forked_from_id.clone(),
+    );
+    insert_metadata_string(
+        &mut metadata,
+        "codex.agent_nickname",
+        thread.agent_nickname.clone(),
+    );
     insert_metadata_string(&mut metadata, "codex.agent_role", thread.agent_role.clone());
     // The durable thread path on disk is provider metadata, not a canonical
     // identity; it is preserved for diagnostics and directory reconciliation.
@@ -784,9 +792,7 @@ fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
     let item_id = item.id();
     match item {
         ThreadItem::UserMessage {
-            content,
-            client_id,
-            ..
+            content, client_id, ..
         } => {
             let mut parts = content
                 .iter()
@@ -881,9 +887,10 @@ fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
                     .with_metadata("codex.command.exit_code", exit_code.to_string().as_str());
             }
             if let Some(duration_ms) = duration_ms {
-                parts[0] = parts[0]
-                    .clone()
-                    .with_metadata("codex.command.duration_ms", duration_ms.to_string().as_str());
+                parts[0] = parts[0].clone().with_metadata(
+                    "codex.command.duration_ms",
+                    duration_ms.to_string().as_str(),
+                );
             }
             if let Some(output) = aggregated_output {
                 parts.push(
@@ -921,10 +928,9 @@ fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
                     .with_metadata("codex.mcp.read_only_hint", read_only_hint.to_string());
             }
             if let Some(duration_ms) = duration_ms {
-                parts[0] = parts[0].clone().with_metadata(
-                    "codex.mcp.duration_ms",
-                    duration_ms.to_string().as_str(),
-                );
+                parts[0] = parts[0]
+                    .clone()
+                    .with_metadata("codex.mcp.duration_ms", duration_ms.to_string().as_str());
             }
             match (result.as_ref(), error.as_ref()) {
                 (Some(result), _) => parts.push(provider_tool_result_part(
@@ -964,10 +970,9 @@ fn render_parts(item: &ThreadItem) -> Vec<AgentPart> {
                     .with_metadata("codex.tool.namespace", namespace.as_str());
             }
             if let Some(duration_ms) = duration_ms {
-                parts[0] = parts[0].clone().with_metadata(
-                    "codex.tool.duration_ms",
-                    duration_ms.to_string().as_str(),
-                );
+                parts[0] = parts[0]
+                    .clone()
+                    .with_metadata("codex.tool.duration_ms", duration_ms.to_string().as_str());
             }
             if content_items.is_some() || success.is_some() {
                 parts.push(provider_tool_result_part(
@@ -1714,10 +1719,7 @@ mod tests {
             command.metadata_value("codex.command.plugin_id"),
             Some("plugin.test")
         );
-        assert_eq!(
-            command.metadata_value("codex.command.exit_code"),
-            Some("7")
-        );
+        assert_eq!(command.metadata_value("codex.command.exit_code"), Some("7"));
         assert_eq!(
             command.metadata_value("codex.command.duration_ms"),
             Some("42")
@@ -1731,14 +1733,13 @@ mod tests {
             dynamic.metadata_value("codex.tool.namespace"),
             Some("connector.alpha")
         );
-        assert_eq!(
-            dynamic.metadata_value("codex.tool.duration_ms"),
-            Some("9")
-        );
+        assert_eq!(dynamic.metadata_value("codex.tool.duration_ms"), Some("9"));
 
         let collab_result = parts_by_type["collab_agent_tool_call"]
             .iter()
-            .find(|part| part.metadata_value("codex.content_type") == Some("collab_agent_tool_result"))
+            .find(|part| {
+                part.metadata_value("codex.content_type") == Some("collab_agent_tool_result")
+            })
             .expect("collab result part");
         let collab_payload = collab_result.json.as_deref().expect("collab payload");
         assert!(collab_payload.contains("\"reasoningEffort\":\"high\""));

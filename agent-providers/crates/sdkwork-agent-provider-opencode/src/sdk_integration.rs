@@ -69,7 +69,7 @@ impl OpenCodeSdkIntegration {
             runtime.clone(),
             inner_model,
             SDK_CAPABILITY_MODEL_CHAT,
-            "provider.model.opencode",
+            "provider.opencode",
         );
         let session_control = SdkRuntimeBackedSessionControlProvider::new(
             runtime.clone(),
@@ -185,6 +185,11 @@ mod tests {
 
     #[test]
     fn model_provider_routes_invoke_through_typescript_runtime() {
+        // The sdk_probe backend is the local mock runtime for these tests;
+        // it requires the explicit non-production mock override (fail-closed
+        // by default).
+        std::env::set_var("SDKWORK_KERNEL_ENVIRONMENT", "development");
+        std::env::set_var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "1");
         let integration = OpenCodeSdkIntegration::bootstrap().expect("bootstrap should succeed");
         let response = integration
             .model

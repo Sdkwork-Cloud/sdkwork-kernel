@@ -682,7 +682,7 @@ mod tests {
     impl ModelProvider for BlockingModelProvider {
         fn provider_manifest(&self) -> ProviderManifest {
             ProviderManifest::new(
-                "provider.model.blocking",
+                "provider.blocking",
                 "model",
                 "blocking-model",
                 "0.1.0",
@@ -697,7 +697,7 @@ mod tests {
         fn list_models(&self) -> Vec<ModelDescriptor> {
             vec![ModelDescriptor::new(
                 "model.blocking",
-                "provider.model.blocking",
+                "provider.blocking",
                 "Blocking Model",
                 "test",
             )
@@ -718,7 +718,7 @@ mod tests {
                 .expect("test released provider");
             Ok(ModelResponse::text(
                 &request.model_request_id,
-                "provider.model.blocking",
+                "provider.blocking",
                 "blocked response",
             ))
         }
@@ -782,7 +782,7 @@ mod tests {
             cwd: None,
             metadata: vec![(
                 "modelProvider".to_string(),
-                "provider.model.blocking".to_string(),
+                "provider.blocking".to_string(),
             )],
         }
     }
@@ -817,7 +817,7 @@ mod tests {
         let provider = BlockingModelProvider::new(started_tx, release_rx);
         let agent_runtime = Arc::new(
             RuntimeBuilder::new("runtime.lock-test", test_agent_manifest())
-                .register_model_provider("provider.model.blocking", "0.1.0", provider)
+                .register_model_provider("provider.blocking", "0.1.0", provider)
                 .register_policy_provider("provider.policy.allow", "0.1.0", AllowPolicyProvider)
                 .bootstrap()
                 .expect("runtime bootstraps")
@@ -854,7 +854,7 @@ mod tests {
         let agent_runtime = Arc::new(
             RuntimeBuilder::new("runtime.tool-lock-test", test_agent_manifest())
                 .register_model_provider(
-                    "provider.model.blocking",
+                    "provider.blocking",
                     "0.1.0",
                     BlockingModelProvider::new(model_started_tx, model_release_rx),
                 )

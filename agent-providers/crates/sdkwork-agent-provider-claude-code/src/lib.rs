@@ -326,7 +326,7 @@ impl Default for ClaudeModelProvider {
 impl ModelProvider for ClaudeModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.claude-code",
+            "provider.claude-code",
             "model",
             "Claude Model Provider",
             "0.1.0",
@@ -347,7 +347,7 @@ impl ModelProvider for ClaudeModelProvider {
         let mut models = vec![
             ModelDescriptor::new(
                 "claude-opus-4-20250514",
-                "provider.model.claude-code",
+                "provider.claude-code",
                 "Claude Opus 4",
                 "claude",
             )
@@ -365,7 +365,7 @@ impl ModelProvider for ClaudeModelProvider {
             .with_tool_capability("computer_use"),
             ModelDescriptor::new(
                 "claude-sonnet-4-20250514",
-                "provider.model.claude-code",
+                "provider.claude-code",
                 "Claude Sonnet 4",
                 "claude",
             )
@@ -382,7 +382,7 @@ impl ModelProvider for ClaudeModelProvider {
             .with_tool_capability("function_calling"),
             ModelDescriptor::new(
                 "claude-haiku-3-5-20241022",
-                "provider.model.claude-code",
+                "provider.claude-code",
                 "Claude 3.5 Haiku",
                 "claude",
             )
@@ -408,7 +408,7 @@ impl ModelProvider for ClaudeModelProvider {
                 0,
                 ModelDescriptor::new(
                     &self.default_model,
-                    "provider.model.claude-code",
+                    "provider.claude-code",
                     &self.default_model,
                     "claude",
                 )
@@ -428,11 +428,11 @@ impl ModelProvider for ClaudeModelProvider {
     }
 
     fn invoke(&self, _request: ModelRequest) -> KernelResult<ModelResponse> {
-        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.model.claude-code")
+        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.claude-code")
     }
 
     fn stream(&self, _request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
-        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.model.claude-code")
+        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.claude-code")
     }
 }
 
@@ -723,7 +723,7 @@ mod tests {
     fn model_provider_manifest() {
         let provider = ClaudeModelProvider::new();
         let manifest = provider.provider_manifest();
-        assert_eq!(manifest.provider_id, "provider.model.claude-code");
+        assert_eq!(manifest.provider_id, "provider.claude-code");
         assert_eq!(manifest.provider_family, "model");
         assert!(manifest.capabilities.contains(&"model.chat".to_string()));
         assert!(manifest

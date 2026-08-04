@@ -45,7 +45,7 @@ Rust parsing type: `AgentSdkBindingManifest` in `sdkwork-agent-provider-spi`.
 
 - `schema_version`
 - `manifest_type` = `agent_provider_binding`
-- `binding_id` (`binding.agent-provider.<framework>`)
+- `binding_id` (`binding.<framework>`)
 - `agent_id`
 - `display_name`
 - `description`

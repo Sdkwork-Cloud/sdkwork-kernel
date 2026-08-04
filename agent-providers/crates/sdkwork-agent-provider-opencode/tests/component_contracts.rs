@@ -23,7 +23,7 @@ fn model_provider_manifest_uses_canonical_provider_id() {
     let provider = OpenCodeModelProvider::new();
     assert_eq!(
         provider.provider_manifest().provider_id,
-        "provider.model.opencode"
+        "provider.opencode"
     );
 }
 
@@ -31,13 +31,10 @@ fn model_provider_manifest_uses_canonical_provider_id() {
 fn kernel_plugin_manifest_declares_runtime_providers() {
     let manifest = opencode_kernel_plugin_manifest();
     assert_eq!(manifest.plugin_id, "plugin.intelligence.opencode");
-    assert_eq!(
-        manifest.agent_id.as_deref(),
-        Some("agent.intelligence.opencode")
-    );
+    assert_eq!(manifest.agent_id.as_deref(), Some("agent.opencode"));
     assert!(manifest
         .provider_ids
-        .contains(&"provider.model.opencode".to_string()));
+        .contains(&"provider.opencode".to_string()));
     assert!(manifest
         .provider_ids
         .contains(&"provider.session-control.opencode".to_string()));
@@ -56,7 +53,7 @@ fn provider_manifests_exclude_agent_internal_tools() {
         .iter()
         .map(|manifest| manifest.provider_id.clone())
         .collect();
-    assert!(provider_ids.contains(&"provider.model.opencode".to_string()));
+    assert!(provider_ids.contains(&"provider.opencode".to_string()));
     assert!(provider_ids.contains(&"provider.session-control.opencode".to_string()));
     assert!(!provider_ids.contains(&"provider.tool.opencode".to_string()));
     assert!(provider_ids.contains(&"provider.policy.sdk-standard".to_string()));
@@ -109,10 +106,7 @@ fn kernel_plugin_configures_runtime() {
         plugin.plugin_manifest().plugin_id,
         "plugin.intelligence.opencode"
     );
-    assert_eq!(
-        plugin.agent_manifest().agent_id,
-        "agent.intelligence.opencode"
-    );
+    assert_eq!(plugin.agent_manifest().agent_id, "agent.opencode");
     let report = plugin
         .configure_runtime(RuntimeBuilder::new(
             "runtime.opencode.installer",

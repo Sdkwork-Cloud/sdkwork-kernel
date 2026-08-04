@@ -39,7 +39,21 @@ impl TaskExecutionWorker {
             }
             while let Some(result) = workers.join_next().await {
                 if let Err(error) = result {
-                    warn!(error = %error, "durable task worker terminated unexpectedly");
+                    // A panicked worker would silently reduce claim capacity;
+                    // restart it so capacity self-heals without operator
+                    // intervention (the next claim is lease-fenced, so a
+                    // restart cannot duplicate work).
+                    warn!(error = %error, "durable task worker panicked; restarting");
+                    workers.spawn(run_worker_loop(
+                        format!(
+                            "task-worker-{}-{}",
+                            std::process::id(),
+                            sdkwork_utils_rust::uuid()
+                        ),
+                        state.clone(),
+                        config.clone(),
+                        shutdown.clone(),
+                    ));
                 }
             }
         });
@@ -500,6 +514,10 @@ mod tests {
             let _plugin = crate::testing::env::VarGuard::set(
                 crate::runtime_bootstrap::KERNEL_AGENT_PLUGIN_ENV,
                 None,
+            );
+            let _mock = crate::testing::env::VarGuard::set(
+                "SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS",
+                Some("1"),
             );
             let config = ServerConfig {
                 task_worker_max_concurrency: 1,

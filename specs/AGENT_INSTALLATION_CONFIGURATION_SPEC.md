@@ -104,6 +104,26 @@ Required operations:
 - `uninstall(request)`
 - `health()`
 
+Custom installation options:
+
+- `AgentInstallOptions` attaches per-request customization to install,
+  upgrade, uninstall, and rollback requests: an explicit `install_root`
+  (custom install directory), an explicit `python_binary` for pip-backed
+  installers, and an explicit `install_scripts_enabled` opt-in for npm
+  lifecycle scripts.
+- `None` option values defer to the installer configuration, then to
+  environment variables, then to platform defaults. Non-`None` values
+  override the installer defaults for that operation.
+- Detection, mutation, post-verification, compensation, and rollback within
+  one operation `MUST` use the same effective environment, so a custom
+  install root is honored consistently across the whole lifecycle.
+  Uninstalling or rolling back a provider installed with a custom root
+  `MUST` repeat the same options (or configure the installer with the same
+  root) or the operation targets the default runtime.
+- Explicit option values `MUST` be non-empty bounded values: empty,
+  whitespace-padded, or control-character-bearing install roots and Python
+  binaries fail validation before any package-manager process starts.
+
 Rules:
 
 - Installers `MUST` be able to plan before mutating host state.
@@ -186,6 +206,36 @@ Standard install step kinds:
 - Replace version.
 - Remove files.
 - Remove configuration.
+
+Extension operations (default-implemented on `AgentInstaller`, overridable by
+installers that own the mechanics):
+
+- `verify_installation(request)` reports installation integrity from
+  `detect_installation`: `Valid` when installed with every managed dependency
+  matching, `Invalid`/`Warnings` with per-dependency issues when degraded, and
+  `NotFound` when absent. Configuration and capability verification are not
+  owned by the installer and remain unclaimed.
+- `rollback(request)` restores a previously captured upgrade state. The
+  default fails closed with an explicit unsupported error because a generic
+  installer cannot restore a version it never snapshotted. Installers that
+  capture an upgrade snapshot expose an opaque rollback handle through
+  `AgentUpgradeReport::rollback_token` and consume it on rollback.
+- `list_installed()` reports the agent installation records the installer can
+  prove from detection (one `Active` or `Broken` record per managed agent,
+  empty when absent). The default fails closed because a generic installer
+  cannot claim an inventory it cannot prove.
+
+Rules for rollback handles:
+
+- Rollback tokens `MUST` be opaque, bounded, and carry only package identity
+  and version data — never credentials, configuration values, or raw package
+  manager output.
+- Rollback `MUST` re-validate the snapshotted package set against the managed
+  package descriptor before any package-manager mutation so a tampered handle
+  cannot install unmanaged packages.
+- Rollback `MUST` honor the same ownership boundary as uninstall: package-only
+  installers `MUST NOT` remove data when `preserve_data` is false.
+- Rollback handles `MUST NOT` enter lifecycle events.
 
 ## 4. Configuration SPI
 
@@ -544,6 +594,18 @@ Minimum tests:
 - Installer dry-run paths do not execute package-manager commands.
 - Installer repeats install, upgrade, and uninstall idempotently and verifies
   the final detected state.
+- Installer honors per-request custom install options (install root, Python
+  binary, npm script opt-in) consistently across install, upgrade, uninstall,
+  and rollback, and rejects invalid option values before mutation.
+- Rollback-required upgrades return an opaque rollback handle that is absent
+  from lifecycle events.
+- Installer rollback restores the snapshotted dependency state, rejects
+  missing, corrupt, or descriptor-mismatched handles, and honors the package
+  ownership boundary.
+- Installer verification derives `Valid`, `Invalid`/`Warnings`, and `NotFound`
+  reports from detection.
+- Installer inventory reports only records the installer can prove from
+  detection.
 - Installer detection timeouts fail closed and package-only installers never
   claim host configuration or data removal.
 - Installer permits concurrent detection for one runtime but serializes all

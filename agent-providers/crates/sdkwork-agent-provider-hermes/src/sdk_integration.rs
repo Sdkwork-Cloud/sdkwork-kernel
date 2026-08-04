@@ -101,7 +101,7 @@ impl HermesSdkIntegration {
             runtime.clone(),
             Arc::new(HermesModelProvider::new()),
             SDK_CAPABILITY_MODEL_CHAT,
-            "provider.model.hermes",
+            "provider.hermes",
         );
         let session_control = SdkRuntimeBackedSessionControlProvider::new(
             runtime.clone(),
@@ -353,6 +353,11 @@ mod tests {
 
     #[test]
     fn runtime_ping_reaches_python_backend() {
+        // The sdk_probe backend is the local mock runtime for these tests;
+        // it requires the explicit non-production mock override (fail-closed
+        // by default).
+        std::env::set_var("SDKWORK_KERNEL_ENVIRONMENT", "development");
+        std::env::set_var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "1");
         let _lock = env_lock();
         let _gateway = EnvVarGuard::set(HERMES_USE_TUI_GATEWAY_ENV, None);
         let integration = HermesSdkIntegration::bootstrap().expect("bootstrap should succeed");
@@ -365,6 +370,11 @@ mod tests {
 
     #[test]
     fn model_provider_routes_invoke_through_python_runtime() {
+        // The sdk_probe backend is the local mock runtime for these tests;
+        // it requires the explicit non-production mock override (fail-closed
+        // by default).
+        std::env::set_var("SDKWORK_KERNEL_ENVIRONMENT", "development");
+        std::env::set_var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "1");
         let _lock = env_lock();
         let _gateway = EnvVarGuard::set(HERMES_USE_TUI_GATEWAY_ENV, None);
         let integration = HermesSdkIntegration::bootstrap().expect("bootstrap should succeed");

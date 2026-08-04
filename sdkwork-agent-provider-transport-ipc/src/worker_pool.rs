@@ -146,9 +146,11 @@ impl SpawnedWorkerPool {
 
     /// Sends a unary control request to the worker leased to one exact model request.
     ///
-    /// This never acquires or spawns a worker. The pool lock remains held until the
-    /// bounded control call completes so the worker cannot be released and leased
-    /// to another model request between affinity validation and dispatch.
+    /// The pool lock is held only to resolve the worker affinity and is
+    /// released before the bounded control call, so a slow control request
+    /// (up to its timeout) cannot stall `acquire`/`release`/`cancel` for the
+    /// whole pool. The worker is kept alive by its `Arc`; if the request has
+    /// already finished, the call returns a transport error to the caller.
     pub fn control(
         &self,
         request_id: &str,
@@ -157,20 +159,19 @@ impl SpawnedWorkerPool {
         timeout: Duration,
     ) -> Result<Value, TransportError> {
         let request_id = normalize_request_id(request_id)?;
-        let state =
-            self.inner.state.lock().map_err(|error| {
+        let worker = {
+            let state = self.inner.state.lock().map_err(|error| {
                 TransportError::new(format!("worker pool lock failed: {error}"))
             })?;
-        let worker = state.active.get(&request_id).cloned().ok_or_else(|| {
-            TransportError::new(format!(
-                "no active provider worker for request: {request_id}"
-            ))
-        })?;
-        let result = execute_worker_with_timeout(worker.clone(), timeout, || {
+            state.active.get(&request_id).cloned().ok_or_else(|| {
+                TransportError::new(format!(
+                    "no active provider worker for request: {request_id}"
+                ))
+            })?
+        };
+        execute_worker_with_timeout(worker.clone(), timeout, || {
             worker.transport().call(method, params)
-        });
-        drop(state);
-        result
+        })
     }
 
     /// Cancels one active request without affecting workers leased to other requests.
@@ -198,11 +199,25 @@ impl SpawnedWorkerPool {
             let was_active = state.active.remove(request_id).is_some();
             if was_active && worker.is_reusable() {
                 state.idle.push_back(worker);
+                // Bound the warm idle pool: keep a small number of ready
+                // workers for low first-call latency, terminate the rest so a
+                // long-running server does not hold one subprocess per
+                // completed request forever.
+                while state.idle.len() > IDLE_WORKER_LIMIT {
+                    let Some(stale) = state.idle.pop_front() else {
+                        break;
+                    };
+                    let _ = stale.cancel_inflight();
+                }
             }
             self.inner.available.notify_all();
         }
     }
 }
+
+/// Maximum idle workers kept warm in the pool; excess idle workers are
+/// terminated on release so long-running servers reclaim subprocess memory.
+const IDLE_WORKER_LIMIT: usize = 4;
 
 pub struct SpawnedWorkerLease {
     pool: SpawnedWorkerPool,

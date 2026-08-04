@@ -9,7 +9,7 @@ const ACTIVITY_RUNTIME_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.activity-contract",
+  "agent_id": "agent.activity-contract",
   "name": "sdkwork-activity-contract-agent",
   "display_name": "SDKWork Activity Contract Agent",
   "description": "Agent used to prove provider-scoped provider session activity.",
@@ -109,11 +109,11 @@ fn runtime_keeps_provider_activity_isolated_by_provider_id() {
     let manifest = AgentManifest::from_json(ACTIVITY_RUNTIME_MANIFEST_JSON).expect("manifest");
     let runtime = RuntimeBuilder::new("runtime.activity-contract", manifest)
         .register_provider_session_activity_provider(
-            "provider.model.codex",
+            "provider.codex",
             Arc::new(StaticActivityProvider(SessionActivityState::Working)),
         )
         .register_provider_session_activity_provider(
-            "provider.model.claude-code",
+            "provider.claude-code",
             Arc::new(StaticActivityProvider(SessionActivityState::Waiting)),
         )
         .bootstrap()
@@ -122,16 +122,16 @@ fn runtime_keeps_provider_activity_isolated_by_provider_id() {
 
     assert_eq!(
         runtime.provider_session_activity_provider_ids(),
-        ["provider.model.codex", "provider.model.claude-code"]
+        ["provider.codex", "provider.claude-code"]
     );
 
     let codex = runtime
-        .provider_session_activity_provider_by_id("provider.model.codex")
+        .provider_session_activity_provider_by_id("provider.codex")
         .expect("codex activity")
         .get_provider_session_activity("shared-provider-session")
         .expect("codex snapshot");
     let claude = runtime
-        .provider_session_activity_provider_by_id("provider.model.claude-code")
+        .provider_session_activity_provider_by_id("provider.claude-code")
         .expect("claude activity")
         .get_provider_session_activity("shared-provider-session")
         .expect("claude snapshot");

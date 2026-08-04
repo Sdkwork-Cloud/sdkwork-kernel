@@ -305,10 +305,16 @@ pub fn calculate_delay(attempt: u32, config: &RetryConfig) -> Duration {
 
     // Add jitter if enabled (±50% randomization)
     if config.jitter {
-        // Simple jitter: add up to 50% variation
+        // True randomization so retrying clients desynchronize (a
+        // deterministic per-attempt seed would keep same-phase clients in
+        // lockstep and re-create thundering herds).
         let jitter_range = capped_delay * 0.5;
-        // Use attempt as pseudo-random seed (deterministic but varied)
-        let jitter_factor = ((attempt as f64 * 0.618) % 1.0) - 0.5; // -0.5 to 0.5
+        // Derive entropy from the shared UUID v4 generator (the last 12
+        // hex chars of a v4 uuid are random).
+        let entropy = sdkwork_utils_rust::uuid();
+        let random_byte = u8::from_str_radix(&entropy[24..26], 16).unwrap_or(0);
+        let jitter_factor = (random_byte as f64 / 255.0) * 2.0 - 1.0; // -1.0 to 1.0
+        let jitter_factor = jitter_factor * 0.5; // -0.5 to 0.5
         let final_delay = capped_delay + jitter_factor * jitter_range;
         Duration::from_secs_f64(final_delay.max(0.0))
     } else {

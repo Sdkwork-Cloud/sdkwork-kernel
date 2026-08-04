@@ -54,12 +54,12 @@ provider-local lifecycle metadata into executable transport RPC.
 
 | Provider crate | Plugin id | Agent id | Runtime entrypoint |
 | --- | --- | --- | --- |
-| `sdkwork-agent-provider-codex` | `plugin.intelligence.codex` | `agent.intelligence.codex` | `CodexKernelPlugin::configure_runtime` |
-| `sdkwork-agent-provider-claude-code` | `plugin.intelligence.claude-code` | `agent.intelligence.claude-code` | `ClaudeCodeKernelPlugin::configure_runtime` |
-| `sdkwork-agent-provider-opencode` | `plugin.intelligence.opencode` | `agent.intelligence.opencode` | `OpenCodeKernelPlugin::configure_runtime` |
-| `sdkwork-agent-provider-openclaw` | `plugin.intelligence.openclaw` | `agent.intelligence.openclaw` | `OpenClawKernelPlugin::configure_runtime` |
-| `sdkwork-agent-provider-hermes` | `plugin.intelligence.hermes` | `agent.intelligence.hermes` | `HermesKernelPlugin::configure_runtime` |
-| `sdkwork-agent-provider-rig` | `plugin.intelligence.rig` | `agent.intelligence.rig-general` | `RigKernelPlugin::configure_runtime` |
+| `sdkwork-agent-provider-codex` | `plugin.intelligence.codex` | `agent.codex` | `CodexKernelPlugin::configure_runtime` |
+| `sdkwork-agent-provider-claude-code` | `plugin.intelligence.claude-code` | `agent.claude-code` | `ClaudeCodeKernelPlugin::configure_runtime` |
+| `sdkwork-agent-provider-opencode` | `plugin.intelligence.opencode` | `agent.opencode` | `OpenCodeKernelPlugin::configure_runtime` |
+| `sdkwork-agent-provider-openclaw` | `plugin.intelligence.openclaw` | `agent.openclaw` | `OpenClawKernelPlugin::configure_runtime` |
+| `sdkwork-agent-provider-hermes` | `plugin.intelligence.hermes` | `agent.hermes` | `HermesKernelPlugin::configure_runtime` |
+| `sdkwork-agent-provider-rig` | `plugin.intelligence.rig` | `agent.rig-general` | `RigKernelPlugin::configure_runtime` |
 
 Provider crates that do not yet expose a full `SdkworkKernelPlugin` runtime
 entrypoint still have an explicit SDK/provider adapter boundary and must remain
@@ -67,8 +67,8 @@ fail-closed for direct in-process model/tool execution:
 
 | Provider crate | Binding id | Adapter boundary | Runtime execution path |
 | --- | --- | --- | --- |
-| `sdkwork-agent-provider-gemini-cli` | `binding.agent-provider.gemini-cli` | `GeminiCliSdkIntegration::bootstrap` | `NodeSdkBackendRuntime` for source-tree `@google/gemini-cli-sdk`; `@google/gemini-cli` remains a CLI package |
-| `sdkwork-agent-provider-mimo-code` | `binding.agent-provider.mimo-code` | `MiMoCodeAdapter`, `MiMoCodeMessageAdapter`, `MiMoCodeModelProvider`, `MiMoCodeToolProvider` | `@mimo-ai/sdk` through the binding/transport worker; agents facade and staging live SDK proof remain required before product GA |
+| `sdkwork-agent-provider-gemini-cli` | `binding.gemini-cli` | `GeminiCliSdkIntegration::bootstrap` | `NodeSdkBackendRuntime` for source-tree `@google/gemini-cli-sdk`; `@google/gemini-cli` remains a CLI package |
+| `sdkwork-agent-provider-mimo-code` | `binding.mimo-code` | `MiMoCodeAdapter`, `MiMoCodeMessageAdapter`, `MiMoCodeModelProvider`, `MiMoCodeToolProvider` | `@mimo-ai/sdk` through the binding/transport worker; agents facade and staging live SDK proof remain required before product GA |
 
 ## 3. Binding Capability Coverage
 

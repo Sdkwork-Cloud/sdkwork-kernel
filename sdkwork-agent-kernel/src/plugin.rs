@@ -253,7 +253,7 @@ impl PluginContributionKind {
 /// A single contribution point declared by a plugin.
 ///
 /// `contribution_id` is a dot-delimited identifier (per SDKWORK naming),
-/// e.g. `provider.model.acme` or `tool.plugin.search`, and must be unique
+/// e.g. `provider.acme` or `tool.plugin.search`, and must be unique
 /// across all plugins registered in one registry.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginContribution {

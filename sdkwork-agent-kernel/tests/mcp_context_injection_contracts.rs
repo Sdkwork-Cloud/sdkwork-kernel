@@ -15,7 +15,7 @@ const MCP_INJECT_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.mcp-inject",
+  "agent_id": "agent.mcp-inject",
   "name": "sdkwork-mcp-inject-agent",
   "display_name": "SDKWork MCP Inject Agent",
   "description": "Agent used to prove MCP context injection contracts.",

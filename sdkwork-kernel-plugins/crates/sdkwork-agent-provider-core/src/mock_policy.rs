@@ -207,9 +207,11 @@ mod tests {
         let error = reject_in_process_tool_invoke("provider.tool.codex")
             .expect_err("direct tool invocation must fail closed");
 
+        // The fail-closed guard reports the fully qualified operation id
+        // (`{provider_id}.tool.invoke`), matching `reject_direct_mock_provider_invocation`.
         assert!(matches!(
             error,
-            KernelError::ProviderUnavailable { provider_id } if provider_id == "provider.tool.codex"
+            KernelError::ProviderUnavailable { provider_id } if provider_id == "provider.tool.codex.tool.invoke"
         ));
     }
 }

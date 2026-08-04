@@ -360,6 +360,8 @@ pub trait SdkworkKernelFoundationPlugin {
 mod local_plugin;
 mod policy;
 mod process_adapter;
+#[cfg(feature = "test-utils")]
+mod test_utils;
 pub use local_plugin::{
     LocalPluginCatalog, LocalPluginDescriptor, LocalPluginDiscoveryRequest, LocalPluginLoadError,
     LocalPluginLoadErrorKind, LocalPluginProvider, LocalPluginSkillDescriptor, LocalPluginSource,
@@ -370,6 +372,11 @@ pub use process_adapter::{
     ProcessAdapterCommand, ProcessAdapterCommandExecutor, ProcessAdapterCommandOutput,
     ProcessAdapterConfigurationProvider, ProcessAdapterInstaller, ProcessAdapterPackage,
     ProcessAdapterPackageManager, SystemProcessAdapterCommandExecutor,
+};
+#[cfg(feature = "test-utils")]
+pub use test_utils::{
+    npm_absent_payload, npm_list_payload, pypi_metadata_payload, ScriptedCommandExecutor,
+    TemporaryInstallRoot,
 };
 
 fn validate_standard_id(
@@ -427,7 +434,7 @@ mod tests {
 
     #[test]
     fn standard_id_validation_rejects_empty_segments() {
-        assert!(StandardPluginIds::validate_provider_id("provider.model.rig-rust").is_ok());
+        assert!(StandardPluginIds::validate_provider_id("provider.rig-rust").is_ok());
         assert!(StandardPluginIds::validate_provider_id("provider.").is_err());
         assert!(StandardPluginIds::validate_provider_id("provider..rig").is_err());
         assert!(StandardPluginIds::validate_provider_id("Provider.Model").is_err());

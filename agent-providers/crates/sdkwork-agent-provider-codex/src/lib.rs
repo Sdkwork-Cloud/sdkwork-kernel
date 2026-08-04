@@ -87,7 +87,7 @@ impl Default for CodexModelProvider {
 impl ModelProvider for CodexModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.codex",
+            "provider.codex",
             "model",
             "Codex Model Provider",
             "0.1.0",
@@ -106,7 +106,7 @@ impl ModelProvider for CodexModelProvider {
 
     fn list_models(&self) -> Vec<ModelDescriptor> {
         let mut models = vec![
-            ModelDescriptor::new("codex-mini", "provider.model.codex", "Codex Mini", "codex")
+            ModelDescriptor::new("codex-mini", "provider.codex", "Codex Mini", "codex")
                 .with_version("mini")
                 .with_capability("chat")
                 .with_capability("tool_call")
@@ -116,7 +116,7 @@ impl ModelProvider for CodexModelProvider {
                 .with_output_mode("text")
                 .with_response_format(ModelResponseFormat::Text)
                 .with_tool_capability("function_calling"),
-            ModelDescriptor::new("codex-1", "provider.model.codex", "Codex 1", "codex")
+            ModelDescriptor::new("codex-1", "provider.codex", "Codex 1", "codex")
                 .with_version("1.0")
                 .with_capability("chat")
                 .with_capability("tool_call")
@@ -128,23 +128,18 @@ impl ModelProvider for CodexModelProvider {
                 .with_response_format(ModelResponseFormat::Text)
                 .with_response_format(ModelResponseFormat::Json)
                 .with_tool_capability("function_calling"),
-            ModelDescriptor::new(
-                "codex-1-pro",
-                "provider.model.codex",
-                "Codex 1 Pro",
-                "codex",
-            )
-            .with_version("1.0")
-            .with_capability("chat")
-            .with_capability("tool_call")
-            .with_capability("reasoning")
-            .with_context_window_tokens(200000)
-            .with_max_output_tokens(64000)
-            .with_input_mode("text")
-            .with_output_mode("text")
-            .with_response_format(ModelResponseFormat::Text)
-            .with_response_format(ModelResponseFormat::Json)
-            .with_tool_capability("function_calling"),
+            ModelDescriptor::new("codex-1-pro", "provider.codex", "Codex 1 Pro", "codex")
+                .with_version("1.0")
+                .with_capability("chat")
+                .with_capability("tool_call")
+                .with_capability("reasoning")
+                .with_context_window_tokens(200000)
+                .with_max_output_tokens(64000)
+                .with_input_mode("text")
+                .with_output_mode("text")
+                .with_response_format(ModelResponseFormat::Text)
+                .with_response_format(ModelResponseFormat::Json)
+                .with_tool_capability("function_calling"),
         ];
         // Surface the model configured for the local Codex installation first so
         // default model selection always matches what the Codex CLI would use.
@@ -160,7 +155,7 @@ impl ModelProvider for CodexModelProvider {
                 0,
                 ModelDescriptor::new(
                     &self.default_model,
-                    "provider.model.codex",
+                    "provider.codex",
                     &self.default_model,
                     "codex",
                 )
@@ -180,11 +175,11 @@ impl ModelProvider for CodexModelProvider {
     }
 
     fn invoke(&self, _request: ModelRequest) -> KernelResult<ModelResponse> {
-        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.model.codex")
+        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.codex")
     }
 
     fn stream(&self, _request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
-        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.model.codex")
+        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.codex")
     }
 }
 

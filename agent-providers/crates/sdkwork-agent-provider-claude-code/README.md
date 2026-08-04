@@ -11,7 +11,7 @@ bootstrap entrypoints.
 ## Runtime Contract
 
 - Canonical plugin id: `plugin.intelligence.claude-code`
-- Canonical agent id: `agent.intelligence.claude-code`
+- Canonical agent id: `agent.claude-code`
 - Runtime entrypoint: `ClaudeCodeKernelPlugin::configure_runtime`
 - Public manifests: `claude_code_agent_definition`,
   `claude_code_agent_manifest`, `claude_code_provider_manifests`,

@@ -33,9 +33,8 @@ fn multimodal_policy_accepts_voice_image_and_video_parts() {
 
 #[test]
 fn model_descriptor_rejects_audio_when_only_text_is_supported() {
-    let descriptor =
-        ModelDescriptor::new("gpt-text-only", "provider.model.fake", "Text Only", "fake")
-            .with_input_mode("text");
+    let descriptor = ModelDescriptor::new("gpt-text-only", "provider.fake", "Text Only", "fake")
+        .with_input_mode("text");
 
     let message = AgentMessage::new(
         "message.1",
@@ -62,16 +61,12 @@ fn model_descriptor_rejects_audio_when_only_text_is_supported() {
 
 #[test]
 fn model_descriptor_accepts_multimodal_parts_when_modes_declared() {
-    let descriptor = ModelDescriptor::new(
-        "gpt-vision-audio",
-        "provider.model.fake",
-        "Vision Audio",
-        "fake",
-    )
-    .with_input_mode("text")
-    .with_input_mode("image")
-    .with_input_mode("audio")
-    .with_capability("model.multimodal_input");
+    let descriptor =
+        ModelDescriptor::new("gpt-vision-audio", "provider.fake", "Vision Audio", "fake")
+            .with_input_mode("text")
+            .with_input_mode("image")
+            .with_input_mode("audio")
+            .with_capability("model.multimodal_input");
 
     let message = AgentMessage::new(
         "message.1",
@@ -98,7 +93,7 @@ fn agent_definition_parses_input_policy_from_json() {
   "agent": {
     "schema_version": "0.1.0",
     "manifest_type": "agent",
-    "agent_id": "agent.intelligence.multimodal",
+    "agent_id": "agent.multimodal",
     "name": "multimodal-agent",
     "display_name": "Multimodal Agent",
     "description": "Accepts voice and vision input.",
@@ -116,7 +111,7 @@ fn agent_definition_parses_input_policy_from_json() {
     {
       "binding_id": "binding.model.primary",
       "family": "model",
-      "provider_id": "provider.model.openai",
+      "provider_id": "provider.openai",
       "required": true,
       "default": true,
       "mode": "typed_local",
@@ -170,7 +165,7 @@ fn agent_definition_parses_input_policy_from_json() {
 
 #[test]
 fn strip_unsupported_parts_keeps_supported_modalities() {
-    let descriptor = ModelDescriptor::new("gpt-vision", "provider.model.fake", "Vision", "fake")
+    let descriptor = ModelDescriptor::new("gpt-vision", "provider.fake", "Vision", "fake")
         .with_input_mode("text")
         .with_input_mode("image");
 
@@ -262,7 +257,7 @@ mod catalog_contracts {
     #[test]
     fn catalog_bridge_builds_model_descriptor_with_multimodal_capability() {
         let model = fixture_model(vec!["text", "image", "audio"]);
-        let descriptor = catalog::descriptor_from_catalog_model(&model, "provider.model.catalog");
+        let descriptor = catalog::descriptor_from_catalog_model(&model, "provider.catalog");
         assert!(descriptor.supports_input_modality(AgentInputModality::Audio));
         assert!(descriptor.supports_multimodal_input());
 
@@ -290,7 +285,7 @@ fn interaction_contract_parses_modality_slots_with_preprocess_delivery() {
   "agent": {
     "schema_version": "1.0.0",
     "manifest_type": "agent",
-    "agent_id": "agent.intelligence.voice",
+    "agent_id": "agent.voice",
     "name": "voice-agent",
     "display_name": "Voice Agent",
     "description": "Accepts voice with STT preprocessing.",
@@ -307,7 +302,7 @@ fn interaction_contract_parses_modality_slots_with_preprocess_delivery() {
   "provider_bindings": [{
     "binding_id": "binding.model.default",
     "family": "model",
-    "provider_id": "provider.model.fake",
+    "provider_id": "provider.fake",
     "required": true,
     "default": true,
     "mode": "manifest_or_typed",
@@ -467,9 +462,8 @@ fn preprocess_delivery_transforms_audio_before_text_only_model_check() {
             "audio/ogg",
         )],
     );
-    let descriptor =
-        ModelDescriptor::new("gpt-text-only", "provider.model.fake", "Text Only", "fake")
-            .with_input_mode("text");
+    let descriptor = ModelDescriptor::new("gpt-text-only", "provider.fake", "Text Only", "fake")
+        .with_input_mode("text");
 
     let options = ModelInputResolveOptions {
         input_policy: &policy,

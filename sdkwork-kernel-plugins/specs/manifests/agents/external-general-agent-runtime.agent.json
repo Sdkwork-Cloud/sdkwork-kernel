@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.external-general-agent-runtime",
+  "agent_id": "agent.external-general-agent-runtime",
   "name": "external-general-agent-runtime",
   "display_name": "External General Agent Runtime",
   "description": "Experimental SDKWork manifest for general external agent runtimes and frameworks such as Hermes Agent, OpenClaw, and Rig.",

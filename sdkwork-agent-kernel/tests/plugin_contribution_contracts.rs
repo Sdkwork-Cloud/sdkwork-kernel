@@ -83,7 +83,7 @@ fn contributions_are_discoverable_after_registration() {
             Box::new(ContributingPlugin::new(
                 "plugin.contribution.a",
                 vec![
-                    PluginContribution::provider("provider.model.acme", "acme model"),
+                    PluginContribution::provider("provider.acme", "acme model"),
                     PluginContribution::tool("tool.plugin.search", "search tool"),
                     PluginContribution::hook("hook.plugin.policy", "policy hook"),
                 ],
@@ -99,7 +99,7 @@ fn contributions_are_discoverable_after_registration() {
         .iter()
         .any(
             |(plugin_id, contribution)| plugin_id == "plugin.contribution.a"
-                && contribution.contribution_id == "provider.model.acme"
+                && contribution.contribution_id == "provider.acme"
                 && contribution.kind == PluginContributionKind::Provider
         ));
 }
@@ -132,7 +132,7 @@ fn contributions_can_be_filtered_by_kind() {
             Box::new(ContributingPlugin::new(
                 "plugin.mixed",
                 vec![
-                    PluginContribution::provider("provider.model.acme", "acme model"),
+                    PluginContribution::provider("provider.acme", "acme model"),
                     PluginContribution::memory("memory.plugin.growth", "growth memory"),
                     PluginContribution::skill("skill.plugin.review", "review skill"),
                 ],
@@ -187,7 +187,7 @@ fn duplicate_contribution_id_across_plugins_is_rejected() {
             Box::new(ContributingPlugin::new(
                 "plugin.first",
                 vec![PluginContribution::provider(
-                    "provider.model.shared",
+                    "provider.shared",
                     "first provider",
                 )],
             )),
@@ -200,7 +200,7 @@ fn duplicate_contribution_id_across_plugins_is_rejected() {
         Box::new(ContributingPlugin::new(
             "plugin.second",
             vec![PluginContribution::provider(
-                "provider.model.shared",
+                "provider.shared",
                 "second provider",
             )],
         )),

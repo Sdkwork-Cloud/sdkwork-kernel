@@ -1,7 +1,10 @@
 use crate::{
-    AgentConfiguration, AgentConfigurationSpec, KernelEvent, KernelEventRedaction,
-    KernelEventSeverity, KernelEventSource, KernelResult, PolicyCategory, PolicyRequest,
-    ProviderHealth, ProviderManifest, SideEffectLevel,
+    AgentConfiguration, AgentConfigurationSpec, AgentInstallRecord, AgentInstallRecordStatus,
+    AgentPackageSourceInfo, AgentRollbackReport, AgentRollbackRequest, AgentVerifyIssue,
+    AgentVerifyIssueCategory, AgentVerifyIssueSeverity, AgentVerifyReport, AgentVerifyRequest,
+    AgentVerifyStatus, KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity,
+    KernelEventSource, KernelResult, PolicyCategory, PolicyRequest, ProviderHealth,
+    ProviderManifest, SideEffectLevel,
 };
 
 pub trait AgentInstaller {
@@ -36,6 +39,161 @@ pub trait AgentInstaller {
     fn uninstall(&self, request: AgentUninstallRequest) -> KernelResult<AgentUninstallReport>;
 
     fn health(&self) -> ProviderHealth;
+
+    /// Verify the integrity of an installed agent without mutating host state.
+    ///
+    /// The default implementation derives the report from
+    /// `detect_installation`: an installed agent with every managed dependency
+    /// matching its expected version reports `Valid`; a degraded installation
+    /// reports per-dependency issues (`Invalid` when a managed dependency is
+    /// missing, `Warnings` for version mismatches); an absent installation
+    /// reports `NotFound`. Configuration and capability verification are not
+    /// owned by the installer and remain unclaimed (`None`).
+    fn verify_installation(&self, request: &AgentVerifyRequest) -> KernelResult<AgentVerifyReport> {
+        let installation = self.detect_installation(&request.agent_id)?;
+        let checksum_valid = if request.verify_checksum {
+            Some(
+                installation
+                    .dependencies
+                    .iter()
+                    .all(AgentInstallationDependency::version_matches),
+            )
+        } else {
+            None
+        };
+        match installation.state {
+            AgentInstallationState::Installed => Ok(AgentVerifyReport {
+                request_id: request.request_id.clone(),
+                agent_id: request.agent_id.clone(),
+                status: AgentVerifyStatus::Valid,
+                checksum_valid,
+                configuration_valid: None,
+                capabilities_valid: None,
+                issues: Vec::new(),
+            }),
+            AgentInstallationState::Degraded => {
+                let issues: Vec<AgentVerifyIssue> = installation
+                    .dependencies
+                    .iter()
+                    .map(|dependency| match &dependency.installed_version {
+                        None => AgentVerifyIssue::critical(
+                            AgentVerifyIssueCategory::Dependency,
+                            format!(
+                                "managed dependency {} from {} is not installed",
+                                dependency.package_id, dependency.registry_id
+                            ),
+                        ),
+                        Some(installed_version) if dependency.version_matches() => {
+                            AgentVerifyIssue::info(
+                                AgentVerifyIssueCategory::Dependency,
+                                format!(
+                                    "managed dependency {} from {} is present",
+                                    dependency.package_id, dependency.registry_id
+                                ),
+                            )
+                        }
+                        Some(installed_version) => AgentVerifyIssue::warning(
+                            AgentVerifyIssueCategory::Dependency,
+                            format!(
+                                "managed dependency {} from {} expected {} but found {installed_version}",
+                                dependency.package_id,
+                                dependency.registry_id,
+                                dependency
+                                    .expected_version
+                                    .as_deref()
+                                    .unwrap_or("unbounded")
+                            ),
+                        ),
+                    })
+                    .collect();
+                let status = if issues
+                    .iter()
+                    .any(|issue| issue.severity == AgentVerifyIssueSeverity::Critical)
+                {
+                    AgentVerifyStatus::Invalid
+                } else {
+                    AgentVerifyStatus::Warnings
+                };
+                Ok(AgentVerifyReport {
+                    request_id: request.request_id.clone(),
+                    agent_id: request.agent_id.clone(),
+                    status,
+                    checksum_valid,
+                    configuration_valid: None,
+                    capabilities_valid: None,
+                    issues,
+                })
+            }
+            AgentInstallationState::NotInstalled => Ok(AgentVerifyReport {
+                request_id: request.request_id.clone(),
+                agent_id: request.agent_id.clone(),
+                status: AgentVerifyStatus::NotFound,
+                checksum_valid: None,
+                configuration_valid: None,
+                capabilities_valid: None,
+                issues: Vec::new(),
+            }),
+        }
+    }
+
+    /// Roll back an upgrade to a previously captured state.
+    ///
+    /// The default implementation fails closed: a generic installer cannot
+    /// restore a version it never snapshotted. Installers that capture an
+    /// upgrade snapshot expose an opaque rollback handle through
+    /// `AgentUpgradeReport::with_rollback_token` and override this method to
+    /// consume it.
+    fn rollback(&self, request: AgentRollbackRequest) -> KernelResult<AgentRollbackReport> {
+        let _ = request;
+        Err(KernelError::provider_error(
+            "installer_rollback_unsupported",
+            "this installer does not support upgrade rollback",
+        ))
+    }
+
+    /// List the agent installation records this installer can prove.
+    ///
+    /// The default implementation fails closed: a generic installer cannot
+    /// claim an inventory it cannot prove. Installers that can derive records
+    /// from detection override this method.
+    fn list_installed(&self) -> KernelResult<Vec<AgentInstallRecord>> {
+        Err(KernelError::provider_error(
+            "installer_inventory_unsupported",
+            "this installer does not support listing installed agent records",
+        ))
+    }
+
+    /// Derive the installation records for one detected installation.
+    ///
+    /// Shared helper for installers that can prove their own installation
+    /// state: an installed agent yields one `Active` record, a degraded agent
+    /// yields one `Broken` record, an absent agent yields an empty inventory.
+    fn record_from_detection(
+        installation: &AgentInstallation,
+        version: &str,
+        source: AgentPackageSourceInfo,
+    ) -> Vec<AgentInstallRecord>
+    where
+        Self: Sized,
+    {
+        match installation.state {
+            AgentInstallationState::NotInstalled => Vec::new(),
+            AgentInstallationState::Installed => vec![AgentInstallRecord::new(
+                &installation.agent_id,
+                installation.installed_version.as_deref().unwrap_or(version),
+                "",
+            )
+            .with_source(source)
+            .with_status(AgentInstallRecordStatus::Active)],
+            AgentInstallationState::Degraded => vec![AgentInstallRecord::new(
+                &installation.agent_id,
+                installation.installed_version.as_deref().unwrap_or(version),
+                "",
+            )
+            .with_source(source)
+            .with_status(AgentInstallRecordStatus::Broken)],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,6 +363,45 @@ impl AgentPackageSource {
     }
 }
 
+/// Per-request customization of where and how an agent provider is installed.
+///
+/// Hosts that manage providers outside the installer defaults (for example a
+/// dedicated install directory, a managed Python binary, or an explicit npm
+/// lifecycle-script opt-in) attach these options to install, upgrade,
+/// uninstall, and rollback requests. Values that are `None` defer to the
+/// installer's own configuration (builder defaults, environment variables, and
+/// platform defaults).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AgentInstallOptions {
+    /// Explicit managed install root for the provider package manager.
+    pub install_root: Option<String>,
+    /// Explicit Python binary for pip-backed installers.
+    pub python_binary: Option<String>,
+    /// Explicit opt-in for npm lifecycle scripts (disabled by default).
+    pub install_scripts_enabled: Option<bool>,
+}
+
+impl AgentInstallOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_install_root(mut self, install_root: impl Into<String>) -> Self {
+        self.install_root = Some(install_root.into());
+        self
+    }
+
+    pub fn with_python_binary(mut self, python_binary: impl Into<String>) -> Self {
+        self.python_binary = Some(python_binary.into());
+        self
+    }
+
+    pub fn with_install_scripts_enabled(mut self, enabled: bool) -> Self {
+        self.install_scripts_enabled = Some(enabled);
+        self
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentInstallRequest {
     pub request_id: String,
@@ -213,6 +410,7 @@ pub struct AgentInstallRequest {
     pub source: AgentPackageSource,
     pub profile_id: Option<String>,
     pub configuration: Option<AgentConfiguration>,
+    pub options: Option<AgentInstallOptions>,
     pub requested_by: Option<String>,
     pub dry_run: bool,
 }
@@ -231,6 +429,7 @@ impl AgentInstallRequest {
             source,
             profile_id: None,
             configuration: None,
+            options: None,
             requested_by: None,
             dry_run: false,
         }
@@ -244,6 +443,11 @@ impl AgentInstallRequest {
     pub fn with_configuration(mut self, configuration: AgentConfiguration) -> Self {
         self.profile_id = Some(configuration.profile_id.clone());
         self.configuration = Some(configuration);
+        self
+    }
+
+    pub fn with_options(mut self, options: AgentInstallOptions) -> Self {
+        self.options = Some(options);
         self
     }
 
@@ -266,6 +470,7 @@ pub struct AgentUpgradeRequest {
     pub to_version: String,
     pub configuration: Option<AgentConfiguration>,
     pub rollback_required: bool,
+    pub options: Option<AgentInstallOptions>,
     pub requested_by: Option<String>,
     pub dry_run: bool,
 }
@@ -284,6 +489,7 @@ impl AgentUpgradeRequest {
             to_version: to_version.into(),
             configuration: None,
             rollback_required: false,
+            options: None,
             requested_by: None,
             dry_run: false,
         }
@@ -296,6 +502,11 @@ impl AgentUpgradeRequest {
 
     pub fn with_rollback_required(mut self) -> Self {
         self.rollback_required = true;
+        self
+    }
+
+    pub fn with_options(mut self, options: AgentInstallOptions) -> Self {
+        self.options = Some(options);
         self
     }
 
@@ -316,6 +527,7 @@ pub struct AgentUninstallRequest {
     pub agent_id: String,
     pub remove_configuration: bool,
     pub preserve_data: bool,
+    pub options: Option<AgentInstallOptions>,
     pub requested_by: Option<String>,
     pub dry_run: bool,
 }
@@ -327,6 +539,7 @@ impl AgentUninstallRequest {
             agent_id: agent_id.into(),
             remove_configuration: false,
             preserve_data: true,
+            options: None,
             requested_by: None,
             dry_run: false,
         }
@@ -339,6 +552,11 @@ impl AgentUninstallRequest {
 
     pub fn remove_data(mut self) -> Self {
         self.preserve_data = false;
+        self
+    }
+
+    pub fn with_options(mut self, options: AgentInstallOptions) -> Self {
+        self.options = Some(options);
         self
     }
 
@@ -731,6 +949,11 @@ impl AgentUpgradeReport {
 
     pub fn with_rollback_token(mut self, rollback_token: impl Into<String>) -> Self {
         self.rollback_token = Some(rollback_token.into());
+        self
+    }
+
+    pub fn with_rollback_token_option(mut self, rollback_token: Option<String>) -> Self {
+        self.rollback_token = rollback_token;
         self
     }
 

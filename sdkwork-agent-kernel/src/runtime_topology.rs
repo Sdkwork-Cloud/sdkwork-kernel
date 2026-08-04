@@ -62,7 +62,11 @@ pub fn mock_provider_invocation_allowed(environment: &str, profile_id: Option<&s
         return true;
     }
 
-    cfg!(debug_assertions)
+    // Fail closed: mock providers are only ever enabled by the explicit
+    // `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1` override. A debug build must
+    // not silently accept mock responses when it is deployed to a
+    // non-production environment without the override.
+    false
 }
 
 pub fn mock_provider_invocation_allowed_from_env() -> bool {

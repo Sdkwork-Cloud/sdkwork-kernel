@@ -35,37 +35,22 @@ impl BackendHealthWorker {
         let interval = config.check_interval;
 
         let thread = std::thread::spawn(move || {
+            // The whole monitor loop is wrapped in catch_unwind so a panic in
+            // one tick (a poisoned lock, a panicking provider health probe)
+            // does not silently kill the worker; it logs and continues with
+            // the next wakeup instead.
             while !stop_for_thread.load(Ordering::Relaxed) {
-                let (wake_lock, wake_signal) = &*wake_for_thread;
-                let Ok(wake_guard) = wake_lock.lock() else {
-                    break;
-                };
-                let Ok((wake_guard, _timeout)) =
-                    wake_signal.wait_timeout_while(wake_guard, interval, |_| {
-                        !stop_for_thread.load(Ordering::Relaxed)
-                    })
-                else {
-                    break;
-                };
-                drop(wake_guard);
-                if stop_for_thread.load(Ordering::Relaxed) {
-                    break;
-                }
-
-                let Ok(mut guard) = monitor_for_thread.write() else {
-                    continue;
-                };
-                if !guard.should_check() {
-                    continue;
-                }
-                guard.mark_check();
-                let diagnostics = agent_runtime.diagnostics();
-                for diagnostic in diagnostics.provider_diagnostics {
-                    let Some(health) = diagnostic.health.as_ref() else {
-                        continue;
-                    };
-                    let driver_health = SdkDriverHealth::from_provider_health(health);
-                    let _ = guard.record_driver_health(&diagnostic.provider_id, driver_health);
+                let tick_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    health_check_loop(
+                        &stop_for_thread,
+                        &wake_for_thread,
+                        &monitor_for_thread,
+                        &agent_runtime,
+                        interval,
+                    );
+                }));
+                if tick_result.is_err() {
+                    tracing::warn!("backend health worker panicked; continuing on the next check");
                 }
             }
         });
@@ -108,6 +93,49 @@ impl std::fmt::Debug for BackendHealthWorker {
         f.debug_struct("BackendHealthWorker")
             .field("registered_driver_count", &driver_count)
             .finish()
+    }
+}
+
+/// One pass of the backend health monitor: wait for the next wakeup (or the
+/// check interval) and refresh every registered driver's health. Returns when
+/// the worker is stopped.
+fn health_check_loop(
+    stop_for_thread: &AtomicBool,
+    wake_for_thread: &Arc<(Mutex<()>, Condvar)>,
+    monitor_for_thread: &Arc<RwLock<BackendHealthMonitor>>,
+    agent_runtime: &Arc<AgentRuntime>,
+    interval: std::time::Duration,
+) {
+    let (wake_lock, wake_signal) = &**wake_for_thread;
+    let Ok(wake_guard) = wake_lock.lock() else {
+        return;
+    };
+    let Ok((wake_guard, _timeout)) =
+        wake_signal.wait_timeout_while(wake_guard, interval, |_| {
+            !stop_for_thread.load(Ordering::Relaxed)
+        })
+    else {
+        return;
+    };
+    drop(wake_guard);
+    if stop_for_thread.load(Ordering::Relaxed) {
+        return;
+    }
+
+    let Ok(mut guard) = monitor_for_thread.write() else {
+        return;
+    };
+    if !guard.should_check() {
+        return;
+    }
+    guard.mark_check();
+    let diagnostics = agent_runtime.diagnostics();
+    for diagnostic in diagnostics.provider_diagnostics {
+        let Some(health) = diagnostic.health.as_ref() else {
+            continue;
+        };
+        let driver_health = SdkDriverHealth::from_provider_health(health);
+        let _ = guard.record_driver_health(&diagnostic.provider_id, driver_health);
     }
 }
 

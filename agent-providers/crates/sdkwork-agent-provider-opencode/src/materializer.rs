@@ -8,9 +8,8 @@
 //! exactly matching the upstream config management surface.
 
 use sdkwork_agent_kernel::{
-    AgentModelConfigurationApplication, AgentModelConfigurationRequest,
-    AgentModelSelectionRequest, KernelError, KernelResult, ProviderModelConfigurationStatus,
-    ProviderModelMaterializationState,
+    AgentModelConfigurationApplication, AgentModelConfigurationRequest, AgentModelSelectionRequest,
+    KernelError, KernelResult, ProviderModelConfigurationStatus, ProviderModelMaterializationState,
 };
 use sdkwork_agent_provider_core::{
     dematerialize_provider_config_named, merge_json_path, provider_user_home, read_provider_config,
@@ -38,8 +37,14 @@ pub fn opencode_config_path() -> Option<std::path::PathBuf> {
     #[cfg(windows)]
     let candidates = [
         // xdg-basedir maps XDG_CONFIG_HOME to %APPDATA% on Windows.
-        home.join("AppData").join("Roaming").join("opencode").join("opencode.json"),
-        home.join("AppData").join("Roaming").join("opencode").join("opencode.jsonc"),
+        home.join("AppData")
+            .join("Roaming")
+            .join("opencode")
+            .join("opencode.json"),
+        home.join("AppData")
+            .join("Roaming")
+            .join("opencode")
+            .join("opencode.jsonc"),
         home.join(".config").join("opencode").join("opencode.json"),
         home.join(".config").join("opencode").join("opencode.jsonc"),
         home.join(".opencode").join("opencode.json"),
@@ -145,10 +150,10 @@ pub fn materialize_opencode_model_configuration(
     application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = opencode_config_path() else {
-            return Err(KernelError::provider_error(
-                "provider_config_path",
-                "could not resolve the opencode config path: user home is unavailable",
-            ));
+        return Err(KernelError::provider_error(
+            "provider_config_path",
+            "could not resolve the opencode config path: user home is unavailable",
+        ));
     };
     materialize_opencode_model_configuration_at(&path, request, application)
 }
@@ -171,10 +176,10 @@ pub fn materialize_opencode_model_selection(
     application: &AgentModelConfigurationApplication,
 ) -> KernelResult<()> {
     let Some(path) = opencode_config_path() else {
-            return Err(KernelError::provider_error(
-                "provider_config_path",
-                "could not resolve the opencode config path: user home is unavailable",
-            ));
+        return Err(KernelError::provider_error(
+            "provider_config_path",
+            "could not resolve the opencode config path: user home is unavailable",
+        ));
     };
     materialize_opencode_model_selection_at(&path, request, application)
 }
@@ -196,10 +201,10 @@ pub fn dematerialize_opencode_model_configuration(
     _profile_id: &str,
 ) -> KernelResult<()> {
     let Some(path) = opencode_config_path() else {
-            return Err(KernelError::provider_error(
-                "provider_config_path",
-                "could not resolve the opencode config path: user home is unavailable",
-            ));
+        return Err(KernelError::provider_error(
+            "provider_config_path",
+            "could not resolve the opencode config path: user home is unavailable",
+        ));
     };
     dematerialize_provider_config_named(&path, "opencode")
 }
@@ -215,7 +220,9 @@ pub(crate) fn dematerialize_opencode_model_configuration_at(
 /// opencode config file and reports the materialization state.
 pub fn read_opencode_model_configuration() -> KernelResult<ProviderModelConfigurationStatus> {
     let Some(path) = opencode_config_path() else {
-        return Ok(ProviderModelConfigurationStatus::not_materialized("opencode"));
+        return Ok(ProviderModelConfigurationStatus::not_materialized(
+            "opencode",
+        ));
     };
     read_opencode_model_configuration_at(&path)
 }
@@ -226,7 +233,9 @@ pub(crate) fn read_opencode_model_configuration_at(
     path: &std::path::Path,
 ) -> KernelResult<ProviderModelConfigurationStatus> {
     let Some(content) = read_provider_config(path)? else {
-        return Ok(ProviderModelConfigurationStatus::not_materialized("opencode"));
+        return Ok(ProviderModelConfigurationStatus::not_materialized(
+            "opencode",
+        ));
     };
     let document = match serde_json::from_str::<Value>(&content) {
         Ok(document) => document,
@@ -296,7 +305,11 @@ pub(crate) fn read_opencode_model_configuration_at(
 mod tests {
     use super::*;
 
-    fn request_with(api_key: Option<&str>, base_url: &str, model: &str) -> AgentModelConfigurationRequest {
+    fn request_with(
+        api_key: Option<&str>,
+        base_url: &str,
+        model: &str,
+    ) -> AgentModelConfigurationRequest {
         let mut request = AgentModelConfigurationRequest::new(
             "request-1",
             "agent.code-engine.opencode",
@@ -319,8 +332,7 @@ mod tests {
             "https://api.birdcoder.com/v1",
             "gpt-5.4-mini",
         );
-        let document =
-            build_materialized_config(None, &request, Some("token-abc")).expect("build");
+        let document = build_materialized_config(None, &request, Some("token-abc")).expect("build");
         assert_eq!(document["model"].as_str(), Some("sdkwork/gpt-5.4-mini"));
         let provider = &document["provider"]["sdkwork"];
         assert_eq!(provider["npm"].as_str(), Some("@ai-sdk/openai-compatible"));
@@ -364,19 +376,23 @@ mod tests {
         let path = dir.join("opencode.json");
         std::fs::write(&path, "{\"model\": \"openai/gpt-5\"}\n").expect("seed");
         let request = request_with(Some("token-xyz"), "https://api.birdcoder.com/v1", "gpt-5.4");
-        materialize_opencode_model_configuration_at(&path, &request, &AgentModelConfigurationApplication::new(
-            "request-1",
-            "opencode",
-            sdkwork_agent_kernel::AgentConfigurationProfile::new(
-                "profile.test",
-                "agent.code-engine.opencode",
-                "0.2.0",
-                sdkwork_agent_kernel::AgentConfiguration::new(
-                    "agent.code-engine.opencode",
+        materialize_opencode_model_configuration_at(
+            &path,
+            &request,
+            &AgentModelConfigurationApplication::new(
+                "request-1",
+                "opencode",
+                sdkwork_agent_kernel::AgentConfigurationProfile::new(
                     "profile.test",
+                    "agent.code-engine.opencode",
+                    "0.2.0",
+                    sdkwork_agent_kernel::AgentConfiguration::new(
+                        "agent.code-engine.opencode",
+                        "profile.test",
+                    ),
                 ),
             ),
-        ))
+        )
         .expect("materialize");
         let content = std::fs::read_to_string(&path).expect("read");
         assert!(content.contains("\"apiKey\": \"token-xyz\""));
@@ -391,10 +407,8 @@ mod tests {
 
     #[test]
     fn read_back_reports_materialized_provider_entry() {
-        let dir = std::env::temp_dir().join(format!(
-            "sdkwork-opencode-readback-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("sdkwork-opencode-readback-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("temp dir");
         let path = dir.join("opencode.json");

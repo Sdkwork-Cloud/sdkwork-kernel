@@ -14,7 +14,7 @@ fn rig_deployment_snapshot_preserves_binding_provider_and_capabilities() {
 
     let switched = binding
         .clone()
-        .with_provider_id("provider.model.other")
+        .with_provider_id("provider.other")
         .deactivate();
 
     assert_eq!(deployment.agent_id, ids::AGENT_ID);

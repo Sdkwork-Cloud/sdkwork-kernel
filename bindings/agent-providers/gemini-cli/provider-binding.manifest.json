@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent_provider_binding",
-  "binding_id": "binding.agent-provider.gemini-cli",
-  "agent_id": "agent.intelligence.gemini",
+  "binding_id": "binding.gemini-cli",
+  "agent_id": "agent.gemini",
   "display_name": "Gemini CLI",
   "description": "External agent provider binding for Google Gemini CLI and SDK surfaces.",
   "version": "0.1.0",

@@ -15,7 +15,7 @@ const COST_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.cost",
+  "agent_id": "agent.cost",
   "name": "sdkwork-cost-agent",
   "display_name": "SDKWork Cost Agent",
   "description": "Agent used to prove cost accounting contracts.",
@@ -116,10 +116,10 @@ fn cost_runtime() -> sdkwork_agent_kernel::AgentRuntime {
         ModelPrice::new("claude-sonnet-4", 3.0, 15.0, "USD").with_cached_input_per_1m(0.3)
     ])
     .register_model_provider(
-        "provider.model.cost",
+        "provider.cost",
         "0.1.0",
         CostModelProvider {
-            provider_id: "provider.model.cost".to_string(),
+            provider_id: "provider.cost".to_string(),
         },
     )
     .register_policy_provider("provider.policy.cost", "0.1.0", AllowPolicyProvider)

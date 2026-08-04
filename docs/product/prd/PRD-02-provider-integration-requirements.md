@@ -24,14 +24,14 @@ catalog schema) are **not** duplicated here. Authority:
 
 | Framework | Binding id | Status |
 | --- | --- | --- |
-| Codex | `binding.agent-provider.codex` | Shipped |
-| Claude Code | `binding.agent-provider.claude-code` | Shipped |
-| Gemini CLI | `binding.agent-provider.gemini-cli` | Shipped |
-| OpenCode | `binding.agent-provider.opencode` | Shipped |
-| OpenClaw | `binding.agent-provider.openclaw` | Shipped |
-| Hermes | `binding.agent-provider.hermes` | Shipped |
-| Rig | `binding.agent-provider.rig` | Shipped |
-| MiMo Code | `binding.agent-provider.mimo-code` | In progress — binding manifest and crate shipped; agents facade/live SDK proof pending |
+| Codex | `binding.codex` | Shipped |
+| Claude Code | `binding.claude-code` | Shipped |
+| Gemini CLI | `binding.gemini-cli` | Shipped |
+| OpenCode | `binding.opencode` | Shipped |
+| OpenClaw | `binding.openclaw` | Shipped |
+| Hermes | `binding.hermes` | Shipped |
+| Rig | `binding.rig` | Shipped |
+| MiMo Code | `binding.mimo-code` | In progress — binding manifest and crate shipped; agents facade/live SDK proof pending |
 
 Integration mode matrix and transport contracts: `AGENT_PROVIDER_INTEGRATION_SPEC.md` §3–5.
 

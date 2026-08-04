@@ -22,7 +22,7 @@ const STREAM_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.stream",
+  "agent_id": "agent.stream",
   "name": "sdkwork-stream-agent",
   "display_name": "SDKWork Stream Agent",
   "description": "Agent used to prove unified streaming event contracts.",
@@ -246,9 +246,9 @@ fn runtime_with_streaming_model() -> sdkwork_agent_kernel::AgentRuntime {
     )
     .with_generated_at("2026-08-01T00:00:00Z")
     .register_model_provider(
-        "provider.model.stream",
+        "provider.stream",
         "0.1.0",
-        StreamingModelProvider::new("provider.model.stream"),
+        StreamingModelProvider::new("provider.stream"),
     )
     .register_policy_provider("provider.policy.stream", "0.1.0", AllowPolicyProvider)
     .bootstrap()
@@ -263,9 +263,9 @@ fn runtime_with_tool_calling() -> sdkwork_agent_kernel::AgentRuntime {
     )
     .with_generated_at("2026-08-01T00:00:00Z")
     .register_model_provider(
-        "provider.model.tool",
+        "provider.tool",
         "0.1.0",
-        ToolCallingModelProvider::new("provider.model.tool", 1),
+        ToolCallingModelProvider::new("provider.tool", 1),
     )
     .register_tool_provider(
         "provider.tool.stream",
@@ -609,9 +609,9 @@ fn execution_stream_caps_turns_at_max() {
     )
     .with_generated_at("2026-08-01T00:00:00Z")
     .register_model_provider(
-        "provider.model.tool",
+        "provider.tool",
         "0.1.0",
-        ToolCallingModelProvider::new("provider.model.tool", usize::MAX),
+        ToolCallingModelProvider::new("provider.tool", usize::MAX),
     )
     .register_tool_provider(
         "provider.tool.stream",

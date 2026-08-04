@@ -18,7 +18,7 @@ const DELEGATION_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.delegation",
+  "agent_id": "agent.delegation",
   "name": "sdkwork-delegation-agent",
   "display_name": "SDKWork Delegation Agent",
   "description": "Agent used to prove streaming delegation contracts.",
@@ -185,9 +185,9 @@ fn delegation_runtime() -> sdkwork_agent_kernel::AgentRuntime {
     )
     .with_generated_at("2026-08-01T00:00:00Z")
     .register_model_provider(
-        "provider.model.delegation",
+        "provider.delegation",
         "0.1.0",
-        DelegatingModelProvider::new("provider.model.delegation"),
+        DelegatingModelProvider::new("provider.delegation"),
     )
     .register_tool_provider(
         "provider.tool.delegation",
@@ -210,7 +210,7 @@ fn delegation_stream_request_builders_cover_tool_call_origin() {
         "tool-call.delegate.7",
         "review the change",
     )
-    .with_provider_id("provider.model.delegation")
+    .with_provider_id("provider.delegation")
     .with_model_id("claude-sonnet-4")
     .with_timeout_ms(30_000);
 
@@ -220,10 +220,7 @@ fn delegation_stream_request_builders_cover_tool_call_origin() {
         request.tool_call_id.as_deref(),
         Some("tool-call.delegate.7")
     );
-    assert_eq!(
-        request.provider_id.as_deref(),
-        Some("provider.model.delegation")
-    );
+    assert_eq!(request.provider_id.as_deref(), Some("provider.delegation"));
     assert_eq!(request.model_id.as_deref(), Some("claude-sonnet-4"));
     assert_eq!(request.timeout_ms, Some(30_000));
 }
@@ -359,7 +356,7 @@ fn execution_service_is_reusable_for_direct_child_runs() {
             &runtime,
             AgentExecutionRequest::new("exec.child.1", vec!["child task".to_string()])
                 .for_session("session.subagent.explicit")
-                .with_provider_id("provider.model.delegation"),
+                .with_provider_id("provider.delegation"),
             &mut sink,
         )
         .expect("direct child run succeeds");

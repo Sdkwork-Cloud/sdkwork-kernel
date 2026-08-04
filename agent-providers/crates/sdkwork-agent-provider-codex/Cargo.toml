@@ -28,3 +28,6 @@ toml = "0.8"
 # through std::os::windows::io. Enable winapi's std compatibility aliases so
 # both public APIs use the same c_void type without modifying external sources.
 winapi = { version = "0.3.9", features = ["std"] }
+
+[dev-dependencies]
+sdkwork-agent-plugin-core = { workspace = true, features = ["test-utils"] }

@@ -10,15 +10,16 @@ use std::{
 };
 
 use sdkwork_agent_kernel::{
-    AgentConfiguration, AgentInstallStatus, AgentInstaller, AgentPackageSource,
-    AgentUninstallRequest, AgentUpgradeRequest, KernelErrorKind,
+    AgentConfiguration, AgentInstallOptions, AgentInstallStatus, AgentInstaller,
+    AgentPackageSource, AgentRollbackRequest, AgentRollbackStatus, AgentUninstallRequest,
+    AgentUpgradeRequest, AgentVerifyRequest, AgentVerifyStatus, KernelErrorKind,
 };
 use sdkwork_agent_plugin_core::{
     ProcessAdapterCommand, ProcessAdapterCommandExecutor, ProcessAdapterCommandOutput,
     ProcessAdapterInstaller, ProcessAdapterPackage, SystemProcessAdapterCommandExecutor,
 };
 
-const AGENT_ID: &str = "agent.intelligence.codex";
+const AGENT_ID: &str = "agent.codex";
 const INSTALLER_ID: &str = "provider.agent.installer.codex";
 const PROVIDER_VERSION: &str = "0.2.0";
 const PACKAGE_ID: &str = "@openai/codex-sdk";
@@ -78,6 +79,10 @@ fn python_detection(package_version: Option<&str>) -> String {
         Some(version) => format!(r#"{{"hermes-agent":"{version}"}}"#),
         None => r#"{"hermes-agent":null}"#.to_string(),
     }
+}
+
+fn hex_string(payload: &str) -> String {
+    payload.bytes().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn installer(executor: FakeCommandExecutor) -> ProcessAdapterInstaller {
@@ -184,13 +189,193 @@ fn upgrade_is_exact_idempotent_and_post_verified() {
         .upgrade(request.clone())
         .expect("provider upgrades");
     assert_eq!(report.status, AgentInstallStatus::Upgraded);
-    assert!(report.rollback_token.is_none());
+    let rollback_token = report
+        .rollback_token
+        .as_ref()
+        .expect("rollback-required upgrade returns an opaque rollback token");
+    assert!(rollback_token
+        .chars()
+        .all(|character| character.is_ascii_hexdigit()));
+    let event = report.to_event("event.upgrade.1");
+    assert!(event.payload.contains("rollback_available=true"));
+    assert!(!event.payload.contains(rollback_token));
 
     let idempotent = installer
         .upgrade(request)
         .expect("repeat upgrade is idempotent");
     assert_eq!(idempotent.status, AgentInstallStatus::Upgraded);
+    assert!(idempotent.rollback_token.is_some());
     assert_eq!(inspector.commands().len(), 4);
+}
+
+#[test]
+fn rollback_restores_the_snapshotted_dependency_state() {
+    let executor = FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(npm_detection(Some("0.145.0"), Some("7.0.0"))),
+        ProcessAdapterCommandOutput::success(""),
+        ProcessAdapterCommandOutput::success(npm_detection(Some(PACKAGE_VERSION), Some("7.1.0"))),
+        ProcessAdapterCommandOutput::success(""),
+        ProcessAdapterCommandOutput::success(npm_detection(Some("0.145.0"), Some("7.0.0"))),
+    ]);
+    let inspector = executor.clone();
+    let installer = installer(executor);
+
+    let upgrade = installer
+        .upgrade(
+            AgentUpgradeRequest::new("upgrade.codex.rb", AGENT_ID, "0.1.0", PROVIDER_VERSION)
+                .with_rollback_required(),
+        )
+        .expect("provider upgrades with rollback metadata");
+    let token = upgrade
+        .rollback_token
+        .expect("rollback-required upgrade returns an opaque rollback token");
+
+    let rollback = installer
+        .rollback(
+            AgentRollbackRequest::new("rollback.codex.1", AGENT_ID)
+                .with_rollback_token(token)
+                .to_version("0.1.0"),
+        )
+        .expect("provider rolls back to the snapshotted state");
+    assert_eq!(rollback.status, AgentRollbackStatus::Success);
+    assert_eq!(rollback.from_version, PROVIDER_VERSION);
+    assert_eq!(rollback.to_version, "0.1.0");
+
+    let commands = inspector.commands();
+    assert_eq!(commands.len(), 5);
+    let restore = &commands[3];
+    assert_eq!(restore.program, "npm");
+    assert!(restore.args.contains(&format!("{PACKAGE_ID}@0.145.0")));
+    assert!(restore.args.contains(&"openai@7.0.0".to_string()));
+}
+
+#[test]
+fn rollback_fails_closed_without_a_token_or_with_a_corrupt_token() {
+    let executor = FakeCommandExecutor::default();
+    let inspector = executor.clone();
+    let installer = installer(executor);
+
+    let missing = installer.rollback(AgentRollbackRequest::new("rollback.codex.2", AGENT_ID));
+    assert_eq!(
+        missing.unwrap_err().kind(),
+        KernelErrorKind::ValidationError
+    );
+
+    let corrupt = installer.rollback(
+        AgentRollbackRequest::new("rollback.codex.3", AGENT_ID)
+            .with_rollback_token("not-a-rollback-token"),
+    );
+    assert_eq!(
+        corrupt.unwrap_err().kind(),
+        KernelErrorKind::ValidationError
+    );
+
+    let unsupported_schema = installer.rollback(
+        AgentRollbackRequest::new("rollback.codex.4", AGENT_ID)
+            .with_rollback_token(hex_string(r#"{"version":99,"packages":[]}"#)),
+    );
+    assert_eq!(
+        unsupported_schema.unwrap_err().kind(),
+        KernelErrorKind::ValidationError
+    );
+    assert!(inspector.commands().is_empty());
+}
+
+#[test]
+fn rollback_rejects_snapshots_that_do_not_match_the_descriptor() {
+    let executor = FakeCommandExecutor::default();
+    let inspector = executor.clone();
+    let installer = installer(executor);
+    let foreign = hex_string(
+        r#"{"version":1,"provider_version":"0.1.0","packages":[{"registry_id":"npm","package_id":"enemy-package","installed_version":"1.0.0"}]}"#,
+    );
+
+    let rejected = installer.rollback(
+        AgentRollbackRequest::new("rollback.codex.5", AGENT_ID)
+            .with_rollback_token(foreign)
+            .to_version("0.1.0"),
+    );
+    assert_eq!(
+        rejected.unwrap_err().kind(),
+        KernelErrorKind::ValidationError
+    );
+    assert!(inspector.commands().is_empty());
+}
+
+#[test]
+fn rollback_fails_closed_when_data_removal_is_requested() {
+    let executor = FakeCommandExecutor::default();
+    let inspector = executor.clone();
+    let installer = installer(executor);
+
+    let rejected = installer.rollback(
+        AgentRollbackRequest::new("rollback.codex.6", AGENT_ID)
+            .with_rollback_token(hex_string(
+                r#"{"version":1,"provider_version":"0.1.0","packages":[]}"#,
+            ))
+            .preserve_data(false),
+    );
+    assert_eq!(
+        rejected.unwrap_err().code(),
+        "provider_data_removal_requires_host"
+    );
+    assert!(inspector.commands().is_empty());
+}
+
+#[test]
+fn list_installed_reports_only_proven_records() {
+    let installed = installer(FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(npm_detection(Some(PACKAGE_VERSION), Some("7.1.0"))),
+    ]));
+    let records = installed.list_installed().expect("installed inventory");
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].agent_id, AGENT_ID);
+    assert_eq!(records[0].version, PROVIDER_VERSION);
+    assert_eq!(
+        records[0].source,
+        sdkwork_agent_kernel::AgentPackageSourceInfo::Registry {
+            registry_id: "npm".to_string(),
+            package_id: PACKAGE_ID.to_string(),
+        }
+    );
+
+    let missing = installer(FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(npm_detection(None, None)),
+    ]));
+    assert!(missing
+        .list_installed()
+        .expect("empty inventory")
+        .is_empty());
+}
+
+#[test]
+fn verify_installation_derives_reports_from_detection() {
+    let installed = installer(FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(npm_detection(Some(PACKAGE_VERSION), Some("7.1.0"))),
+    ]));
+    let report = installed
+        .verify_installation(&AgentVerifyRequest::new("verify.codex.1", AGENT_ID))
+        .expect("installed provider verifies");
+    assert_eq!(report.status, AgentVerifyStatus::Valid);
+    assert_eq!(report.checksum_valid, Some(true));
+
+    let degraded = installer(FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(npm_detection(Some(PACKAGE_VERSION), None)),
+    ]));
+    let report = degraded
+        .verify_installation(&AgentVerifyRequest::new("verify.codex.2", AGENT_ID))
+        .expect("degraded provider verification derives issues");
+    assert_eq!(report.status, AgentVerifyStatus::Invalid);
+    assert_eq!(report.checksum_valid, Some(false));
+    assert!(!report.issues.is_empty());
+
+    let missing = installer(FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(npm_detection(None, None)),
+    ]));
+    let report = missing
+        .verify_installation(&AgentVerifyRequest::new("verify.codex.3", AGENT_ID))
+        .expect("missing provider verification reports not found");
+    assert_eq!(report.status, AgentVerifyStatus::NotFound);
 }
 
 #[test]
@@ -289,14 +474,14 @@ fn installation_detection_timeout_fails_closed() {
     assert_eq!(error.kind(), KernelErrorKind::Timeout);
 
     let python_installer = ProcessAdapterInstaller::new(
-        "agent.intelligence.hermes",
+        "agent.hermes",
         "provider.agent.installer.hermes",
         PROVIDER_VERSION,
         ProcessAdapterPackage::pypi("hermes-agent", "0.19.0"),
     )
     .with_executor(Arc::new(FakeCommandExecutor::with_outputs(vec![timed_out])));
     let error = python_installer
-        .detect_installation("agent.intelligence.hermes")
+        .detect_installation("agent.hermes")
         .expect_err("Python detection timeout must fail closed");
     assert_eq!(error.kind(), KernelErrorKind::Timeout);
 }
@@ -441,7 +626,7 @@ fn npm_mutations_reject_unrestorable_snapshots_before_package_manager_execution(
 
 #[test]
 fn python_mutations_reject_unrestorable_snapshots_before_package_manager_execution() {
-    const HERMES_AGENT_ID: &str = "agent.intelligence.hermes";
+    const HERMES_AGENT_ID: &str = "agent.hermes";
     let invalid_version = "1foo";
 
     for (operation, executor) in ["install", "upgrade", "uninstall"].map(|operation| {
@@ -454,7 +639,7 @@ fn python_mutations_reject_unrestorable_snapshots_before_package_manager_executi
     }) {
         let inspector = executor.clone();
         let installer = ProcessAdapterInstaller::new(
-            HERMES_AGENT_ID,
+            "agent.hermes",
             "provider.agent.installer.hermes",
             PROVIDER_VERSION,
             ProcessAdapterPackage::pypi("hermes-agent", "0.19.0"),
@@ -464,7 +649,7 @@ fn python_mutations_reject_unrestorable_snapshots_before_package_manager_executi
             "install" => installer
                 .install(sdkwork_agent_kernel::AgentInstallRequest::new(
                     "install.hermes.invalid-snapshot",
-                    HERMES_AGENT_ID,
+                    "agent.hermes",
                     PROVIDER_VERSION,
                     AgentPackageSource::registry("pypi", "hermes-agent", "0.19.0"),
                 ))
@@ -472,7 +657,7 @@ fn python_mutations_reject_unrestorable_snapshots_before_package_manager_executi
             "upgrade" => installer
                 .upgrade(AgentUpgradeRequest::new(
                     "upgrade.hermes.invalid-snapshot",
-                    HERMES_AGENT_ID,
+                    "agent.hermes",
                     "0.1.0",
                     PROVIDER_VERSION,
                 ))
@@ -480,7 +665,7 @@ fn python_mutations_reject_unrestorable_snapshots_before_package_manager_executi
             "uninstall" => installer
                 .uninstall(AgentUninstallRequest::new(
                     "uninstall.hermes.invalid-snapshot",
-                    HERMES_AGENT_ID,
+                    "agent.hermes",
                 ))
                 .expect_err("uninstall must reject an unrestorable snapshot"),
             _ => unreachable!("covered mutation operation"),
@@ -556,13 +741,13 @@ fn descriptors_reject_tags_ranges_invalid_names_and_duplicates() {
 
     for version in ["latest", "1foo", "1..0", "1+", "1!", "v1.0", "1.0RC1"] {
         let invalid_python = ProcessAdapterInstaller::new(
-            "agent.intelligence.hermes",
+            "agent.hermes",
             "provider.agent.installer.hermes",
             PROVIDER_VERSION,
             ProcessAdapterPackage::pypi("hermes-agent", version),
         );
         let error = invalid_python
-            .detect_installation("agent.intelligence.hermes")
+            .detect_installation("agent.hermes")
             .expect_err("invalid PyPI versions must fail before execution");
         assert_eq!(error.kind(), KernelErrorKind::ValidationError);
     }
@@ -635,7 +820,7 @@ fn python_detection_is_single_process_structured_and_fails_closed() {
     ]);
     let inspector = executor.clone();
     let installer = ProcessAdapterInstaller::new(
-        "agent.intelligence.hermes",
+        "agent.hermes",
         "provider.agent.installer.hermes",
         PROVIDER_VERSION,
         ProcessAdapterPackage::pypi("hermes-agent", "0.19.0"),
@@ -643,7 +828,7 @@ fn python_detection_is_single_process_structured_and_fails_closed() {
     .with_executor(Arc::new(executor));
 
     let installed = installer
-        .detect_installation("agent.intelligence.hermes")
+        .detect_installation("agent.hermes")
         .expect("Python metadata is detected");
     assert!(installed.is_installed());
     let command = &inspector.commands()[0];
@@ -651,7 +836,7 @@ fn python_detection_is_single_process_structured_and_fails_closed() {
     assert_eq!(command.timeout, Some(Duration::from_secs(30)));
 
     let error = installer
-        .detect_installation("agent.intelligence.hermes")
+        .detect_installation("agent.hermes")
         .expect_err("Python probe failures must not become missing packages");
     assert_eq!(error.code(), "provider_installation_detection_failed");
     assert!(!error.message().contains("must-not-leak"));
@@ -666,7 +851,7 @@ fn python_installs_are_non_interactive_and_wheel_only() {
     ]);
     let inspector = executor.clone();
     let installer = ProcessAdapterInstaller::new(
-        "agent.intelligence.hermes",
+        "agent.hermes",
         "provider.agent.installer.hermes",
         PROVIDER_VERSION,
         ProcessAdapterPackage::pypi("hermes-agent", "0.19.0"),
@@ -675,7 +860,7 @@ fn python_installs_are_non_interactive_and_wheel_only() {
     installer
         .install(sdkwork_agent_kernel::AgentInstallRequest::new(
             "install.hermes.secure",
-            "agent.intelligence.hermes",
+            "agent.hermes",
             PROVIDER_VERSION,
             AgentPackageSource::registry("pypi", "hermes-agent", "0.19.0"),
         ))
@@ -997,4 +1182,183 @@ fn system_executor_bounds_captured_output() {
 
     assert!(output.is_success());
     assert_eq!(output.stdout.len(), 64 * 1024);
+}
+
+#[test]
+fn request_install_options_override_the_installer_defaults() {
+    let custom_root = temporary_options_root("scripts-opt-in");
+    let options = AgentInstallOptions::new()
+        .with_install_root(custom_root.to_string_lossy())
+        .with_install_scripts_enabled(true);
+    let executor = FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(npm_detection(None, None)),
+        ProcessAdapterCommandOutput::success(""),
+        ProcessAdapterCommandOutput::success(npm_detection(Some(PACKAGE_VERSION), Some("7.1.0"))),
+    ]);
+    let inspector = executor.clone();
+    let installer = ProcessAdapterInstaller::new(
+        AGENT_ID,
+        INSTALLER_ID,
+        PROVIDER_VERSION,
+        ProcessAdapterPackage::npm(PACKAGE_ID, PACKAGE_VERSION),
+    )
+    .with_dependency(ProcessAdapterPackage::npm("openai", "7.1.0"))
+    .with_executor(Arc::new(executor));
+
+    let report = installer
+        .install(install_request().with_options(options))
+        .expect("provider installs into the requested directory");
+    assert_eq!(report.status, AgentInstallStatus::Installed);
+
+    let commands = inspector.commands();
+    let expected_root =
+        dunce::canonicalize(&custom_root).expect("canonicalize custom install root");
+    assert_eq!(
+        PathBuf::from(&commands[0].args[1]),
+        expected_root,
+        "detection targets the custom root"
+    );
+    let install = &commands[1];
+    assert_eq!(
+        PathBuf::from(&install.args[1]),
+        expected_root,
+        "install targets the custom root"
+    );
+    assert!(
+        !install
+            .args
+            .iter()
+            .any(|argument| argument == "--ignore-scripts"),
+        "request-level script opt-in overrides the installer default"
+    );
+}
+
+#[test]
+fn custom_install_root_is_consistent_across_install_and_uninstall() {
+    let custom_root = temporary_options_root("lifecycle-consistency");
+    let options = AgentInstallOptions::new().with_install_root(custom_root.to_string_lossy());
+    let executor = FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(npm_detection(None, None)),
+        ProcessAdapterCommandOutput::success(""),
+        ProcessAdapterCommandOutput::success(npm_detection(Some(PACKAGE_VERSION), Some("7.1.0"))),
+        ProcessAdapterCommandOutput::success(npm_detection(Some(PACKAGE_VERSION), Some("7.1.0"))),
+        ProcessAdapterCommandOutput::success(""),
+        ProcessAdapterCommandOutput::success(npm_detection(None, None)),
+    ]);
+    let inspector = executor.clone();
+    let installer = ProcessAdapterInstaller::new(
+        AGENT_ID,
+        INSTALLER_ID,
+        PROVIDER_VERSION,
+        ProcessAdapterPackage::npm(PACKAGE_ID, PACKAGE_VERSION),
+    )
+    .with_dependency(ProcessAdapterPackage::npm("openai", "7.1.0"))
+    .with_executor(Arc::new(executor));
+
+    installer
+        .install(install_request().with_options(options.clone()))
+        .expect("provider installs into the requested directory");
+    installer
+        .uninstall(
+            AgentUninstallRequest::new("uninstall.codex.options", AGENT_ID).with_options(options),
+        )
+        .expect("provider uninstalls from the requested directory");
+
+    let commands = inspector.commands();
+    let expected_root =
+        dunce::canonicalize(&custom_root).expect("canonicalize custom install root");
+    for index in [0, 1, 3, 4] {
+        assert_eq!(
+            PathBuf::from(&commands[index].args[1]),
+            expected_root,
+            "command {index} targets the custom root"
+        );
+    }
+}
+
+#[test]
+fn invalid_install_options_fail_closed_before_any_mutation() {
+    let executor = FakeCommandExecutor::default();
+    let inspector = executor.clone();
+    let installer = installer(executor);
+
+    let empty_root =
+        install_request().with_options(AgentInstallOptions::new().with_install_root(""));
+    let error = installer
+        .plan_install(&empty_root)
+        .expect_err("empty install root is rejected at planning");
+    assert_eq!(error.kind(), KernelErrorKind::ValidationError);
+
+    let padded_root = install_request()
+        .with_options(AgentInstallOptions::new().with_install_root(" /tmp/provider-root "));
+    let error = installer
+        .install(padded_root)
+        .expect_err("padded install root is rejected before mutation");
+    assert_eq!(error.kind(), KernelErrorKind::ValidationError);
+
+    let empty_python =
+        install_request().with_options(AgentInstallOptions::new().with_python_binary(""));
+    let error = installer
+        .plan_install(&empty_python)
+        .expect_err("empty python binary is rejected at planning");
+    assert_eq!(error.kind(), KernelErrorKind::ValidationError);
+
+    let padded_python =
+        install_request().with_options(AgentInstallOptions::new().with_python_binary(" python3 "));
+    let error = installer
+        .install(padded_python)
+        .expect_err("padded python binary is rejected before mutation");
+    assert_eq!(error.kind(), KernelErrorKind::ValidationError);
+
+    assert!(inspector.commands().is_empty());
+}
+
+#[test]
+fn python_binary_option_targets_the_requested_interpreter() {
+    let executor = FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(python_detection(None)),
+        ProcessAdapterCommandOutput::success(""),
+        ProcessAdapterCommandOutput::success(python_detection(Some("0.19.0"))),
+    ]);
+    let inspector = executor.clone();
+    let installer = ProcessAdapterInstaller::new(
+        "agent.hermes",
+        "provider.agent.installer.hermes",
+        PROVIDER_VERSION,
+        ProcessAdapterPackage::pypi("hermes-agent", "0.19.0"),
+    )
+    .with_executor(Arc::new(executor));
+
+    let request = sdkwork_agent_kernel::AgentInstallRequest::new(
+        "install.hermes.custom-python",
+        "agent.hermes",
+        PROVIDER_VERSION,
+        AgentPackageSource::registry("pypi", "hermes-agent", "0.19.0"),
+    )
+    .with_options(AgentInstallOptions::new().with_python_binary("/opt/custom/bin/python"));
+
+    installer
+        .install(request)
+        .expect("provider installs with the requested interpreter");
+
+    let commands = inspector.commands();
+    assert_eq!(commands[0].program, "/opt/custom/bin/python");
+    assert_eq!(commands[1].program, "/opt/custom/bin/python");
+    assert!(commands[1]
+        .args
+        .iter()
+        .any(|argument| argument == "hermes-agent==0.19.0"));
+}
+
+fn temporary_options_root(label: &str) -> PathBuf {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system time after Unix epoch")
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "sdkwork-provider-options-{label}-{}-{nonce}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&path).expect("temporary options root is created");
+    path
 }

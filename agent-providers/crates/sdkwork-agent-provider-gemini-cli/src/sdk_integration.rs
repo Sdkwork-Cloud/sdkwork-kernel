@@ -159,6 +159,11 @@ mod tests {
 
     #[test]
     fn model_provider_routes_invoke_through_typescript_runtime() {
+        // The sdk_probe backend is the local mock runtime for these tests;
+        // it requires the explicit non-production mock override (fail-closed
+        // by default).
+        std::env::set_var("SDKWORK_KERNEL_ENVIRONMENT", "development");
+        std::env::set_var("SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS", "1");
         let integration = GeminiCliSdkIntegration::bootstrap().expect("bootstrap should succeed");
         let response = integration
             .model

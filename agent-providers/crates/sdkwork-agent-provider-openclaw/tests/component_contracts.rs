@@ -24,7 +24,7 @@ fn model_provider_manifest_uses_canonical_provider_id() {
     let provider = OpenClawModelProvider::new();
     assert_eq!(
         provider.provider_manifest().provider_id,
-        "provider.model.openclaw"
+        "provider.openclaw"
     );
 }
 
@@ -32,13 +32,10 @@ fn model_provider_manifest_uses_canonical_provider_id() {
 fn kernel_plugin_manifest_declares_runtime_providers() {
     let manifest = openclaw_kernel_plugin_manifest();
     assert_eq!(manifest.plugin_id, "plugin.intelligence.openclaw");
-    assert_eq!(
-        manifest.agent_id.as_deref(),
-        Some("agent.intelligence.openclaw")
-    );
+    assert_eq!(manifest.agent_id.as_deref(), Some("agent.openclaw"));
     assert!(manifest
         .provider_ids
-        .contains(&"provider.model.openclaw".to_string()));
+        .contains(&"provider.openclaw".to_string()));
     assert!(!manifest
         .provider_ids
         .contains(&"provider.tool.openclaw".to_string()));
@@ -53,7 +50,7 @@ fn provider_manifests_exclude_agent_internal_tools() {
         .into_iter()
         .map(|manifest| manifest.provider_id)
         .collect();
-    assert!(provider_ids.contains(&"provider.model.openclaw".to_string()));
+    assert!(provider_ids.contains(&"provider.openclaw".to_string()));
     assert!(!provider_ids.contains(&"provider.tool.openclaw".to_string()));
     assert!(provider_ids.contains(&"provider.policy.sdk-standard".to_string()));
     assert!(provider_ids.contains(&"provider.agent.installer.openclaw".to_string()));
@@ -94,10 +91,7 @@ fn kernel_plugin_configures_runtime() {
         plugin.plugin_manifest().plugin_id,
         "plugin.intelligence.openclaw"
     );
-    assert_eq!(
-        plugin.agent_manifest().agent_id,
-        "agent.intelligence.openclaw"
-    );
+    assert_eq!(plugin.agent_manifest().agent_id, "agent.openclaw");
     let report = plugin
         .configure_runtime(RuntimeBuilder::new(
             "runtime.openclaw.installer",

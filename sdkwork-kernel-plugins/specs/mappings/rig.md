@@ -31,7 +31,7 @@ SDKWork-owned implementation lives in
 kernel SPI contracts, not on `sdkwork-agent-kernel` depending on Rig.
 
 The Rig adapter exposes `rig_agent_definition()` as the executable standard
-definition. It binds `provider.model.rig-rust`,
+definition. It binds `provider.rig-rust`,
 `provider.memory.rig-rust`,
 `provider.knowledge.rig-rust`, `provider.planning.rig-rust`,
 `provider.policy.rig-standard`, `adapter.rpc.agent-chat`,

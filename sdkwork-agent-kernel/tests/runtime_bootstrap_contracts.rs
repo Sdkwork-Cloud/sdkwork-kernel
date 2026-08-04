@@ -10,7 +10,7 @@ const BASE_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.general",
+  "agent_id": "agent.general",
   "name": "sdkwork-general-agent",
   "display_name": "SDKWork General Agent",
   "description": "Provider-neutral agent runtime.",
@@ -44,7 +44,7 @@ const INSTALLABLE_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.installable",
+  "agent_id": "agent.installable",
   "name": "sdkwork-installable-agent",
   "display_name": "SDKWork Installable Agent",
   "description": "Agent that requires kernel-owned installation and configuration capabilities.",
@@ -82,7 +82,7 @@ const VERSIONED_MODEL_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.versioned-model",
+  "agent_id": "agent.versioned-model",
   "name": "sdkwork-versioned-model-agent",
   "display_name": "SDKWork Versioned Model Agent",
   "description": "Agent that requires a minimum model provider version.",
@@ -108,7 +108,7 @@ fn runtime_builder_bootstraps_ready_when_required_capabilities_are_available() {
     let manifest = AgentManifest::from_json(BASE_AGENT_MANIFEST_JSON).unwrap();
     let report = RuntimeBuilder::new("runtime.local", manifest)
         .with_generated_at("2026-05-27T00:00:00Z")
-        .register_provider(provider("provider.model.fake", "model", vec!["model.chat"]))
+        .register_provider(provider("provider.fake", "model", vec!["model.chat"]))
         .register_provider(provider(
             "provider.policy.fake",
             "policy",
@@ -140,7 +140,7 @@ fn runtime_builder_bootstraps_degraded_when_only_optional_capabilities_are_missi
     let manifest = AgentManifest::from_json(BASE_AGENT_MANIFEST_JSON).unwrap();
     let report = RuntimeBuilder::new("runtime.local", manifest)
         .with_generated_at("2026-05-27T00:00:00Z")
-        .register_provider(provider("provider.model.fake", "model", vec!["model.chat"]))
+        .register_provider(provider("provider.fake", "model", vec!["model.chat"]))
         .register_provider(provider(
             "provider.policy.fake",
             "policy",
@@ -165,7 +165,7 @@ fn runtime_builder_bootstraps_failed_when_required_capabilities_are_missing() {
     let manifest = AgentManifest::from_json(BASE_AGENT_MANIFEST_JSON).unwrap();
     let report = RuntimeBuilder::new("runtime.local", manifest)
         .with_generated_at("2026-05-27T00:00:00Z")
-        .register_provider(provider("provider.model.fake", "model", vec!["model.chat"]))
+        .register_provider(provider("provider.fake", "model", vec!["model.chat"]))
         .bootstrap()
         .expect("runtime bootstrap report is still returned");
 
@@ -189,13 +189,13 @@ fn runtime_builder_selects_provider_that_satisfies_required_capability_min_versi
     let report = RuntimeBuilder::new("runtime.versioned", manifest)
         .with_generated_at("2026-05-29T00:00:00Z")
         .register_provider(provider_with_version(
-            "provider.model.legacy",
+            "provider.legacy",
             "model",
             "1.9.0",
             vec!["model.chat"],
         ))
         .register_provider(provider_with_version(
-            "provider.model.current",
+            "provider.current",
             "model",
             "2.1.0",
             vec!["model.chat"],
@@ -205,7 +205,7 @@ fn runtime_builder_selects_provider_that_satisfies_required_capability_min_versi
 
     assert_eq!(report.runtime.state(), RuntimeState::Ready);
     let model_capability = capability(&report, "model.chat");
-    assert_eq!(model_capability.provider_id, "provider.model.current");
+    assert_eq!(model_capability.provider_id, "provider.current");
     assert_eq!(model_capability.version, "2.1.0");
 }
 
@@ -215,7 +215,7 @@ fn runtime_builder_fails_when_required_capability_min_version_is_not_satisfied()
     let report = RuntimeBuilder::new("runtime.versioned", manifest)
         .with_generated_at("2026-05-29T00:00:00Z")
         .register_provider(provider_with_version(
-            "provider.model.legacy",
+            "provider.legacy",
             "model",
             "1.9.0",
             vec!["model.chat"],
@@ -250,7 +250,7 @@ fn runtime_bootstrap_report_preserves_kernel_version_and_registered_providers() 
     let manifest = AgentManifest::from_json(BASE_AGENT_MANIFEST_JSON).unwrap();
     let RuntimeBootstrapReport { runtime, events } = RuntimeBuilder::new("runtime.local", manifest)
         .with_generated_at("2026-05-27T00:00:00Z")
-        .register_provider(provider("provider.model.fake", "model", vec!["model.chat"]))
+        .register_provider(provider("provider.fake", "model", vec!["model.chat"]))
         .bootstrap()
         .expect("runtime bootstraps");
 
@@ -401,9 +401,7 @@ fn runtime_builder_rejects_agent_package_for_a_different_agent_manifest() {
     let manifest = AgentManifest::from_json(INSTALLABLE_AGENT_MANIFEST_JSON).unwrap();
     let error = RuntimeBuilder::new("runtime.local", manifest)
         .with_generated_at("2026-05-27T00:00:00Z")
-        .with_agent_package_manifest(
-            installable_agent_package().for_agent("agent.intelligence.different"),
-        )
+        .with_agent_package_manifest(installable_agent_package().for_agent("agent.different"))
         .bootstrap()
         .expect_err("runtime rejects package bound to a different agent id");
 
@@ -480,9 +478,9 @@ impl AgentConfigurationProvider for MissingLlmApiKeyConfigurationProvider {
 
 fn installable_agent_package() -> AgentPackageManifest {
     AgentPackageManifest::new(
-        "agent.intelligence.installable",
+        "agent.installable",
         "0.1.0",
-        AgentPackageSource::registry("sdkwork", "agent.intelligence.installable", "0.1.0"),
+        AgentPackageSource::registry("sdkwork", "agent.installable", "0.1.0"),
     )
     .with_lifecycle(AgentPackageLifecycle::installable())
     .expect("installable lifecycle")

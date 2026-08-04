@@ -279,7 +279,7 @@ impl Default for HermesModelProvider {
 impl ModelProvider for HermesModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.hermes",
+            "provider.hermes",
             "model",
             "Hermes Model Provider",
             "0.1.0",
@@ -298,7 +298,7 @@ impl ModelProvider for HermesModelProvider {
     fn list_models(&self) -> Vec<ModelDescriptor> {
         let mut models = vec![ModelDescriptor::new(
             "hermes-runtime-default",
-            "provider.model.hermes",
+            "provider.hermes",
             "Hermes Agent Runtime (configured model)",
             "hermes",
         )
@@ -323,7 +323,7 @@ impl ModelProvider for HermesModelProvider {
                 0,
                 ModelDescriptor::new(
                     &self.default_model,
-                    "provider.model.hermes",
+                    "provider.hermes",
                     &self.default_model,
                     "hermes",
                 )
@@ -341,11 +341,11 @@ impl ModelProvider for HermesModelProvider {
     }
 
     fn invoke(&self, _request: ModelRequest) -> KernelResult<ModelResponse> {
-        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.model.hermes")
+        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.hermes")
     }
 
     fn stream(&self, _request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
-        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.model.hermes")
+        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.hermes")
     }
 }
 
@@ -617,7 +617,7 @@ mod tests {
     fn model_provider_manifest() {
         let provider = HermesModelProvider::new();
         let manifest = provider.provider_manifest();
-        assert_eq!(manifest.provider_id, "provider.model.hermes");
+        assert_eq!(manifest.provider_id, "provider.hermes");
         assert_eq!(manifest.provider_family, "model");
         assert_eq!(manifest.name, "Hermes Model Provider");
         assert!(manifest.capabilities.contains(&"model.chat".to_string()));

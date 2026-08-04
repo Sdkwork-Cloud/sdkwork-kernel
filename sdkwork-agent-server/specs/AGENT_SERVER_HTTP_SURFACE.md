@@ -136,7 +136,7 @@ Structured logs label runtime requests with `api_surface=internal-api` (`sdkwork
   delete release bridge-owned session/history/event state and remove the per-session turn lock after
   acquiring that lock. Bridge event snapshots are bounded per session and globally, preventing
   high-churn short sessions from leaving unbounded transient runtime entries behind.
-- Session create/list routes validate `agentId` against `agent_registry::active_hosted_agent()` for the selected plugin (for example `agent.intelligence.rig-general`, `agent.intelligence.openclaw`, `agent.intelligence.hermes`, or `agent.intelligence.codex`; debug builds also accept dev aliases such as `agent.1`).
+- Session create/list routes validate `agentId` against `agent_registry::active_hosted_agent()` for the selected plugin (for example `agent.rig-general`, `agent.openclaw`, `agent.hermes`, or `agent.codex`; debug builds also accept dev aliases such as `agent.1`).
 - Default `modelProvider` metadata is stamped from the hosted agent binding when omitted.
 - Non-production profiles may set `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS=1` (debug builds default on) so typed `ProviderUnavailable` / missing streaming capabilities fall back to the bridge mock path.
 - Production profiles (`SDKWORK_KERNEL_ENVIRONMENT=production` or `SDKWORK_KERNEL_PROFILE_ID` ending in `.production`) disable mock fallback and preflight rejects `SDKWORK_KERNEL_ALLOW_MOCK_PROVIDERS`; provider failures surface as `503` on invoke/stream routes.

@@ -27,23 +27,27 @@ struct NpmProviderCase {
 
 const NPM_PROVIDERS: &[NpmProviderCase] = &[
     NpmProviderCase {
-        agent_id: "agent.intelligence.codex",
+        agent_id: "agent.codex",
         provider_id: "provider.agent.installer.codex",
-        package_id: "@openai/codex-sdk",
+        package_id: "@openai/codex",
         package_version: "0.146.0",
         dependencies: &[],
         install_scripts: false,
     },
     NpmProviderCase {
-        agent_id: "agent.intelligence.claude-code",
+        agent_id: "agent.claude-code",
         provider_id: "provider.agent.installer.claude-code",
         package_id: "@anthropic-ai/claude-agent-sdk",
         package_version: "0.3.220",
-        dependencies: &[],
+        dependencies: &[
+            ("@anthropic-ai/sdk", "0.115.0"),
+            ("@modelcontextprotocol/sdk", "1.30.0"),
+            ("zod", "4.4.3"),
+        ],
         install_scripts: false,
     },
     NpmProviderCase {
-        agent_id: "agent.intelligence.gemini-cli",
+        agent_id: "agent.gemini-cli",
         provider_id: "provider.agent.installer.gemini-cli",
         package_id: "@google/gemini-cli",
         package_version: "0.53.0",
@@ -51,15 +55,15 @@ const NPM_PROVIDERS: &[NpmProviderCase] = &[
         install_scripts: false,
     },
     NpmProviderCase {
-        agent_id: "agent.intelligence.opencode",
+        agent_id: "agent.opencode",
         provider_id: "provider.agent.installer.opencode",
         package_id: "@opencode-ai/sdk",
-        package_version: "1.18.10",
+        package_version: "1.18.11",
         dependencies: &[],
         install_scripts: false,
     },
     NpmProviderCase {
-        agent_id: "agent.intelligence.openclaw",
+        agent_id: "agent.openclaw",
         provider_id: "provider.agent.installer.openclaw",
         package_id: "openclaw",
         package_version: "2026.7.1-2",
@@ -67,7 +71,7 @@ const NPM_PROVIDERS: &[NpmProviderCase] = &[
         install_scripts: true,
     },
     NpmProviderCase {
-        agent_id: "agent.intelligence.mimo-code",
+        agent_id: "agent.mimo-code",
         provider_id: "provider.agent.installer.mimo-code",
         package_id: "@mimo-ai/sdk",
         package_version: "0.1.9",
@@ -81,7 +85,7 @@ const NPM_PROVIDERS: &[NpmProviderCase] = &[
 fn real_npm_provider_lifecycle_reaches_exact_versions() {
     for case in NPM_PROVIDERS {
         let runtime = TemporaryRuntime::new("npm", case.agent_id);
-        if case.agent_id == "agent.intelligence.codex" {
+        if case.agent_id == "agent.codex" {
             let previous = npm_installer(case, runtime.path(), "0.1.0", "0.145.0", false);
             previous
                 .install(AgentInstallRequest::new(
@@ -100,7 +104,7 @@ fn real_npm_provider_lifecycle_reaches_exact_versions() {
             case.package_version,
             case.install_scripts,
         );
-        if case.agent_id == "agent.intelligence.codex" {
+        if case.agent_id == "agent.codex" {
             installer
                 .upgrade(AgentUpgradeRequest::new(
                     "upgrade.codex.latest",
@@ -149,7 +153,7 @@ fn real_npm_provider_lifecycle_reaches_exact_versions() {
 #[test]
 #[ignore = "requires PyPI access and installs Hermes into a temporary virtual environment"]
 fn real_python_provider_lifecycle_isolated_in_virtual_environment() {
-    let runtime = TemporaryRuntime::new("python", "agent.intelligence.hermes");
+    let runtime = TemporaryRuntime::new("python", "agent.hermes");
     let venv = runtime.path().join("venv");
     let status = Command::new(default_python_binary())
         .args(["-m", "venv"])
@@ -170,7 +174,7 @@ fn real_python_provider_lifecycle_isolated_in_virtual_environment() {
         managed_python.as_os_str().to_owned(),
     );
     let installer = ProcessAdapterInstaller::new(
-        "agent.intelligence.hermes",
+        "agent.hermes",
         "provider.agent.installer.hermes",
         PROVIDER_VERSION,
         ProcessAdapterPackage::pypi("hermes-agent", "0.19.0"),
@@ -180,19 +184,19 @@ fn real_python_provider_lifecycle_isolated_in_virtual_environment() {
     installer
         .install(AgentInstallRequest::new(
             "install.hermes.latest",
-            "agent.intelligence.hermes",
+            "agent.hermes",
             PROVIDER_VERSION,
             AgentPackageSource::registry("pypi", "hermes-agent", "0.19.0"),
         ))
         .expect("Hermes installs into the managed virtual environment");
     assert!(installer
-        .detect_installation("agent.intelligence.hermes")
+        .detect_installation("agent.hermes")
         .expect("Hermes installation is detected")
         .is_installed());
     installer
         .upgrade(AgentUpgradeRequest::new(
             "upgrade.hermes.idempotent",
-            "agent.intelligence.hermes",
+            "agent.hermes",
             PROVIDER_VERSION,
             PROVIDER_VERSION,
         ))
@@ -200,11 +204,11 @@ fn real_python_provider_lifecycle_isolated_in_virtual_environment() {
     installer
         .uninstall(AgentUninstallRequest::new(
             "uninstall.hermes",
-            "agent.intelligence.hermes",
+            "agent.hermes",
         ))
         .expect("Hermes uninstalls from the managed virtual environment");
     assert!(!installer
-        .detect_installation("agent.intelligence.hermes")
+        .detect_installation("agent.hermes")
         .expect("Hermes uninstall is detected")
         .is_installed());
 }

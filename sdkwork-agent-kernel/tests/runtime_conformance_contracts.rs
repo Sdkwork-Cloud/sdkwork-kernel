@@ -8,7 +8,7 @@ const RUNTIME_CONFORMANCE_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.runtime-conformance",
+  "agent_id": "agent.runtime-conformance",
   "name": "sdkwork-runtime-conformance-agent",
   "display_name": "SDKWork Runtime Conformance Agent",
   "description": "Agent used to prove runtime conformance report contracts.",
@@ -43,7 +43,7 @@ fn manifest_runtime_conformance_reports_capability_negotiation_without_requiring
     let manifest = AgentManifest::from_json(RUNTIME_CONFORMANCE_AGENT_MANIFEST_JSON).unwrap();
     let runtime = RuntimeBuilder::new("runtime.agent.conformance", manifest)
         .with_generated_at("2026-05-29T00:00:00Z")
-        .register_model_provider_manifest("provider.model.manifest", "0.1.0")
+        .register_model_provider_manifest("provider.manifest", "0.1.0")
         .register_policy_provider_manifest("provider.policy.manifest", "0.1.0")
         .bootstrap()
         .expect("runtime bootstraps")
@@ -81,7 +81,7 @@ fn local_runtime_conformance_detects_manifest_only_missing_and_unhealthy_provide
     let manifest = AgentManifest::from_json(RUNTIME_CONFORMANCE_AGENT_MANIFEST_JSON).unwrap();
     let runtime = RuntimeBuilder::new("runtime.agent.conformance", manifest)
         .with_generated_at("2026-05-29T00:00:00Z")
-        .register_model_provider("provider.model.typed", "0.1.0", DegradedModelProvider)
+        .register_model_provider("provider.typed", "0.1.0", DegradedModelProvider)
         .register_policy_provider_manifest("provider.policy.manifest", "0.1.0")
         .bootstrap()
         .expect("runtime bootstraps")
@@ -122,19 +122,19 @@ fn runtime_conformance_rejects_capability_ids_that_are_not_lowercase_namespaces(
         schema_version: "0.1.0".to_string(),
         manifest_type: "capability".to_string(),
         runtime_id: "runtime.agent.invalid-capability".to_string(),
-        agent_id: "agent.intelligence.invalid-capability".to_string(),
+        agent_id: "agent.invalid-capability".to_string(),
         kernel_version: "0.1.0".to_string(),
         providers: vec![ProviderManifest::new(
-            "provider.model.invalid",
+            "provider.invalid",
             "model",
-            "provider.model.invalid",
+            "provider.invalid",
             "0.1.0",
             vec!["Model.Chat".to_string()],
         )],
         capabilities: vec![Capability {
             capability_id: "Model.Chat".to_string(),
             version: "0.1.0".to_string(),
-            provider_id: "provider.model.invalid".to_string(),
+            provider_id: "provider.invalid".to_string(),
             status: "available".to_string(),
             required: true,
             operations: Vec::new(),
@@ -163,7 +163,7 @@ fn runtime_conformance_rejects_protocol_adapter_exposure_outside_effective_capab
         schema_version: "0.1.0".to_string(),
         manifest_type: "capability".to_string(),
         runtime_id: "runtime.agent.invalid-adapter-exposure".to_string(),
-        agent_id: "agent.intelligence.invalid-adapter-exposure".to_string(),
+        agent_id: "agent.invalid-adapter-exposure".to_string(),
         kernel_version: "0.1.0".to_string(),
         providers: vec![ProviderManifest::new(
             "adapter.rpc.invalid",
@@ -205,9 +205,9 @@ struct DegradedModelProvider;
 impl ModelProvider for DegradedModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.typed",
+            "provider.typed",
             "model",
-            "provider.model.typed",
+            "provider.typed",
             "0.1.0",
             vec!["model.chat".to_string()],
         )
@@ -222,7 +222,7 @@ impl ModelProvider for DegradedModelProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         Ok(ModelResponse::text(
             request.model_request_id,
-            "provider.model.typed",
+            "provider.typed",
             "runtime conformance response",
         ))
     }

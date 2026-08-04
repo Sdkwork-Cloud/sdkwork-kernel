@@ -1388,7 +1388,13 @@ components:
             type: string
     RuntimeSnapshot:
       type: object
-      required: [runtime, events, permissions, workspace, patches, verificationReports, terminalCommands, terminalOutput, reviewFindings]
+      required: [runtime, events, permissions, patches, verificationReports, terminalCommands, terminalOutput, reviewFindings]
+      description: >-
+        Kernel runtime aggregate snapshot.  is null because the
+        kernel runtime owns no workspace surface; the product layer
+        (agents/BirdCoder) projects its own workspace snapshot when mounted.
+        Patch/verification/terminal/review projections are kernel-absent and
+        reported empty.
       properties:
         runtime:
           $ref: '#/components/schemas/KernelRuntime'
@@ -1401,6 +1407,7 @@ components:
           items:
             $ref: '#/components/schemas/PermissionRequest'
         workspace:
+          nullable: true
           $ref: '#/components/schemas/Workspace'
         patches:
           type: array

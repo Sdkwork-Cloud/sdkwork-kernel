@@ -2,7 +2,7 @@ use axum::{
     extract::{Request, State},
     http::{header::HeaderName, HeaderMap, HeaderValue, StatusCode},
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
 };
 use std::sync::Arc;
 use tracing::{info, warn};
@@ -262,6 +262,40 @@ pub async fn security_headers_middleware(request: Request, next: Next) -> Respon
         HeaderValue::from_static("max-age=63072000; includeSubDomains; preload"),
     );
     response
+}
+
+/// Rewrites axum's default extractor rejections into the SDKWork problem
+/// contract.
+///
+/// axum 0.8 turns extractor rejections (unknown query parameters, malformed
+/// JSON bodies, bad path values) into a `text/plain` 400 without `code` or
+/// `traceId`. Every middleware and handler in this server already returns
+/// `application/problem+json`, so a `400` with `text/plain` inside the
+/// internal runtime surface can only be an extractor rejection; it is
+/// normalized to `40003 INVALID_PARAMETER` per `PAGINATION_SPEC.md` §10.1.
+pub async fn extractor_rejection_normalizer(request: Request, next: Next) -> Response {
+    let path = request.uri().path().to_string();
+    let response = next.run(request).await;
+    let is_plain_400 = response.status() == StatusCode::BAD_REQUEST
+        && response
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|content_type| content_type.starts_with("text/plain"));
+    if !is_plain_400 || !path.starts_with(crate::runtime_routes::INTERNAL_RUNTIME_MOUNT_PREFIX) {
+        return response;
+    }
+    let trace_id = response
+        .headers()
+        .get("traceparent")
+        .and_then(|value| value.to_str().ok())
+        .and_then(crate::observability::trace_id_from_traceparent)
+        .unwrap_or_else(generate_request_id);
+    warn!(path = %path, "normalized extractor rejection to the problem contract");
+    ProblemDetail::new(StatusCode::BAD_REQUEST)
+        .with_detail("request parameters could not be parsed")
+        .with_trace_id(trace_id)
+        .into_response()
 }
 
 /// Optional ingress token or JWT auth for non-health API routes.

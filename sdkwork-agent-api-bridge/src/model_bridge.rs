@@ -410,7 +410,7 @@ impl ModelBridge {
     }
 
     fn cancel_mock(&self, model_request_id: &str) -> ModelResponse {
-        let mut response = ModelResponse::text(model_request_id, "provider.model.mock", "");
+        let mut response = ModelResponse::text(model_request_id, "provider.mock", "");
         response.status = ModelStatus::Cancelled;
         response.finish_reason = Some("cancelled".to_string());
         response

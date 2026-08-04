@@ -22,10 +22,7 @@ fn component_spec_matches_crate_identity() {
 #[test]
 fn model_provider_manifest_uses_canonical_provider_id() {
     let provider = MiMoCodeModelProvider::new();
-    assert_eq!(
-        provider.provider_manifest().provider_id,
-        "provider.model.mimo"
-    );
+    assert_eq!(provider.provider_manifest().provider_id, "provider.mimo");
 }
 
 #[test]
@@ -44,10 +41,7 @@ fn kernel_plugin_exposes_the_standard_installation_surface() {
     assert!(provider_ids.contains(&"provider.agent.installer.mimo-code".to_string()));
 
     let plugin = MiMoCodeKernelPlugin::new();
-    assert_eq!(
-        plugin.agent_manifest().agent_id,
-        "agent.intelligence.mimo-code"
-    );
+    assert_eq!(plugin.agent_manifest().agent_id, "agent.mimo-code");
     let report = plugin
         .configure_runtime(RuntimeBuilder::new(
             "runtime.mimo-code.installer",

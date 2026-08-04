@@ -16,7 +16,7 @@ const CHAT_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.chat-service",
+  "agent_id": "agent.chat-service",
   "name": "sdkwork-chat-service-agent",
   "display_name": "SDKWork Chat Service Agent",
   "description": "Agent used to prove transport-neutral chat service contracts.",
@@ -45,7 +45,7 @@ const CHAT_RPC_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.chat-rpc",
+  "agent_id": "agent.chat-rpc",
   "name": "sdkwork-chat-rpc-agent",
   "display_name": "SDKWork Chat RPC Agent",
   "description": "Agent used to prove typed chat RPC protocol adapter registration.",
@@ -78,7 +78,7 @@ const CHAT_OPTIONAL_KNOWLEDGE_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.chat-optional-knowledge",
+  "agent_id": "agent.chat-optional-knowledge",
   "name": "sdkwork-chat-optional-knowledge-agent",
   "display_name": "SDKWork Chat Optional Knowledge Agent",
   "description": "Agent used to prove knowledge providers are optional unless selected or required.",
@@ -112,7 +112,7 @@ const CHAT_REQUIRED_KNOWLEDGE_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.chat-required-knowledge",
+  "agent_id": "agent.chat-required-knowledge",
   "name": "sdkwork-chat-required-knowledge-agent",
   "display_name": "SDKWork Chat Required Knowledge Agent",
   "description": "Agent used to prove required knowledge capabilities fail closed.",
@@ -147,7 +147,7 @@ fn chat_service_evaluates_policy_and_invokes_selected_model_provider() {
     let captured_policy_requests = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -160,7 +160,7 @@ fn chat_service_evaluates_policy_and_invokes_selected_model_provider() {
         "chat-request.1",
         vec!["Summarize the Rig plugin status".to_string()],
     )
-    .with_provider_id("provider.model.chat.primary")
+    .with_provider_id("provider.chat.primary")
     .with_model_id("model.chat.fast")
     .for_session("session.1")
     .for_task("task.1")
@@ -176,7 +176,7 @@ fn chat_service_evaluates_policy_and_invokes_selected_model_provider() {
         .expect("chat service invokes selected model provider");
 
     assert_eq!(response.chat_request_id, "chat-request.1");
-    assert_eq!(response.provider_id, "provider.model.chat.primary");
+    assert_eq!(response.provider_id, "provider.chat.primary");
     assert_eq!(response.policy_decision.request_id, "policy.chat-request.1");
     assert_eq!(
         response.model_response.messages,
@@ -201,7 +201,7 @@ fn chat_service_evaluates_policy_and_invokes_selected_model_provider() {
     );
     assert_eq!(
         policy_request.context_value("provider_id"),
-        Some("provider.model.chat.primary")
+        Some("provider.chat.primary")
     );
     assert_eq!(policy_request.context_value("step_id"), Some("step.1"));
 
@@ -233,7 +233,7 @@ fn chat_service_runs_without_knowledge_provider_when_knowledge_is_not_requested(
     let captured_policy_requests = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -271,10 +271,10 @@ fn optional_knowledge_capability_degrades_runtime_but_does_not_block_plain_chat(
     let report = RuntimeBuilder::new("runtime.chat.optional-knowledge", manifest)
         .with_generated_at("2026-06-10T00:00:00Z")
         .register_model_provider(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "0.1.0",
             RecordingModelProvider::new(
-                "provider.model.chat.primary",
+                "provider.chat.primary",
                 "primary",
                 captured_model_requests.clone(),
             ),
@@ -318,10 +318,10 @@ fn required_knowledge_capability_missing_fails_closed_before_chat_execution() {
     let report = RuntimeBuilder::new("runtime.chat.required-knowledge", manifest)
         .with_generated_at("2026-06-10T00:00:00Z")
         .register_model_provider(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "0.1.0",
             RecordingModelProvider::new(
-                "provider.model.chat.primary",
+                "provider.chat.primary",
                 "primary",
                 captured_model_requests.clone(),
             ),
@@ -367,7 +367,7 @@ fn chat_service_fails_closed_when_policy_denies_model_invoke() {
     let captured_policy_requests = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -404,7 +404,7 @@ fn chat_service_maps_policy_approval_requirement_to_permission_required() {
     let captured_policy_requests = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -437,7 +437,7 @@ fn chat_service_rejects_blank_messages_before_policy_and_model_invocation() {
     let captured_policy_requests = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -468,7 +468,7 @@ fn chat_service_rejects_incomplete_policy_subject_before_policy_and_model_invoca
     let captured_policy_requests = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -501,7 +501,7 @@ fn chat_service_attaches_requested_tool_descriptors_without_invoking_tools() {
     let captured_tool_calls = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime_with_tool_provider(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -549,7 +549,7 @@ fn chat_service_queries_requested_memory_and_attaches_context_frames() {
     let captured_memory_queries = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime_with_memory_provider(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -636,7 +636,7 @@ fn chat_service_queries_requested_knowledge_and_attaches_rag_context_frames() {
     let captured_knowledge_queries = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime_with_knowledge_provider(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -767,7 +767,7 @@ fn chat_service_fails_closed_when_knowledge_policy_denies_before_search_and_mode
     let captured_knowledge_queries = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime_with_knowledge_provider(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -807,7 +807,7 @@ fn chat_service_rejects_zero_knowledge_top_k_before_policy_model_and_search() {
     let captured_knowledge_queries = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime_with_knowledge_provider(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -842,10 +842,7 @@ fn chat_service_preserves_model_tool_calls_without_auto_execution() {
     let captured_policy_requests = Arc::new(Mutex::new(Vec::new()));
     let captured_tool_calls = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime_with_tool_provider(
-        ToolCallingModelProvider::new(
-            "provider.model.chat.primary",
-            captured_model_requests.clone(),
-        ),
+        ToolCallingModelProvider::new("provider.chat.primary", captured_model_requests.clone()),
         RecordingPolicyProvider::allow("provider.policy.chat", captured_policy_requests),
         RecordingToolProvider::new("provider.tool.chat", captured_tool_calls.clone()),
     );
@@ -935,10 +932,10 @@ fn chat_rpc_adapter_registers_as_typed_protocol_adapter_provider() {
     let report = RuntimeBuilder::new("runtime.chat.rpc.local", manifest)
         .with_generated_at("2026-06-09T00:00:00Z")
         .register_model_provider(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "0.1.0",
             RecordingModelProvider::new(
-                "provider.model.chat.primary",
+                "provider.chat.primary",
                 "primary",
                 captured_model_requests.clone(),
             ),
@@ -1023,7 +1020,7 @@ fn chat_rpc_adapter_registers_as_typed_protocol_adapter_provider() {
                 "agent.chat.create",
                 "hello through runtime adapter",
             )
-            .with_metadata("sdkwork.chat.provider_id", "provider.model.chat.primary")
+            .with_metadata("sdkwork.chat.provider_id", "provider.chat.primary")
             .with_trace_context(TraceContext::new(
                 "trace.runtime-adapter",
                 "span.runtime-adapter",
@@ -1043,7 +1040,7 @@ fn chat_rpc_adapter_handles_rpc_chat_requests_through_chat_service() {
     let captured_policy_requests = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -1060,7 +1057,7 @@ fn chat_rpc_adapter_handles_rpc_chat_requests_through_chat_service() {
                 "model.chat.invoke",
                 "invoke through adapter",
             )
-            .with_metadata("sdkwork.chat.provider_id", "provider.model.chat.primary")
+            .with_metadata("sdkwork.chat.provider_id", "provider.chat.primary")
             .with_metadata("sdkwork.chat.model_id", "model.chat.fast")
             .with_trace_context(trace),
         )
@@ -1168,7 +1165,7 @@ fn chat_rpc_handler_maps_rpc_request_to_chat_service_and_protocol_envelope() {
     let captured_policy_requests = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -1186,7 +1183,7 @@ fn chat_rpc_handler_maps_rpc_request_to_chat_service_and_protocol_envelope() {
                 "Summarize the Rig plugin status",
             )
             .with_external_id("grpc.request.1")
-            .with_metadata("sdkwork.chat.provider_id", "provider.model.chat.primary")
+            .with_metadata("sdkwork.chat.provider_id", "provider.chat.primary")
             .with_metadata("sdkwork.chat.model_id", "model.chat.fast")
             .with_metadata("sdkwork.agent.session_id", "session.1")
             .with_metadata("sdkwork.agent.task_id", "task.1")
@@ -1215,7 +1212,7 @@ fn chat_rpc_handler_maps_rpc_request_to_chat_service_and_protocol_envelope() {
     );
     assert_eq!(
         envelope.metadata_value("sdkwork.chat.provider_id"),
-        Some("provider.model.chat.primary")
+        Some("provider.chat.primary")
     );
     assert_eq!(
         envelope.metadata_value("sdkwork.chat.model_id"),
@@ -1256,7 +1253,7 @@ fn chat_rpc_handler_maps_policy_subject_without_forwarding_policy_metadata_to_mo
     let captured_policy_requests = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -1272,7 +1269,7 @@ fn chat_rpc_handler_maps_policy_subject_without_forwarding_policy_metadata_to_mo
                 "agent.chat.create",
                 "hello with policy subject",
             )
-            .with_metadata("sdkwork.chat.provider_id", "provider.model.chat.primary")
+            .with_metadata("sdkwork.chat.provider_id", "provider.chat.primary")
             .with_metadata("sdkwork.policy.subject_id", "user.1")
             .with_metadata("sdkwork.policy.tenant_id", "tenant.1")
             .with_metadata("sdkwork.policy.roles", "admin, developer")
@@ -1293,7 +1290,7 @@ fn chat_rpc_handler_maps_policy_subject_without_forwarding_policy_metadata_to_mo
     assert_eq!(model_requests.len(), 1);
     assert_eq!(
         model_requests[0].metadata_value("sdkwork.chat.provider_id"),
-        Some("provider.model.chat.primary")
+        Some("provider.chat.primary")
     );
     assert_eq!(
         model_requests[0].metadata_value("sdkwork.policy.subject_id"),
@@ -1321,10 +1318,10 @@ fn chat_rpc_handler_maps_tool_and_memory_metadata_to_model_request_context() {
     let runtime = RuntimeBuilder::new("runtime.chat.rpc-enrichment", manifest)
         .with_generated_at("2026-06-09T00:00:00Z")
         .register_model_provider(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "0.1.0",
             RecordingModelProvider::new(
-                "provider.model.chat.primary",
+                "provider.chat.primary",
                 "primary",
                 captured_model_requests.clone(),
             ),
@@ -1484,7 +1481,7 @@ fn chat_rpc_handler_maps_policy_denial_to_safe_protocol_error_envelope() {
     let captured_policy_requests = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),
@@ -1552,7 +1549,7 @@ fn chat_rpc_handler_rejects_invalid_protocol_operations_and_payloads_before_invo
     let captured_policy_requests = Arc::new(Mutex::new(Vec::new()));
     let runtime = chat_runtime(
         RecordingModelProvider::new(
-            "provider.model.chat.primary",
+            "provider.chat.primary",
             "primary",
             captured_model_requests.clone(),
         ),

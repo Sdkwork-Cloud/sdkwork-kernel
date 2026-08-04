@@ -21,23 +21,17 @@ fn component_spec_matches_crate_identity() {
 #[test]
 fn model_provider_manifest_uses_canonical_provider_id() {
     let provider = CodexModelProvider::new();
-    assert_eq!(
-        provider.provider_manifest().provider_id,
-        "provider.model.codex"
-    );
+    assert_eq!(provider.provider_manifest().provider_id, "provider.codex");
 }
 
 #[test]
 fn kernel_plugin_manifest_declares_runtime_providers() {
     let manifest = codex_kernel_plugin_manifest();
     assert_eq!(manifest.plugin_id, "plugin.intelligence.codex");
-    assert_eq!(
-        manifest.agent_id.as_deref(),
-        Some("agent.intelligence.codex")
-    );
+    assert_eq!(manifest.agent_id.as_deref(), Some("agent.codex"));
     assert!(manifest
         .provider_ids
-        .contains(&"provider.model.codex".to_string()));
+        .contains(&"provider.codex".to_string()));
     assert!(manifest
         .provider_ids
         .contains(&"provider.session-control.codex".to_string()));
@@ -56,7 +50,7 @@ fn provider_manifests_exclude_agent_internal_tools() {
         .iter()
         .map(|manifest| manifest.provider_id.clone())
         .collect();
-    assert!(provider_ids.contains(&"provider.model.codex".to_string()));
+    assert!(provider_ids.contains(&"provider.codex".to_string()));
     assert!(provider_ids.contains(&"provider.session-control.codex".to_string()));
     assert!(!provider_ids.contains(&"provider.tool.codex".to_string()));
     assert!(provider_ids.contains(&"provider.policy.sdk-standard".to_string()));
@@ -109,7 +103,7 @@ fn kernel_plugin_configures_runtime() {
         plugin.plugin_manifest().plugin_id,
         "plugin.intelligence.codex"
     );
-    assert_eq!(plugin.agent_manifest().agent_id, "agent.intelligence.codex");
+    assert_eq!(plugin.agent_manifest().agent_id, "agent.codex");
     let report = plugin
         .configure_runtime(RuntimeBuilder::new(
             "runtime.codex.installer",

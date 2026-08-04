@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.external-code-agent-runtime",
+  "agent_id": "agent.external-code-agent-runtime",
   "name": "external-code-agent-runtime",
   "display_name": "External Code Agent Runtime",
   "description": "Experimental SDKWork manifest for CLI-backed code-agent runtimes such as Codex, Claude Code, OpenCode, and Gemini CLI.",

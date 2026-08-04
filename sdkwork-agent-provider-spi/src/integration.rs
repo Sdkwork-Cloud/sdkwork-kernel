@@ -6,14 +6,22 @@ use crate::negotiation::{SdkCapabilityNegotiation, SdkNegotiationError};
 use crate::registry::{BindingRegistry, DriverRegistry};
 use std::sync::Arc;
 
-pub const CODEX_BINDING_ID: &str = "binding.agent-provider.codex";
-pub const CLAUDE_CODE_BINDING_ID: &str = "binding.agent-provider.claude-code";
-pub const GEMINI_CLI_BINDING_ID: &str = "binding.agent-provider.gemini-cli";
-pub const HERMES_BINDING_ID: &str = "binding.agent-provider.hermes";
-pub const MIMO_CODE_BINDING_ID: &str = "binding.agent-provider.mimo-code";
-pub const OPENCLAW_BINDING_ID: &str = "binding.agent-provider.openclaw";
-pub const OPENCODE_BINDING_ID: &str = "binding.agent-provider.opencode";
-pub const RIG_BINDING_ID: &str = "binding.agent-provider.rig";
+/// Canonical provider binding ids: `binding.{engine}`.
+///
+/// The final segment carries the provider's product name, so it can differ
+/// from the engine key by design: `gemini-cli` (Gemini CLI product), `mimo`
+/// (Mimo), `rig-general` (Rig general agent) and `rig-rust` (Rig Rust
+/// provider) keep their product names instead of the bare engine key. These
+/// values are persisted and exposed through the Agents catalog SDK; changing
+/// a segment requires a data migration and an SDK regeneration.
+pub const CODEX_BINDING_ID: &str = "binding.codex";
+pub const CLAUDE_CODE_BINDING_ID: &str = "binding.claude-code";
+pub const GEMINI_CLI_BINDING_ID: &str = "binding.gemini-cli";
+pub const HERMES_BINDING_ID: &str = "binding.hermes";
+pub const MIMO_CODE_BINDING_ID: &str = "binding.mimo-code";
+pub const OPENCLAW_BINDING_ID: &str = "binding.openclaw";
+pub const OPENCODE_BINDING_ID: &str = "binding.opencode";
+pub const RIG_BINDING_ID: &str = "binding.rig";
 
 /// Registers one static healthy driver entry for every backend candidate in a manifest.
 pub fn register_manifest_drivers(manifest: &AgentSdkBindingManifest, drivers: &mut DriverRegistry) {

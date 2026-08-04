@@ -66,7 +66,7 @@ const RELIABILITY_AGENT_MANIFEST_JSON: &str = r#"
 {
   "schema_version": "0.1.0",
   "manifest_type": "agent",
-  "agent_id": "agent.intelligence.reliability",
+  "agent_id": "agent.reliability",
   "name": "sdkwork-reliability-agent",
   "display_name": "SDKWork Reliability Agent",
   "description": "Agent used to prove execution reliability contracts.",
@@ -98,9 +98,9 @@ fn reliability_runtime(failures: u32) -> sdkwork_agent_kernel::AgentRuntime {
     )
     .with_generated_at("2026-08-01T00:00:00Z")
     .register_model_provider(
-        "provider.model.flaky",
+        "provider.flaky",
         "0.1.0",
-        FlakyModelProvider::new("provider.model.flaky", failures),
+        FlakyModelProvider::new("provider.flaky", failures),
     )
     .register_policy_provider("provider.policy.reliability", "0.1.0", AllowPolicyProvider)
     .bootstrap()

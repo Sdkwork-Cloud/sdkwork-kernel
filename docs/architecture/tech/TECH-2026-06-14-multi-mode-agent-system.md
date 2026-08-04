@@ -21,12 +21,12 @@ Environment variable: `SDKWORK_KERNEL_AGENT_PLUGIN` (also declared in `specs/top
 | Value | Provider crate | Default model provider |
 | --- | --- | --- |
 | `rig` (default) | `sdkwork-agent-provider-rig` | Rig typed providers |
-| `openclaw`, `open-claw` | `sdkwork-agent-provider-openclaw` | `provider.model.openclaw` |
-| `hermes`, `hermes-agent` | `sdkwork-agent-provider-hermes` | `provider.model.hermes` |
-| `codex`, `openai-codex` | `sdkwork-agent-provider-codex` | `provider.model.codex` |
-| `claude-code` | `sdkwork-agent-provider-claude-code` | `provider.model.claude-code` |
-| `gemini-cli`, `gemini` | `sdkwork-agent-provider-gemini-cli` | `provider.model.gemini-cli` |
-| `opencode` | `sdkwork-agent-provider-opencode` | `provider.model.opencode` |
+| `openclaw`, `open-claw` | `sdkwork-agent-provider-openclaw` | `provider.openclaw` |
+| `hermes`, `hermes-agent` | `sdkwork-agent-provider-hermes` | `provider.hermes` |
+| `codex`, `openai-codex` | `sdkwork-agent-provider-codex` | `provider.codex` |
+| `claude-code` | `sdkwork-agent-provider-claude-code` | `provider.claude-code` |
+| `gemini-cli`, `gemini` | `sdkwork-agent-provider-gemini-cli` | `provider.gemini-cli` |
+| `opencode` | `sdkwork-agent-provider-opencode` | `provider.opencode` |
 
 Implementation: `sdkwork-agent-server/src/runtime_bootstrap.rs` bootstraps `RuntimeBuilder` through `SdkworkKernelPlugin::configure_runtime`.
 

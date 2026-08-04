@@ -262,7 +262,7 @@ impl Default for OpenClawModelProvider {
 impl ModelProvider for OpenClawModelProvider {
     fn provider_manifest(&self) -> ProviderManifest {
         ProviderManifest::new(
-            "provider.model.openclaw",
+            "provider.openclaw",
             "model",
             "OpenClaw Model Provider",
             "0.1.0",
@@ -281,7 +281,7 @@ impl ModelProvider for OpenClawModelProvider {
     fn list_models(&self) -> Vec<ModelDescriptor> {
         vec![ModelDescriptor::new(
             "openclaw-default",
-            "provider.model.openclaw",
+            "provider.openclaw",
             "OpenClaw Default",
             "openclaw",
         )
@@ -298,11 +298,11 @@ impl ModelProvider for OpenClawModelProvider {
     }
 
     fn invoke(&self, _request: ModelRequest) -> KernelResult<ModelResponse> {
-        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.model.openclaw")
+        sdkwork_agent_provider_core::reject_in_process_model_invoke("provider.openclaw")
     }
 
     fn stream(&self, _request: ModelRequest) -> KernelResult<Vec<ModelStreamChunk>> {
-        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.model.openclaw")
+        sdkwork_agent_provider_core::reject_in_process_model_stream("provider.openclaw")
     }
 }
 
@@ -602,7 +602,7 @@ mod tests {
     fn model_provider_manifest() {
         let provider = OpenClawModelProvider::new();
         let manifest = provider.provider_manifest();
-        assert_eq!(manifest.provider_id, "provider.model.openclaw");
+        assert_eq!(manifest.provider_id, "provider.openclaw");
         assert_eq!(manifest.provider_family, "model");
     }
 

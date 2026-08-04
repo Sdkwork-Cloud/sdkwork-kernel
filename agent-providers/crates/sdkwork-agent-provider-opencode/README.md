@@ -11,7 +11,7 @@ entrypoints.
 ## Runtime Contract
 
 - Canonical plugin id: `plugin.intelligence.opencode`
-- Canonical agent id: `agent.intelligence.opencode`
+- Canonical agent id: `agent.opencode`
 - Runtime entrypoint: `OpenCodeKernelPlugin::configure_runtime`
 - Public manifests: `opencode_agent_definition`, `opencode_agent_manifest`,
   `opencode_provider_manifests`, `opencode_package_manifest`, and

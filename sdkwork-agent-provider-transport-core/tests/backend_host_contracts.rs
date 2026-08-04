@@ -51,8 +51,8 @@ impl SdkBackendRuntime for UnhealthyRuntime {
 
 fn negotiated_typescript_model_chat() -> SdkCapabilityNegotiation {
     SdkCapabilityNegotiation {
-        agent_id: "agent.intelligence.test".to_string(),
-        binding_id: "binding.agent-provider.test".to_string(),
+        agent_id: "agent.test".to_string(),
+        binding_id: "binding.test".to_string(),
         binding_version: "0.1.0".to_string(),
         selected: vec![NegotiatedCapability {
             capability_id: "sdk.model.chat".to_string(),

@@ -1,11 +1,12 @@
 use sdkwork_agent_kernel::{
     AgentExecutionRequest, AgentExecutionService, AgentExecutionStatus, KernelErrorKind,
     KernelResult, KnowledgeDocumentFilter, KnowledgeDocumentKind, KnowledgeProvider,
-    KnowledgeRetrievalMethod, KnowledgeSearchRequest, McpProvider, McpTransportKind, MemoryProvider,
-    MemoryRecord, MemoryScope, ModelExecutionRequest, ModelExecutionService, ModelProvider,
-    ModelRequest, ModelResponse, ModelResponseFormat, PlanningProvider, PolicyCategory,
-    PolicyDecisionValue, PolicyProvider, PolicyRequest, ProtocolAdapterRequest, ProtocolFamily,
-    ProtocolObjectKind, RedactionClassification, RuntimeBuilder, SideEffectLevel, TrustLevel,
+    KnowledgeRetrievalMethod, KnowledgeSearchRequest, McpProvider, McpTransportKind,
+    MemoryProvider, MemoryRecord, MemoryScope, ModelExecutionRequest, ModelExecutionService,
+    ModelProvider, ModelRequest, ModelResponse, ModelResponseFormat, PlanningProvider,
+    PolicyCategory, PolicyDecisionValue, PolicyProvider, PolicyRequest, ProtocolAdapterRequest,
+    ProtocolFamily, ProtocolObjectKind, RedactionClassification, RuntimeBuilder, SideEffectLevel,
+    TrustLevel,
 };
 use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
 use sdkwork_agent_provider_rig::{

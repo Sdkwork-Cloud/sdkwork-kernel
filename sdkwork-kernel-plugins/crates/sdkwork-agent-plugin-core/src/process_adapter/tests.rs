@@ -66,8 +66,9 @@ impl LockHelper {
         let ready_path = ready_directory.join("ready");
         let host_root = ready_directory.join("provider-host");
         let installer = lifecycle_lock_test_installer(&host_root);
+        let environment = InstallEnvironment::from_installer(&installer);
         let key = installer
-            .operation_lock_key()
+            .operation_lock_key(&environment)
             .expect("resolve lifecycle lock key");
         let lock_path = operation_lock_file_path(&key).expect("resolve lifecycle lock path");
         let child = Command::new(std::env::current_exe().expect("resolve test executable"))
@@ -122,7 +123,7 @@ impl Drop for LockHelper {
 
 fn lifecycle_lock_test_installer(host_root: &Path) -> ProcessAdapterInstaller {
     ProcessAdapterInstaller::new(
-        "agent.intelligence.lifecycle-lock-contract",
+        "agent.lifecycle-lock-contract",
         "provider.agent.installer.lifecycle-lock-contract",
         "1.0.0",
         ProcessAdapterPackage::npm("@sdkwork/lifecycle-lock-contract", "1.0.0"),
@@ -190,13 +191,13 @@ fn explicitly_empty_runtime_environment_values_fail_closed() {
         .expect("lock provider environment contract");
     let python_guard = EnvironmentVariableGuard::set(PYTHON_BINARY_ENV, "");
     let python_installer = ProcessAdapterInstaller::new(
-        "agent.intelligence.environment-python-contract",
+        "agent.environment-python-contract",
         "provider.agent.installer.environment-python-contract",
         "1.0.0",
         ProcessAdapterPackage::pypi("environment-python-contract", "1.0.0"),
     );
     let python_error = python_installer
-        .detect_installation("agent.intelligence.environment-python-contract")
+        .detect_installation("agent.environment-python-contract")
         .expect_err("empty Python runtime configuration must fail closed");
     assert_eq!(
         python_error.kind(),
@@ -211,13 +212,13 @@ fn explicitly_empty_runtime_environment_values_fail_closed() {
     );
     let root_guard = EnvironmentVariableGuard::set(PROVIDER_HOST_ROOT_ENV, "");
     let npm_installer = ProcessAdapterInstaller::new(
-        "agent.intelligence.environment-npm-contract",
+        "agent.environment-npm-contract",
         "provider.agent.installer.environment-npm-contract",
         "1.0.0",
         ProcessAdapterPackage::npm("@sdkwork/environment-npm-contract", "1.0.0"),
     );
     let npm_error = npm_installer
-        .detect_installation("agent.intelligence.environment-npm-contract")
+        .detect_installation("agent.environment-npm-contract")
         .expect_err("empty canonical provider host root must fail closed");
     assert_eq!(
         npm_error.kind(),
@@ -229,7 +230,7 @@ fn explicitly_empty_runtime_environment_values_fail_closed() {
     let canonical_guard = EnvironmentVariableGuard::remove(PROVIDER_HOST_ROOT_ENV);
     let legacy_guard = EnvironmentVariableGuard::set(LEGACY_PROVIDER_RUNTIME_ROOT_ENV, "");
     let legacy_error = npm_installer
-        .detect_installation("agent.intelligence.environment-npm-contract")
+        .detect_installation("agent.environment-npm-contract")
         .expect_err("empty legacy provider runtime root must fail closed");
     assert_eq!(
         legacy_error.kind(),
@@ -260,14 +261,15 @@ fn canonical_provider_host_environment_root_precedes_the_legacy_root() {
     );
 
     let installer = ProcessAdapterInstaller::new(
-        "agent.intelligence.provider-host-precedence-contract",
+        "agent.provider-host-precedence-contract",
         "provider.agent.installer.provider-host-precedence-contract",
         "1.0.0",
         ProcessAdapterPackage::npm("@sdkwork/provider-host-precedence-contract", "1.0.0"),
     );
+    let environment = InstallEnvironment::from_installer(&installer);
     assert_eq!(
         installer
-            .npm_install_root()
+            .resolve_npm_install_root(&environment)
             .expect("resolve provider host root"),
         dunce::canonicalize(&host_root).expect("canonicalize provider host root")
     );
@@ -471,12 +473,14 @@ fn lifecycle_lock_helper() {
         Ok(())
     };
     if std::env::var(LOCK_HELPER_MODE_ENV).as_deref() == Ok("shared") {
+        let environment = InstallEnvironment::from_installer(&installer);
         installer
-            .with_detection_lock(hold_lock)
+            .with_detection_lock(&environment, hold_lock)
             .expect("acquire installer detection lock");
     } else {
+        let environment = InstallEnvironment::from_installer(&installer);
         installer
-            .with_mutation_lock(hold_lock)
+            .with_mutation_lock(&environment, hold_lock)
             .expect("acquire installer mutation lock");
     }
 }
@@ -484,12 +488,12 @@ fn lifecycle_lock_helper() {
 #[test]
 fn model_configuration_application_uses_provider_scope_and_secret_reference() {
     let provider = ProcessAdapterConfigurationProvider::with_model_configuration_scope(
-        "agent.intelligence.test",
+        "agent.test",
         "test_provider",
     );
     let request = AgentModelConfigurationRequest::new(
         "request.model.test",
-        "agent.intelligence.test",
+        "agent.test",
         "profile.model.test",
         "openai-compatible",
         "https://models.example.test/v1",
@@ -533,12 +537,12 @@ fn model_configuration_application_uses_provider_scope_and_secret_reference() {
 #[test]
 fn model_configuration_rejects_default_outside_supported_models() {
     let provider = ProcessAdapterConfigurationProvider::with_model_configuration_scope(
-        "agent.intelligence.test",
+        "agent.test",
         "test_provider",
     );
     let request = AgentModelConfigurationRequest::new(
         "request.model.invalid",
-        "agent.intelligence.test",
+        "agent.test",
         "profile.model.invalid",
         "openai-compatible",
         "https://models.example.test/v1",
@@ -559,12 +563,12 @@ fn model_configuration_rejects_default_outside_supported_models() {
 #[test]
 fn model_selection_applies_provider_default_without_a_credential() {
     let provider = ProcessAdapterConfigurationProvider::with_model_configuration_scope(
-        "agent.intelligence.test",
+        "agent.test",
         "test_provider",
     );
     let request = sdkwork_agent_kernel::AgentModelSelectionRequest::new(
         "request.selection.test",
-        "agent.intelligence.test",
+        "agent.test",
         "profile.selection.test",
         "catalog-model",
     );
@@ -598,14 +602,14 @@ fn model_selection_applies_provider_default_without_a_credential() {
 #[test]
 fn model_selection_preserves_custom_credentials_and_supported_models() {
     let provider = ProcessAdapterConfigurationProvider::with_model_configuration_scope(
-        "agent.intelligence.test",
+        "agent.test",
         "test_provider",
     );
     let configured = provider
         .apply_model_configuration(
             &AgentModelConfigurationRequest::new(
                 "request.model.test",
-                "agent.intelligence.test",
+                "agent.test",
                 "profile.model.test",
                 "openai-compatible",
                 "https://models.example.test/v1",
@@ -620,7 +624,7 @@ fn model_selection_preserves_custom_credentials_and_supported_models() {
         .expect("custom model configuration applies");
     let request = sdkwork_agent_kernel::AgentModelSelectionRequest::new(
         "request.selection.custom",
-        "agent.intelligence.test",
+        "agent.test",
         "profile.model.test",
         "example-reasoning",
     )

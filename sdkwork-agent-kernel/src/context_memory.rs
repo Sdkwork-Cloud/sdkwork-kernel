@@ -240,20 +240,26 @@ pub trait ContextProvider {
             .collect())
     }
 
+    /// Trims frames to a token budget. The default implementation fails
+    /// closed: silently returning untrimmed frames would break the
+    /// `max_tokens` contract and let context grow unbounded for providers
+    /// that never implement trimming.
     fn trim(
         &self,
-        frames: Vec<ContextFrame>,
-        max_tokens: usize,
+        _frames: Vec<ContextFrame>,
+        _max_tokens: usize,
     ) -> KernelResult<Vec<ContextFrame>> {
-        let _ = max_tokens;
-        Ok(frames)
+        Err(KernelError::CapabilityMissing {
+            capability_id: "context.trim".to_string(),
+        })
     }
 
-    fn explain(&self, frame: &ContextFrame) -> KernelResult<ContextExplanation> {
-        Ok(ContextExplanation {
-            frame_id: frame.context_frame_id.clone(),
-            reason: "default context explanation".to_string(),
-            source_factors: Vec::new(),
+    /// Explains why a frame was ranked as it was. The default implementation
+    /// fails closed instead of returning a fabricated explanation that callers
+    /// cannot distinguish from a real audit trail.
+    fn explain(&self, _frame: &ContextFrame) -> KernelResult<ContextExplanation> {
+        Err(KernelError::CapabilityMissing {
+            capability_id: "context.explain".to_string(),
         })
     }
 

@@ -1,6 +1,7 @@
 use crate::error::{DatabaseError, DatabaseResult};
 use crate::postgres::PostgresDatabase;
 use crate::postgres_pool::map_sqlx_error;
+use crate::postgres_repository::map_message_row;
 use crate::traits::RuntimeExecutionRepository;
 use crate::types::{
     ActionKind, ClaimedRun, EventRow, RunControlAction, RunRow, RunState, StepRow, StepState,
@@ -905,7 +906,25 @@ impl PostgresDatabase {
                     "completed run messages must belong to the run session".to_string(),
                 ));
             }
+            // The streaming path may already have persisted these messages; an
+            // exact retry must not fail the completion, while a conflicting
+            // payload for the same id must still be rejected.
+            let mut inserted = 0usize;
             for message in &messages {
+                let existing = sqlx::query(
+                    "SELECT message_id, session_id, role, content, created_at, metadata_json
+                     FROM messages WHERE message_id = $1",
+                )
+                .bind(&message.message_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(map_sqlx_error)?
+                .map(|row| map_message_row(&row))
+                .transpose()?;
+                if let Some(existing) = existing {
+                    crate::message_identity::ensure_message_retry_matches(&existing, message)?;
+                    continue;
+                }
                 sqlx::query(
                     "INSERT INTO messages (
                         message_id, session_id, role, content, created_at, metadata_json
@@ -920,9 +939,10 @@ impl PostgresDatabase {
                 .execute(&mut *tx)
                 .await
                 .map_err(map_sqlx_error)?;
+                inserted += 1;
             }
-            if !messages.is_empty() {
-                let added = i64::try_from(messages.len()).map_err(|_| {
+            if inserted > 0 {
+                let added = i64::try_from(inserted).map_err(|_| {
                     DatabaseError::ConstraintViolation("message turn size overflow".to_string())
                 })?;
                 let session_changed = sqlx::query(

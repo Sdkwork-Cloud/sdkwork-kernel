@@ -85,10 +85,10 @@ The trait intentionally assembles existing kernel SPI instead of introducing a c
 
 Rig plugin ids:
 
-- Agent: `agent.intelligence.rig-general`
+- Agent: `agent.rig-general`
 - Agent card: `agent_card.intelligence.rig-general`
 - Plugin: `plugin.intelligence.rig`
-- Model provider: `provider.model.rig-rust`
+- Model provider: `provider.rig-rust`
 - Planning provider: `provider.planning.rig-rust`
 - Installer provider: `provider.agent.installer.rig-rust`
 - Configuration provider: `provider.agent.configuration.rig-rust`

@@ -59,7 +59,7 @@ pub fn check_message_against_catalog_model(
     message: &AgentMessage,
     model: &ModelInfo,
 ) -> InputModalityCompatibility {
-    let descriptor = descriptor_from_catalog_model(model, "provider.model.catalog");
+    let descriptor = descriptor_from_catalog_model(model, "provider.catalog");
     analyze_message_input(
         message,
         &AgentInputPolicy::multimodal_chat(),

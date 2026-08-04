@@ -117,7 +117,7 @@ mod tests {
         let snapshot = RigSessionSnapshot {
             execution_id: "rig.execution.1".to_string(),
             parent_execution_id: Some("rig.execution.parent".to_string()),
-            agent_id: Some("agent.intelligence.rig".to_string()),
+            agent_id: Some("agent.rig".to_string()),
             user_ref: Some("user.1".to_string()),
             tenant_id: Some("tenant.1".to_string()),
             title: Some("Rig task".to_string()),
@@ -149,10 +149,7 @@ mod tests {
         );
         assert_eq!(session.preview.as_deref(), Some("executing the task"));
         assert_eq!(session.summary.as_deref(), Some("task summary"));
-        assert_eq!(
-            session.instructions.as_deref(),
-            Some("follow the runbook")
-        );
+        assert_eq!(session.instructions.as_deref(), Some("follow the runbook"));
         assert_eq!(session.personality.as_deref(), Some("concise"));
         assert_eq!(session.reasoning_effort.as_deref(), Some("medium"));
         assert_eq!(session.approval_policy.as_deref(), Some("never"));
@@ -168,7 +165,7 @@ mod tests {
     fn lifecycle_supports_crud_and_incremental_sync() {
         let provider = RigLifecycleProvider::new();
         let created = provider
-            .create_session("agent.intelligence.rig", None, SessionConfig::new())
+            .create_session("agent.rig", None, SessionConfig::new())
             .expect("created");
         assert_eq!(
             provider

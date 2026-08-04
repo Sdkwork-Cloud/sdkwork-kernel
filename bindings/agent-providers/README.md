@@ -56,14 +56,14 @@ order per capability:
 
 | Framework | Binding id | Primary integration |
 | --- | --- | --- |
-| Codex | `binding.agent-provider.codex` | SDK + Rust crate |
-| Claude Code | `binding.agent-provider.claude-code` | TypeScript SDK |
-| Gemini CLI | `binding.agent-provider.gemini-cli` | Source-tree TypeScript SDK + CLI npm package |
-| Hermes | `binding.agent-provider.hermes` | Python + IPC |
-| MiMo Code | `binding.agent-provider.mimo-code` | Source-tree TypeScript SDK |
-| OpenClaw | `binding.agent-provider.openclaw` | TypeScript SDK + gateway OpenAPI |
-| OpenCode | `binding.agent-provider.opencode` | TypeScript SDK |
-| Rig | `binding.agent-provider.rig` | Source-tree Rust crate |
+| Codex | `binding.codex` | SDK + Rust crate |
+| Claude Code | `binding.claude-code` | TypeScript SDK |
+| Gemini CLI | `binding.gemini-cli` | Source-tree TypeScript SDK + CLI npm package |
+| Hermes | `binding.hermes` | Python + IPC |
+| MiMo Code | `binding.mimo-code` | Source-tree TypeScript SDK |
+| OpenClaw | `binding.openclaw` | TypeScript SDK + gateway OpenAPI |
+| OpenCode | `binding.opencode` | TypeScript SDK |
+| Rig | `binding.rig` | Source-tree Rust crate |
 
 ## Adding A Binding
 

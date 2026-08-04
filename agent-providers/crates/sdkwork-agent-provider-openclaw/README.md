@@ -11,7 +11,7 @@ entrypoints.
 ## Runtime Contract
 
 - Canonical plugin id: `plugin.intelligence.openclaw`
-- Canonical agent id: `agent.intelligence.openclaw`
+- Canonical agent id: `agent.openclaw`
 - Runtime entrypoint: `OpenClawKernelPlugin::configure_runtime`
 - Public manifests: `openclaw_agent_definition`, `openclaw_agent_manifest`,
   `openclaw_provider_manifests`, `openclaw_package_manifest`, and

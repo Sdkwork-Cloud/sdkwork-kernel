@@ -2008,11 +2008,10 @@ fn codex_interaction_result(
                 // names. The amendment values are normalized from the generic
                 // host resolution shape onto the Codex wire shape.
                 "accept_with_exec_policy_amendment" => {
-                    let command =
-                        amendment_command_tokens(&required_resolution_value(
-                            resolution,
-                            "execPolicyAmendment",
-                        )?)?;
+                    let command = amendment_command_tokens(&required_resolution_value(
+                        resolution,
+                        "execPolicyAmendment",
+                    )?)?;
                     json!({
                         "acceptWithExecpolicyAmendment": {
                             "execpolicy_amendment": Value::Array(command),
@@ -2407,7 +2406,9 @@ fn normalized_approvals_reviewer(
 /// Maps generic SPI source-kind filter values onto Codex `ThreadSourceKind`
 /// variants. Accepts the protocol names and common normalized spellings so
 /// callers can pass either the canonical enum name or a snake/kebab form.
-fn normalized_thread_source_kinds(values: &[String]) -> Result<Vec<ThreadSourceKind>, SdkRuntimeError> {
+fn normalized_thread_source_kinds(
+    values: &[String],
+) -> Result<Vec<ThreadSourceKind>, SdkRuntimeError> {
     values
         .iter()
         .map(|value| {
@@ -2982,9 +2983,9 @@ mod tests {
     fn interaction_resolutions_round_trip_through_codex_protocol_types() {
         use codex_app_server_protocol::{
             CommandExecutionApprovalDecision, CommandExecutionRequestApprovalResponse,
-            DynamicToolCallResponse, FileChangeApprovalDecision,
-            FileChangeRequestApprovalResponse, McpServerElicitationRequestResponse,
-            PermissionsRequestApprovalResponse, ToolRequestUserInputResponse,
+            DynamicToolCallResponse, FileChangeApprovalDecision, FileChangeRequestApprovalResponse,
+            McpServerElicitationRequestResponse, PermissionsRequestApprovalResponse,
+            ToolRequestUserInputResponse,
         };
         let pending = |method: &str| PendingInteraction {
             model_request_id: "run-1".to_string(),

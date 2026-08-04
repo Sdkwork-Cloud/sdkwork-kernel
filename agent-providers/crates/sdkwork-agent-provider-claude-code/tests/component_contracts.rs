@@ -27,7 +27,7 @@ fn model_provider_manifest_uses_canonical_provider_id() {
     let provider = ClaudeModelProvider::new();
     assert_eq!(
         provider.provider_manifest().provider_id,
-        "provider.model.claude-code"
+        "provider.claude-code"
     );
 }
 
@@ -35,13 +35,10 @@ fn model_provider_manifest_uses_canonical_provider_id() {
 fn kernel_plugin_manifest_declares_runtime_providers() {
     let manifest = claude_code_kernel_plugin_manifest();
     assert_eq!(manifest.plugin_id, "plugin.intelligence.claude-code");
-    assert_eq!(
-        manifest.agent_id.as_deref(),
-        Some("agent.intelligence.claude-code")
-    );
+    assert_eq!(manifest.agent_id.as_deref(), Some("agent.claude-code"));
     assert!(manifest
         .provider_ids
-        .contains(&"provider.model.claude-code".to_string()));
+        .contains(&"provider.claude-code".to_string()));
     assert!(!manifest
         .provider_ids
         .contains(&"provider.tool.claude-code".to_string()));
@@ -56,7 +53,7 @@ fn provider_manifests_exclude_agent_internal_tools() {
         .into_iter()
         .map(|manifest| manifest.provider_id)
         .collect();
-    assert!(provider_ids.contains(&"provider.model.claude-code".to_string()));
+    assert!(provider_ids.contains(&"provider.claude-code".to_string()));
     assert!(!provider_ids.contains(&"provider.tool.claude-code".to_string()));
     assert!(provider_ids.contains(&"provider.policy.sdk-standard".to_string()));
     assert!(provider_ids.contains(&"provider.agent.installer.claude-code".to_string()));
@@ -103,10 +100,7 @@ fn kernel_plugin_configures_runtime() {
         plugin.plugin_manifest().plugin_id,
         "plugin.intelligence.claude-code"
     );
-    assert_eq!(
-        plugin.agent_manifest().agent_id,
-        "agent.intelligence.claude-code"
-    );
+    assert_eq!(plugin.agent_manifest().agent_id, "agent.claude-code");
     let report = plugin
         .configure_runtime(RuntimeBuilder::new(
             "runtime.claude-code.installer",

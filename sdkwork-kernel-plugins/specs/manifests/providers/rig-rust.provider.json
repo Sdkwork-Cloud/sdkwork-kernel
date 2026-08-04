@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1.0",
   "manifest_type": "provider",
-  "provider_id": "provider.model.rig-rust",
+  "provider_id": "provider.rig-rust",
   "provider_family": "model",
   "name": "rig-rust",
   "display_name": "Rig Rust Provider Candidate",

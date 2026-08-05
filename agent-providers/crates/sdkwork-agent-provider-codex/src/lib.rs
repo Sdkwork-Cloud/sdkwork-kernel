@@ -48,7 +48,7 @@ pub fn configured_codex_model_id() -> Option<String> {
         .map(str::to_string)
 }
 
-pub(crate) fn codex_config_path() -> Option<PathBuf> {
+pub fn codex_config_path() -> Option<PathBuf> {
     if let Some(codex_home) = std::env::var_os("CODEX_HOME") {
         let codex_home = PathBuf::from(codex_home);
         if !codex_home.is_dir() {

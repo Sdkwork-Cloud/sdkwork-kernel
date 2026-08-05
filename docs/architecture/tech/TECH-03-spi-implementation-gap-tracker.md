@@ -90,7 +90,7 @@ Kernel SPI alone does not deliver product value — agents must expose operation
 | --- | --- | --- | --- |
 | Agent CRUD + composition | `/app/v3/api/ai/agents/*` | N/A | Implemented; sibling release gate required |
 | Chat sessions + messages | `/app/v3/api/ai/agents/{id}/sessions/*` | Runtime facade turn | Implemented; sibling contract gate required |
-| Code engine bootstrap | `sdkwork-agents-runtime-facade` | Provider negotiation | Implemented; cross-repository verification required |
+| Agent engine bootstrap | `sdkwork-agents-runtime-facade` | Provider negotiation | Implemented; cross-repository verification required |
 | Memory tier binding | composition slot `memory` | `MemoryProvider` at runtime | Composition implemented; backend variety and integration evidence remain in `sdkwork-memory` |
 | Task scheduling (business) | agents domain jobs (if exposed) | `TaskSchedulingProvider` | Verify API coverage for scheduled agent jobs |
 | Message search (business) | `agents.messages.list` with `q` | `MessageQueryProvider` | Must follow `PAGINATION_SPEC.md` |

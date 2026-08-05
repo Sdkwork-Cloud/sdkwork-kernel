@@ -235,26 +235,6 @@ pub fn configured_hermes_model_id() -> Option<String> {
         .map(str::to_string)
 }
 
-fn hermes_config_path() -> Option<std::path::PathBuf> {
-    if let Some(home) = std::env::var_os("HERMES_HOME") {
-        let home = std::path::PathBuf::from(home);
-        if home.is_dir() {
-            return Some(home.join("config.yaml"));
-        }
-    }
-    let home = sdkwork_agent_provider_core::provider_user_home()?;
-    #[cfg(windows)]
-    let candidates = [
-        home.join("AppData")
-            .join("Local")
-            .join("hermes")
-            .join("config.yaml"),
-        home.join(".hermes").join("config.yaml"),
-    ];
-    #[cfg(not(windows))]
-    let candidates = [home.join(".hermes").join("config.yaml")];
-    candidates.into_iter().find(|path| path.is_file())
-}
 
 impl HermesModelProvider {
     pub fn new() -> Self {
@@ -797,3 +777,4 @@ mod tests {
 }
 mod configuration;
 mod materializer;
+pub use materializer::hermes_config_path;

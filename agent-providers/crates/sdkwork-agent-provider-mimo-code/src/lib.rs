@@ -803,3 +803,4 @@ mod tests {
 }
 mod configuration;
 mod materializer;
+pub use materializer::mimo_code_settings_path;

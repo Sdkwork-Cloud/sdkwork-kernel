@@ -878,3 +878,4 @@ mod tests {
         assert_eq!(closed.state, SessionState::Closed);
     }
 }
+pub use materializer::claude_code_settings_path;

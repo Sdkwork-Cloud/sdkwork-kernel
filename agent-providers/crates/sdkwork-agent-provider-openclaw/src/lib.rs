@@ -688,3 +688,4 @@ mod tests {
 }
 mod configuration;
 mod materializer;
+pub use materializer::openclaw_config_path;

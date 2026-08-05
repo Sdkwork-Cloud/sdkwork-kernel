@@ -897,3 +897,4 @@ pub use manifest::{
 };
 pub use package::gemini_cli_package_manifest;
 pub use sdk_integration::{gemini_cli_binding_manifest, GeminiCliSdkIntegration};
+pub use materializer::gemini_env_path;

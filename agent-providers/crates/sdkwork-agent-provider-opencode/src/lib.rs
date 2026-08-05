@@ -254,37 +254,6 @@ pub fn configured_opencode_model_id() -> Option<String> {
         .map(str::to_string)
 }
 
-fn opencode_config_path() -> Option<std::path::PathBuf> {
-    if let Some(config) = std::env::var_os("OPENCODE_CONFIG") {
-        let config = std::path::PathBuf::from(config);
-        if config.is_file() {
-            return Some(config);
-        }
-    }
-    let home = sdkwork_agent_provider_core::provider_user_home()?;
-    #[cfg(windows)]
-    let candidates = [
-        // xdg-basedir maps XDG_CONFIG_HOME to %APPDATA% on Windows.
-        home.join("AppData")
-            .join("Roaming")
-            .join("opencode")
-            .join("opencode.json"),
-        home.join("AppData")
-            .join("Roaming")
-            .join("opencode")
-            .join("opencode.jsonc"),
-        home.join(".config").join("opencode").join("opencode.json"),
-        home.join(".config").join("opencode").join("opencode.jsonc"),
-        home.join(".opencode").join("opencode.json"),
-    ];
-    #[cfg(not(windows))]
-    let candidates = [
-        home.join(".config").join("opencode").join("opencode.json"),
-        home.join(".config").join("opencode").join("opencode.jsonc"),
-        home.join(".opencode").join("opencode.json"),
-    ];
-    candidates.into_iter().find(|path| path.is_file())
-}
 
 pub struct OpenCodeModelProvider {
     default_model: String,
@@ -705,3 +674,4 @@ mod tests {
         assert_eq!(remaining[0].role, AgentMessageRole::System);
     }
 }
+pub use materializer::opencode_config_path;

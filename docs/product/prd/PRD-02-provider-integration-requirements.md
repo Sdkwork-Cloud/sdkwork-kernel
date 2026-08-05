@@ -63,7 +63,7 @@ Framework capability matrix: [TECH-02-provider-framework-matrix.md](../../archit
 
 | Consumer | Required path |
 | --- | --- |
-| BirdCoder code engines | `sdkwork-agents-runtime-facade` |
+| BirdCoder agent engines | `sdkwork-agents-runtime-facade` |
 | IM PC agent surfaces | `sdkwork-agents` SDK/HTTP |
 | Direct `sdkwork-agent-provider-*` in product crates | **Forbidden** |
 

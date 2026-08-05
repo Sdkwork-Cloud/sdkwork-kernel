@@ -61,7 +61,7 @@ kernel-side routing concerns, not app-server parameters.
 
 ## Session And History Contract
 
-Provider metadata follows one namespace convention across every code engine:
+Provider metadata follows one namespace convention across every agent engine:
 part/message metadata keys are either `sdkwork.provider.*` (kernel-owned) or
 `{engine_key}.*` (provider-owned, for example `codex.*`, `claude.*`,
 `hermes.*`, `gemini.*`, `opencode.*`, `openclaw.*`, `rig.*`, `mimo-code.*`).

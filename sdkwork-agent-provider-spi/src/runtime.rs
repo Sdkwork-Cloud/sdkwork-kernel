@@ -638,7 +638,7 @@ impl SdkRuntimeRequest {
             request.session_id.clone(),
             request.provider_session_id.clone(),
             request.step_id.clone(),
-            metadata_string(request, "sdkwork.code_engine.working_directory"),
+            metadata_string(request, "sdkwork.agent_engine.working_directory"),
             request.timeout_ms,
             execution_options,
         ))
@@ -662,7 +662,7 @@ impl SdkRuntimeRequest {
             request.session_id.clone(),
             request.provider_session_id.clone(),
             request.step_id.clone(),
-            metadata_string(request, "sdkwork.code_engine.working_directory"),
+            metadata_string(request, "sdkwork.agent_engine.working_directory"),
             request.timeout_ms,
             execution_options,
         ))
@@ -692,23 +692,23 @@ fn execution_options_from_model_request(
     request: &sdkwork_agent_kernel::ModelRequest,
 ) -> Result<Option<SdkRuntimeExecutionOptions>, SdkRuntimeError> {
     let options = SdkRuntimeExecutionOptions {
-        approval_policy: metadata_string(request, "sdkwork.code_engine.approval_policy"),
-        approvals_reviewer: metadata_string(request, "sdkwork.code_engine.approvals_reviewer"),
-        sandbox_mode: metadata_string(request, "sdkwork.code_engine.sandbox_mode"),
-        full_auto: parse_metadata_bool(request, "sdkwork.code_engine.full_auto")?,
+        approval_policy: metadata_string(request, "sdkwork.agent_engine.approval_policy"),
+        approvals_reviewer: metadata_string(request, "sdkwork.agent_engine.approvals_reviewer"),
+        sandbox_mode: metadata_string(request, "sdkwork.agent_engine.sandbox_mode"),
+        full_auto: parse_metadata_bool(request, "sdkwork.agent_engine.full_auto")?,
         skip_git_repo_check: parse_metadata_bool(
             request,
-            "sdkwork.code_engine.skip_git_repo_check",
+            "sdkwork.agent_engine.skip_git_repo_check",
         )?,
-        ephemeral: parse_metadata_bool(request, "sdkwork.code_engine.ephemeral")?,
+        ephemeral: parse_metadata_bool(request, "sdkwork.agent_engine.ephemeral")?,
         require_live_provider: parse_metadata_bool(
             request,
-            "sdkwork.code_engine.require_live_provider",
+            "sdkwork.agent_engine.require_live_provider",
         )?,
-        max_output_bytes: parse_metadata_u64(request, "sdkwork.code_engine.max_output_bytes")?,
-        temperature: parse_metadata_f64(request, "sdkwork.code_engine.temperature")?,
-        top_p: parse_metadata_f64(request, "sdkwork.code_engine.top_p")?,
-        max_tokens: parse_metadata_u64(request, "sdkwork.code_engine.max_tokens")?,
+        max_output_bytes: parse_metadata_u64(request, "sdkwork.agent_engine.max_output_bytes")?,
+        temperature: parse_metadata_f64(request, "sdkwork.agent_engine.temperature")?,
+        top_p: parse_metadata_f64(request, "sdkwork.agent_engine.top_p")?,
+        max_tokens: parse_metadata_u64(request, "sdkwork.agent_engine.max_tokens")?,
     };
     Ok(normalize_execution_options(Some(options)))
 }
@@ -1183,24 +1183,24 @@ mod tests {
     }
 
     #[test]
-    fn from_model_request_projects_code_engine_context_and_generation_options() {
+    fn from_model_request_projects_agent_engine_context_and_generation_options() {
         let request = ModelRequest::new("req-context", vec!["hello".to_string()])
             .with_model_id("codex-test")
             .for_session("session-canonical")
             .for_provider_session("provider-session")
             .for_step("turn-canonical")
             .with_timeout_ms(42_000)
-            .with_metadata("sdkwork.code_engine.working_directory", " C:/workspace ")
-            .with_metadata("sdkwork.code_engine.approval_policy", "on-request")
-            .with_metadata("sdkwork.code_engine.sandbox_mode", "workspace-write")
-            .with_metadata("sdkwork.code_engine.full_auto", "true")
-            .with_metadata("sdkwork.code_engine.skip_git_repo_check", "false")
-            .with_metadata("sdkwork.code_engine.ephemeral", "true")
-            .with_metadata("sdkwork.code_engine.require_live_provider", "true")
-            .with_metadata("sdkwork.code_engine.max_output_bytes", "1048576")
-            .with_metadata("sdkwork.code_engine.temperature", "0.25")
-            .with_metadata("sdkwork.code_engine.top_p", "0.9")
-            .with_metadata("sdkwork.code_engine.max_tokens", "4096");
+            .with_metadata("sdkwork.agent_engine.working_directory", " C:/workspace ")
+            .with_metadata("sdkwork.agent_engine.approval_policy", "on-request")
+            .with_metadata("sdkwork.agent_engine.sandbox_mode", "workspace-write")
+            .with_metadata("sdkwork.agent_engine.full_auto", "true")
+            .with_metadata("sdkwork.agent_engine.skip_git_repo_check", "false")
+            .with_metadata("sdkwork.agent_engine.ephemeral", "true")
+            .with_metadata("sdkwork.agent_engine.require_live_provider", "true")
+            .with_metadata("sdkwork.agent_engine.max_output_bytes", "1048576")
+            .with_metadata("sdkwork.agent_engine.temperature", "0.25")
+            .with_metadata("sdkwork.agent_engine.top_p", "0.9")
+            .with_metadata("sdkwork.agent_engine.max_tokens", "4096");
 
         let runtime_request =
             SdkRuntimeRequest::from_model_request("sdk.model.chat", &request).expect("projection");
@@ -1244,8 +1244,8 @@ mod tests {
             .for_provider_session("provider-stream-session")
             .for_step("turn-stream")
             .with_timeout_ms(9_000)
-            .with_metadata("sdkwork.code_engine.working_directory", "C:/stream")
-            .with_metadata("sdkwork.code_engine.max_tokens", "512");
+            .with_metadata("sdkwork.agent_engine.working_directory", "C:/stream")
+            .with_metadata("sdkwork.agent_engine.max_tokens", "512");
 
         let runtime_request =
             SdkRuntimeRequest::stream_from_model_request("sdk.model.chat", &request)
@@ -1277,11 +1277,11 @@ mod tests {
     }
 
     #[test]
-    fn malformed_code_engine_metadata_returns_a_typed_error() {
+    fn malformed_agent_engine_metadata_returns_a_typed_error() {
         for (key, value) in [
-            ("sdkwork.code_engine.full_auto", "sometimes"),
-            ("sdkwork.code_engine.max_output_bytes", "lots"),
-            ("sdkwork.code_engine.temperature", "NaN"),
+            ("sdkwork.agent_engine.full_auto", "sometimes"),
+            ("sdkwork.agent_engine.max_output_bytes", "lots"),
+            ("sdkwork.agent_engine.temperature", "NaN"),
         ] {
             let request = ModelRequest::new("req-invalid", vec!["hello".to_string()])
                 .with_metadata(key, value);

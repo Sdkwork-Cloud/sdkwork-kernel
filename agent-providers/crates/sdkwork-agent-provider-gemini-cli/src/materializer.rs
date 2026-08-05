@@ -257,7 +257,7 @@ mod tests {
     fn request_with(api_key: Option<&str>, base_url: &str) -> AgentModelConfigurationRequest {
         let mut request = AgentModelConfigurationRequest::new(
             "request-1",
-            "agent.code-engine.gemini",
+            "agent.agent-engine.gemini",
             "profile.test",
             "google",
             base_url,

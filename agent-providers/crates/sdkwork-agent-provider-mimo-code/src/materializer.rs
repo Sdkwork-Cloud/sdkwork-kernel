@@ -264,7 +264,7 @@ pub(crate) mod tests {
     ) -> AgentModelConfigurationRequest {
         let mut request = AgentModelConfigurationRequest::new(
             "request-1",
-            "agent.code-engine.mimo-code",
+            "agent.agent-engine.mimo-code",
             "profile.test",
             "anthropic",
             base_url,

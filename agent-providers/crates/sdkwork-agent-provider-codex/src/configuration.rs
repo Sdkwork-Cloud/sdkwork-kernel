@@ -17,9 +17,9 @@ use sdkwork_agent_kernel::{
 };
 use sdkwork_agent_plugin_core::ProcessAdapterConfigurationProvider;
 
-const APPROVAL_POLICY_KEY: &str = "sdkwork.code_engine.approval_policy";
-const APPROVALS_REVIEWER_KEY: &str = "sdkwork.code_engine.approvals_reviewer";
-const SANDBOX_MODE_KEY: &str = "sdkwork.code_engine.sandbox_mode";
+const APPROVAL_POLICY_KEY: &str = "sdkwork.agent_engine.approval_policy";
+const APPROVALS_REVIEWER_KEY: &str = "sdkwork.agent_engine.approvals_reviewer";
+const SANDBOX_MODE_KEY: &str = "sdkwork.agent_engine.sandbox_mode";
 
 #[derive(Debug, Clone)]
 pub struct CodexConfigurationProvider {

@@ -340,7 +340,7 @@ impl ModelProvider for SdkRuntimeBackedModelProvider {
 
 fn request_requires_live_provider(request: &ModelRequest) -> bool {
     let Some(value) = request
-        .metadata_value("sdkwork.code_engine.require_live_provider")
+        .metadata_value("sdkwork.agent_engine.require_live_provider")
         .map(str::trim)
         .filter(|value| !value.is_empty())
     else {
@@ -1730,11 +1730,11 @@ mod tests {
     #[test]
     fn request_live_provider_requirement_is_fail_closed() {
         let required = ModelRequest::new("req-live", vec!["hello".to_string()])
-            .with_metadata("sdkwork.code_engine.require_live_provider", "true");
+            .with_metadata("sdkwork.agent_engine.require_live_provider", "true");
         let optional = ModelRequest::new("req-optional", vec!["hello".to_string()])
-            .with_metadata("sdkwork.code_engine.require_live_provider", "false");
+            .with_metadata("sdkwork.agent_engine.require_live_provider", "false");
         let malformed = ModelRequest::new("req-malformed", vec!["hello".to_string()])
-            .with_metadata("sdkwork.code_engine.require_live_provider", "sometimes");
+            .with_metadata("sdkwork.agent_engine.require_live_provider", "sometimes");
 
         assert!(request_requires_live_provider(&required));
         assert!(!request_requires_live_provider(&optional));

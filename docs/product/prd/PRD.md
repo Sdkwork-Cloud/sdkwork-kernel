@@ -174,7 +174,7 @@ agent platform:
   code kernel and the Sandbox lifecycle adapter.
 - **sdkwork-sandbox** — `SandboxSession`, `SandboxRuntimeBinding`, Workspace
   Attachment and execution-environment Sandbox Provider authority.
-- **sdkwork-birdcoder** — Multi code-engine product; consumes Agents facade and
+- **sdkwork-birdcoder** — Multi agent-engine product; consumes Agents facade and
   never reaches Agent Provider or Sandbox Provider crates directly.
 
 Detail: [PRD-04-ecosystem-architecture.md](PRD-04-ecosystem-architecture.md).

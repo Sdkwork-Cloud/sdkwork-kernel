@@ -19,8 +19,8 @@ use sdkwork_agent_plugin_core::ProcessAdapterConfigurationProvider;
 pub const CLAUDE_DEFAULT_ACCESS_MODE_ID: &str = "default";
 pub const CLAUDE_ACCEPT_EDITS_ACCESS_MODE_ID: &str = "accept_edits";
 pub const CLAUDE_BYPASS_PERMISSIONS_ACCESS_MODE_ID: &str = "bypass_permissions";
-const APPROVAL_POLICY_KEY: &str = "sdkwork.code_engine.approval_policy";
-const SANDBOX_MODE_KEY: &str = "sdkwork.code_engine.sandbox_mode";
+const APPROVAL_POLICY_KEY: &str = "sdkwork.agent_engine.approval_policy";
+const SANDBOX_MODE_KEY: &str = "sdkwork.agent_engine.sandbox_mode";
 
 #[derive(Debug, Clone)]
 pub struct ClaudeCodeConfigurationProvider {

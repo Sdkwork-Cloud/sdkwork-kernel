@@ -23,7 +23,7 @@ fn live_sdk_model_chat() {
     )
     .with_model_id(model_id.clone())
     .with_metadata(
-        "sdkwork.code_engine.working_directory",
+        "sdkwork.agent_engine.working_directory",
         "E:/sdkwork-space/sdkwork-birdcoder",
     );
     let response = integration

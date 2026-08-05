@@ -392,7 +392,7 @@ mod tests {
     ) -> AgentModelConfigurationRequest {
         let mut request = AgentModelConfigurationRequest::new(
             "request-1",
-            "agent.code-engine.hermes",
+            "agent.agent-engine.hermes",
             "profile.test",
             "openai",
             base_url,

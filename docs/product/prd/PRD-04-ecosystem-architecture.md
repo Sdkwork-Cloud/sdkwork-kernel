@@ -93,7 +93,7 @@ flowchart TB
 | Open / App / Backend HTTP + SDK families | `sdkwork-agents` | Direct `sdkwork-agent-provider-*` in products |
 | Memory tier implementations (permanent, user, growth) | `sdkwork-memory` (+ agents composition) | Kernel `MemoryProvider` SPI definition only |
 | Knowledge, skills, prompts, files, MCP catalogs | Sibling modules | Duplicate tables in agents |
-| Multi code-engine IDE (Codex, Claude Code, OpenCode, …) | `sdkwork-birdcoder` | Agent runtime SPI, provider adapters |
+| Multi agent-engine IDE (Codex, Claude Code, OpenCode, …) | `sdkwork-birdcoder` | Agent runtime SPI, provider adapters |
 | Coding session UX, workbench, engine catalog UI | `sdkwork-birdcoder` | Managed agent CRUD |
 
 ## 4. Dependency Rules (Hard)

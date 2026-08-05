@@ -38,7 +38,7 @@ fn live_sdk_model_chat() {
         vec!["Reply with exactly one word: OK".to_string()],
     )
     .with_model_id(model_id.clone())
-    .with_metadata("sdkwork.code_engine.require_live_provider", "true");
+    .with_metadata("sdkwork.agent_engine.require_live_provider", "true");
     let response = integration
         .model
         .invoke(request)

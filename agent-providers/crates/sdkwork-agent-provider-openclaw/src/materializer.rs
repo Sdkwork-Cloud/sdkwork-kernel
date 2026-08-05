@@ -309,7 +309,7 @@ mod tests {
     ) -> AgentModelConfigurationRequest {
         let mut request = AgentModelConfigurationRequest::new(
             "request-1",
-            "agent.code-engine.openclaw",
+            "agent.agent-engine.openclaw",
             "profile.test",
             "openai",
             base_url,
@@ -385,10 +385,10 @@ mod tests {
                 "openclaw",
                 sdkwork_agent_kernel::AgentConfigurationProfile::new(
                     "profile.test",
-                    "agent.code-engine.openclaw",
+                    "agent.agent-engine.openclaw",
                     "0.2.0",
                     sdkwork_agent_kernel::AgentConfiguration::new(
-                        "agent.code-engine.openclaw",
+                        "agent.agent-engine.openclaw",
                         "profile.test",
                     ),
                 ),
@@ -433,10 +433,10 @@ mod tests {
                 "openclaw",
                 sdkwork_agent_kernel::AgentConfigurationProfile::new(
                     "profile.test",
-                    "agent.code-engine.openclaw",
+                    "agent.agent-engine.openclaw",
                     "0.2.0",
                     sdkwork_agent_kernel::AgentConfiguration::new(
-                        "agent.code-engine.openclaw",
+                        "agent.agent-engine.openclaw",
                         "profile.test",
                     ),
                 ),

@@ -452,6 +452,7 @@ fn map_sandbox_lifecycle_error(sandbox_lifecycle_error: SandboxLifecycleError) -
         | SandboxLifecycleError::IdempotencyConflict { .. }
         | SandboxLifecycleError::OperationInProgress { .. }
         | SandboxLifecycleError::OperationPreviouslyFailed { .. }
+        | SandboxLifecycleError::SandboxSessionIdConflict { .. }
         | SandboxLifecycleError::Repository(SandboxSessionRepositoryError::VersionConflict)
         | SandboxLifecycleError::Repository(SandboxSessionRepositoryError::DuplicateOperation) => {
             KernelError::conflict(sandbox_lifecycle_error.to_string())

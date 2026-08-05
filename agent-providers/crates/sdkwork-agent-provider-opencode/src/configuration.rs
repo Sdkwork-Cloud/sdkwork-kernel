@@ -19,7 +19,7 @@ use sdkwork_agent_plugin_core::ProcessAdapterConfigurationProvider;
 pub const OPENCODE_ASK_ACCESS_MODE_ID: &str = "ask";
 pub const OPENCODE_ALLOW_EDITS_ACCESS_MODE_ID: &str = "allow_edits";
 pub const OPENCODE_ALLOW_ALL_ACCESS_MODE_ID: &str = "allow_all";
-const APPROVAL_POLICY_KEY: &str = "sdkwork.code_engine.approval_policy";
+const APPROVAL_POLICY_KEY: &str = "sdkwork.agent_engine.approval_policy";
 
 #[derive(Debug, Clone)]
 pub struct OpenCodeConfigurationProvider {

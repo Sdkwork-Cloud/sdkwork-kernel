@@ -4,6 +4,7 @@ use sdkwork_agent_provider_claude_code::{ids as claude_code_ids, ClaudeCodeKerne
 use sdkwork_agent_provider_codex::{ids as codex_ids, CodexKernelPlugin};
 use sdkwork_agent_provider_gemini_cli::{ids as gemini_cli_ids, GeminiCliKernelPlugin};
 use sdkwork_agent_provider_hermes::{ids as hermes_ids, HermesKernelPlugin};
+use sdkwork_agent_provider_mimo_code::{ids as mimo_code_ids, MiMoCodeKernelPlugin};
 use sdkwork_agent_provider_openclaw::{ids as openclaw_ids, OpenClawKernelPlugin};
 use sdkwork_agent_provider_opencode::{ids as opencode_ids, OpenCodeKernelPlugin};
 use sdkwork_agent_provider_rig::{ids as rig_ids, RigKernelPlugin};
@@ -16,6 +17,7 @@ pub enum KernelAgentPluginKind {
     Rig,
     OpenClaw,
     Hermes,
+    MiMoCode,
     Codex,
     ClaudeCode,
     OpenCode,
@@ -34,6 +36,7 @@ pub fn parse_kernel_agent_plugin_kind(value: &str) -> Option<KernelAgentPluginKi
         "rig" => Some(KernelAgentPluginKind::Rig),
         "openclaw" | "open-cloud" => Some(KernelAgentPluginKind::OpenClaw),
         "hermes" | "hermes-agent" => Some(KernelAgentPluginKind::Hermes),
+        "mimo" | "mimo-code" => Some(KernelAgentPluginKind::MiMoCode),
         "codex" | "openai-codex" => Some(KernelAgentPluginKind::Codex),
         "claude" | "claude-code" => Some(KernelAgentPluginKind::ClaudeCode),
         "opencode" | "open-code" => Some(KernelAgentPluginKind::OpenCode),
@@ -48,6 +51,7 @@ pub fn bootstrap_agent_runtime() -> KernelResult<AgentRuntime> {
         KernelAgentPluginKind::Rig => bootstrap_rig_runtime(),
         KernelAgentPluginKind::OpenClaw => bootstrap_openclaw_runtime(),
         KernelAgentPluginKind::Hermes => bootstrap_hermes_runtime(),
+        KernelAgentPluginKind::MiMoCode => bootstrap_mimo_code_runtime(),
         KernelAgentPluginKind::Codex => bootstrap_codex_runtime(),
         KernelAgentPluginKind::ClaudeCode => bootstrap_claude_code_runtime(),
         KernelAgentPluginKind::OpenCode => bootstrap_opencode_runtime(),
@@ -69,6 +73,14 @@ fn bootstrap_openclaw_runtime() -> KernelResult<AgentRuntime> {
 
 fn bootstrap_hermes_runtime() -> KernelResult<AgentRuntime> {
     bootstrap_plugin_runtime(&HermesKernelPlugin::new(), hermes_ids::AGENT_ID, "hermes")
+}
+
+fn bootstrap_mimo_code_runtime() -> KernelResult<AgentRuntime> {
+    bootstrap_plugin_runtime(
+        &MiMoCodeKernelPlugin::new(),
+        mimo_code_ids::AGENT_ID,
+        "mimo-code",
+    )
 }
 
 fn bootstrap_codex_runtime() -> KernelResult<AgentRuntime> {

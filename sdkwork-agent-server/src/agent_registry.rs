@@ -3,6 +3,7 @@ use sdkwork_agent_provider_claude_code::ids as claude_code_ids;
 use sdkwork_agent_provider_codex::ids as codex_ids;
 use sdkwork_agent_provider_gemini_cli::ids as gemini_cli_ids;
 use sdkwork_agent_provider_hermes::ids as hermes_ids;
+use sdkwork_agent_provider_mimo_code::ids as mimo_code_ids;
 use sdkwork_agent_provider_openclaw::ids as openclaw_ids;
 use sdkwork_agent_provider_opencode::ids as opencode_ids;
 use sdkwork_agent_provider_rig::ids as rig_ids;
@@ -34,6 +35,11 @@ pub fn active_hosted_agent() -> RegisteredAgent {
             agent_id: hermes_ids::AGENT_ID,
             runtime_agent_id: hermes_ids::AGENT_ID,
             default_model_provider_id: hermes_ids::MODEL_PROVIDER_ID,
+        },
+        KernelAgentPluginKind::MiMoCode => RegisteredAgent {
+            agent_id: mimo_code_ids::AGENT_ID,
+            runtime_agent_id: mimo_code_ids::AGENT_ID,
+            default_model_provider_id: mimo_code_ids::MODEL_PROVIDER_ID,
         },
         KernelAgentPluginKind::Codex => RegisteredAgent {
             agent_id: codex_ids::AGENT_ID,

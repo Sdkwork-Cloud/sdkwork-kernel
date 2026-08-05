@@ -1362,3 +1362,129 @@ fn temporary_options_root(label: &str) -> PathBuf {
     std::fs::create_dir_all(&path).expect("temporary options root is created");
     path
 }
+
+#[test]
+fn available_upgrade_reports_latest_version_from_npm_dist_tags() {
+    let executor = FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(npm_detection(Some(PACKAGE_VERSION), Some("7.1.0"))),
+        ProcessAdapterCommandOutput::success(r#"{"latest":"0.147.0"}"#),
+    ]);
+    let inspector = executor.clone();
+    let installer = installer(executor);
+
+    let upgrade = installer
+        .available_upgrade(AGENT_ID)
+        .expect("registry query succeeds");
+    assert_eq!(upgrade.current_version.as_deref(), Some(PACKAGE_VERSION));
+    assert_eq!(upgrade.latest_version.as_deref(), Some("0.147.0"));
+    assert!(upgrade.update_available);
+
+    let query = &inspector.commands()[1];
+    assert_eq!(query.program, "npm");
+    assert!(query.args.iter().any(|argument| argument == "view"));
+    assert!(query.args.iter().any(|argument| argument == PACKAGE_ID));
+    assert!(query.args.iter().any(|argument| argument == "dist-tags"));
+    assert!(query.args.iter().any(|argument| argument == "--json"));
+}
+
+#[test]
+fn available_upgrade_never_reports_false_upgrades() {
+    let up_to_date = installer(FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(npm_detection(Some(PACKAGE_VERSION), Some("7.1.0"))),
+        ProcessAdapterCommandOutput::success(r#"{"latest":"0.146.0"}"#),
+    ]));
+    let upgrade = up_to_date
+        .available_upgrade(AGENT_ID)
+        .expect("registry query succeeds");
+    assert_eq!(upgrade.latest_version.as_deref(), Some(PACKAGE_VERSION));
+    assert!(!upgrade.update_available);
+
+    // A local version that outranks `latest` (pre-release channel user, e.g.
+    // Claude Code's `next` tag `2.1.156-beta.1` against `latest` `2.1.155`)
+    // must not be reported as "needs update" — the exact cc-switch
+    // false-alarm scenario.
+    let ahead = installer(FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(npm_detection(Some("0.147.0"), Some("7.1.0"))),
+        ProcessAdapterCommandOutput::success(r#"{"latest":"0.146.0"}"#),
+    ]));
+    let upgrade = ahead
+        .available_upgrade(AGENT_ID)
+        .expect("registry query succeeds");
+    assert_eq!(upgrade.current_version.as_deref(), Some("0.147.0"));
+    assert_eq!(upgrade.latest_version.as_deref(), Some(PACKAGE_VERSION));
+    assert!(!upgrade.update_available);
+
+    // A local pre-release of the same version is older than the stable
+    // release, so the stable release is a legitimate upgrade.
+    let prerelease = installer(FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(npm_detection(Some("0.146.0-beta.1"), Some("7.1.0"))),
+        ProcessAdapterCommandOutput::success(r#"{"latest":"0.146.0"}"#),
+    ]));
+    let upgrade = prerelease
+        .available_upgrade(AGENT_ID)
+        .expect("registry query succeeds");
+    assert_eq!(upgrade.current_version.as_deref(), Some("0.146.0-beta.1"));
+    assert_eq!(upgrade.latest_version.as_deref(), Some(PACKAGE_VERSION));
+    assert!(upgrade.update_available);
+}
+
+#[test]
+fn available_upgrade_tolerates_unreachable_registries() {
+    let failed = installer(FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(npm_detection(Some(PACKAGE_VERSION), Some("7.1.0"))),
+        ProcessAdapterCommandOutput::failure(1, "npm ERR! code EAI_AGAIN"),
+    ]));
+    let upgrade = failed
+        .available_upgrade(AGENT_ID)
+        .expect("unreachable registry degrades instead of failing");
+    assert_eq!(upgrade.latest_version, None);
+    assert!(!upgrade.update_available);
+
+    let timed_out = installer(FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(npm_detection(Some(PACKAGE_VERSION), Some("7.1.0"))),
+        ProcessAdapterCommandOutput {
+            exit_code: -1,
+            stdout: String::new(),
+            stderr: String::new(),
+            timed_out: true,
+        },
+    ]));
+    let upgrade = timed_out
+        .available_upgrade(AGENT_ID)
+        .expect("timed-out registry query degrades instead of failing");
+    assert_eq!(upgrade.latest_version, None);
+    assert!(!upgrade.update_available);
+}
+
+#[test]
+fn pypi_available_upgrade_parses_pip_index_versions() {
+    let executor = FakeCommandExecutor::with_outputs(vec![
+        ProcessAdapterCommandOutput::success(python_detection(Some("0.19.0"))),
+        ProcessAdapterCommandOutput::success(
+            "hermes-agent (0.20.0)\nAvailable versions: 0.18.0, 0.19.0, 0.20.0",
+        ),
+    ]);
+    let installer = ProcessAdapterInstaller::new(
+        "agent.hermes",
+        "provider.agent.installer.hermes",
+        PROVIDER_VERSION,
+        ProcessAdapterPackage::pypi("hermes-agent", "0.19.0"),
+    )
+    .with_executor(Arc::new(executor));
+
+    let upgrade = installer
+        .available_upgrade("agent.hermes")
+        .expect("PyPI registry query succeeds");
+    assert_eq!(upgrade.current_version.as_deref(), Some("0.19.0"));
+    assert_eq!(upgrade.latest_version.as_deref(), Some("0.20.0"));
+    assert!(upgrade.update_available);
+}
+
+#[test]
+fn available_upgrade_rejects_unknown_agent_ids() {
+    let installer = installer(FakeCommandExecutor::default());
+    let error = installer
+        .available_upgrade("agent.unknown")
+        .expect_err("unknown agent ids are rejected before any query");
+    assert_eq!(error.kind(), KernelErrorKind::ValidationError);
+}

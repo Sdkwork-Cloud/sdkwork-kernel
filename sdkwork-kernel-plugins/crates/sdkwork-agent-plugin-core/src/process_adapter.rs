@@ -18,11 +18,11 @@ use std::ffi::OsString;
 
 use pep440_rs::Version as PythonVersion;
 use sdkwork_agent_kernel::{
-    AgentConfigField, AgentConfigSection, AgentConfigSectionKind, AgentConfigValue,
-    AgentConfigValueKind, AgentConfiguration, AgentConfigurationProvider, AgentConfigurationSpec,
-    AgentConfigurationValidation, AgentInstallOptions, AgentInstallPlan, AgentInstallRecord,
-    AgentInstallReport, AgentInstallRequest, AgentInstallStep, AgentInstallStepKind,
-    AgentInstallation, AgentInstallationDependency, AgentInstaller,
+    AgentAvailableUpgrade, AgentConfigField, AgentConfigSection, AgentConfigSectionKind,
+    AgentConfigValue, AgentConfigValueKind, AgentConfiguration, AgentConfigurationProvider,
+    AgentConfigurationSpec, AgentConfigurationValidation, AgentInstallOptions, AgentInstallPlan,
+    AgentInstallRecord, AgentInstallReport, AgentInstallRequest, AgentInstallStep,
+    AgentInstallStepKind, AgentInstallation, AgentInstallationDependency, AgentInstaller,
     AgentModelConfigurationApplication, AgentModelConfigurationFieldMapping,
     AgentModelConfigurationRequest, AgentModelSelectionRequest, AgentPackageSource,
     AgentPackageSourceInfo, AgentRollbackReport, AgentRollbackRequest, AgentSecretBinding,
@@ -41,6 +41,7 @@ const PYTHON_BINARY_ENV: &str = "SDKWORK_AGENT_PYTHON_BINARY";
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const DETECTION_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 const HEALTH_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+const REGISTRY_QUERY_TIMEOUT: Duration = Duration::from_secs(30);
 const PACKAGE_MUTATION_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const OPERATION_LOCK_TIMEOUT: Duration = Duration::from_secs(30);
 const OUTPUT_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -2031,6 +2032,41 @@ impl AgentInstaller for ProcessAdapterInstaller {
         })
     }
 
+    fn available_upgrade(&self, agent_id: &str) -> KernelResult<AgentAvailableUpgrade> {
+        self.validate_agent_id(agent_id)?;
+        let environment = InstallEnvironment::from_installer(self);
+        // Compare against the actually detected package version (the primary
+        // managed dependency), not the provider manifest version: the registry
+        // reports package versions while `AgentInstallation::installed_version`
+        // carries the provider version. Mixing the two bases would make every
+        // registry query look like an upgrade.
+        let current_version = self
+            .detect_installation_unlocked(agent_id, &environment)?
+            .dependencies
+            .first()
+            .and_then(|dependency| dependency.installed_version.clone());
+        let latest_version = match self.validate_descriptor()? {
+            ProcessAdapterPackageManager::Npm => self.fetch_npm_latest_version()?,
+            ProcessAdapterPackageManager::PythonPip => self.fetch_pypi_latest_version()?,
+        };
+        // Strict semantic-version ordering: a local pre-release build that
+        // outranks `latest` (or an unparseable version) never reports a false
+        // upgrade prompt.
+        let update_available = match (&current_version, &latest_version) {
+            (Some(current), Some(latest)) => strict_semver_greater(latest, current),
+            _ => false,
+        };
+        let mut upgrade =
+            AgentAvailableUpgrade::new(agent_id).with_update_available(update_available);
+        if let Some(current) = current_version {
+            upgrade = upgrade.with_current_version(current);
+        }
+        if let Some(latest) = latest_version {
+            upgrade = upgrade.with_latest_version(latest);
+        }
+        Ok(upgrade)
+    }
+
     fn health(&self) -> ProviderHealth {
         let manager = match self.validate_descriptor() {
             Ok(manager) => manager,
@@ -2099,6 +2135,99 @@ impl ProcessAdapterInstaller {
             ))
         }
     }
+
+    /// Queries the primary package's npm `dist-tags` in a single `npm view`
+    /// invocation and returns the `latest` tag. A failed, timed-out, or
+    /// unparseable query reports `None` (no upgrade information) rather than
+    /// an error so hosts can degrade gracefully when the registry is
+    /// unreachable.
+    fn fetch_npm_latest_version(&self) -> KernelResult<Option<String>> {
+        let primary = &self.packages[0];
+        let output = self.executor.execute(
+            &ProcessAdapterCommand::new(
+                "npm",
+                vec![
+                    "view".to_string(),
+                    primary.package_id.clone(),
+                    "dist-tags".to_string(),
+                    "--json".to_string(),
+                ],
+            )
+            .with_timeout(REGISTRY_QUERY_TIMEOUT),
+        )?;
+        if output.timed_out || !output.is_success() {
+            return Ok(None);
+        }
+        let payload: Value = match serde_json::from_str(&output.stdout) {
+            Ok(payload) => payload,
+            Err(_) => return Ok(None),
+        };
+        Ok(payload
+            .get("latest")
+            .and_then(Value::as_str)
+            .map(str::to_string))
+    }
+
+    /// Queries PyPI through the managed Python's `pip index versions` and
+    /// returns the highest parseable semantic version. A failed, timed-out,
+    /// or unparseable query reports `None` (no upgrade information).
+    fn fetch_pypi_latest_version(&self) -> KernelResult<Option<String>> {
+        let environment = InstallEnvironment::from_installer(self);
+        let primary = &self.packages[0];
+        let output = self.executor.execute(
+            &ProcessAdapterCommand::new(
+                self.resolve_python_binary(&environment)?,
+                vec![
+                    "-m".to_string(),
+                    "pip".to_string(),
+                    "index".to_string(),
+                    "versions".to_string(),
+                    primary.package_id.clone(),
+                ],
+            )
+            .with_timeout(REGISTRY_QUERY_TIMEOUT),
+        )?;
+        if output.timed_out || !output.is_success() {
+            return Ok(None);
+        }
+        Ok(parse_pip_index_versions(&output.stdout))
+    }
+}
+
+/// Strict semantic-version ordering: `candidate` is newer than `baseline`
+/// only when both parse as valid semantic versions and the candidate is
+/// strictly greater. Pre-release ordering follows semver (`1.0.0-beta <
+/// 1.0.0`), so a local pre-release build that outranks `latest` never
+/// reports a false upgrade.
+fn strict_semver_greater(candidate: &str, baseline: &str) -> bool {
+    match (Version::parse(candidate), Version::parse(baseline)) {
+        (Ok(candidate), Ok(baseline)) => candidate > baseline,
+        _ => false,
+    }
+}
+
+/// Extracts the highest parseable semantic version from `pip index versions`
+/// output:
+///
+/// ```text
+/// hermes-agent (0.20.0)
+/// Available versions: 0.19.0, 0.18.0, ...
+/// ```
+fn parse_pip_index_versions(stdout: &str) -> Option<String> {
+    let line = stdout
+        .lines()
+        .find(|line| line.trim_start().starts_with("Available versions:"))?;
+    let versions = line.split_once(':')?.1;
+    versions
+        .split(',')
+        .filter_map(|candidate| {
+            let candidate = candidate.trim();
+            Version::parse(candidate)
+                .ok()
+                .map(|parsed| (parsed, candidate.to_string()))
+        })
+        .max_by(|left, right| left.0.cmp(&right.0))
+        .map(|(_, version)| version)
 }
 
 fn validate_detected_version(

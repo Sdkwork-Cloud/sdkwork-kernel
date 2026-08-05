@@ -1,17 +1,18 @@
 use sdkwork_agent_kernel::{
-    AgentConfigField, AgentConfigSection, AgentConfigSectionKind, AgentConfigValue,
-    AgentConfiguration, AgentConfigurationProfile, AgentConfigurationProfileStatus,
-    AgentConfigurationProvider, AgentConfigurationSpec, AgentConfigurationStore,
-    AgentConfigurationStoreRecord, AgentConfigurationUpgradePlan, AgentConfigurationUpgradeRequest,
-    AgentInstallPlan, AgentInstallReport, AgentInstallRequest, AgentInstallStatus,
-    AgentInstallStep, AgentInstallStepKind, AgentInstallation, AgentInstallationDependency,
-    AgentInstallationState, AgentInstaller, AgentPackageSource, AgentProfileArchiveRequest,
-    AgentRollbackRequest, AgentSecretBinding, AgentSecretBindingKind, AgentUninstallPlan,
-    AgentUninstallReport, AgentUninstallRequest, AgentUpgradePlan, AgentUpgradeReport,
-    AgentUpgradeRequest, AgentVerifyRequest, AgentVerifyStatus, ConfigurationMigrationStep,
-    ConfigurationMigrationStepKind, KernelEventRedaction, KernelEventSource, KernelResult,
-    PolicyCategory, ProviderHealth, SideEffectLevel, AGENT_CONFIGURATION_MIGRATION_SCHEMA,
-    AGENT_CONFIGURATION_PROFILE_SCHEMA, AGENT_CONFIGURATION_SPEC_SCHEMA,
+    AgentAvailableUpgrade, AgentConfigField, AgentConfigSection, AgentConfigSectionKind,
+    AgentConfigValue, AgentConfiguration, AgentConfigurationProfile,
+    AgentConfigurationProfileStatus, AgentConfigurationProvider, AgentConfigurationSpec,
+    AgentConfigurationStore, AgentConfigurationStoreRecord, AgentConfigurationUpgradePlan,
+    AgentConfigurationUpgradeRequest, AgentInstallPlan, AgentInstallReport, AgentInstallRequest,
+    AgentInstallStatus, AgentInstallStep, AgentInstallStepKind, AgentInstallation,
+    AgentInstallationDependency, AgentInstallationState, AgentInstaller, AgentPackageSource,
+    AgentProfileArchiveRequest, AgentRollbackRequest, AgentSecretBinding, AgentSecretBindingKind,
+    AgentUninstallPlan, AgentUninstallReport, AgentUninstallRequest, AgentUpgradePlan,
+    AgentUpgradeReport, AgentUpgradeRequest, AgentVerifyRequest, AgentVerifyStatus,
+    ConfigurationMigrationStep, ConfigurationMigrationStepKind, KernelEventRedaction,
+    KernelEventSource, KernelResult, PolicyCategory, ProviderHealth, SideEffectLevel,
+    AGENT_CONFIGURATION_MIGRATION_SCHEMA, AGENT_CONFIGURATION_PROFILE_SCHEMA,
+    AGENT_CONFIGURATION_SPEC_SCHEMA,
 };
 
 const AGENT_CONFIGURATION_SPEC_JSON: &str = r#"
@@ -1106,4 +1107,35 @@ impl AgentInstaller for StaticInstallationInstaller {
     fn health(&self) -> ProviderHealth {
         ProviderHealth::available()
     }
+}
+
+#[test]
+fn installer_available_upgrade_fails_closed_by_default() {
+    let installer = FakeAgentInstaller;
+    let error = installer
+        .available_upgrade("agent.code")
+        .expect_err("generic installers cannot query registry versions");
+    assert_eq!(error.code(), "installer_upgrade_query_unsupported");
+}
+
+#[test]
+fn available_upgrade_builder_models_unavailable_and_available_upgrades() {
+    let unavailable = AgentAvailableUpgrade::new("agent.code")
+        .with_current_version("0.1.0")
+        .with_latest_version("0.1.0")
+        .with_update_available(false);
+    assert_eq!(unavailable.agent_id, "agent.code");
+    assert_eq!(unavailable.current_version.as_deref(), Some("0.1.0"));
+    assert_eq!(unavailable.latest_version.as_deref(), Some("0.1.0"));
+    assert!(!unavailable.update_available);
+
+    let available = AgentAvailableUpgrade::new("agent.code")
+        .with_current_version("0.1.0")
+        .with_latest_version("0.2.0")
+        .with_update_available(true);
+    assert!(available.update_available);
+
+    let unqueried = AgentAvailableUpgrade::new("agent.code");
+    assert_eq!(unqueried.latest_version, None);
+    assert!(!unqueried.update_available);
 }

@@ -224,6 +224,23 @@ installers that own the mechanics):
   prove from detection (one `Active` or `Broken` record per managed agent,
   empty when absent). The default fails closed because a generic installer
   cannot claim an inventory it cannot prove.
+- `available_upgrade(agent_id)` queries the newest available version from the
+  managed package registry (`npm view <pkg> dist-tags` for npm, `pip index
+  versions` for PyPI) and reports `current_version`, `latest_version`, and
+  `update_available`. The default fails closed because a generic installer
+  has no package registry to query.
+
+Rules for upgrade availability:
+
+- `current_version` `MUST` be the actually detected package version of the
+  primary managed dependency, never the provider manifest version: mixing the
+  two version bases would make every registry query look like an upgrade.
+- `update_available` `MUST` use strict semantic-version ordering: a local
+  version that outranks `latest` (pre-release channel users) or an unparseable
+  version `MUST NOT` be reported as an available upgrade.
+- An unreachable, timed-out, or unparseable registry query `MUST` report no
+  upgrade information (`latest_version = None`) rather than an error, so hosts
+  degrade gracefully when the registry is unavailable.
 
 Rules for rollback handles:
 
@@ -594,6 +611,9 @@ Minimum tests:
 - Installer dry-run paths do not execute package-manager commands.
 - Installer repeats install, upgrade, and uninstall idempotently and verifies
   the final detected state.
+- Installer queries the managed registry for available upgrades, compares
+  against the detected package version with strict semantic-version ordering,
+  and degrades gracefully when the registry is unreachable.
 - Installer honors per-request custom install options (install root, Python
   binary, npm script opt-in) consistently across install, upgrade, uninstall,
   and rollback, and rejects invalid option values before mutation.

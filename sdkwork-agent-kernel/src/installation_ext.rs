@@ -353,6 +353,48 @@ pub enum AgentInstallRecordStatus {
     Broken,
 }
 
+/// Available upgrade query result for one agent provider.
+///
+/// `latest_version` is `None` when the registry query is unavailable (network
+/// or package-manager failure), which hosts must treat as "no upgrade
+/// information" rather than "up to date". `update_available` is only
+/// meaningful when both the current and latest versions are present and
+/// compares them with strict semantic-version ordering so a local
+/// pre-release build that outranks `latest` never reports a false upgrade.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentAvailableUpgrade {
+    pub agent_id: String,
+    pub current_version: Option<String>,
+    pub latest_version: Option<String>,
+    pub update_available: bool,
+}
+
+impl AgentAvailableUpgrade {
+    pub fn new(agent_id: impl Into<String>) -> Self {
+        Self {
+            agent_id: agent_id.into(),
+            current_version: None,
+            latest_version: None,
+            update_available: false,
+        }
+    }
+
+    pub fn with_current_version(mut self, current_version: impl Into<String>) -> Self {
+        self.current_version = Some(current_version.into());
+        self
+    }
+
+    pub fn with_latest_version(mut self, latest_version: impl Into<String>) -> Self {
+        self.latest_version = Some(latest_version.into());
+        self
+    }
+
+    pub fn with_update_available(mut self, update_available: bool) -> Self {
+        self.update_available = update_available;
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

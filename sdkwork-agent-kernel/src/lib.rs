@@ -222,9 +222,10 @@ pub use installation::{
     AgentUpgradeReport, AgentUpgradeRequest,
 };
 pub use installation_ext::{
-    AgentInstallRecord, AgentInstallRecordStatus, AgentPackageSourceInfo, AgentRollbackReport,
-    AgentRollbackRequest, AgentRollbackStatus, AgentVerifyIssue, AgentVerifyIssueCategory,
-    AgentVerifyIssueSeverity, AgentVerifyReport, AgentVerifyRequest, AgentVerifyStatus,
+    AgentAvailableUpgrade, AgentInstallRecord, AgentInstallRecordStatus, AgentPackageSourceInfo,
+    AgentRollbackReport, AgentRollbackRequest, AgentRollbackStatus, AgentVerifyIssue,
+    AgentVerifyIssueCategory, AgentVerifyIssueSeverity, AgentVerifyReport, AgentVerifyRequest,
+    AgentVerifyStatus,
 };
 pub use knowledge::{
     KnowledgeDocument, KnowledgeDocumentFilter, KnowledgeDocumentKind, KnowledgeProvider,

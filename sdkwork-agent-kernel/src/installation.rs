@@ -1,10 +1,10 @@
 use crate::{
-    AgentConfiguration, AgentConfigurationSpec, AgentInstallRecord, AgentInstallRecordStatus,
-    AgentPackageSourceInfo, AgentRollbackReport, AgentRollbackRequest, AgentVerifyIssue,
-    AgentVerifyIssueCategory, AgentVerifyIssueSeverity, AgentVerifyReport, AgentVerifyRequest,
-    AgentVerifyStatus, KernelError, KernelEvent, KernelEventRedaction, KernelEventSeverity,
-    KernelEventSource, KernelResult, PolicyCategory, PolicyRequest, ProviderHealth,
-    ProviderManifest, SideEffectLevel,
+    AgentAvailableUpgrade, AgentConfiguration, AgentConfigurationSpec, AgentInstallRecord,
+    AgentInstallRecordStatus, AgentPackageSourceInfo, AgentRollbackReport, AgentRollbackRequest,
+    AgentVerifyIssue, AgentVerifyIssueCategory, AgentVerifyIssueSeverity, AgentVerifyReport,
+    AgentVerifyRequest, AgentVerifyStatus, KernelError, KernelEvent, KernelEventRedaction,
+    KernelEventSeverity, KernelEventSource, KernelResult, PolicyCategory, PolicyRequest,
+    ProviderHealth, ProviderManifest, SideEffectLevel,
 };
 
 pub trait AgentInstaller {
@@ -160,6 +160,22 @@ pub trait AgentInstaller {
         Err(KernelError::provider_error(
             "installer_inventory_unsupported",
             "this installer does not support listing installed agent records",
+        ))
+    }
+
+    /// Query the newest available version of the agent from its package
+    /// registry.
+    ///
+    /// The default implementation fails closed: a generic installer cannot
+    /// answer a registry query it has no package source for. Installers that
+    /// own a package registry (npm, PyPI) override this method and derive
+    /// `update_available` from a strict semantic-version comparison so
+    /// pre-release channels never produce false upgrade prompts.
+    fn available_upgrade(&self, agent_id: &str) -> KernelResult<AgentAvailableUpgrade> {
+        let _ = agent_id;
+        Err(KernelError::provider_error(
+            "installer_upgrade_query_unsupported",
+            "this installer does not support querying the newest available version",
         ))
     }
 

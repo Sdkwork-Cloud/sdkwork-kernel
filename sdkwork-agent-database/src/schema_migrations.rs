@@ -1,4 +1,9 @@
-//! Versioned agent-runtime schema migration authority.
+//! Agent-runtime schema initialization authority.
+//!
+//! Initialization state: the authoritative PostgreSQL DDL is a single
+//! idempotent baseline (`agent_runtime.postgres.sql`, v2-v5 evolution layers
+//! folded in); no versioned migrations exist for PostgreSQL. The SQLite
+//! client-local store keeps its own versioned migration path.
 
 use crate::error::{DatabaseError, DatabaseResult};
 use sdkwork_utils_rust::crypto::sha256_hash;
@@ -13,18 +18,6 @@ const SQLITE_EXECUTION_MIGRATION_SQL: &str =
 
 #[cfg(any(feature = "postgres-sync", test))]
 pub const POSTGRES_MIGRATION_SQL: &str = include_str!("../migrations/agent_runtime.postgres.sql");
-#[cfg(feature = "postgres-sync")]
-const POSTGRES_LEGACY_REPAIR_SQL: &str =
-    include_str!("../migrations/agent_runtime.postgres.v2.sql");
-#[cfg(feature = "postgres-sync")]
-const POSTGRES_PAGINATION_MIGRATION_SQL: &str =
-    include_str!("../migrations/agent_runtime.postgres.v3.sql");
-#[cfg(feature = "postgres-sync")]
-const POSTGRES_RETENTION_MIGRATION_SQL: &str =
-    include_str!("../migrations/agent_runtime.postgres.v4.sql");
-#[cfg(feature = "postgres-sync")]
-const POSTGRES_EXECUTION_MIGRATION_SQL: &str =
-    include_str!("../migrations/agent_runtime.postgres.v5.sql");
 
 const SQLITE_LEGACY_REPAIR_CHECKSUM_SOURCE: &str =
     "agent-runtime-sqlite-v2:columns+orphan-recovery+foreign-key-table-rebuild:1";
@@ -34,16 +27,6 @@ CREATE TABLE IF NOT EXISTS agent_runtime_schema_migration_history (
     name TEXT NOT NULL,
     checksum TEXT NOT NULL,
     applied_at TEXT NOT NULL
-);
-"#;
-
-#[cfg(feature = "postgres-sync")]
-const POSTGRES_HISTORY_TABLE_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS agent_runtime_schema_migration_history (
-    version BIGINT PRIMARY KEY,
-    name TEXT NOT NULL,
-    checksum TEXT NOT NULL,
-    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 "#;
 
@@ -586,72 +569,13 @@ pub async fn apply_postgres_pool(pool: &sqlx::PgPool) -> DatabaseResult<()> {
         .execute(&mut *tx)
         .await
         .map_err(postgres_migration_error)?;
-    sqlx::raw_sql(POSTGRES_HISTORY_TABLE_SQL)
+
+    // Initialization state: the full authoritative DDL is one idempotent
+    // baseline; no versioned migrations exist for PostgreSQL.
+    sqlx::raw_sql(POSTGRES_MIGRATION_SQL)
         .execute(&mut *tx)
         .await
         .map_err(postgres_migration_error)?;
-
-    for migration in [
-        SqlMigration {
-            version: 1,
-            name: "create_runtime_schema",
-            sql: POSTGRES_MIGRATION_SQL,
-        },
-        SqlMigration {
-            version: 2,
-            name: "repair_legacy_runtime_schema",
-            sql: POSTGRES_LEGACY_REPAIR_SQL,
-        },
-        SqlMigration {
-            version: 3,
-            name: "add_stable_pagination_indexes",
-            sql: POSTGRES_PAGINATION_MIGRATION_SQL,
-        },
-        SqlMigration {
-            version: 4,
-            name: "add_runtime_retention_indexes",
-            sql: POSTGRES_RETENTION_MIGRATION_SQL,
-        },
-        SqlMigration {
-            version: 5,
-            name: "add_durable_runtime_execution",
-            sql: POSTGRES_EXECUTION_MIGRATION_SQL,
-        },
-    ] {
-        let checksum = migration_checksum(migration.sql);
-        let applied = sqlx::query_scalar::<_, String>(
-            "SELECT checksum FROM agent_runtime_schema_migration_history WHERE version = $1",
-        )
-        .bind(migration.version)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(postgres_migration_error)?;
-        match applied {
-            Some(existing) if existing == checksum => continue,
-            Some(existing) => {
-                return Err(DatabaseError::Migration(format!(
-                    "PostgreSQL migration {} checksum mismatch: applied={existing}, expected={checksum}",
-                    migration.version
-                )))
-            }
-            None => {}
-        }
-
-        sqlx::raw_sql(migration.sql)
-            .execute(&mut *tx)
-            .await
-            .map_err(postgres_migration_error)?;
-        sqlx::query(
-            "INSERT INTO agent_runtime_schema_migration_history \
-             (version, name, checksum) VALUES ($1, $2, $3)",
-        )
-        .bind(migration.version)
-        .bind(migration.name)
-        .bind(checksum)
-        .execute(&mut *tx)
-        .await
-        .map_err(postgres_migration_error)?;
-    }
 
     validate_postgres_schema(&mut tx).await?;
     tx.commit().await.map_err(postgres_migration_error)

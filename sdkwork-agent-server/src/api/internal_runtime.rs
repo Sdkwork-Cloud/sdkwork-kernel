@@ -3419,6 +3419,7 @@ mod tests {
     use axum::extract::{Extension, Path, State};
     use futures::StreamExt;
 
+    #[cfg(feature = "sqlite")]
     fn test_state() -> Arc<InternalRuntimeApiState> {
         Arc::new(
             InternalRuntimeApiState::new(
@@ -3456,6 +3457,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "sqlite")]
     async fn saturated_event_stream_rejects_before_session_persistence_lookup() {
         let state = test_state();
         state
@@ -3661,6 +3663,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "sqlite")]
     async fn session_event_stream_releases_connection_slot_when_session_lookup_fails() {
         let state = test_state();
         let result = stream_session_events(
@@ -3684,6 +3687,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "sqlite")]
     async fn internal_runtime_snapshot_and_session_roundtrip() {
         let state = {
             let _lock = crate::testing::env::lock();

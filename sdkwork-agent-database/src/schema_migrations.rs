@@ -8,19 +8,25 @@
 use crate::error::{DatabaseError, DatabaseResult};
 use sdkwork_utils_rust::crypto::sha256_hash;
 
+#[cfg(feature = "sqlite")]
 pub const SQLITE_MIGRATION_SQL: &str = include_str!("../migrations/agent_runtime.sqlite.sql");
+#[cfg(feature = "sqlite")]
 const SQLITE_PAGINATION_MIGRATION_SQL: &str =
     include_str!("../migrations/agent_runtime.sqlite.v3.sql");
+#[cfg(feature = "sqlite")]
 const SQLITE_RETENTION_MIGRATION_SQL: &str =
     include_str!("../migrations/agent_runtime.sqlite.v4.sql");
+#[cfg(feature = "sqlite")]
 const SQLITE_EXECUTION_MIGRATION_SQL: &str =
     include_str!("../migrations/agent_runtime.sqlite.v5.sql");
 
 #[cfg(any(feature = "postgres-sync", test))]
 pub const POSTGRES_MIGRATION_SQL: &str = include_str!("../migrations/agent_runtime.postgres.sql");
 
+#[cfg(feature = "sqlite")]
 const SQLITE_LEGACY_REPAIR_CHECKSUM_SOURCE: &str =
     "agent-runtime-sqlite-v2:columns+orphan-recovery+foreign-key-table-rebuild:1";
+#[cfg(feature = "sqlite")]
 const SQLITE_HISTORY_TABLE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS agent_runtime_schema_migration_history (
     version INTEGER PRIMARY KEY,
@@ -40,6 +46,7 @@ struct SqlMigration {
     sql: &'static str,
 }
 
+#[cfg(feature = "sqlite")]
 const SQLITE_SQL_MIGRATIONS: &[SqlMigration] = &[
     SqlMigration {
         version: 1,
@@ -67,6 +74,7 @@ const SQLITE_SQL_MIGRATIONS: &[SqlMigration] = &[
 ///
 /// `BEGIN IMMEDIATE` serializes concurrent process startup before migration
 /// history is inspected, so duplicate startup cannot race DDL or history rows.
+#[cfg(feature = "sqlite")]
 pub fn apply_sqlite_connection(conn: &rusqlite::Connection) -> DatabaseResult<()> {
     use rusqlite::{Transaction, TransactionBehavior};
 
@@ -88,6 +96,7 @@ pub fn apply_sqlite_connection(conn: &rusqlite::Connection) -> DatabaseResult<()
     })
 }
 
+#[cfg(feature = "sqlite")]
 fn apply_sqlite_sql_migration(
     tx: &rusqlite::Transaction<'_>,
     migration: SqlMigration,
@@ -102,6 +111,7 @@ fn apply_sqlite_sql_migration(
     record_sqlite_migration(tx, migration.version, migration.name, &checksum)
 }
 
+#[cfg(feature = "sqlite")]
 fn apply_sqlite_legacy_repair(tx: &rusqlite::Transaction<'_>) -> DatabaseResult<()> {
     const VERSION: i64 = 2;
     const NAME: &str = "repair_legacy_runtime_schema";
@@ -135,6 +145,7 @@ fn apply_sqlite_legacy_repair(tx: &rusqlite::Transaction<'_>) -> DatabaseResult<
     record_sqlite_migration(tx, VERSION, NAME, &checksum)
 }
 
+#[cfg(feature = "sqlite")]
 fn sqlite_migration_is_current(
     tx: &rusqlite::Transaction<'_>,
     version: i64,
@@ -160,6 +171,7 @@ fn sqlite_migration_is_current(
     }
 }
 
+#[cfg(feature = "sqlite")]
 fn record_sqlite_migration(
     tx: &rusqlite::Transaction<'_>,
     version: i64,
@@ -180,6 +192,7 @@ fn record_sqlite_migration(
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 fn ensure_sqlite_column(
     tx: &rusqlite::Transaction<'_>,
     table: &str,
@@ -200,6 +213,7 @@ fn ensure_sqlite_column(
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 fn sqlite_column_exists(
     conn: &rusqlite::Connection,
     table: &str,
@@ -226,6 +240,7 @@ fn sqlite_column_exists(
     Ok(false)
 }
 
+#[cfg(feature = "sqlite")]
 fn recover_sqlite_orphan_sessions(tx: &rusqlite::Transaction<'_>) -> DatabaseResult<()> {
     tx.execute_batch(
         r#"
@@ -260,6 +275,7 @@ fn recover_sqlite_orphan_sessions(tx: &rusqlite::Transaction<'_>) -> DatabaseRes
     .map_err(|error| migration_error("recover SQLite orphan sessions", error))
 }
 
+#[cfg(feature = "sqlite")]
 fn rebuild_sqlite_child_table_if_needed(
     tx: &rusqlite::Transaction<'_>,
     table: &str,
@@ -292,6 +308,7 @@ fn rebuild_sqlite_child_table_if_needed(
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 fn ensure_sqlite_rebuild_is_non_destructive(
     conn: &rusqlite::Connection,
     table: &str,
@@ -368,6 +385,7 @@ fn ensure_sqlite_rebuild_is_non_destructive(
     Ok(())
 }
 
+#[cfg(feature = "sqlite")]
 fn sqlite_child_copy_sql(table: &str, legacy_table: &str) -> String {
     let columns = match table {
         "messages" => "message_id, session_id, role, content, created_at, metadata_json",
@@ -386,6 +404,7 @@ fn sqlite_child_copy_sql(table: &str, legacy_table: &str) -> String {
     )
 }
 
+#[cfg(feature = "sqlite")]
 fn sqlite_has_session_cascade_foreign_key(
     conn: &rusqlite::Connection,
     table: &str,
@@ -400,6 +419,7 @@ fn sqlite_has_session_cascade_foreign_key(
     )
 }
 
+#[cfg(feature = "sqlite")]
 fn sqlite_has_foreign_key(
     conn: &rusqlite::Connection,
     table: &str,
@@ -445,6 +465,7 @@ fn sqlite_has_foreign_key(
     Ok(false)
 }
 
+#[cfg(feature = "sqlite")]
 pub(crate) fn validate_sqlite_schema(conn: &rusqlite::Connection) -> DatabaseResult<()> {
     for column in [
         "provider_id",
@@ -668,10 +689,12 @@ fn migration_checksum(source: &str) -> String {
     sha256_hash(source.as_bytes())
 }
 
+#[cfg(feature = "sqlite")]
 fn quote_sqlite_identifier(identifier: &str) -> String {
     format!("\"{}\"", identifier.replace('"', "\"\""))
 }
 
+#[cfg(feature = "sqlite")]
 fn migration_error(context: &str, error: rusqlite::Error) -> DatabaseError {
     DatabaseError::Migration(format!("{context}: {error}"))
 }
@@ -681,6 +704,7 @@ fn postgres_migration_error(error: sqlx::Error) -> DatabaseError {
     DatabaseError::Migration(error.to_string())
 }
 
+#[cfg(feature = "sqlite")]
 const SQLITE_MESSAGES_TABLE_SQL: &str = r#"
 CREATE TABLE messages (
     message_id TEXT PRIMARY KEY,
@@ -693,6 +717,7 @@ CREATE TABLE messages (
 );
 "#;
 
+#[cfg(feature = "sqlite")]
 const SQLITE_TASKS_TABLE_SQL: &str = r#"
 CREATE TABLE tasks (
     task_id TEXT PRIMARY KEY,
@@ -705,6 +730,7 @@ CREATE TABLE tasks (
 );
 "#;
 
+#[cfg(feature = "sqlite")]
 const SQLITE_EVENTS_TABLE_SQL: &str = r#"
 CREATE TABLE events (
     event_id TEXT PRIMARY KEY,
@@ -717,6 +743,7 @@ CREATE TABLE events (
 );
 "#;
 
+#[cfg(feature = "sqlite")]
 const SQLITE_PERMISSIONS_TABLE_SQL: &str = r#"
 CREATE TABLE permissions (
     permission_request_id TEXT PRIMARY KEY,
@@ -740,7 +767,17 @@ mod tests {
 
     #[test]
     fn migration_sql_is_non_destructive_and_contains_required_schema() {
-        for sql in [SQLITE_MIGRATION_SQL, POSTGRES_MIGRATION_SQL] {
+        for sql in [POSTGRES_MIGRATION_SQL] {
+            assert!(sql.contains("CREATE TABLE IF NOT EXISTS sessions"));
+            assert!(sql.contains("ON DELETE CASCADE"));
+            assert!(!sql.to_ascii_uppercase().contains("DROP TABLE"));
+        }
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn sqlite_migration_sql_is_non_destructive_and_contains_required_schema() {
+        for sql in [SQLITE_MIGRATION_SQL] {
             assert!(sql.contains("CREATE TABLE IF NOT EXISTS sessions"));
             assert!(sql.contains("ON DELETE CASCADE"));
             assert!(!sql.to_ascii_uppercase().contains("DROP TABLE"));
@@ -748,6 +785,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "sqlite")]
     fn sqlite_migration_is_versioned_and_idempotent() {
         let conn = rusqlite::Connection::open_in_memory().expect("memory db");
         conn.execute_batch("PRAGMA foreign_keys=ON")
@@ -767,6 +805,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "sqlite")]
     fn sqlite_migration_repairs_legacy_columns_foreign_keys_and_orphans() {
         let conn = rusqlite::Connection::open_in_memory().expect("memory db");
         conn.execute_batch(
@@ -833,6 +872,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "sqlite")]
     fn sqlite_migration_rejects_checksum_drift() {
         let conn = rusqlite::Connection::open_in_memory().expect("memory db");
         conn.execute_batch("PRAGMA foreign_keys=ON")

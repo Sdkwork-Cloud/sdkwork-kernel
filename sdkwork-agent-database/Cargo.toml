@@ -5,7 +5,7 @@ edition = "2021"
 description = "Database abstraction layer for SDKWork agent session persistence"
 
 [features]
-default = ["sqlite"]
+default = []
 sqlite = ["dep:rusqlite"]
 postgres-sync = [
     "dep:sdkwork-database-config",

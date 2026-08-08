@@ -126,6 +126,7 @@ mod tests {
     use std::sync::Arc;
 
     #[tokio::test]
+    #[cfg(feature = "sqlite")]
     async fn dispatch_persists_user_and_assistant_messages() {
         let (persistence, state) = {
             let _lock = crate::testing::env::lock();

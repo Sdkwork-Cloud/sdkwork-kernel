@@ -213,7 +213,7 @@ impl ServerConfig {
         if let Ok(cors) = std::env::var("SDKWORK_CORS_ENABLED") {
             config.cors_enabled = cors.parse().unwrap_or(true);
         }
-        if let Ok(origins) = std::env::var("SDKWORK_CORS_ORIGINS") {
+        if let Ok(origins) = std::env::var("SDKWORK_CORS_ALLOWED_ORIGINS") {
             config.cors_origins = origins.split(',').map(|s| s.trim().to_string()).collect();
         }
         if let Ok(timeout) = std::env::var("SDKWORK_REQUEST_TIMEOUT") {

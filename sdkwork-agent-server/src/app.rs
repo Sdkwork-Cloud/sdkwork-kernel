@@ -192,6 +192,7 @@ fn try_build_app_with_rate_limit(
 }
 
 /// Build a test router with in-memory persistence and open ingress auth.
+#[cfg(feature = "sqlite")]
 pub fn build_test_app(config: Arc<ServerConfig>) -> Router {
     let health_state = Arc::new(health::HealthState::new());
     let persistence = Arc::new(
@@ -210,11 +211,13 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(feature = "sqlite")]
     fn build_app_does_not_panic() {
         let _app = build_test_app(Arc::new(ServerConfig::default()));
     }
 
     #[tokio::test]
+    #[cfg(feature = "sqlite")]
     async fn build_app_async_returns_error_for_invalid_ingress_jwt_config() {
         let config = Arc::new(ServerConfig {
             ingress_auth_mode: "jwt".to_string(),

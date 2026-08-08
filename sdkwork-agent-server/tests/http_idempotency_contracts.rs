@@ -1,4 +1,8 @@
 //! HTTP contracts for retry-safe internal runtime mutations.
+//! These contracts exercise the in-memory (SQLite) persistence path and only
+//! compile when the client-local `sqlite` feature is enabled.
+
+#![cfg(feature = "sqlite")]
 
 use std::sync::Arc;
 

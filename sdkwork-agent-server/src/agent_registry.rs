@@ -1,5 +1,6 @@
 use sdkwork_agent_plugin_core::StandardPluginIds;
 use sdkwork_agent_provider_claude_code::ids as claude_code_ids;
+#[cfg(feature = "codex-provider")]
 use sdkwork_agent_provider_codex::ids as codex_ids;
 use sdkwork_agent_provider_gemini_cli::ids as gemini_cli_ids;
 use sdkwork_agent_provider_hermes::ids as hermes_ids;
@@ -41,6 +42,7 @@ pub fn active_hosted_agent() -> RegisteredAgent {
             runtime_agent_id: mimo_code_ids::AGENT_ID,
             default_model_provider_id: mimo_code_ids::MODEL_PROVIDER_ID,
         },
+        #[cfg(feature = "codex-provider")]
         KernelAgentPluginKind::Codex => RegisteredAgent {
             agent_id: codex_ids::AGENT_ID,
             runtime_agent_id: codex_ids::AGENT_ID,
@@ -151,6 +153,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "codex-provider")]
     #[test]
     fn resolves_codex_agent_when_plugin_env_set() {
         let _lock = lock();
@@ -199,8 +202,11 @@ mod tests {
     #[test]
     fn dev_alias_resolves_in_debug_builds() {
         let _lock = lock();
+        #[cfg(feature = "codex-provider")]
         let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, Some("codex"));
+        #[cfg(not(feature = "codex-provider"))]
+        let _plugin = VarGuard::set(KERNEL_AGENT_PLUGIN_ENV, Some("rig"));
         let agent = resolve_registered_agent("agent.1").expect("dev alias should resolve");
-        assert_eq!(agent.agent_id, codex_ids::AGENT_ID);
+        assert_eq!(agent.agent_id, active_hosted_agent().agent_id);
     }
 }

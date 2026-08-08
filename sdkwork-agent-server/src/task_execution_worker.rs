@@ -511,6 +511,7 @@ mod tests {
     use sdkwork_agent_session::SessionConfig;
 
     #[tokio::test]
+    #[cfg(feature = "sqlite")]
     async fn worker_executes_and_atomically_persists_a_task() {
         let (persistence, state, config) = {
             let _lock = crate::testing::env::lock();

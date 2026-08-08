@@ -1,4 +1,8 @@
 //! HTTP contract tests for canonical internal-api runtime routes.
+//! These contracts exercise the in-memory (SQLite) persistence path and only
+//! compile when the client-local `sqlite` feature is enabled.
+
+#![cfg(feature = "sqlite")]
 
 use std::collections::HashMap;
 use std::sync::Arc;

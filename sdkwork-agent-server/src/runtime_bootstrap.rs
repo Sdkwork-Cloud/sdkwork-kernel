@@ -1,6 +1,7 @@
 use sdkwork_agent_kernel::{AgentRuntime, KernelError, KernelResult, RuntimeBuilder};
 use sdkwork_agent_plugin_core::SdkworkKernelPlugin;
 use sdkwork_agent_provider_claude_code::{ids as claude_code_ids, ClaudeCodeKernelPlugin};
+#[cfg(feature = "codex-provider")]
 use sdkwork_agent_provider_codex::{ids as codex_ids, CodexKernelPlugin};
 use sdkwork_agent_provider_gemini_cli::{ids as gemini_cli_ids, GeminiCliKernelPlugin};
 use sdkwork_agent_provider_hermes::{ids as hermes_ids, HermesKernelPlugin};
@@ -18,6 +19,7 @@ pub enum KernelAgentPluginKind {
     OpenClaw,
     Hermes,
     MiMoCode,
+    #[cfg(feature = "codex-provider")]
     Codex,
     ClaudeCode,
     OpenCode,
@@ -37,6 +39,7 @@ pub fn parse_kernel_agent_plugin_kind(value: &str) -> Option<KernelAgentPluginKi
         "openclaw" | "open-cloud" => Some(KernelAgentPluginKind::OpenClaw),
         "hermes" | "hermes-agent" => Some(KernelAgentPluginKind::Hermes),
         "mimo" | "mimo-code" => Some(KernelAgentPluginKind::MiMoCode),
+        #[cfg(feature = "codex-provider")]
         "codex" | "openai-codex" => Some(KernelAgentPluginKind::Codex),
         "claude" | "claude-code" => Some(KernelAgentPluginKind::ClaudeCode),
         "opencode" | "open-code" => Some(KernelAgentPluginKind::OpenCode),
@@ -52,6 +55,7 @@ pub fn bootstrap_agent_runtime() -> KernelResult<AgentRuntime> {
         KernelAgentPluginKind::OpenClaw => bootstrap_openclaw_runtime(),
         KernelAgentPluginKind::Hermes => bootstrap_hermes_runtime(),
         KernelAgentPluginKind::MiMoCode => bootstrap_mimo_code_runtime(),
+        #[cfg(feature = "codex-provider")]
         KernelAgentPluginKind::Codex => bootstrap_codex_runtime(),
         KernelAgentPluginKind::ClaudeCode => bootstrap_claude_code_runtime(),
         KernelAgentPluginKind::OpenCode => bootstrap_opencode_runtime(),
@@ -83,6 +87,7 @@ fn bootstrap_mimo_code_runtime() -> KernelResult<AgentRuntime> {
     )
 }
 
+#[cfg(feature = "codex-provider")]
 fn bootstrap_codex_runtime() -> KernelResult<AgentRuntime> {
     bootstrap_plugin_runtime(&CodexKernelPlugin::new(), codex_ids::AGENT_ID, "codex")
 }
@@ -150,6 +155,7 @@ mod tests {
             parse_kernel_agent_plugin_kind("hermes-agent"),
             Some(KernelAgentPluginKind::Hermes)
         );
+        #[cfg(feature = "codex-provider")]
         assert_eq!(
             parse_kernel_agent_plugin_kind("openai-codex"),
             Some(KernelAgentPluginKind::Codex)
@@ -200,6 +206,7 @@ mod tests {
             .contains(&hermes_ids::MODEL_PROVIDER_ID.to_string()));
     }
 
+    #[cfg(feature = "codex-provider")]
     #[test]
     fn bootstrap_selects_codex_plugin_from_env() {
         let _lock = lock();

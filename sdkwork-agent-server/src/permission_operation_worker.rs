@@ -605,6 +605,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "sqlite")]
     async fn worker_decrypts_invokes_and_crypto_erases_operation() {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let runtime = RuntimeBuilder::new("runtime.permission-worker-test", agent_manifest())

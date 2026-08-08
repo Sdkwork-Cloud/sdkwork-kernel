@@ -2,8 +2,11 @@ use sdkwork_agent_database::{
     ClaimedPermissionOperation, ClaimedRun, EventRow, MessageRow, PermissionOperationRepository,
     PermissionOperationRow, PermissionRepository, PermissionRow, PostgresDatabase,
     RunControlAction, RunRow, RuntimeExecutionRepository, RuntimeMaintenance, RuntimePurgeCounts,
-    RuntimeSchemaStatus, SessionRow, SqliteDatabase, StepRow, TaskRow,
+    RuntimeSchemaStatus, SessionRow, StepRow, TaskRow,
 };
+#[cfg(feature = "sqlite")]
+use sdkwork_agent_database::SqliteDatabase;
+
 use sdkwork_agent_session::{MessageConfig, SessionConfig, SessionQuery, UnifiedSessionManager};
 use std::sync::{Arc, RwLock, Weak};
 use std::time::Duration;
@@ -12,12 +15,14 @@ use tokio::sync::{Semaphore, TryAcquireError};
 use crate::config::ServerConfig;
 use crate::event_bus::SessionEventBus;
 
+#[cfg(feature = "sqlite")]
 type AppSessionManagerSqlite = UnifiedSessionManager<SqliteDatabase>;
 
 type AppSessionManagerPostgres = UnifiedSessionManager<PostgresDatabase>;
 
 #[derive(Clone)]
 enum ManagerInner {
+    #[cfg(feature = "sqlite")]
     Sqlite(Arc<AppSessionManagerSqlite>),
     Postgres(Arc<AppSessionManagerPostgres>),
 }
@@ -25,18 +30,21 @@ enum ManagerInner {
 /// Database handle for permission persistence operations.
 #[derive(Clone)]
 enum PermissionDb {
+    #[cfg(feature = "sqlite")]
     Sqlite(SqliteDatabase),
     Postgres(Arc<PostgresDatabase>),
 }
 
 #[derive(Clone)]
 enum MaintenanceDb {
+    #[cfg(feature = "sqlite")]
     Sqlite(SqliteDatabase),
     Postgres(Arc<PostgresDatabase>),
 }
 
 #[derive(Clone)]
 enum ExecutionDb {
+    #[cfg(feature = "sqlite")]
     Sqlite(SqliteDatabase),
     Postgres(Arc<PostgresDatabase>),
 }
@@ -50,6 +58,7 @@ impl RuntimeExecutionRepository for ExecutionDb {
         event: &EventRow,
     ) -> Result<(), sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.create_task_execution(task, run, step, event),
             Self::Postgres(db) => db.create_task_execution(task, run, step, event),
         }
@@ -60,6 +69,7 @@ impl RuntimeExecutionRepository for ExecutionDb {
         run_id: &str,
     ) -> Result<Option<RunRow>, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.load_run(run_id),
             Self::Postgres(db) => db.load_run(run_id),
         }
@@ -70,6 +80,7 @@ impl RuntimeExecutionRepository for ExecutionDb {
         run_id: &str,
     ) -> Result<Vec<StepRow>, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.load_steps(run_id),
             Self::Postgres(db) => db.load_steps(run_id),
         }
@@ -80,6 +91,7 @@ impl RuntimeExecutionRepository for ExecutionDb {
         task_id: &str,
     ) -> Result<i64, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.next_task_attempt(task_id),
             Self::Postgres(db) => db.next_task_attempt(task_id),
         }
@@ -92,6 +104,7 @@ impl RuntimeExecutionRepository for ExecutionDb {
         lease_expires_at: &str,
     ) -> Result<Option<ClaimedRun>, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.claim_ready_run(worker_id, now, lease_expires_at),
             Self::Postgres(db) => db.claim_ready_run(worker_id, now, lease_expires_at),
         }
@@ -106,6 +119,7 @@ impl RuntimeExecutionRepository for ExecutionDb {
         lease_expires_at: &str,
     ) -> Result<bool, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => {
                 db.renew_run_lease(run_id, worker_id, fencing_token, now, lease_expires_at)
             }
@@ -122,6 +136,7 @@ impl RuntimeExecutionRepository for ExecutionDb {
         event: &EventRow,
     ) -> Result<(), sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.start_claimed_run(claim, started_at, event),
             Self::Postgres(db) => db.start_claimed_run(claim, started_at, event),
         }
@@ -135,6 +150,7 @@ impl RuntimeExecutionRepository for ExecutionDb {
         event: &EventRow,
     ) -> Result<(), sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.complete_claimed_run(claim, result_json, finished_at, event),
             Self::Postgres(db) => db.complete_claimed_run(claim, result_json, finished_at, event),
         }
@@ -149,6 +165,7 @@ impl RuntimeExecutionRepository for ExecutionDb {
         event: &EventRow,
     ) -> Result<(), sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.complete_claimed_run_with_messages(
                 claim,
                 messages,
@@ -176,6 +193,7 @@ impl RuntimeExecutionRepository for ExecutionDb {
         event: &EventRow,
     ) -> Result<(), sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.fail_claimed_run(
                 claim,
                 error_kind,
@@ -205,6 +223,7 @@ impl RuntimeExecutionRepository for ExecutionDb {
         event: &EventRow,
     ) -> Result<(), sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.schedule_run_retry(
                 claim,
                 error_kind,
@@ -231,6 +250,7 @@ impl RuntimeExecutionRepository for ExecutionDb {
         event: &EventRow,
     ) -> Result<(TaskRow, bool), sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.request_task_cancellation(task_id, requested_at, event),
             Self::Postgres(db) => db.request_task_cancellation(task_id, requested_at, event),
         }
@@ -244,6 +264,7 @@ impl RuntimeExecutionRepository for ExecutionDb {
         event: &EventRow,
     ) -> Result<TaskRow, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.retry_task_execution(task_id, run, step, event),
             Self::Postgres(db) => db.retry_task_execution(task_id, run, step, event),
         }
@@ -257,6 +278,7 @@ impl RuntimeExecutionRepository for ExecutionDb {
         event: &EventRow,
     ) -> Result<RunRow, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.control_run(run_id, action, changed_at, event),
             Self::Postgres(db) => db.control_run(run_id, action, changed_at, event),
         }
@@ -274,6 +296,7 @@ impl PermissionOperationRepository for ExecutionDb {
         event: &EventRow,
     ) -> Result<(), sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => {
                 db.create_permission_execution(permission, task, run, step, operation, event)
             }
@@ -288,6 +311,7 @@ impl PermissionOperationRepository for ExecutionDb {
         permission_request_id: &str,
     ) -> Result<Option<PermissionOperationRow>, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.load_permission_operation(permission_request_id),
             Self::Postgres(db) => db.load_permission_operation(permission_request_id),
         }
@@ -301,6 +325,7 @@ impl PermissionOperationRepository for ExecutionDb {
         event: &EventRow,
     ) -> Result<PermissionOperationRow, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => {
                 db.decide_permission_operation(permission_request_id, decision, decided_at, event)
             }
@@ -317,6 +342,7 @@ impl PermissionOperationRepository for ExecutionDb {
         lease_expires_at: &str,
     ) -> Result<Option<ClaimedPermissionOperation>, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.claim_permission_operation(worker_id, now, lease_expires_at),
             Self::Postgres(db) => db.claim_permission_operation(worker_id, now, lease_expires_at),
         }
@@ -331,6 +357,7 @@ impl PermissionOperationRepository for ExecutionDb {
         lease_expires_at: &str,
     ) -> Result<bool, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.renew_permission_operation_lease(
                 permission_request_id,
                 worker_id,
@@ -354,6 +381,7 @@ impl PermissionOperationRepository for ExecutionDb {
         batch_size: i64,
     ) -> Result<Vec<EventRow>, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.expire_permission_operations(now, batch_size),
             Self::Postgres(db) => db.expire_permission_operations(now, batch_size),
         }
@@ -367,6 +395,7 @@ impl PermissionOperationRepository for ExecutionDb {
         event: &EventRow,
     ) -> Result<(), sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => {
                 db.complete_permission_operation(claim, result_json, finished_at, event)
             }
@@ -386,6 +415,7 @@ impl PermissionOperationRepository for ExecutionDb {
         event: &EventRow,
     ) -> Result<(), sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(db) => db.fail_permission_operation(
                 claim,
                 error_kind,
@@ -413,6 +443,7 @@ impl RuntimeMaintenance for MaintenanceDb {
         batch_size: i64,
     ) -> Result<RuntimePurgeCounts, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             MaintenanceDb::Sqlite(db) => db.purge_expired(cutoff, batch_size),
             MaintenanceDb::Postgres(db) => db.purge_expired(cutoff, batch_size),
         }
@@ -420,6 +451,7 @@ impl RuntimeMaintenance for MaintenanceDb {
 
     fn schema_status(&self) -> Result<RuntimeSchemaStatus, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             MaintenanceDb::Sqlite(db) => db.schema_status(),
             MaintenanceDb::Postgres(db) => db.schema_status(),
         }
@@ -427,6 +459,7 @@ impl RuntimeMaintenance for MaintenanceDb {
 
     fn run_maintenance(&self) -> Result<(), sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             MaintenanceDb::Sqlite(db) => db.run_maintenance(),
             MaintenanceDb::Postgres(db) => db.run_maintenance(),
         }
@@ -439,6 +472,7 @@ impl PermissionRepository for PermissionDb {
         permission: &PermissionRow,
     ) -> Result<bool, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             PermissionDb::Sqlite(db) => db.create_permission_if_absent(permission),
             PermissionDb::Postgres(db) => db.create_permission_if_absent(permission),
         }
@@ -449,6 +483,7 @@ impl PermissionRepository for PermissionDb {
         permission: &PermissionRow,
     ) -> Result<(), sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             PermissionDb::Sqlite(db) => db.save_permission(permission),
             PermissionDb::Postgres(db) => db.save_permission(permission),
         }
@@ -459,6 +494,7 @@ impl PermissionRepository for PermissionDb {
         permission_request_id: &str,
     ) -> Result<Option<PermissionRow>, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             PermissionDb::Sqlite(db) => db.load_permission(permission_request_id),
             PermissionDb::Postgres(db) => db.load_permission(permission_request_id),
         }
@@ -469,6 +505,7 @@ impl PermissionRepository for PermissionDb {
         query: &sdkwork_agent_database::PermissionQuery,
     ) -> Result<Vec<PermissionRow>, sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             PermissionDb::Sqlite(db) => db.list_permissions(query),
             PermissionDb::Postgres(db) => db.list_permissions(query),
         }
@@ -480,6 +517,7 @@ impl PermissionRepository for PermissionDb {
         status: &str,
     ) -> Result<(), sdkwork_agent_database::DatabaseError> {
         match self {
+            #[cfg(feature = "sqlite")]
             PermissionDb::Sqlite(db) => db.update_permission_status(permission_request_id, status),
             PermissionDb::Postgres(db) => {
                 db.update_permission_status(permission_request_id, status)
@@ -491,6 +529,7 @@ impl PermissionRepository for PermissionDb {
 macro_rules! with_manager {
     ($self:expr, |$mgr:ident| $body:expr) => {{
         match &$self.manager {
+            #[cfg(feature = "sqlite")]
             ManagerInner::Sqlite(inner) => {
                 let $mgr = &**inner;
                 $body
@@ -623,6 +662,7 @@ impl PersistenceAdmission {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PersistenceBackend {
+    #[cfg(feature = "sqlite")]
     Sqlite,
     Postgres,
 }
@@ -660,10 +700,12 @@ impl PersistenceState {
         Ok(Self::from_postgres_database(db, event_bus))
     }
 
+    #[cfg(feature = "sqlite")]
     pub fn memory() -> anyhow::Result<Self> {
         Self::memory_with_event_bus(SessionEventBus::new())
     }
 
+    #[cfg(feature = "sqlite")]
     pub fn memory_with_event_bus(event_bus: SessionEventBus) -> anyhow::Result<Self> {
         let db = SqliteDatabase::memory_migrated()?;
         Ok(Self::from_sqlite_database(db, event_bus))
@@ -675,11 +717,13 @@ impl PersistenceState {
 
     pub fn persistence_backend_label(&self) -> &'static str {
         match self.backend {
+            #[cfg(feature = "sqlite")]
             PersistenceBackend::Sqlite => "sqlite",
             PersistenceBackend::Postgres => "postgres",
         }
     }
 
+    #[cfg(feature = "sqlite")]
     fn from_sqlite_database(db: SqliteDatabase, event_bus: SessionEventBus) -> Self {
         let permission_db = db.clone();
         let execution_db = db.clone();
@@ -1270,6 +1314,7 @@ mod tests {
     use std::sync::mpsc;
 
     #[test]
+    #[cfg(feature = "sqlite")]
     fn create_session_publishes_event() {
         let persistence = PersistenceState::memory().expect("persistence");
         let mut receiver = persistence.event_bus().subscribe();
@@ -1283,6 +1328,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[cfg(feature = "sqlite")]
     async fn persistence_admission_rejects_when_execution_and_wait_queue_are_full() {
         let config = ServerConfig {
             persistence_max_concurrency: 1,
@@ -1332,6 +1378,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    #[cfg(feature = "sqlite")]
     async fn persistence_admission_times_out_a_bounded_waiter() {
         let config = ServerConfig {
             persistence_max_concurrency: 1,

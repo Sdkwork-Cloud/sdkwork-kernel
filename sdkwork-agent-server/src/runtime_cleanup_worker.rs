@@ -188,6 +188,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[cfg(feature = "sqlite")]
     async fn cleanup_cycle_stops_after_an_empty_batch() {
         let persistence = Arc::new(PersistenceState::memory().expect("persistence"));
         let summary = run_cleanup_cycle(persistence, "2021-01-01T00:00:00Z".to_string(), 1)
@@ -198,6 +199,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "sqlite")]
     async fn shutdown_wakes_worker_before_cleanup_interval() {
         let persistence = Arc::new(PersistenceState::memory().expect("persistence"));
         let config = Arc::new(ServerConfig {

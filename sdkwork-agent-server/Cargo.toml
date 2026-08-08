@@ -16,12 +16,19 @@ observability-otel = [
     "dep:opentelemetry_sdk",
     "dep:tracing-opentelemetry",
 ]
+# Codex agent provider carries its own embedded SQLite runtime store
+# (codex-state). It is an optional, per-application integration: off by
+# default so server/container builds stay SQLite-free (DATABASE_SPEC:
+# authoritative-server persistence is PostgreSQL only); applications that
+# need the Codex engine enable it explicitly, and client-local surfaces
+# enable it for device-scoped state.
+codex-provider = ["dep:sdkwork-agent-provider-codex"]
 
 [dependencies]
 sdkwork-agent-kernel.workspace = true
 sdkwork-code-kernel.workspace = true
 sdkwork-agent-api-bridge.workspace = true
-sdkwork-agent-database = { workspace = true, features = ["sqlite", "postgres-sync"] }
+sdkwork-agent-database = { workspace = true, features = ["postgres-sync"] }
 sdkwork-database-config.workspace = true
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 sdkwork-agent-session.workspace = true
@@ -56,7 +63,7 @@ sdkwork-agent-provider-rig.workspace = true
 sdkwork-agent-provider-openclaw.workspace = true
 sdkwork-agent-provider-hermes.workspace = true
 sdkwork-agent-provider-mimo-code.workspace = true
-sdkwork-agent-provider-codex.workspace = true
+sdkwork-agent-provider-codex = { workspace = true, optional = true }
 sdkwork-agent-provider-claude-code.workspace = true
 sdkwork-agent-provider-opencode.workspace = true
 sdkwork-agent-provider-gemini-cli.workspace = true

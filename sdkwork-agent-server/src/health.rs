@@ -258,6 +258,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "sqlite")]
     async fn standalone_readiness_checks_database_and_schema() {
         let config = Arc::new(ServerConfig {
             kernel_profile_id: Some("standalone.development".to_string()),

@@ -57,22 +57,27 @@ impl RigModelProvider {
                 "Rig official adapter requires live backend mode",
             ));
         }
-        if config.provider_id.as_deref() != Some("openai") {
+        // Any non-cloudrouter vendor id (openai, deepseek, qwen, custom …) is
+        // a direct OpenAI-compatible provider; only the explicit cloudrouter
+        // provider id routes through the account-pool gateway instead.
+        if config.provider_id.as_deref() == Some("cloudrouter") {
             return Err(KernelError::validation(
-                "Rig official OpenAI adapter requires llm.rig.provider_id=openai",
+                "Rig OpenAI-compatible adapter cannot target the cloudrouter gateway; \
+                 use the cloud router executor for provider_id=cloudrouter",
             ));
         }
         let secret_ref = config.api_key_secret_ref.clone().ok_or_else(|| {
             KernelError::validation(
-                "Rig official OpenAI adapter requires llm.rig.api_key secret reference",
+                "Rig official adapter requires llm.rig.api_key secret reference",
             )
         })?;
         Ok(Self::with_executor(
-            config,
+            config.clone(),
             Arc::new(RigCoreOpenAiExecutor::new(
                 host,
                 secret_ref,
                 default_model_id,
+                config.base_url,
             )?),
         ))
     }

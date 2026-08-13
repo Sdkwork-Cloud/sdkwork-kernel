@@ -27,10 +27,13 @@ impl RigConfigurationProvider {
             .add_section(
                 AgentConfigSection::llm_api_key("llm", "LLM")
                     .add_field(AgentConfigField::text("llm.rig.provider_id", "Provider"))
-                    .add_field(AgentConfigField::llm_api_key(
-                        "llm.rig.api_key",
-                        "Rig API key",
-                    ))
+                    .add_field(
+                        AgentConfigField::secret("llm.rig.api_key", "Rig API key")
+                            .with_description(
+                                "Optional API key for API-key-backed executors; the default \
+                                 cloud router dual-token mode requires no local key",
+                            ),
+                    )
                     .add_field(AgentConfigField::text(
                         "llm.rig.base_url",
                         "Model API base URL",
@@ -113,10 +116,10 @@ impl AgentConfigurationProvider for RigConfigurationProvider {
         &self,
         request: &AgentModelConfigurationRequest,
     ) -> KernelResult<AgentModelConfigurationApplication> {
-        if request.agent_id != ids::AGENT_ID {
-            return Err(KernelError::CapabilityMissing {
-                capability_id: request.agent_id.clone(),
-            });
+        if request.agent_id.trim().is_empty() {
+            return Err(KernelError::validation(
+                "model configuration agent_id must not be blank",
+            ));
         }
         request.validate()?;
 
@@ -195,10 +198,10 @@ impl AgentConfigurationProvider for RigConfigurationProvider {
         &self,
         request: &AgentModelSelectionRequest,
     ) -> KernelResult<AgentModelConfigurationApplication> {
-        if request.agent_id != ids::AGENT_ID {
-            return Err(KernelError::CapabilityMissing {
-                capability_id: request.agent_id.clone(),
-            });
+        if request.agent_id.trim().is_empty() {
+            return Err(KernelError::validation(
+                "model selection agent_id must not be blank",
+            ));
         }
         request.validate()?;
 

@@ -45,6 +45,9 @@ pub struct RigCoreOpenAiExecutor {
     host: Arc<dyn HostProvider + Send + Sync>,
     api_key_secret_ref: String,
     default_model_id: String,
+    /// Custom OpenAI-compatible endpoint (`llm.rig.base_url`); `None` targets
+    /// the vendor's default endpoint.
+    base_url: Option<String>,
     runtime: Arc<tokio::runtime::Runtime>,
 }
 
@@ -53,6 +56,7 @@ impl RigCoreOpenAiExecutor {
         host: Arc<dyn HostProvider + Send + Sync>,
         api_key_secret_ref: impl Into<String>,
         default_model_id: impl Into<String>,
+        base_url: Option<String>,
     ) -> KernelResult<Self> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -62,6 +66,7 @@ impl RigCoreOpenAiExecutor {
             host,
             api_key_secret_ref: api_key_secret_ref.into(),
             default_model_id: default_model_id.into(),
+            base_url,
             runtime: Arc::new(runtime),
         })
     }
@@ -71,13 +76,20 @@ impl RigBackendExecutor for RigCoreOpenAiExecutor {
     fn invoke_model(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         let secret_ref = SecretRef::new(&self.api_key_secret_ref, "Rig OpenAI API key");
         let secret = self.host.resolve_secret(secret_ref)?;
-        let client = openai::Client::builder()
-            .api_key(secret.expose_value())
-            .build()
-            .map_err(|_| provider_unavailable())?;
+        let mut builder = openai::Client::builder().api_key(secret.expose_value());
+        if let Some(base_url) = self.base_url.as_deref().filter(|value| !value.trim().is_empty())
+        {
+            builder = builder.base_url(base_url);
+        }
+        let client = builder.build().map_err(|_| provider_unavailable())?;
+        // The catalog placeholder (`rig.default-chat`) is the session
+        // binding's default model label, not a real upstream model: fall back
+        // to the configured default model so a custom provider call never
+        // sends the placeholder id upstream.
         let model_id = request
             .model_id
             .clone()
+            .filter(|model_id| model_id != ids::DEFAULT_MODEL_ID)
             .unwrap_or_else(|| self.default_model_id.clone());
         let model = client.completion_model(&model_id);
         let prompt = request.effective_prompt_text();

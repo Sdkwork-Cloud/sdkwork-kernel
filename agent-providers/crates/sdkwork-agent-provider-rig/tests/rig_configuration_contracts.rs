@@ -17,7 +17,9 @@ fn rig_configuration_spec_requires_secret_refs_and_security_defaults() {
     // The model provider id is optional: the backend resolves it when set and
     // the official adapter requires it explicitly (llm.rig.provider_id=openai).
     assert!(!spec.required_keys().contains(&"llm.rig.provider_id"));
-    assert!(spec.required_keys().contains(&"llm.rig.api_key"));
+    // The api key is optional: the default cloud router dual-token executor
+    // needs no local key; API-key-backed executors validate it themselves.
+    assert!(!spec.required_keys().contains(&"llm.rig.api_key"));
     assert!(spec.required_keys().contains(&"runtime.rig.backend_mode"));
     assert!(spec.required_keys().contains(&"security.fail_closed"));
     assert_eq!(provider.health(), ProviderHealth::available());
@@ -91,6 +93,58 @@ fn rig_backend_config_resolves_mode_without_raw_secrets() {
         config.api_key_secret_ref.as_deref(),
         Some("secret://rig/openai")
     );
+    assert_eq!(config.base_url, None);
+}
+
+#[test]
+fn rig_backend_config_resolves_custom_provider_base_url_and_normalizes_blanks() {
+    let configuration = AgentConfiguration::new(ids::AGENT_ID, "profile.rig.custom")
+        .set("agent.display_name", AgentConfigValue::string("Rig"))
+        .set("llm.rig.provider_id", AgentConfigValue::string("deepseek"))
+        .set(
+            "llm.rig.api_key",
+            AgentConfigValue::secret_ref("secret://rig/deepseek"),
+        )
+        .set(
+            "llm.rig.base_url",
+            AgentConfigValue::string("https://api.deepseek.example.com/v1"),
+        )
+        .set(
+            "llm.rig.default_model",
+            AgentConfigValue::string("deepseek-chat"),
+        )
+        .set("runtime.rig.backend_mode", AgentConfigValue::string("live"))
+        .set("security.fail_closed", AgentConfigValue::string("true"));
+
+    let config = RigBackendConfig::from_configuration(&configuration)
+        .expect("custom provider config is parsed");
+
+    assert_eq!(config.mode, RigBackendMode::Live);
+    assert_eq!(config.provider_id.as_deref(), Some("deepseek"));
+    assert_eq!(
+        config.api_key_secret_ref.as_deref(),
+        Some("secret://rig/deepseek")
+    );
+    assert_eq!(
+        config.base_url.as_deref(),
+        Some("https://api.deepseek.example.com/v1")
+    );
+
+    // Blank base url / api key values normalize to `None` so a half-filled
+    // apply payload never produces a bogus provider configuration.
+    let blank = AgentConfiguration::new(ids::AGENT_ID, "profile.rig.blank")
+        .set("agent.display_name", AgentConfigValue::string("Rig"))
+        .set(
+            "llm.rig.api_key",
+            AgentConfigValue::secret_ref("   "),
+        )
+        .set("llm.rig.base_url", AgentConfigValue::string("  "))
+        .set("runtime.rig.backend_mode", AgentConfigValue::string("live"))
+        .set("security.fail_closed", AgentConfigValue::string("true"));
+    let config = RigBackendConfig::from_configuration(&blank)
+        .expect("blank secret refs are normalized away");
+    assert_eq!(config.api_key_secret_ref, None);
+    assert_eq!(config.base_url, None);
 }
 
 #[test]
@@ -99,6 +153,7 @@ fn rig_plugin_diagnostics_reports_live_pending_execution_state() {
         mode: RigBackendMode::Live,
         provider_id: Some("openai".to_string()),
         api_key_secret_ref: Some("secret://rig/openai".to_string()),
+        base_url: None,
     };
 
     let diagnostics = RigPluginDiagnostics::from_backend_config(&config);
@@ -122,6 +177,7 @@ fn rig_plugin_diagnostics_exposes_secret_safe_bootstrap_readiness() {
         mode: RigBackendMode::Live,
         provider_id: Some("openai".to_string()),
         api_key_secret_ref: Some("secret://rig/openai".to_string()),
+        base_url: None,
     };
 
     let readiness = RigPluginDiagnostics::backend_bootstrap_readiness_from_config(&config);
@@ -146,20 +202,30 @@ fn rig_plugin_diagnostics_exposes_secret_safe_bootstrap_readiness() {
 }
 
 #[test]
-fn rig_plugin_diagnostics_reports_missing_live_secret_refs_in_readiness() {
+fn rig_plugin_diagnostics_reports_live_default_without_local_secret_refs() {
+    // Live mode without an api key is the default cloud router dual-token
+    // configuration: the executor authenticates with the caller's tokens, so
+    // no local secret is required or missing.
     let config = RigBackendConfig {
         mode: RigBackendMode::Live,
-        provider_id: Some("openai".to_string()),
+        provider_id: None,
         api_key_secret_ref: None,
+        base_url: None,
     };
 
     let readiness = RigPluginDiagnostics::backend_bootstrap_readiness_from_config(&config);
 
     assert_eq!(readiness.backend_mode, RigBackendMode::Live);
     assert_eq!(readiness.state, RigBackendBootstrapState::LivePending);
-    assert_eq!(readiness.provider_id.as_deref(), Some("openai"));
-    assert_eq!(readiness.required_secret_refs, vec!["llm.rig.api_key"]);
-    assert_eq!(readiness.missing_secret_refs, vec!["llm.rig.api_key"]);
+    assert_eq!(readiness.provider_id, None);
+    assert!(readiness.required_secret_refs.is_empty());
+    assert!(readiness.missing_secret_refs.is_empty());
+    assert!(readiness
+        .policy_categories
+        .contains(&"model.invoke".to_string()));
+    assert!(!readiness
+        .policy_categories
+        .contains(&"host.secrets.read".to_string()));
     assert!(readiness.fail_closed);
     assert!(readiness.safe_summary.contains("live-pending"));
 }
@@ -170,6 +236,7 @@ fn rig_backend_config_builds_secret_safe_live_bootstrap_plan() {
         mode: RigBackendMode::Live,
         provider_id: Some("openai".to_string()),
         api_key_secret_ref: Some("secret://rig/openai".to_string()),
+        base_url: None,
     };
 
     let plan = config.bootstrap_plan();

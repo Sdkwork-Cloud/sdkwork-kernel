@@ -126,6 +126,9 @@ pub struct RigBackendConfig {
     pub mode: RigBackendMode,
     pub provider_id: Option<String>,
     pub api_key_secret_ref: Option<String>,
+    /// Custom OpenAI-compatible endpoint for direct (rig-core) provider
+    /// calls; `None` uses the vendor's default endpoint.
+    pub base_url: Option<String>,
 }
 
 impl RigBackendConfig {
@@ -134,6 +137,7 @@ impl RigBackendConfig {
             mode: RigBackendMode::FailClosed,
             provider_id: None,
             api_key_secret_ref: None,
+            base_url: None,
         }
     }
 
@@ -169,7 +173,10 @@ impl RigBackendConfig {
         };
 
         let api_key_secret_ref = match configuration.value("llm.rig.api_key") {
-            Some(AgentConfigValue::SecretRef(value)) => Some(value.clone()),
+            Some(AgentConfigValue::SecretRef(value)) => {
+                let trimmed = value.trim();
+                (!trimmed.is_empty()).then(|| trimmed.to_string())
+            }
             Some(_) => {
                 return Err(KernelError::validation(
                     "llm.rig.api_key must be a secret reference",
@@ -178,16 +185,27 @@ impl RigBackendConfig {
             None => None,
         };
 
-        if mode == RigBackendMode::Live && api_key_secret_ref.is_none() {
-            return Err(KernelError::validation(
-                "live Rig backend mode requires llm.rig.api_key secret reference",
-            ));
-        }
+        let base_url = match configuration.value("llm.rig.base_url") {
+            Some(AgentConfigValue::String(value)) if !value.trim().is_empty() => {
+                Some(value.trim().to_string())
+            }
+            Some(AgentConfigValue::String(_)) | None => None,
+            Some(_) => {
+                return Err(KernelError::validation(
+                    "llm.rig.base_url must be a string",
+                ));
+            }
+        };
 
+        // Live mode does not require `llm.rig.api_key`: the default cloud
+        // router executor authenticates with the caller's dual tokens, and
+        // each executor validates its own credential requirements at
+        // construction time (e.g. the rig-core adapter requires an API key).
         Ok(Self {
             mode,
             provider_id,
             api_key_secret_ref,
+            base_url,
         })
     }
 
@@ -202,9 +220,9 @@ impl RigBackendConfig {
         let mut policy_categories = vec![PolicyCategory::ModelInvoke.as_str().to_string()];
 
         if self.mode == RigBackendMode::Live {
-            required_secret_refs.push("llm.rig.api_key".to_string());
-            policy_categories.push(PolicyCategory::HostSecretsRead.as_str().to_string());
             if let Some(api_key_secret_ref) = self.api_key_secret_ref.clone() {
+                required_secret_refs.push("llm.rig.api_key".to_string());
+                policy_categories.push(PolicyCategory::HostSecretsRead.as_str().to_string());
                 secret_refs.push(("llm.rig.api_key".to_string(), api_key_secret_ref));
             }
         }

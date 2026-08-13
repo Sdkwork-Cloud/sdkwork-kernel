@@ -118,6 +118,7 @@ fn rig_live_backend_configuration_remains_fail_closed_until_adapter_is_connected
         mode: RigBackendMode::Live,
         provider_id: Some("openai".to_string()),
         api_key_secret_ref: Some("secret://rig/openai".to_string()),
+        base_url: None,
     };
 
     let model_provider = RigModelProvider::with_backend_config(config.clone());
@@ -138,6 +139,7 @@ fn rig_live_backend_executes_only_after_adapter_injection() {
         mode: RigBackendMode::Live,
         provider_id: Some("openai".to_string()),
         api_key_secret_ref: Some("secret://rig/openai".to_string()),
+        base_url: None,
     };
     let provider = RigModelProvider::with_executor(config, Arc::new(TestRigExecutor));
 
@@ -172,6 +174,7 @@ fn rig_backend_execution_status_distinguishes_live_pending_from_fail_closed() {
         mode: RigBackendMode::Live,
         provider_id: Some("openai".to_string()),
         api_key_secret_ref: Some("secret://rig/openai".to_string()),
+        base_url: None,
     };
     let live_pending_status = config.execution_status();
     assert_eq!(live_pending_status.mode, RigBackendMode::Live);
@@ -209,6 +212,7 @@ fn rig_providers_expose_secret_safe_backend_bootstrap_plan() {
         mode: RigBackendMode::Live,
         provider_id: Some("openai".to_string()),
         api_key_secret_ref: Some("secret://rig/openai".to_string()),
+        base_url: None,
     };
 
     let model_provider = RigModelProvider::with_backend_config(config.clone());
@@ -389,6 +393,57 @@ fn rig_core_adapter_wraps_vector_search_without_leaking_rig_types() {
 
     assert_eq!(plan.query, "rig adapter");
     assert_eq!(plan.samples, 3);
+}
+
+#[cfg(feature = "rig-core-adapter")]
+#[test]
+fn rig_core_adapter_accepts_custom_vendor_provider_and_base_url() {
+    use std::sync::Arc;
+
+    // A custom OpenAI-compatible vendor (non-cloudrouter) with an api key
+    // secret and a custom base url builds a live rig-core adapter.
+    let config = RigBackendConfig {
+        mode: RigBackendMode::Live,
+        provider_id: Some("deepseek".to_string()),
+        api_key_secret_ref: Some("secret://rig/deepseek".to_string()),
+        base_url: Some("https://api.deepseek.example.com/v1".to_string()),
+    };
+    let host: Arc<dyn sdkwork_agent_kernel::HostProvider + Send + Sync> =
+        Arc::new(sdkwork_agent_kernel::EnvFileSecretHostProvider::new());
+    let provider = RigModelProvider::with_rig_core_openai(config, host, "deepseek-chat")
+        .expect("custom vendor provider builds");
+    assert_eq!(
+        provider.backend_bootstrap_plan().state,
+        RigBackendBootstrapState::Live
+    );
+    assert_eq!(provider.health().status, "available");
+
+    // The explicit cloudrouter provider id is rejected: that route belongs to
+    // the cloud router account-pool executor, not the direct adapter.
+    let cloudrouter_config = RigBackendConfig {
+        mode: RigBackendMode::Live,
+        provider_id: Some("cloudrouter".to_string()),
+        api_key_secret_ref: Some("secret://rig/cloudrouter".to_string()),
+        base_url: None,
+    };
+    let host: Arc<dyn sdkwork_agent_kernel::HostProvider + Send + Sync> =
+        Arc::new(sdkwork_agent_kernel::EnvFileSecretHostProvider::new());
+    let error = RigModelProvider::with_rig_core_openai(cloudrouter_config, host, "default")
+        .expect_err("cloudrouter provider id must not use the direct adapter");
+    assert_eq!(error.kind(), KernelErrorKind::ValidationError);
+
+    // Live mode without an api key secret stays a validation error.
+    let missing_key = RigBackendConfig {
+        mode: RigBackendMode::Live,
+        provider_id: Some("openai".to_string()),
+        api_key_secret_ref: None,
+        base_url: None,
+    };
+    let host: Arc<dyn sdkwork_agent_kernel::HostProvider + Send + Sync> =
+        Arc::new(sdkwork_agent_kernel::EnvFileSecretHostProvider::new());
+    let error = RigModelProvider::with_rig_core_openai(missing_key, host, "default")
+        .expect_err("direct adapter requires an api key secret");
+    assert_eq!(error.kind(), KernelErrorKind::ValidationError);
 }
 
 #[test]

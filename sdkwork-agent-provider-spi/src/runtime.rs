@@ -223,6 +223,15 @@ pub enum SdkRuntimeOperation {
         timeout_ms: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         execution_options: Option<SdkRuntimeExecutionOptions>,
+        /// Transient caller auth token (`Authorization: Bearer`) for
+        /// product-facing model routing (cloud-router dual-token). Never
+        /// persisted by providers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        auth_token: Option<String>,
+        /// Transient caller access token (`Access-Token` header) paired with
+        /// `auth_token`. Never persisted by providers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        access_token: Option<String>,
     },
     ModelChatStream {
         model_request_id: String,
@@ -243,6 +252,15 @@ pub enum SdkRuntimeOperation {
         timeout_ms: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         execution_options: Option<SdkRuntimeExecutionOptions>,
+        /// Transient caller auth token (`Authorization: Bearer`) for
+        /// product-facing model routing (cloud-router dual-token). Never
+        /// persisted by providers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        auth_token: Option<String>,
+        /// Transient caller access token (`Access-Token` header) paired with
+        /// `auth_token`. Never persisted by providers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        access_token: Option<String>,
     },
     ToolInvoke {
         tool_call_id: String,
@@ -480,6 +498,8 @@ impl SdkRuntimeRequest {
             working_directory,
             timeout_ms,
             execution_options,
+            None,
+            None,
         )
     }
 
@@ -496,6 +516,8 @@ impl SdkRuntimeRequest {
         working_directory: Option<String>,
         timeout_ms: Option<u64>,
         execution_options: Option<SdkRuntimeExecutionOptions>,
+        auth_token: Option<String>,
+        access_token: Option<String>,
     ) -> Self {
         Self {
             capability_id: capability_id.into(),
@@ -510,6 +532,8 @@ impl SdkRuntimeRequest {
                 working_directory: normalize_optional_string(working_directory),
                 timeout_ms,
                 execution_options: normalize_execution_options(execution_options),
+                auth_token: normalize_optional_string(auth_token),
+                access_token: normalize_optional_string(access_token),
             },
             payload: None,
         }
@@ -585,6 +609,8 @@ impl SdkRuntimeRequest {
             working_directory,
             timeout_ms,
             execution_options,
+            None,
+            None,
         )
     }
 
@@ -601,6 +627,8 @@ impl SdkRuntimeRequest {
         working_directory: Option<String>,
         timeout_ms: Option<u64>,
         execution_options: Option<SdkRuntimeExecutionOptions>,
+        auth_token: Option<String>,
+        access_token: Option<String>,
     ) -> Self {
         Self {
             capability_id: capability_id.into(),
@@ -615,6 +643,8 @@ impl SdkRuntimeRequest {
                 working_directory: normalize_optional_string(working_directory),
                 timeout_ms,
                 execution_options: normalize_execution_options(execution_options),
+                auth_token: normalize_optional_string(auth_token),
+                access_token: normalize_optional_string(access_token),
             },
             payload: None,
         }
@@ -641,6 +671,8 @@ impl SdkRuntimeRequest {
             metadata_string(request, "sdkwork.agent_engine.working_directory"),
             request.timeout_ms,
             execution_options,
+            request.auth_token.clone(),
+            request.access_token.clone(),
         ))
     }
 
@@ -665,6 +697,8 @@ impl SdkRuntimeRequest {
             metadata_string(request, "sdkwork.agent_engine.working_directory"),
             request.timeout_ms,
             execution_options,
+            request.auth_token.clone(),
+            request.access_token.clone(),
         ))
     }
 }
@@ -1190,6 +1224,10 @@ mod tests {
             .for_provider_session("provider-session")
             .for_step("turn-canonical")
             .with_timeout_ms(42_000)
+            .for_caller(
+                Some("auth-token-1".to_string()),
+                Some("access-token-1".to_string()),
+            )
             .with_metadata("sdkwork.agent_engine.working_directory", " C:/workspace ")
             .with_metadata("sdkwork.agent_engine.approval_policy", "on-request")
             .with_metadata("sdkwork.agent_engine.sandbox_mode", "workspace-write")
@@ -1213,6 +1251,8 @@ mod tests {
                 working_directory,
                 timeout_ms,
                 execution_options: Some(options),
+                auth_token,
+                access_token,
                 ..
             } => {
                 assert_eq!(model_id.as_deref(), Some("codex-test"));
@@ -1221,6 +1261,8 @@ mod tests {
                 assert_eq!(turn_id.as_deref(), Some("turn-canonical"));
                 assert_eq!(working_directory.as_deref(), Some("C:/workspace"));
                 assert_eq!(timeout_ms, Some(42_000));
+                assert_eq!(auth_token.as_deref(), Some("auth-token-1"));
+                assert_eq!(access_token.as_deref(), Some("access-token-1"));
                 assert_eq!(options.approval_policy.as_deref(), Some("on-request"));
                 assert_eq!(options.sandbox_mode.as_deref(), Some("workspace-write"));
                 assert_eq!(options.full_auto, Some(true));
@@ -1244,6 +1286,7 @@ mod tests {
             .for_provider_session("provider-stream-session")
             .for_step("turn-stream")
             .with_timeout_ms(9_000)
+            .for_caller(Some("auth-token-2".to_string()), None)
             .with_metadata("sdkwork.agent_engine.working_directory", "C:/stream")
             .with_metadata("sdkwork.agent_engine.max_tokens", "512");
 
@@ -1259,6 +1302,8 @@ mod tests {
                 working_directory,
                 timeout_ms,
                 execution_options: Some(options),
+                auth_token,
+                access_token,
                 ..
             } => {
                 assert_eq!(model_id.as_deref(), Some("codex-stream"));
@@ -1270,6 +1315,8 @@ mod tests {
                 assert_eq!(turn_id.as_deref(), Some("turn-stream"));
                 assert_eq!(working_directory.as_deref(), Some("C:/stream"));
                 assert_eq!(timeout_ms, Some(9_000));
+                assert_eq!(auth_token.as_deref(), Some("auth-token-2"));
+                assert_eq!(access_token, None);
                 assert_eq!(options.max_tokens, Some(512));
             }
             other => panic!("expected model_chat_stream with context, got {other:?}"),

@@ -46,6 +46,7 @@ impl RigPluginDiagnostics {
             mode: self.backend_mode,
             provider_id: None,
             api_key_secret_ref: None,
+            base_url: None,
         }
         .execution_status()
     }
@@ -61,6 +62,7 @@ impl RigPluginDiagnostics {
             mode: self.backend_mode,
             provider_id: None,
             api_key_secret_ref: None,
+            base_url: None,
         })
         .with_missing_secret_refs(self.missing_secret_refs.clone())
     }
@@ -88,10 +90,10 @@ impl RigBackendBootstrapReadiness {
     }
 }
 
-fn missing_secret_refs(config: &RigBackendConfig) -> Vec<String> {
-    if config.mode == RigBackendMode::Live && config.api_key_secret_ref.is_none() {
-        vec!["llm.rig.api_key".to_string()]
-    } else {
-        Vec::new()
-    }
+fn missing_secret_refs(_config: &RigBackendConfig) -> Vec<String> {
+    // Required secret refs are declared only when the configuration actually
+    // binds them (`llm.rig.api_key` for API-key-backed executors); the default
+    // cloud router dual-token mode requires no local secret, so a live
+    // backend without a bound key is not "missing" anything.
+    Vec::new()
 }

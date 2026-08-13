@@ -250,6 +250,12 @@ pub struct ModelRequest {
     pub policy_request_id: Option<String>,
     pub trace_context: Option<TraceContext>,
     pub timeout_ms: Option<u64>,
+    /// Transient caller auth token (`Authorization: Bearer`) used by
+    /// product-facing model routing (cloud-router dual-token). Never persisted.
+    pub auth_token: Option<String>,
+    /// Transient caller access token (`Access-Token` header) paired with
+    /// `auth_token` for cloud-router dual-token routing. Never persisted.
+    pub access_token: Option<String>,
     pub metadata: Vec<(String, String)>,
 }
 
@@ -274,6 +280,8 @@ impl ModelRequest {
             policy_request_id: None,
             trace_context: None,
             timeout_ms: None,
+            auth_token: None,
+            access_token: None,
             metadata: Vec::new(),
         }
     }
@@ -407,6 +415,15 @@ impl ModelRequest {
         self
     }
 
+    /// Binds the transient caller credentials used by product-facing model
+    /// routing (cloud-router dual-token calls). Blank tokens are normalized
+    /// away; providers must never persist these values.
+    pub fn for_caller(mut self, auth_token: Option<String>, access_token: Option<String>) -> Self {
+        self.auth_token = normalize_caller_token(auth_token);
+        self.access_token = normalize_caller_token(access_token);
+        self
+    }
+
     pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.push((key.into(), value.into()));
         self
@@ -422,6 +439,14 @@ impl ModelRequest {
             .find(|(metadata_key, _)| metadata_key == key)
             .map(|(_, value)| value.as_str())
     }
+}
+
+/// Normalizes a transient caller credential; blank tokens become `None` so
+/// providers can treat the value as an explicit "not supplied" signal.
+fn normalize_caller_token(token: Option<String>) -> Option<String> {
+    token
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

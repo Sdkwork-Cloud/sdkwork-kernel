@@ -129,13 +129,15 @@ impl ProviderBackedRustHandler {
         request: &SdkRuntimeRequest,
     ) -> ModelRequest {
         let mut model_request = ModelRequest::new(model_request_id.to_string(), messages.to_vec());
-        let (operation_model_id, session_id, provider_session_id, turn_id) =
+        let (operation_model_id, session_id, provider_session_id, turn_id, auth_token, access_token) =
             match &request.operation {
                 SdkRuntimeOperation::ModelChat {
                     model_id,
                     session_id,
                     provider_session_id,
                     turn_id,
+                    auth_token,
+                    access_token,
                     ..
                 }
                 | SdkRuntimeOperation::ModelChatStream {
@@ -143,14 +145,18 @@ impl ProviderBackedRustHandler {
                     session_id,
                     provider_session_id,
                     turn_id,
+                    auth_token,
+                    access_token,
                     ..
                 } => (
                     model_id.as_deref(),
                     session_id.as_deref(),
                     provider_session_id.as_deref(),
                     turn_id.as_deref(),
+                    auth_token.as_deref(),
+                    access_token.as_deref(),
                 ),
-                _ => (None, None, None, None),
+                _ => (None, None, None, None, None, None),
             };
         if let Some(model_id) = operation_model_id.or_else(|| {
             request
@@ -171,6 +177,12 @@ impl ProviderBackedRustHandler {
         }
         if let Some(turn_id) = turn_id {
             model_request = model_request.for_step(turn_id);
+        }
+        if auth_token.is_some() || access_token.is_some() {
+            model_request = model_request.for_caller(
+                auth_token.map(str::to_string),
+                access_token.map(str::to_string),
+            );
         }
         model_request
     }

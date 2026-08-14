@@ -102,7 +102,7 @@ function writeReleaseWorkspaceFixture(workspaceRoot) {
     schemaVersion: '2026-06-06.sdkwork.workflow.v1',
     app: {
       id: 'sdkwork-kernel',
-      repository: 'Sdkwork-Cloud/sdkwork-kernel',
+      repository: 'sdkwork-ai/sdkwork-kernel',
       sourcePath: '.',
     },
     release: {

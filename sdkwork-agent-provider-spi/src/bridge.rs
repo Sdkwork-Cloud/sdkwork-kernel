@@ -328,12 +328,12 @@ impl ModelProvider for SdkRuntimeBackedModelProvider {
             &self.provider_id,
         ) {
             Ok(response) => Ok(response),
-            Err(_) if mock_provider_invocation_allowed() => self.fallback.cancel(model_request_id),
-            Err(error) => Err(runtime_provider_error(
-                &self.provider_id,
-                "model_cancel",
-                error,
-            )),
+            // Cancellation is best-effort: when the negotiated runtime cannot
+            // cancel (for example the rig in-process handler), the internal
+            // provider decides the cancellation semantics. This fallback is
+            // safe without the mock gate because it invokes the real provider,
+            // not a mock response.
+            Err(_) => self.fallback.cancel(model_request_id),
         }
     }
 }

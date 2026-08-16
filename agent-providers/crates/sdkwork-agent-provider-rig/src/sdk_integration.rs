@@ -64,6 +64,39 @@ impl RigSdkIntegration {
         RIG_BINDING_ID
     }
 
+    /// Rebuilds the in-process rust runtime with a live model provider so
+    /// runtime-routed model calls execute through the live backend (for
+    /// example the cloudrouter account-pool executor) instead of the
+    /// bootstrap fail-closed stub.
+    ///
+    /// The bootstrap handler is created with a fail-closed model provider
+    /// because no configuration exists yet; once a live backend is selected
+    /// (`RigCloudRouterExecutor` or a rig-core OpenAI-compatible adapter),
+    /// this method replaces both the handler's model and the
+    /// `SdkRuntimeBackedModelProvider` fallback so every entry point routes
+    /// through the live provider. The negotiated driver selection is kept.
+    pub fn with_live_model_provider(
+        mut self,
+        model: Arc<dyn sdkwork_agent_kernel::ModelProvider + Send + Sync>,
+    ) -> Self {
+        let rust_handler = Arc::new(ProviderBackedRustHandler::model_only(
+            model.clone(),
+            crate::ids::DEFAULT_MODEL_ID,
+        ));
+        let runtime = Arc::new(
+            SdkRuntimeRouter::new(self.runtime.negotiation().clone())
+                .with_rust_runtime(Arc::new(InProcessRustSdkRuntime::new(rust_handler))),
+        );
+        self.runtime = runtime.clone();
+        self.model = SdkRuntimeBackedModelProvider::new(
+            runtime,
+            model,
+            SDK_CAPABILITY_MODEL_CHAT,
+            crate::ids::MODEL_PROVIDER_ID,
+        );
+        self
+    }
+
     pub fn invoke_runtime(
         &self,
         request: &SdkRuntimeRequest,

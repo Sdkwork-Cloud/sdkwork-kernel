@@ -19,7 +19,7 @@ sdkwork-intelligence-sandbox-service.workspace = true
 sdkwork-sandbox-provider-spi.workspace = true
 sdkwork-models = { workspace = true, optional = true }
 serde_json = "1"
-ureq = { version = "2.12", optional = true, default-features = false, features = ["json"] }
+ureq = { version = "2.12", optional = true, default-features = false, features = ["json", "tls"] }
 
 [dev-dependencies]
 async-trait.workspace = true

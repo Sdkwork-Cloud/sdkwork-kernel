@@ -57,6 +57,12 @@
       "repository": "sdkwork-ai/sdkwork-utils",
       "refInput": "SDKWORK_UTILS_REF",
       "tokenSecret": "SDKWORK_RELEASE_TOKEN"
+    },
+    {
+      "id": "sdkwork-sdk-commons",
+      "repository": "sdkwork-ai/sdkwork-sdk-commons",
+      "refInput": "SDKWORK_SDK_COMMONS_REF",
+      "tokenSecret": "SDKWORK_RELEASE_TOKEN"
     }
   ],
   "toolchains": {

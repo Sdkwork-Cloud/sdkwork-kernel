@@ -974,6 +974,15 @@ impl SdkRuntimeRouter {
         }
     }
 
+    /// Returns the negotiated capability binding used by this router.
+    ///
+    /// Providers that rebuild a runtime with a live backend (for example the
+    /// rig engine upgrading from its bootstrap fail-closed stub) reuse the
+    /// same negotiation so the driver selection stays identical.
+    pub fn negotiation(&self) -> &SdkCapabilityNegotiation {
+        &self.negotiation
+    }
+
     pub fn with_rust_runtime(mut self, runtime: std::sync::Arc<dyn SdkBackendRuntime>) -> Self {
         self.rust_runtime = Some(runtime);
         self

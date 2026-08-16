@@ -168,6 +168,10 @@ impl ModelProvider for RigModelProvider {
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
         self.backend.invoke_model(request)
     }
+
+    fn cancel(&self, model_request_id: &str) -> KernelResult<ModelResponse> {
+        self.backend.cancel_model(model_request_id)
+    }
 }
 
 #[derive(Debug, Clone)]

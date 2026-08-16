@@ -16,19 +16,18 @@ impl ChainedSecretProvider {
     }
 
     pub fn from_process_environment() -> Self {
-        let providers: Vec<Box<dyn SecretProvider + Send + Sync>> = vec![Box::new(
+        #[allow(unused_mut)]
+        let mut providers: Vec<Box<dyn SecretProvider + Send + Sync>> = vec![Box::new(
             crate::secret_env::EnvFileSecretProvider::from_process_environment(),
         )];
 
         #[cfg(feature = "secret-vault")]
         {
-            let mut providers = providers;
             if let Some(vault) =
                 crate::secret_vault::VaultSecretProvider::from_process_environment()
             {
                 providers.push(Box::new(vault));
             }
-            return Self { providers };
         }
 
         Self { providers }

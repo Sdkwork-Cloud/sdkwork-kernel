@@ -288,6 +288,20 @@ impl RigBackend {
             }),
         }
     }
+
+    /// Best-effort cancellation for the rig engine.
+    ///
+    /// Rig model calls are single synchronous HTTP round trips through the
+    /// cloudrouter SDK; an in-flight call cannot be interrupted once the
+    /// request is on the wire. Cancellation therefore acknowledges the cancel
+    /// with a cancelled response so turn cancellation APIs never surface a
+    /// hard provider error, mirroring the local-turn cancellation semantics.
+    pub fn cancel_model(&self, model_request_id: &str) -> KernelResult<ModelResponse> {
+        Ok(ModelResponse::cancelled(
+            model_request_id.to_string(),
+            ids::MODEL_PROVIDER_ID.to_string(),
+        ))
+    }
 }
 
 fn execution_status_for_mode(

@@ -28,7 +28,7 @@ export class IntelligenceRuntimeModelsApi {
       },
       {}
     );
-    return this.client.request<SdkWorkPageData & { items?: ModelDescriptor[]; }>(customApiPath(`/intelligence/runtime/models`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, headers: requestHeaders, sdkworkUnwrapKind: 'page' });
+    return this.client.request<SdkWorkPageData & { items?: ModelDescriptor[]; }>(customApiPath(`/intelligence/runtime/models`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'page' });
   }
 }
 
@@ -77,7 +77,7 @@ export class IntelligenceRuntimeRunsApi {
       },
       {}
     );
-    return this.client.request<RunResponse>(customApiPath(`/intelligence/runtime/runs/${serializePathParameter(runId, { name: 'runId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, headers: requestHeaders, sdkworkUnwrapKind: 'item' });
+    return this.client.request<RunResponse>(customApiPath(`/intelligence/runtime/runs/${serializePathParameter(runId, { name: 'runId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Pause a runtime task run */
@@ -91,7 +91,7 @@ export class IntelligenceRuntimeRunsApi {
       },
       {}
     );
-    return this.client.request<RunResponse>(customApiPath(`/intelligence/runtime/runs/${serializePathParameter(runId, { name: 'runId', style: 'simple', explode: false })}/pause`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, headers: requestHeaders, sdkworkUnwrapKind: 'item' });
+    return this.client.request<RunResponse>(customApiPath(`/intelligence/runtime/runs/${serializePathParameter(runId, { name: 'runId', style: 'simple', explode: false })}/pause`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Resume a paused runtime task run */
@@ -105,7 +105,7 @@ export class IntelligenceRuntimeRunsApi {
       },
       {}
     );
-    return this.client.request<RunResponse>(customApiPath(`/intelligence/runtime/runs/${serializePathParameter(runId, { name: 'runId', style: 'simple', explode: false })}/resume`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, headers: requestHeaders, sdkworkUnwrapKind: 'item' });
+    return this.client.request<RunResponse>(customApiPath(`/intelligence/runtime/runs/${serializePathParameter(runId, { name: 'runId', style: 'simple', explode: false })}/resume`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Cancel a runtime task run */
@@ -119,7 +119,7 @@ export class IntelligenceRuntimeRunsApi {
       },
       {}
     );
-    return this.client.request<RunResponse>(customApiPath(`/intelligence/runtime/runs/${serializePathParameter(runId, { name: 'runId', style: 'simple', explode: false })}/cancel`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, headers: requestHeaders, sdkworkUnwrapKind: 'item' });
+    return this.client.request<RunResponse>(customApiPath(`/intelligence/runtime/runs/${serializePathParameter(runId, { name: 'runId', style: 'simple', explode: false })}/cancel`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -161,7 +161,7 @@ export class IntelligenceRuntimeTasksApi {
       },
       {}
     );
-    return this.client.request<TaskResponse>(customApiPath(`/intelligence/runtime/tasks/${serializePathParameter(taskId, { name: 'taskId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, headers: requestHeaders, sdkworkUnwrapKind: 'item' });
+    return this.client.request<TaskResponse>(customApiPath(`/intelligence/runtime/tasks/${serializePathParameter(taskId, { name: 'taskId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Cancel a task */
@@ -175,7 +175,7 @@ export class IntelligenceRuntimeTasksApi {
       },
       {}
     );
-    return this.client.request<TaskResponse>(customApiPath(`/intelligence/runtime/tasks/${serializePathParameter(taskId, { name: 'taskId', style: 'simple', explode: false })}/cancel`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, headers: requestHeaders, sdkworkUnwrapKind: 'item' });
+    return this.client.request<TaskResponse>(customApiPath(`/intelligence/runtime/tasks/${serializePathParameter(taskId, { name: 'taskId', style: 'simple', explode: false })}/cancel`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Retry a failed or cancelled task */
@@ -189,7 +189,7 @@ export class IntelligenceRuntimeTasksApi {
       },
       {}
     );
-    return this.client.request<SdkWorkAsyncData>(customApiPath(`/intelligence/runtime/tasks/${serializePathParameter(taskId, { name: 'taskId', style: 'simple', explode: false })}/retry`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, headers: requestHeaders, sdkworkUnwrapKind: 'command' });
+    return this.client.request<SdkWorkAsyncData>(customApiPath(`/intelligence/runtime/tasks/${serializePathParameter(taskId, { name: 'taskId', style: 'simple', explode: false })}/retry`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'command' });
   }
 }
 
@@ -223,7 +223,7 @@ export class IntelligenceRuntimeSessionsEventsApi {
       },
       {}
     );
-    return this.client.streamJson<string>(appendQueryString(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/events/stream`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, headers: requestHeaders });
+    return this.client.streamJson<string>(appendQueryString(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/events/stream`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}) });
   }
 }
 
@@ -258,7 +258,7 @@ export class IntelligenceRuntimeSessionsToolsApi {
       },
       {}
     );
-    return this.client.request<SdkWorkPageData & { items?: ToolDescriptor[]; }>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tools`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, headers: requestHeaders, sdkworkUnwrapKind: 'page' });
+    return this.client.request<SdkWorkPageData & { items?: ToolDescriptor[]; }>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tools`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'page' });
   }
 
 /** Execute a tool for a session */
@@ -272,7 +272,7 @@ export class IntelligenceRuntimeSessionsToolsApi {
       },
       {}
     );
-    return this.client.request<ExecuteToolResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tools/${serializePathParameter(toolName, { name: 'toolName', style: 'simple', explode: false })}/execute`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<ExecuteToolResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tools/${serializePathParameter(toolName, { name: 'toolName', style: 'simple', explode: false })}/execute`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -315,7 +315,7 @@ export class IntelligenceRuntimeSessionsModelApi {
       },
       {}
     );
-    return this.client.request<InvokeModelResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/model/invoke`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<InvokeModelResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/model/invoke`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Stream a model response via SSE */
@@ -328,7 +328,7 @@ export class IntelligenceRuntimeSessionsModelApi {
       },
       {}
     );
-    return this.client.streamJson<string>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/model/stream`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json' });
+    return this.client.streamJson<string>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/model/stream`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}) });
   }
 
 /** Cancel an in-flight model invocation */
@@ -342,7 +342,7 @@ export class IntelligenceRuntimeSessionsModelApi {
       },
       {}
     );
-    return this.client.request<CancelModelResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/model/cancel`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<CancelModelResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/model/cancel`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -383,7 +383,7 @@ export class IntelligenceRuntimeSessionsTasksApi {
       },
       {}
     );
-    return this.client.request<SdkWorkPageData & { items: TaskResponse[]; }>(appendQueryString(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tasks`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, headers: requestHeaders, sdkworkUnwrapKind: 'page' });
+    return this.client.request<SdkWorkPageData & { items: TaskResponse[]; }>(appendQueryString(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tasks`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'page' });
   }
 
 /** Submit a session task */
@@ -397,7 +397,7 @@ export class IntelligenceRuntimeSessionsTasksApi {
       },
       {}
     );
-    return this.client.request<SdkWorkAsyncData>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tasks`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'command' });
+    return this.client.request<SdkWorkAsyncData>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/tasks`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'command' });
   }
 }
 
@@ -438,7 +438,7 @@ export class IntelligenceRuntimeSessionsMessagesApi {
       },
       {}
     );
-    return this.client.request<SdkWorkPageData & { items: MessageResponse[]; }>(appendQueryString(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/messages`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, headers: requestHeaders, sdkworkUnwrapKind: 'page' });
+    return this.client.request<SdkWorkPageData & { items: MessageResponse[]; }>(appendQueryString(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/messages`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'page' });
   }
 
 /** Send a session message */
@@ -452,7 +452,7 @@ export class IntelligenceRuntimeSessionsMessagesApi {
       },
       {}
     );
-    return this.client.request<MessageTurnResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/messages`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<MessageTurnResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/messages`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -522,7 +522,7 @@ export class IntelligenceRuntimeSessionsApi {
       },
       {}
     );
-    return this.client.request<SdkWorkPageData & { items: SessionResponse[]; }>(appendQueryString(customApiPath(`/intelligence/runtime/sessions`), query), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, headers: requestHeaders, sdkworkUnwrapKind: 'page' });
+    return this.client.request<SdkWorkPageData & { items: SessionResponse[]; }>(appendQueryString(customApiPath(`/intelligence/runtime/sessions`), query), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'page' });
   }
 
 /** Create a runtime session */
@@ -536,7 +536,7 @@ export class IntelligenceRuntimeSessionsApi {
       },
       {}
     );
-    return this.client.request<SessionResponse>(customApiPath(`/intelligence/runtime/sessions`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<SessionResponse>(customApiPath(`/intelligence/runtime/sessions`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Retrieve a runtime session */
@@ -549,7 +549,7 @@ export class IntelligenceRuntimeSessionsApi {
       },
       {}
     );
-    return this.client.request<SessionResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, headers: requestHeaders, sdkworkUnwrapKind: 'item' });
+    return this.client.request<SessionResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 
 /** Delete a runtime session */
@@ -562,7 +562,7 @@ export class IntelligenceRuntimeSessionsApi {
       },
       {}
     );
-    return this.client.request<void>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'DELETE' as any, headers: requestHeaders });
+    return this.client.request<void>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'DELETE' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}) });
   }
 
 /** Close a runtime session */
@@ -576,7 +576,7 @@ export class IntelligenceRuntimeSessionsApi {
       },
       {}
     );
-    return this.client.request<SessionResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/close`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, headers: requestHeaders, sdkworkUnwrapKind: 'item' });
+    return this.client.request<SessionResponse>(customApiPath(`/intelligence/runtime/sessions/${serializePathParameter(sessionId, { name: 'sessionId', style: 'simple', explode: false })}/close`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -606,7 +606,7 @@ export class IntelligenceRuntimePermissionsApi {
       },
       {}
     );
-    return this.client.request<PermissionRequest>(customApiPath(`/intelligence/runtime/permissions/${serializePathParameter(permissionRequestId, { name: 'permissionRequestId', style: 'simple', explode: false })}`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'POST' as any, body, headers: requestHeaders, contentType: 'application/json', sdkworkUnwrapKind: 'item' });
+    return this.client.request<PermissionRequest>(customApiPath(`/intelligence/runtime/permissions/${serializePathParameter(permissionRequestId, { name: 'permissionRequestId', style: 'simple', explode: false })}`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'POST' as any, body, contentType: 'application/json', ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -634,7 +634,7 @@ export class IntelligenceRuntimeSnapshotApi {
       },
       {}
     );
-    return this.client.request<RuntimeSnapshot>(customApiPath(`/intelligence/runtime/snapshot`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, headers: requestHeaders, sdkworkUnwrapKind: 'item' });
+    return this.client.request<RuntimeSnapshot>(customApiPath(`/intelligence/runtime/snapshot`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -662,7 +662,7 @@ export class IntelligenceRuntimeDiagnosticsApi {
       },
       {}
     );
-    return this.client.request<RuntimeDiagnostics>(customApiPath(`/intelligence/runtime/diagnostics`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, headers: requestHeaders, sdkworkUnwrapKind: 'item' });
+    return this.client.request<RuntimeDiagnostics>(customApiPath(`/intelligence/runtime/diagnostics`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -690,7 +690,7 @@ export class IntelligenceRuntimeHealthApi {
       },
       {}
     );
-    return this.client.request<RuntimeHealth>(customApiPath(`/intelligence/runtime/health`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, headers: requestHeaders, sdkworkUnwrapKind: 'item' });
+    return this.client.request<RuntimeHealth>(customApiPath(`/intelligence/runtime/health`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
@@ -718,12 +718,11 @@ export class IntelligenceRuntimeManifestApi {
       },
       {}
     );
-    return this.client.request<RuntimeManifest>(customApiPath(`/intelligence/runtime/manifest`), { signal: requestOptions?.signal, timeout: requestOptions?.timeout, method: 'GET' as any, headers: requestHeaders, sdkworkUnwrapKind: 'item' });
+    return this.client.request<RuntimeManifest>(customApiPath(`/intelligence/runtime/manifest`), { ...(requestOptions?.signal !== undefined ? { signal: requestOptions.signal } : {}), ...(requestOptions?.timeout !== undefined ? { timeout: requestOptions.timeout } : {}), method: 'GET' as any, ...(requestHeaders !== undefined ? { headers: requestHeaders } : {}), sdkworkUnwrapKind: 'item' });
   }
 }
 
 export class IntelligenceRuntimeApi {
-  private client: HttpClient;
   public readonly manifest: IntelligenceRuntimeManifestApi;
   public readonly health: IntelligenceRuntimeHealthApi;
   public readonly diagnostics: IntelligenceRuntimeDiagnosticsApi;
@@ -735,7 +734,6 @@ export class IntelligenceRuntimeApi {
   public readonly models: IntelligenceRuntimeModelsApi;
 
   constructor(client: HttpClient) {
-    this.client = client;
     this.manifest = new IntelligenceRuntimeManifestApi(client);
     this.health = new IntelligenceRuntimeHealthApi(client);
     this.diagnostics = new IntelligenceRuntimeDiagnosticsApi(client);
@@ -750,11 +748,9 @@ export class IntelligenceRuntimeApi {
 }
 
 export class IntelligenceApi {
-  private client: HttpClient;
   public readonly runtime: IntelligenceRuntimeApi;
 
   constructor(client: HttpClient) {
-    this.client = client;
     this.runtime = new IntelligenceRuntimeApi(client);
   }
 

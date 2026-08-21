@@ -32,7 +32,7 @@ Implementation: `sdkwork-agent-server/src/runtime_bootstrap.rs` bootstraps `Runt
 
 Hosted session `agentId` validation follows the same env key via `sdkwork-agent-server/src/agent_registry.rs` (`active_hosted_agent()`).
 
-Topology profiles set the variable in `configs/topology/*.env` (default `rig` for production safety).
+Topology profiles set the variable in `etc/topology/*.env` (default `rig` for production safety).
 
 ## Client: AgentClient modes
 

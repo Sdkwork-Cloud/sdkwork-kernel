@@ -6,14 +6,14 @@ Owner: SDKWork kernel maintainers.
 
 ## Profile Matrix
 
-Kernel runtime connectivity is declared in [`../specs/topology.spec.json`](../specs/topology.spec.json) and materialized through env files under [`../configs/topology/`](../configs/topology/).
+Kernel runtime connectivity is declared in [`../specs/topology.spec.json`](../specs/topology.spec.json) and materialized through env files under [`../etc/topology/`](../etc/topology/).
 
 | Topology profile id | Deployment profile | Environment | Env file |
 | --- | --- | --- | --- |
-| `standalone.development` | standalone | development | `configs/topology/standalone.development.env` |
-| `standalone.production` | standalone | production | `configs/topology/standalone.production.env` |
-| `cloud.development` | cloud | development | `configs/topology/cloud.development.env` |
-| `cloud.production` | cloud | production | `configs/topology/cloud.production.env` |
+| `standalone.development` | standalone | development | `etc/topology/standalone.development.env` |
+| `standalone.production` | standalone | production | `etc/topology/standalone.production.env` |
+| `cloud.development` | cloud | development | `etc/topology/cloud.development.env` |
+| `cloud.production` | cloud | production | `etc/topology/cloud.production.env` |
 
 ## Local Development Entrypoints
 

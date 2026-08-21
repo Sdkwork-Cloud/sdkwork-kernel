@@ -89,7 +89,7 @@ Canonical product scenarios. Implementation detail: [TECH_ARCHITECTURE.md](../..
 
 ### US-4: Operator deploys kernel server (cloud profile)
 
-1. Select `cloud.production` from `configs/topology/`.
+1. Select `cloud.production` from `etc/topology/`.
 2. Set `SDKWORK_KERNEL_AGENT_PLUGIN` explicitly (default `rig`).
 3. Provision managed HA Postgres and managed HA Redis with restore/failover evidence and exact NetworkPolicy egress.
 4. Configure token ingress plus a separate metrics credential through the target secret manager; checked-in/default credentials are forbidden.

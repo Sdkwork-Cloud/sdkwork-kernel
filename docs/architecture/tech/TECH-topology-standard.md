@@ -45,7 +45,7 @@ Client env keys:
 - `VITE_SDKWORK_KERNEL_APPLICATION_PUBLIC_WEBSOCKET_URL` — streaming surfaces
 - `VITE_SDKWORK_KERNEL_PLATFORM_API_GATEWAY_HTTP_URL` — platform / IAM SDKs
 
-Profile values live in `configs/topology/*.env` only. Do not hardcode ports in Rust crates or UI packages.
+Profile values live in `etc/topology/*.env` only. Do not hardcode ports in Rust crates or UI packages.
 
 ## Agent runtime plugin
 

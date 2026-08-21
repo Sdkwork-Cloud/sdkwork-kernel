@@ -8,7 +8,7 @@ intelligence, review, artifacts, and the code-agent runtime registry.
 
 Runtime connectivity profiles for local dev and deployment live in
 [`topology.spec.json`](./topology.spec.json) with env files under
-`../configs/topology/`. See [`../docs/architecture/tech/TECH-topology-standard.md`](../docs/architecture/tech/TECH-topology-standard.md).
+`../etc/topology/`. See [`../docs/architecture/tech/TECH-topology-standard.md`](../docs/architecture/tech/TECH-topology-standard.md).
 
 ## Platform Framework Alignment
 

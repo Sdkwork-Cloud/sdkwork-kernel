@@ -17,7 +17,7 @@ services:
     ports:
       - "18280:18280"
     env_file:
-      - ../../configs/topology/cloud.production.env
+      - ../../etc/topology/cloud.production.env
     environment:
       SDKWORK_KERNEL_INGRESS_TOKEN: ${SDKWORK_KERNEL_INGRESS_TOKEN:?set SDKWORK_KERNEL_INGRESS_TOKEN}
       SDKWORK_KERNEL_METRICS_TOKEN: ${SDKWORK_KERNEL_METRICS_TOKEN:?set a dedicated SDKWORK_KERNEL_METRICS_TOKEN}

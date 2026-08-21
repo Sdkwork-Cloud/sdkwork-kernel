@@ -160,7 +160,7 @@ sdkwork-kernel/
   apis/internal-api/              # Internal runtime OpenAPI authority
   sdks/sdkwork-agent-internal-sdk/
   specs/                          # Normative kernel specs
-  configs/topology/               # Deployment env profiles
+  etc/topology/               # Deployment env profiles
   scripts/
     check-agent-provider-bindings.mjs
     provider-transport-workers/   # Node/Python SDK workers

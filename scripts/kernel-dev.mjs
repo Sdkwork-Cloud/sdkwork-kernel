@@ -87,7 +87,7 @@ function parseArgs(argv) {
 function printHelp() {
   console.log(`Usage: node scripts/kernel-dev.mjs [options]
 
-Topology-aware kernel dev entry. Loads configs/topology profile env via @sdkwork/app-topology.
+Topology-aware kernel dev entry. Loads etc/topology profile env via @sdkwork/app-topology.
 
 Options:
   --deployment-profile <standalone|cloud>           Default: standalone

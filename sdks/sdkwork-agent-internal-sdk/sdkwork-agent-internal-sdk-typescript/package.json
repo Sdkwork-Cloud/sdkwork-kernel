@@ -1,6 +1,6 @@
 {
   "name": "@sdkwork/agent-internal-sdk",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "SDKWork agent internal API TypeScript SDK boundary.",
   "type": "module",
   "private": false,

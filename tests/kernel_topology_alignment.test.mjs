@@ -125,7 +125,7 @@ test('adapter-core and agent-server share canonical kernel runtime topology poli
 });
 
 test('cloud production topology declares fail-closed external postgres and redis inputs', async () => {
-  const profileEnv = await read('configs/topology/cloud.production.env');
+  const profileEnv = await read('etc/topology/cloud.production.env');
   assert.match(profileEnv, /SDKWORK_DATABASE_ENGINE=postgresql/);
   assert.match(profileEnv, /^SDKWORK_DATABASE_URL=$/m);
   assert.match(profileEnv, /^SDKWORK_RATE_LIMIT_REDIS_URL=$/m);
@@ -134,7 +134,7 @@ test('cloud production topology declares fail-closed external postgres and redis
 });
 
 test('self-hosted production topology declares fail-closed external postgres and redis inputs', async () => {
-  const profileEnv = await read('configs/topology/standalone.production.env');
+  const profileEnv = await read('etc/topology/standalone.production.env');
   assert.match(profileEnv, /SDKWORK_DATABASE_ENGINE=postgresql/);
   assert.match(profileEnv, /^SDKWORK_DATABASE_URL=$/m);
   assert.match(profileEnv, /^SDKWORK_RATE_LIMIT_REDIS_URL=$/m);

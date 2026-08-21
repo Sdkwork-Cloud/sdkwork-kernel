@@ -72,7 +72,7 @@ fn package_stub_fails_closed_for_synthetic_operations_in_production_profile() {
     let _lock = env_lock();
     let _profile = EnvVarGuard::set(
         KERNEL_PROFILE_ID_ENV,
-        Some("cloud.split-services.production"),
+        Some("cloud.production"),
     );
     let _environment = EnvVarGuard::set(KERNEL_ENVIRONMENT_ENV, Some("production"));
     let _allow = EnvVarGuard::set(ALLOW_MOCK_PROVIDERS_ENV, None);

@@ -1,6 +1,33 @@
 specVersion = 1
 kind = "sdkwork.webserver.server"
 id = "kernel"
-enabled = false
-description = "no public web surface declared in topology (missing defaults.gatewayBind)"
+description = "sdkwork-kernel web server (application.public-ingress)"
+
+[nginx]
+enabled = true
+profile = "http-core-v1"
+unknownDirectivePolicy = "error"
+strict = true
+confFile = "nginx.conf"
+
+[main]
+user = "sdkwork"
+workerProcesses = "auto"
+pid = "/run/sdkwork/kernel/webserver.pid"
+errorLog = "/var/log/sdkwork/kernel/webserver/error.log warn"
+
+[main.events]
+workerConnections = 1024
+
+[http]
+sendfile = true
+keepaliveTimeout = 75
+clientMaxBodySize = "1100m"
+serverTokens = "off"
+gzip = true
+
+[[http.upstream]]
+name = "gateway"
+loadBalancing = "least-connections"
+keepalive = 32
 

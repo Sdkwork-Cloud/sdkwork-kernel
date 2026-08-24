@@ -40,6 +40,38 @@ profiles:
         tls: dtupay.cn
         mode: web+api
         web: adaptive
+      - domain: kernel-dev.skubc.com
+        tls: skubc.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel-dev.skubc.cn
+        tls: skubc.cn
+        mode: web+api
+        web: adaptive
+      - domain: kernel-dev.zowalk.com
+        tls: zowalk.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel-dev.zowalk.cn
+        tls: zowalk.cn
+        mode: web+api
+        web: adaptive
+      - domain: kernel-dev.offer86.com
+        tls: offer86.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel-dev.offer86.cn
+        tls: offer86.cn
+        mode: web+api
+        web: adaptive
+      - domain: kernel-dev.86offer.com
+        tls: 86offer.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel-dev.86offer.cn
+        tls: 86offer.cn
+        mode: web+api
+        web: adaptive
     packages: []
     overrides:
       topology:
@@ -83,6 +115,38 @@ profiles:
         web: adaptive
       - domain: kernel.dtupay.cn
         tls: dtupay.cn
+        mode: web+api
+        web: adaptive
+      - domain: kernel.skubc.com
+        tls: skubc.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel.skubc.cn
+        tls: skubc.cn
+        mode: web+api
+        web: adaptive
+      - domain: kernel.zowalk.com
+        tls: zowalk.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel.zowalk.cn
+        tls: zowalk.cn
+        mode: web+api
+        web: adaptive
+      - domain: kernel.offer86.com
+        tls: offer86.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel.offer86.cn
+        tls: offer86.cn
+        mode: web+api
+        web: adaptive
+      - domain: kernel.86offer.com
+        tls: 86offer.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel.86offer.cn
+        tls: 86offer.cn
         mode: web+api
         web: adaptive
     packages: []
@@ -130,6 +194,38 @@ profiles:
         tls: dtupay.cn
         mode: web+api
         web: adaptive
+      - domain: kernel-dev.skubc.com
+        tls: skubc.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel-dev.skubc.cn
+        tls: skubc.cn
+        mode: web+api
+        web: adaptive
+      - domain: kernel-dev.zowalk.com
+        tls: zowalk.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel-dev.zowalk.cn
+        tls: zowalk.cn
+        mode: web+api
+        web: adaptive
+      - domain: kernel-dev.offer86.com
+        tls: offer86.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel-dev.offer86.cn
+        tls: offer86.cn
+        mode: web+api
+        web: adaptive
+      - domain: kernel-dev.86offer.com
+        tls: 86offer.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel-dev.86offer.cn
+        tls: 86offer.cn
+        mode: web+api
+        web: adaptive
     packages: []
     overrides:
       topology:
@@ -173,6 +269,38 @@ profiles:
         web: adaptive
       - domain: kernel.dtupay.cn
         tls: dtupay.cn
+        mode: web+api
+        web: adaptive
+      - domain: kernel.skubc.com
+        tls: skubc.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel.skubc.cn
+        tls: skubc.cn
+        mode: web+api
+        web: adaptive
+      - domain: kernel.zowalk.com
+        tls: zowalk.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel.zowalk.cn
+        tls: zowalk.cn
+        mode: web+api
+        web: adaptive
+      - domain: kernel.offer86.com
+        tls: offer86.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel.offer86.cn
+        tls: offer86.cn
+        mode: web+api
+        web: adaptive
+      - domain: kernel.86offer.com
+        tls: 86offer.com
+        mode: web+api
+        web: adaptive
+      - domain: kernel.86offer.cn
+        tls: 86offer.cn
         mode: web+api
         web: adaptive
     packages: []

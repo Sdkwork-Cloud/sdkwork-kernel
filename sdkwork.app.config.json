@@ -39,19 +39,78 @@
   "media": {
     "icons": {
       "primary": {
-        "id": "icon-primary",
+        "id": "sdkwork-kernel-primary-icon",
         "type": "ICON",
         "purpose": "PRIMARY",
-        "platform": "OTHER",
-        "format": "PNG",
+        "url": "https://cdn.sdkwork.com/apps/sdkwork-kernel/assets/icon-1024.png",
+        "platform": "APP",
+        "locale": "en-US",
         "width": 1024,
         "height": 1024,
-        "enabled": true
+        "format": "PNG",
+        "fileSizeBytes": 524288,
+        "alphaChannel": false,
+        "sortOrder": 0,
+        "enabled": true,
+        "metadata": {
+          "generatedPlaceholder": true
+        }
       },
-      "platform": []
+      "platform": [],
+      "metadata": {
+        "generatedPlaceholder": true
+      }
     },
-    "screenshots": [],
-    "previews": []
+    "screenshots": [
+      {
+        "id": "sdkwork-kernel-web-screenshot",
+        "type": "SCREENSHOT",
+        "purpose": "CATALOG_SCREENSHOT",
+        "url": "https://cdn.sdkwork.com/apps/sdkwork-kernel/media/web-screenshot.png",
+        "platform": "WEB",
+        "locale": "en-US",
+        "deviceClass": "BROWSER",
+        "displayType": "WEB_DESKTOP",
+        "width": 1920,
+        "height": 1080,
+        "format": "PNG",
+        "fileSizeBytes": 1048576,
+        "alphaChannel": false,
+        "caption": "SDKWork Kernel product screenshot.",
+        "sortOrder": 0,
+        "enabled": true,
+        "metadata": {
+          "generatedPlaceholder": true,
+          "altText": "SDKWork Kernel app screenshot."
+        }
+      }
+    ],
+    "previews": [
+      {
+        "id": "sdkwork-kernel-catalog-preview",
+        "type": "PREVIEW_IMAGE",
+        "purpose": "CATALOG_PREVIEW",
+        "url": "https://cdn.sdkwork.com/apps/sdkwork-kernel/media/preview-cover.png",
+        "platform": "WEB",
+        "locale": "en-US",
+        "width": 1600,
+        "height": 900,
+        "format": "PNG",
+        "fileSizeBytes": 786432,
+        "alphaChannel": false,
+        "caption": "SDKWork Kernel preview.",
+        "sortOrder": 0,
+        "enabled": true,
+        "metadata": {
+          "generatedPlaceholder": true,
+          "altText": "SDKWork Kernel preview cover."
+        }
+      }
+    ],
+    "metadata": {
+      "assetVersion": "0.1.0",
+      "defaultLocale": "en-US"
+    }
   },
   "publish": {
     "status": "BETA",
@@ -62,10 +121,19 @@
     "installPlatforms": [
       "API"
     ],
-    "installSkill": false
+    "installSkill": {
+      "name": "sdkwork-skills-app"
+    },
+    "defaultPackageId": "linux-x64-cloud-server-tar-gz",
+    "stores": [],
+    "storeUrl": "https://sdkwork.com/apps/sdkwork-kernel"
   },
   "artifacts": {
     "installConfig": {
+      "defaultPackageId": "linux-x64-cloud-server-tar-gz",
+      "installCommand": "sdkwork install sdkwork-kernel",
+      "launchCommand": "sdkwork open sdkwork-kernel",
+      "uninstallCommand": "sdkwork uninstall sdkwork-kernel",
       "packages": [
         {
           "id": "linux-x64-cloud-server-tar-gz",
@@ -76,7 +144,11 @@
           "architecture": "x64",
           "deploymentProfile": "cloud",
           "runtimeTarget": "server",
-          "enabled": true
+          "enabled": true,
+          "profileBinding": "fixed",
+          "url": "https://cdn.sdkwork.com/apps/sdkwork-kernel/STABLE/0.1.0/linux-x64-cloud-server-tar-gz-0.1.0.tar.gz",
+          "checksumAlgorithm": "SHA-256",
+          "checksum": "c91b0fea9061001a0e3d2dca2c5b20bcfd8fcdfae58042f1567ed284971dc39b"
         },
         {
           "id": "windows-x64-cloud-server-zip",
@@ -87,7 +159,27 @@
           "architecture": "x64",
           "deploymentProfile": "cloud",
           "runtimeTarget": "server",
-          "enabled": true
+          "enabled": true,
+          "profileBinding": "fixed",
+          "url": "https://cdn.sdkwork.com/apps/sdkwork-kernel/STABLE/0.1.0/windows-x64-cloud-server-zip-0.1.0.zip",
+          "checksumAlgorithm": "SHA-256",
+          "checksum": "5db2ed44c57d746bb01eca698a26235c7dce067b603777483f474387a7f3685b"
+        },
+        {
+          "id": "linux-x64-standalone-server-tar-gz",
+          "name": "Sdkwork Kernel standalone server archive",
+          "sourceType": "BINARY_URL",
+          "packageFormat": "TAR_GZ",
+          "platform": "API",
+          "url": "https://cdn.sdkwork.com/apps/sdkwork-kernel/STABLE/0.1.0/linux-x64-standalone-server-tar-gz-0.1.0.tar.gz",
+          "architecture": "x64",
+          "checksumAlgorithm": "SHA-256",
+          "checksum": "050036dd41b3cd12c942308fe8e396a63d191b6bc562d8c8803db1c79272bfcf",
+          "deploymentProfile": "standalone",
+          "runtimeTarget": "server",
+          "profileBinding": "fixed",
+          "enabled": true,
+          "metadata": {}
         }
       ]
     }
@@ -100,14 +192,28 @@
     "notes": [
       {
         "version": "0.1.0",
-        "channel": "STABLE",
-        "current": true,
+        "releaseChannel": "STABLE",
+        "title": "SDKWork Kernel 0.1.0",
+        "summary": "SDKWork Kernel initialized standard release.",
+        "content": "Initial SDKWork App Standard v3 manifest for SDKWork Kernel.",
+        "highlights": [
+          "SDKWork App Standard v3 configuration initialized",
+          "platform_app projection metadata standardized",
+          "Download package matrix normalized"
+        ],
         "packageIds": [
           "linux-x64-cloud-server-tar-gz",
-          "windows-x64-cloud-server-zip"
-        ]
+          "windows-x64-cloud-server-zip",
+          "linux-x64-standalone-server-tar-gz"
+        ],
+        "publishedAt": "2026-05-07T00:00:00Z",
+        "current": true,
+        "forceUpdate": false,
+        "minSupportedVersion": "0.1.0",
+        "metadata": {}
       }
-    ]
+    ],
+    "defaultChannel": "STABLE"
   },
   "security": {
     "checksumRequired": true,
@@ -116,7 +222,8 @@
   },
   "metadata": {
     "topologySpec": "specs/topology.spec.json",
-    "workflowManifest": "sdkwork.workflow.json"
-  },
-  "sdkDependencies": []
+    "workflowManifest": "sdkwork.workflow.json",
+    "deploymentConfig": "etc/sdkwork.deployment.config.json",
+    "standardOwner": "sdkwork-platform"
+  }
 }

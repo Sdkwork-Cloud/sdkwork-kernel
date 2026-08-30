@@ -13,7 +13,6 @@ async-trait.workspace = true
 codex-app-server-client.workspace = true
 codex-app-server-protocol.workspace = true
 sdkwork-agent-kernel.workspace = true
-sdkwork-agent-plugin-core.workspace = true
 sdkwork-agent-provider-core.workspace = true
 sdkwork-agent-provider-spi.workspace = true
 sdkwork-agent-provider-transport-core.workspace = true

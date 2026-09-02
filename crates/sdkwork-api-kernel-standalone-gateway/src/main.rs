@@ -5,7 +5,7 @@ use sdkwork_agent_server::{
     persistence::PersistenceState,
 };
 use sdkwork_api_kernel_assembly as api_assembly;
-use sdkwork_web_bootstrap::{service_router, ServiceRouterConfig};
+use sdkwork_web_bootstrap::{ApiModuleRegistry, service_router, ServiceRouterConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -18,7 +18,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .await
             .map_err(|error| format!("agent runtime bootstrap failed: {error}"))?,
     );
-    let assembly = api_assembly::assemble_api_router(runtime_state);
+    let mut module_registry = ApiModuleRegistry::new();
+    module_registry.add_module(api_assembly::assemble_api_router(runtime_state));
+    let assembly = module_registry.try_compose("SDKWork Kernel API")?;
     let app = service_router(
         assembly.router,
         ServiceRouterConfig::default().with_always_ready(),

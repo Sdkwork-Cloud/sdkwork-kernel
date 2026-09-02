@@ -5,7 +5,7 @@
 mod bootstrap;
 mod generated;
 
-pub use bootstrap::{assemble_api_router, ApiAssembly, ApiAssemblyContribution};
+pub use bootstrap::{assemble_api_router, ApiAssembly, ApiAssemblyContribution, web_module, web_module_with_state};
 
 pub fn assembly_route_count() -> usize {
     generated::ROUTE_CRATE_COUNT

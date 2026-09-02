@@ -10796,6 +10796,7 @@ dependencies = [
  "sdkwork-agent-server",
  "sdkwork-routes-agent-internal-api",
  "sdkwork-web-bootstrap",
+ "sdkwork-web-core",
  "tokio",
 ]
 

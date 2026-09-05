@@ -86,6 +86,8 @@
   "cloudPublicHosts": {
     "application.public-ingress": {
       "httpHost": "kernel.sdkwork.com",
+      "websocketHost": "api.sdkwork.com",
+      "websocketNote": "cloud realtime WebSocket rides the platform.api-gateway edge (same SDK base domain), not the application web ingress edge",
       "environments": {
         "development": {
           "httpHosts": [

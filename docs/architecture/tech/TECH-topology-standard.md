@@ -65,5 +65,5 @@ Implementation: `sdkwork-agent-server/src/runtime_bootstrap.rs`. As-built archit
 | Surface | Production URL |
 | --- | --- |
 | Application HTTP | `https://kernel.sdkwork.com` |
-| Application WebSocket | `wss://kernel.sdkwork.com` |
+| Application WebSocket | `wss://api.sdkwork.com` (platform api edge — same SDK base domain; the kernel-* web ingress edge does not terminate WebSocket upgrades) |
 | Platform gateway | `https://api.sdkwork.com` |

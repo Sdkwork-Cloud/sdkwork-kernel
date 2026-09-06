@@ -89,7 +89,7 @@ fn host_provider_trait_supports_deterministic_fake_host() {
         path_policy: HostPathPolicy::new(vec!["workspace".to_string()]),
     };
 
-    assert_eq!(provider.health().status, "available");
+    assert_eq!(provider.health().status.as_str(), "available");
     assert_eq!(provider.provider_manifest().provider_family, "host");
 
     let read = provider

@@ -448,7 +448,8 @@ fn runtime_registry_invokes_typed_core_spi_providers() {
             .lock()
             .expect("telemetry provider lock is available")
             .health()
-            .status,
+            .status
+            .as_str(),
         "available"
     );
     let telemetry_manifest = report

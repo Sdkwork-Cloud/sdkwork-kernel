@@ -46,7 +46,7 @@ fn tool_provider_trait_supports_deterministic_fake_provider() {
     let provider = FakeToolProvider;
     let tools = provider.list_tools();
 
-    assert_eq!(provider.health().status, "available");
+    assert_eq!(provider.health().status.as_str(), "available");
     assert_eq!(tools[0].tool_id, "tool.echo");
 
     let result = provider

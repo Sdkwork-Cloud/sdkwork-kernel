@@ -166,20 +166,24 @@ macro_rules! provider_capabilities {
 /// use sdkwork_agent_kernel::provider_health;
 ///
 /// let health = provider_health!("available");
-/// assert_eq!(health.status, "available");
+/// assert_eq!(health.status.as_str(), "available");
 ///
 /// let degraded = provider_health!("degraded");
-/// assert_eq!(degraded.status, "degraded");
+/// assert_eq!(degraded.status.as_str(), "degraded");
 /// ```
 #[macro_export]
 macro_rules! provider_health {
     ("available") => {
         $crate::ProviderHealth::available()
     };
+    ("degraded") => {
+        $crate::ProviderHealth::degraded("degraded")
+    };
+    ("unavailable") => {
+        $crate::ProviderHealth::unavailable("unavailable")
+    };
     ($status:expr) => {
-        $crate::ProviderHealth {
-            status: $status.to_string(),
-        }
+        $crate::ProviderHealth::degraded($status)
     };
 }
 
@@ -450,9 +454,9 @@ mod tests {
     #[test]
     fn provider_health_macro() {
         let health = provider_health!("available");
-        assert_eq!(health.status, "available");
+        assert_eq!(health.status.as_str(), "available");
 
         let health = provider_health!("degraded");
-        assert_eq!(health.status, "degraded");
+        assert_eq!(health.status.as_str(), "degraded");
     }
 }

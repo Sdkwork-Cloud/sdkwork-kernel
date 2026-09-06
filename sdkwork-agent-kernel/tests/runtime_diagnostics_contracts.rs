@@ -143,9 +143,7 @@ fn runtime_diagnostics_report_typed_manifest_only_health_and_missing_standard_fa
     assert!(model.typed_registered);
     assert_eq!(
         model.health,
-        Some(ProviderHealth {
-            status: "degraded".to_string()
-        })
+        Some(ProviderHealth::degraded("degraded"))
     );
     assert!(model.health_is_degraded());
     assert_eq!(model.capabilities, ["model.chat"]);
@@ -232,9 +230,7 @@ fn runtime_diagnostics_reads_health_from_policy_context_memory_and_planning_prov
             .unwrap_or_else(|| panic!("missing provider diagnostic: {provider_id}"));
         assert_eq!(
             provider.health,
-            Some(ProviderHealth {
-                status: "degraded".to_string()
-            })
+            Some(ProviderHealth::degraded("degraded"))
         );
         assert!(provider.health_is_degraded());
     }
@@ -280,9 +276,7 @@ impl ModelProvider for DegradedModelProvider {
     }
 
     fn health(&self) -> ProviderHealth {
-        ProviderHealth {
-            status: "degraded".to_string(),
-        }
+        ProviderHealth::degraded("degraded")
     }
 
     fn invoke(&self, request: ModelRequest) -> KernelResult<ModelResponse> {
@@ -332,9 +326,7 @@ impl PolicyProvider for DegradedPolicyProvider {
     }
 
     fn health(&self) -> ProviderHealth {
-        ProviderHealth {
-            status: "degraded".to_string(),
-        }
+        ProviderHealth::degraded("degraded")
     }
 }
 
@@ -353,9 +345,7 @@ impl ContextProvider for DegradedContextProvider {
     }
 
     fn health(&self) -> ProviderHealth {
-        ProviderHealth {
-            status: "degraded".to_string(),
-        }
+        ProviderHealth::degraded("degraded")
     }
 }
 
@@ -386,9 +376,7 @@ impl MemoryProvider for DegradedMemoryProvider {
     }
 
     fn health(&self) -> ProviderHealth {
-        ProviderHealth {
-            status: "degraded".to_string(),
-        }
+        ProviderHealth::degraded("degraded")
     }
 }
 
@@ -423,9 +411,7 @@ impl KnowledgeProvider for DegradedKnowledgeProvider {
     }
 
     fn health(&self) -> ProviderHealth {
-        ProviderHealth {
-            status: "degraded".to_string(),
-        }
+        ProviderHealth::degraded("degraded")
     }
 }
 
@@ -437,8 +423,6 @@ impl PlanningProvider for DegradedPlanningProvider {
     }
 
     fn health(&self) -> ProviderHealth {
-        ProviderHealth {
-            status: "degraded".to_string(),
-        }
+        ProviderHealth::degraded("degraded")
     }
 }

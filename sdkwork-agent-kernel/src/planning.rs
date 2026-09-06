@@ -205,5 +205,161 @@ pub trait PlanningProvider {
         Ok(plan.revise_as(new_plan_id, new_summary))
     }
 
+    /// Abandon a plan (mark as cancelled and clean up resources)
+    fn abandon_plan(&self, _plan_id: &str) -> KernelResult<()> {
+        Err(KernelError::validation(
+            "abandon_plan not implemented by this provider",
+        ))
+    }
+
+    /// Get a specific plan by ID
+    fn get_plan(&self, _plan_id: &str) -> KernelResult<Plan> {
+        Err(KernelError::validation(
+            "get_plan not implemented by this provider",
+        ))
+    }
+
+    /// List all plans for a given task
+    fn list_plans(&self, _task_id: &str) -> KernelResult<Vec<Plan>> {
+        Err(KernelError::validation(
+            "list_plans not implemented by this provider",
+        ))
+    }
+
+    /// Visualize a plan as a structured representation (e.g., DAG, tree, flowchart)
+    fn visualize_plan(&self, _plan_id: &str) -> KernelResult<PlanVisualization> {
+        Err(KernelError::validation(
+            "visualize_plan not implemented by this provider",
+        ))
+    }
+
     fn health(&self) -> ProviderHealth;
+}
+
+/// Plan visualization structure
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanVisualization {
+    pub plan_id: String,
+    pub format: VisualizationFormat,
+    pub nodes: Vec<VisualizationNode>,
+    pub edges: Vec<VisualizationEdge>,
+    pub metadata: std::collections::HashMap<String, String>,
+}
+
+/// Visualization format types
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VisualizationFormat {
+    /// Directed Acyclic Graph (DAG)
+    Dag,
+    /// Tree structure
+    Tree,
+    /// Flowchart
+    Flowchart,
+    /// Timeline/Gantt chart
+    Timeline,
+    /// JSON/structured data
+    Json,
+}
+
+/// Visualization node representing an action
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VisualizationNode {
+    pub node_id: String,
+    pub action_id: String,
+    pub label: String,
+    pub status: ActionStatus,
+    pub kind: ActionKind,
+    pub position: Option<(u32, u32)>,
+}
+
+/// Visualization edge representing dependency
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VisualizationEdge {
+    pub from_node_id: String,
+    pub to_node_id: String,
+    pub label: Option<String>,
+    pub edge_type: EdgeType,
+}
+
+/// Edge type for visualization
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EdgeType {
+    /// Sequential dependency
+    Sequential,
+    /// Parallel branch
+    Parallel,
+    /// Conditional branch
+    Conditional,
+    /// Error handling path
+    ErrorHandling,
+}
+
+impl PlanVisualization {
+    /// Create a new visualization for a plan
+    pub fn new(plan_id: impl Into<String>, format: VisualizationFormat) -> Self {
+        Self {
+            plan_id: plan_id.into(),
+            format,
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            metadata: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Add a node to the visualization
+    pub fn add_node(mut self, node: VisualizationNode) -> Self {
+        self.nodes.push(node);
+        self
+    }
+
+    /// Add an edge to the visualization
+    pub fn add_edge(mut self, edge: VisualizationEdge) -> Self {
+        self.edges.push(edge);
+        self
+    }
+
+    /// Add metadata
+    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.insert(key.into(), value.into());
+        self
+    }
+
+    /// Generate a default DAG visualization from a plan
+    pub fn from_plan(plan: &Plan) -> Self {
+        let mut viz = Self::new(&plan.plan_id, VisualizationFormat::Dag);
+
+        // Add nodes for each action
+        for (idx, action) in plan.actions.iter().enumerate() {
+            viz = viz.add_node(VisualizationNode {
+                node_id: format!("node_{}", idx),
+                action_id: action.action_id.clone(),
+                label: action.description.clone(),
+                status: action.status,
+                kind: action.kind,
+                position: Some((idx as u32, 0)),
+            });
+        }
+
+        // Add edges for dependencies
+        for (idx, action) in plan.actions.iter().enumerate() {
+            for dep_id in &action.depends_on {
+                // Find the dependency action index
+                if let Some(dep_idx) = plan.actions.iter().position(|a| &a.action_id == dep_id) {
+                    viz = viz.add_edge(VisualizationEdge {
+                        from_node_id: format!("node_{}", dep_idx),
+                        to_node_id: format!("node_{}", idx),
+                        label: None,
+                        edge_type: EdgeType::Sequential,
+                    });
+                }
+            }
+        }
+
+        viz = viz
+            .with_metadata("plan_revision", plan.revision.to_string())
+            .with_metadata("task_id", plan.task_id.clone())
+            .with_metadata("run_id", plan.run_id.clone());
+
+        viz
+    }
 }
